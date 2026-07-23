@@ -168,6 +168,37 @@ If an executor crashes while a job is PENDING, other waiters detect this via Red
 
 Stale jobs are marked FAILED and the normal replacement flow kicks in. This means we can recover from crashes of the process we were waiting for.
 
+## Stale-while-revalidate
+
+The executor's default behavior is "compute inline": a request that finds an expired window rebuilds it synchronously (Postgres bookkeeping, Redis coordination, a ClickHouse INSERT) before reading — which puts multi-second rebuilds on the user's request thread the moment a TTL lapses. Stale-while-revalidate (RFC 5861) trades that for freshness lag: serve the complete-but-stale rows that already exist, and refresh them in the background.
+
+The mechanism is split into a framework half and a product half.
+
+### The serve half (framework)
+
+`LazyComputationExecutor(stale_while_revalidate_seconds=...)` — also exposed as the same kwarg on `ensure_precomputed` — is the grace window. When a request would otherwise compute inline or block on another executor's PENDING job, and READY jobs that expired **within the last N seconds** still fully cover the range, the executor returns them immediately with `stale=True` on the result. Nothing is recomputed; whoever refreshes next (the revalidation task, a warmer, or a request after the grace) replaces the data, and `filter_overlapping_jobs` always prefers the newer jobs.
+
+Two invariants:
+
+- The grace must stay **well under `EXPIRY_BUFFER_SECONDS` (48h)** — ClickHouse rows outlive their PG job by that buffer, so a larger grace would return job IDs whose rows were already TTL-deleted. The constructor enforces this.
+- Coverage is checked on the overlap-filtered job set that would actually be returned, not the raw set — a newer narrow job can evict an older broad one and reopen a gap.
+
+`run_inserts=False` (check-only mode) is the stricter sibling for user-facing reads: the request is either served from covering READY jobs (fresh, or stale within the grace) or told `ready=False` immediately. It never creates jobs, never runs INSERTs, and never waits on someone else's PENDING job — the caller falls back to its live query and leaves construction to background triggers.
+
+### The revalidate half (products)
+
+Serving stale is only safe when something actually refreshes the data afterwards, and that part is product-owned. Each product wires three things:
+
+1. **Grace resolution** — `stale_policy.resolve_stale_while_revalidate_seconds(grace, own_triggers)` hands the grace to user-facing reads and `None` to anything that _is_ a refresh mechanism. This rule is deliberately centralized: a background refresher that gets served its own stale rows persists them as a fresh result and never recomputes — the data freezes rather than merely lagging. Refreshers are recognized by the `CACHE_WARMUP` feature tag (the product-agnostic gate) plus the product's own warming trigger names.
+2. **Marking** — when an ensure returns `stale=True`, the read path calls `stale_policy.mark_served_stale()`. That tags the read's ClickHouse queries (`precompute_stale` in `system.query_log`) and feeds the response stamp below. A lazy read that fails _after_ marking (e.g. the compare period misses and the whole read falls back to live) must call `clear_served_stale()` so the fresh fallback isn't mislabeled.
+3. **Revalidation** — a stale serve enqueues a debounced background re-run of the query (a Celery task tagged with the product's own revalidation trigger, so it never takes the grace itself), replacing both the precompute jobs and the query-result cache entry. The framework's PENDING-job unique index collapses concurrent recomputes to one INSERT.
+
+Web analytics (`web_lazy_precompute_common.py`, trigger `webAnalyticsStaleRevalidation`) and marketing analytics (`marketing_lazy_precompute.py`, trigger `marketingAnalyticsStaleRevalidation`, gated by the `marketing-analytics-serve-stale` flag) are the two existing incarnations — read them before wiring a third.
+
+### Telling the requester
+
+A stale-served response is correct but old, and a fresh version is already being computed — the requester should be able to know that. Runners stamp `preComputeStale=True` on responses built from a stale-served read (`stale_policy.was_served_stale()`), alongside the existing `preComputeStrategy` field. Clients can treat it as "data is stale; a background revalidation is in flight; refetching shortly will return fresh data". Served-fresh responses omit the field entirely.
+
 ## Observability
 
 Each invocation of the executor emits both a structured log and Prometheus counters. The executor-level counter answers "is the caller getting served"; the job-level counters answer "are PG jobs flowing as fast as we're creating them".
@@ -178,11 +209,16 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 `lazy_computation_executions_total` is incremented once per `executor.execute()` call, with labels:
 
-| label         | values                                                              |
-| ------------- | ------------------------------------------------------------------- |
-| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
-| `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
-| `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
+| label         | values                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded`, `stale_hit`, `check_miss` |
+| `cache_state` | `hit`, `partial_hit`, `miss` — see below                                                       |
+| `table`       | the lazy table being populated (e.g. `preaggregation_results`)                                 |
+
+The serve-stale outcomes (see § Stale-while-revalidate):
+
+- `stale_hit` — the request was served from expired-within-grace READY jobs instead of recomputing (`result.stale=True`). Always `cache_state="hit"` — serving existing rows is doing no new work.
+- `check_miss` — check-only mode (`run_inserts=False`) found no servable coverage and told the caller to go live. `cache_state` records whether any fresh READY data existed (`partial_hit`) or none did (`miss`).
 
 #### Job-level
 

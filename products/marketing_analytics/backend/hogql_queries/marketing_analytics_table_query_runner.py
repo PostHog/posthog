@@ -18,6 +18,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
+from products.analytics_platform.backend.lazy_computation.stale_policy import was_served_stale
+
 from .constants import (
     BASE_COLUMN_MAPPING,
     DEFAULT_LIMIT,
@@ -102,6 +104,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             limit=requested_limit,
             offset=self.query.offset or 0,
             error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            preComputeStale=was_served_stale() or None,
         )
 
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:

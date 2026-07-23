@@ -28,7 +28,6 @@ import structlog
 from prometheus_client import Counter
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -36,7 +35,10 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     ensure_precomputed,
 )
-from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
+from products.analytics_platform.backend.lazy_computation.stale_policy import (
+    mark_served_stale,
+    resolve_stale_while_revalidate_seconds,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -198,9 +200,9 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
 def handle_stale_served(*, team: Team, query: Any) -> None:
     """Everything the read path does once any of its ensures came back stale.
 
-    Counts it, tags the upcoming read so query_log can separate stale-served from fresh reads, and
-    enqueues the background revalidation.
+    Counts it, marks the request as served-stale (which tags the upcoming read for query_log and
+    stamps `preComputeStale` on the response), and enqueues the background revalidation.
     """
     MARKETING_PRECOMPUTE_STALE_SERVED.inc()
-    tag_queries(precompute_stale=True)
+    mark_served_stale()
     enqueue_stale_revalidation(team=team, query=query)

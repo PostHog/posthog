@@ -30,6 +30,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.analytics_platform.backend.lazy_computation.stale_policy import was_served_stale
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
@@ -329,6 +330,7 @@ def _build_response(
         timings=runner.timings.to_list() if runner.timings else None,
         modifiers=runner.modifiers,
         preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+        preComputeStale=was_served_stale() or None,
     )
 
 

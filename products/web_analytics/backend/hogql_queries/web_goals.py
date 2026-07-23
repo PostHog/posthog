@@ -15,6 +15,7 @@ from posthog.hogql.property import action_to_expr, get_property_type, property_t
 from posthog.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.stale_policy import clear_served_stale, was_served_stale
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
     can_use_lazy_precompute,
@@ -287,6 +288,8 @@ WHERE {periods_expression}
             return None
         result = execute_lazy_precomputed_read(self)
         if result is None:
+            # A failed read may have marked served-stale first — don't mislabel the fallback.
+            clear_served_stale()
             return None
         return self._build_response_from_lazy(result)
 
@@ -344,6 +347,7 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=was_served_stale() or None,
         )
 
     def event_properties(self) -> ast.Expr:

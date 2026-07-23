@@ -47,6 +47,7 @@ export function WebOverview(props: {
     const numSkeletons = props.query.conversionGoal ? 4 : 5
 
     const preComputeStrategy = webOverviewQueryResponse?.preComputeStrategy
+    const preComputeStale = webOverviewQueryResponse?.preComputeStale
 
     const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
 
@@ -75,6 +76,7 @@ export function WebOverview(props: {
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
                 preComputeStrategy={preComputeStrategy}
+                preComputeStale={preComputeStale}
                 onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
                 labelFromKey={labelFromKey}
             />
@@ -88,6 +90,7 @@ export function WebOverview(props: {
             numSkeletons={numSkeletons}
             samplingRate={samplingRate}
             preComputeStrategy={preComputeStrategy}
+            preComputeStale={preComputeStale}
             onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
             labelFromKey={labelFromKey}
         />

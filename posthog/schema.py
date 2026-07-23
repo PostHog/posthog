@@ -8095,6 +8095,15 @@ class WebGoalsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8196,6 +8205,15 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -8303,7 +8321,9 @@ class WebStatsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Whether a lazy-precompute read was served from expired-within-grace"
-            " (stale) jobs instead of recomputing inline."
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -11909,6 +11929,15 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -11972,6 +12001,15 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13991,6 +14029,15 @@ class CachedWebGoalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -14114,6 +14161,15 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -14243,7 +14299,9 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Whether a lazy-precompute read was served from expired-within-grace"
-            " (stale) jobs instead of recomputing inline."
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -14307,6 +14365,15 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -14755,6 +14822,15 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -14812,7 +14888,9 @@ class Response5(BaseModel):
         default=None,
         description=(
             "Whether a lazy-precompute read was served from expired-within-grace"
-            " (stale) jobs instead of recomputing inline."
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -14922,6 +15000,15 @@ class Response7(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -14972,6 +15059,15 @@ class Response8(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15419,6 +15515,15 @@ class Response18(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15468,6 +15573,15 @@ class Response19(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17966,6 +18080,15 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18031,6 +18154,15 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19022,6 +19154,15 @@ class QueryResponseAlternative23(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19079,7 +19220,9 @@ class QueryResponseAlternative24(BaseModel):
         default=None,
         description=(
             "Whether a lazy-precompute read was served from expired-within-grace"
-            " (stale) jobs instead of recomputing inline."
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -19189,6 +19332,15 @@ class QueryResponseAlternative26(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19239,6 +19391,15 @@ class QueryResponseAlternative27(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -19629,6 +19790,15 @@ class QueryResponseAlternative36(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19678,6 +19848,15 @@ class QueryResponseAlternative37(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19993,6 +20172,15 @@ class QueryResponseAlternative43(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20050,7 +20238,9 @@ class QueryResponseAlternative44(BaseModel):
         default=None,
         description=(
             "Whether a lazy-precompute read was served from expired-within-grace"
-            " (stale) jobs instead of recomputing inline."
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -20160,6 +20350,15 @@ class QueryResponseAlternative46(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20210,6 +20409,15 @@ class QueryResponseAlternative47(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -20657,6 +20865,15 @@ class QueryResponseAlternative57(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20706,6 +20923,15 @@ class QueryResponseAlternative58(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a precompute read was served from expired-within-grace (stale)"
+            " jobs instead of materializing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23892,6 +24118,15 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline. When true, a background"
+            " revalidation is refreshing the data — refetching shortly returns fresh"
+            " results."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,

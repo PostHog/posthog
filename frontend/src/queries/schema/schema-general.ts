@@ -2693,6 +2693,8 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -3074,7 +3076,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
-    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
     preComputeStale?: boolean
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
@@ -3113,6 +3115,8 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -3162,6 +3166,8 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -6414,6 +6420,8 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -6422,6 +6430,8 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** Whether a precompute read was served from expired-within-grace (stale) jobs instead of materializing inline. When true, a background revalidation is refreshing the data — refetching shortly returns fresh results. */
+    preComputeStale?: boolean
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =

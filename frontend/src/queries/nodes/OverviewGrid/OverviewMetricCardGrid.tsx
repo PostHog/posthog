@@ -26,6 +26,7 @@ interface OverviewMetricCardGridProps {
     numSkeletons: number
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    preComputeStale?: boolean
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }
@@ -36,6 +37,7 @@ export function OverviewMetricCardGrid({
     numSkeletons,
     samplingRate,
     preComputeStrategy,
+    preComputeStale,
     onDisablePrecompute,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
@@ -49,6 +51,7 @@ export function OverviewMetricCardGrid({
                               key={item.key}
                               item={item}
                               preComputeStrategy={preComputeStrategy}
+                              preComputeStale={preComputeStale}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                           />
@@ -62,11 +65,13 @@ export function OverviewMetricCardGrid({
 function MetricCardCell({
     item,
     preComputeStrategy,
+    preComputeStale,
     onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    preComputeStale?: boolean
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }): JSX.Element {
@@ -105,7 +110,12 @@ function MetricCardCell({
             aria-pressed={clickable ? !!item.selected : undefined}
         >
             {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
+                <PreAggregatedBadge
+                    variant="precomputed"
+                    position="bottom-right"
+                    onDisable={onDisablePrecompute}
+                    stale={preComputeStale}
+                />
             ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
                 <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
