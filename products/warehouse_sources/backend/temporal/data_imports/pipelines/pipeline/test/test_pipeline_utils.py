@@ -1299,6 +1299,7 @@ def test_append_partition_key_datetime_md5_composite():
     values = partitioned.column(PARTITION_KEY).to_pylist()
     expected_dates = ["2026-01-15", "2026-01-15", "2026-01-16", "2026-01-16", "2026-01-15"]
     for value, date in zip(values, expected_dates):
+        assert isinstance(value, str)
         prefix, _, sub = value.rpartition("_")
         assert prefix == date
         assert 0 <= int(sub) < 4
