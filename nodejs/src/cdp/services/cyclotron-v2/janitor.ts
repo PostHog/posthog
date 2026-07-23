@@ -34,7 +34,7 @@ const janitorStalledCounter = new Counter({
 
 const janitorPoisonedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_poisoned',
-    help: 'Number of poison pill jobs given up on (recorded as failed, replayable) by the janitor',
+    help: 'Number of poison pill jobs parked for retry by the janitor',
 })
 
 const janitorGiveUpSkippedCounter = new Counter({
@@ -143,7 +143,7 @@ export class CyclotronV2Janitor {
         // The legacy path (and the flag) can be deleted wholesale once we trust
         // recording in production.
         const poisonedIds = this.poisonRecoveryEnabled
-            ? await this.recordAndDeletePoisonPills()
+            ? await this.recordAndParkPoisonPills()
             : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
@@ -197,7 +197,7 @@ export class CyclotronV2Janitor {
      * mark poison pills `failed` (then `cleanupTerminalJobs` sweeps them like any
      * other failed job) with no recovery record. A give-up here is lost to replay,
      * exactly as before this change — that is what OFF means. Kept as a
-     * self-contained counterpart to `recordAndDeletePoisonPills` so this whole
+     * self-contained counterpart to `recordAndParkPoisonPills` so this whole
      * path, and the flag, can be deleted once recording is trusted in production.
      */
     private async failPoisonPills(): Promise<string[]> {
@@ -238,7 +238,7 @@ export class CyclotronV2Janitor {
      * original incident deleted these with no trace; here every give-up is
      * logged with its id and recorded for replay.
      */
-    private async recordAndDeletePoisonPills(): Promise<string[]> {
+    private async recordAndParkPoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
         const result = await this.pool.query<PoisonRow>(
@@ -259,67 +259,70 @@ export class CyclotronV2Janitor {
             return []
         }
 
-        if (!this.invocationResults) {
-            // No way to record a recovery row — keep the jobs rather than drop
-            // them silently. resetStalledJobs will retry them this cycle.
-            janitorGiveUpSkippedCounter.inc(result.rows.length)
-            logger.warn('CyclotronV2Janitor cannot record poison pill recovery (no results service), keeping jobs', {
-                count: result.rows.length,
-            })
-            return []
-        }
-
-        const recordedIds: string[] = []
-        let skipped = 0
-        for (const row of result.rows) {
-            const invocation = this.poisonRowToInvocation(row)
-            const ok = await this.invocationResults.recordTerminalFailureDurably(invocation, {
-                error: `poison pill: stalled and reset ${row.janitor_touch_count} times without completing`,
-                errorKind: JANITOR_POISON_PILL_ERROR_KIND,
-            })
-            if (ok) {
-                recordedIds.push(row.id)
-            } else {
-                skipped++
+        // Best-effort: record each give-up to ClickHouse for operator visibility
+        // (the Invocations UI is CH-backed). Parking below is the durable recovery —
+        // the real row persists in Postgres regardless — so a failed record must NOT
+        // block it. A missing record only means the pill is less visible in the UI,
+        // not lost.
+        if (this.invocationResults) {
+            let skipped = 0
+            for (const row of result.rows) {
+                const invocation = this.poisonRowToInvocation(row)
+                const ok = await this.invocationResults.recordTerminalFailureDurably(invocation, {
+                    error: `poison pill: stalled and reset ${row.janitor_touch_count} times without completing`,
+                    errorKind: JANITOR_POISON_PILL_ERROR_KIND,
+                })
+                if (!ok) {
+                    skipped++
+                }
+            }
+            if (skipped > 0) {
+                janitorGiveUpSkippedCounter.inc(skipped)
+                logger.warn('CyclotronV2Janitor could not record some poison pills to ClickHouse (still parked)', {
+                    count: skipped,
+                })
             }
         }
 
-        if (skipped > 0) {
-            janitorGiveUpSkippedCounter.inc(skipped)
-            logger.warn('CyclotronV2Janitor kept poison pills it could not durably record', { count: skipped })
-        }
-
-        if (recordedIds.length === 0) {
-            return []
-        }
-
-        // Re-assert the FULL poison predicate (not just status='running') in the
-        // DELETE. Between the SELECT and here a row could have been reset to
-        // 'available' and re-dequeued by a worker — that re-dequeue stamps a
-        // fresh heartbeat, so the stale-heartbeat / touch-count guard no longer
-        // matches and we won't delete an actively-running job. RETURNING gives
-        // the rows actually removed, so the metric/log reflect real give-ups
-        // even if a concurrent janitor or worker raced us to some of them.
-        const deleted = await this.pool.query<{ id: string }>(
-            `DELETE FROM cyclotron_jobs
+        // PARK the poison pills in place instead of deleting them: keep the real row,
+        // push `scheduled` to infinity so no worker dequeues it, clear the lock and
+        // reset the stall budget, and stamp poison_retry_count (keeping any existing
+        // count on a re-poison). The autodrain later releases these back to their
+        // queue by moving `scheduled` to now. Retrying the real row — rather than
+        // deleting and rebuilding from ClickHouse — means the retry decision lives in
+        // strongly-consistent Postgres (no ClickHouse-lag duplicate) and the job keeps
+        // its true kind/queue (no reconstruct-as-hog_flow mislabel).
+        //
+        // Re-assert the FULL poison predicate: between the SELECT and here a row could
+        // have been reset to 'available' and re-dequeued by a worker (fresh heartbeat),
+        // so the stale-heartbeat / touch-count guard no longer matches and we leave the
+        // actively-running job alone. RETURNING reflects the rows actually parked.
+        const candidateIds = result.rows.map((r) => r.id)
+        const parked = await this.pool.query<{ id: string }>(
+            `UPDATE cyclotron_jobs
+             SET status = 'available',
+                 scheduled = 'infinity',
+                 lock_id = NULL,
+                 janitor_touch_count = 0,
+                 poison_retry_count = COALESCE(poison_retry_count, 0)
              WHERE id = ANY($1::uuid[])
                AND status = 'running'
                AND COALESCE(last_heartbeat, $2) <= $2
                AND janitor_touch_count >= $3
              RETURNING id`,
-            [recordedIds, heartbeatCutoff, this.maxTouchCount]
+            [candidateIds, heartbeatCutoff, this.maxTouchCount]
         )
-        const deletedIds = deleted.rows.map((r) => r.id)
+        const parkedIds = parked.rows.map((r) => r.id)
 
-        if (deletedIds.length > 0) {
-            janitorPoisonedCounter.inc(deletedIds.length)
-            logger.warn('CyclotronV2Janitor gave up on poison pill jobs (recorded as failed, replayable)', {
-                count: deletedIds.length,
-                ids: deletedIds,
+        if (parkedIds.length > 0) {
+            janitorPoisonedCounter.inc(parkedIds.length)
+            logger.warn('CyclotronV2Janitor parked poison pill jobs for retry', {
+                count: parkedIds.length,
+                ids: parkedIds,
             })
         }
 
-        return deletedIds
+        return parkedIds
     }
 
     // Turn a raw poisoned row into a hog flow invocation the results service can

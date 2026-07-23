@@ -105,6 +105,14 @@ async function queryJob(id: string): Promise<RawJobRow> {
     return res.rows[0]
 }
 
+async function readPoison(id: string): Promise<{ status: string; parked: boolean; count: number | null } | null> {
+    const res = await assertPool.query<{ status: string; parked: boolean; count: number | null }>(
+        `SELECT status::text, scheduled = 'infinity' AS parked, poison_retry_count AS count FROM cyclotron_jobs WHERE id = $1`,
+        [id]
+    )
+    return res.rows[0] ?? null
+}
+
 async function countByStatus(status: string): Promise<number> {
     const res = await assertPool.query('SELECT COUNT(*)::int AS c FROM cyclotron_jobs WHERE status = $1', [status])
     return res.rows[0].c
@@ -1956,7 +1964,7 @@ describe('Cyclotron V2', () => {
             expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(before)
         })
 
-        it('records a poison pill as a failed result and deletes it once recorded', async () => {
+        it('records a poison pill as a failed result and parks it for retry', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -1981,11 +1989,13 @@ describe('Cyclotron V2', () => {
                 expect.objectContaining({ id: jobId }),
                 expect.objectContaining({ errorKind: JANITOR_POISON_PILL_ERROR_KIND })
             )
-            // ...then the cyclotron row is gone (no silent delete, no leftover).
-            expect(await totalJobCount()).toBe(0)
+            // ...then the row is PARKED for retry (kept, not deleted): still present,
+            // available, scheduled far out, retry counter initialised.
+            expect(await totalJobCount()).toBe(1)
+            expect(await readPoison(jobId)).toEqual({ status: 'available', parked: true, count: 0 })
         })
 
-        it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
+        it('parks a poison pill even when the ClickHouse record cannot be produced', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -1996,19 +2006,19 @@ describe('Cyclotron V2', () => {
                 janitor_touch_count: 3,
             })
 
-            // produce fails → never delete, so the job is never silently dropped.
+            // produce fails → still parks: the record is best-effort, the durable recovery
             const { service } = createMockResults(false)
             const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
             const result = await janitor.runOnce()
             await janitor.stop()
 
-            expect(result.poisoned).toBe(0)
+            // is the parked Postgres row itself, so a missing CH record must not block it.
+            expect(result.poisoned).toBe(1)
             expect(await totalJobCount()).toBe(1)
-            // It is still reset to available so a recovered worker retries it.
-            expect((await queryJob(jobId)).status).toBe('available')
+            expect(await readPoison(jobId)).toEqual({ status: 'available', parked: true, count: 0 })
         })
 
-        it('keeps poison pills (never deletes) when no results service is wired', async () => {
+        it('parks poison pills even when no results service is wired', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -2023,8 +2033,9 @@ describe('Cyclotron V2', () => {
             const result = await janitor.runOnce()
             await janitor.stop()
 
-            expect(result.poisoned).toBe(0)
+            expect(result.poisoned).toBe(1)
             expect(await totalJobCount()).toBe(1)
+            expect(await readPoison(jobId)).toEqual({ status: 'available', parked: true, count: 0 })
         })
 
         it('marks poison pills failed (legacy behavior, no record) when recovery is disabled (kill-switch)', async () => {
@@ -2084,8 +2095,8 @@ describe('Cyclotron V2', () => {
             expect(result.poisoned).toBe(1)
             expect(result.stalled).toBe(1)
 
-            // Poison pill recorded + deleted; the merely-stalled job survives, reset.
-            await expect(queryJob(poisonId)).rejects.toThrow()
+            // Poison pill parked for retry; the merely-stalled job survives, reset.
+            expect(await readPoison(poisonId)).toEqual({ status: 'available', parked: true, count: 0 })
             const stalled = await queryJob(stalledId)
             expect(stalled.status).toBe('available')
         })
@@ -2126,7 +2137,7 @@ describe('Cyclotron V2', () => {
 
                 expect(result.poisonedIds).toEqual([id])
                 // The row was actually built + produced — where the invalid-date
-                // RangeError used to throw and leave the job undeleted.
+                // RangeError used to throw and leave the job unparked.
                 expect(produce).toHaveBeenCalledTimes(1)
                 const row = parseProducedResult(produce)
                 expect(row.status).toBe('failed')
@@ -2136,8 +2147,8 @@ describe('Cyclotron V2', () => {
                 // Timestamps must be real ISO microsecond strings, never NaN/"Invalid".
                 expect(row.scheduled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
                 expect(row.finished_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
-                // Recorded first, then deleted.
-                await expect(queryJob(id)).rejects.toThrow()
+                // Recorded to ClickHouse (best-effort), then parked for retry.
+                expect(await readPoison(id)).toEqual({ status: 'available', parked: true, count: 0 })
             }
         )
 

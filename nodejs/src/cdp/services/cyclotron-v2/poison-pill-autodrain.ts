@@ -1,69 +1,51 @@
-import { ClickHouseClient } from '@clickhouse/client'
+import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 
-import { toClickhouseDateTime } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 
-import { RerunJobManager } from '../../rerun/rerun-job.manager'
-import { RerunFunctionKind } from '../../rerun/rerun-job.types'
-import { JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-
-const autodrainGroupsCounter = new Counter({
-    name: 'cdp_cyclotron_v2_autodrain_groups_total',
-    help: 'Poison-pill groups discovered by the autodrain service',
-})
-
-const autodrainEnqueuedCounter = new Counter({
-    name: 'cdp_cyclotron_v2_autodrain_enqueued_total',
-    help: 'Rerun wrapper jobs enqueued by the autodrain service to drain recorded poison pills',
+const autodrainReleasedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_autodrain_released_total',
+    help: 'Parked poison-pill jobs released back to their queue for another attempt',
 })
 
 const autodrainErrorsCounter = new Counter({
     name: 'cdp_cyclotron_v2_autodrain_errors_total',
-    help: 'Groups the autodrain service failed to enqueue a rerun for',
-})
-
-const autodrainSkippedInFlightCounter = new Counter({
-    name: 'cdp_cyclotron_v2_autodrain_skipped_in_flight_total',
-    help: 'Groups skipped because a non-terminal rerun wrapper was already outstanding',
+    help: 'Autodrain release ticks that failed',
 })
 
 export interface CyclotronPoisonPillAutodrainConfig {
     intervalMs: number
-    windowHours: number
+    // A parked poison pill is released at most this many times before it is left
+    // parked for good (dead-lettered). Mirrors the old CH-discovery attempts cap.
     maxAttempts: number
-    groupBatch: number
-    maxCountPerGroup: number
+    // Max parked jobs released per tick, so one tick can't flood the queues.
+    batchSize: number
 }
 
 export interface AutodrainRunResult {
-    groups: number
-    enqueued: number
-}
-
-// count()/team_id come back from ClickHouse JSONEachRow as strings (64-bit
-// integers are quoted by default), so parse them where we need numbers.
-interface DiscoveredGroupRow {
-    team_id: string | number
-    function_kind: string
-    function_id: string
-    pending: string | number
+    released: number
 }
 
 /**
- * Periodically drains recorded cyclotron poison pills. The janitor records a
- * poison-pill give-up as a `failed` invocation result with
- * `error_kind='janitor_poison_pill'` and then deletes the cyclotron row — durable
- * and recoverable, but recovery was a manual operator rerun. This service does
- * that rerun automatically: it discovers groups with pending poison pills in
- * ClickHouse and enqueues a rerun wrapper for each via the existing rerun tooling.
+ * Releases parked poison-pill jobs back onto their queue for another attempt.
+ *
+ * When the janitor gives up on a poison pill it PARKS the job in place — leaves the
+ * real cyclotron_jobs row, sets `scheduled` far in the future so no worker dequeues
+ * it, and stamps `poison_retry_count`. This service periodically moves such rows'
+ * `scheduled` back to now (incrementing the count), so a worker re-runs the real job.
+ *
+ * Everything happens in Postgres, so there is no ClickHouse-visibility lag in the
+ * loop: the release is a single atomic UPDATE guarded by `scheduled = 'infinity'`
+ * and `FOR UPDATE SKIP LOCKED`, so a job can't be released twice (no duplicate
+ * execution) even across concurrent ticks or pods, and once released it drops out
+ * of the parked set until it re-poisons. `poison_retry_count < maxAttempts` bounds
+ * retries; beyond that the row stays parked (dead-letter).
  */
 export class CyclotronPoisonPillAutodrain {
     private intervalHandle: ReturnType<typeof setInterval> | null = null
 
     constructor(
-        private clickhouse: ClickHouseClient,
-        private rerunManager: RerunJobManager,
+        private pool: Pool,
         private config: CyclotronPoisonPillAutodrainConfig
     ) {}
 
@@ -74,147 +56,50 @@ export class CyclotronPoisonPillAutodrain {
             })
         }, this.config.intervalMs)
 
-        // Run immediately on start rather than waiting a full interval, but never
-        // let a failed first tick reject start(): this service is co-located in the
-        // janitor process, and a rejected start() would fail the shared pod's boot
-        // (serviceLoaders are awaited together). A ClickHouse blip at startup must
-        // not crash the janitor — the interval is already scheduled, so the next
-        // tick retries.
+        // Run immediately on start, but never let a failed first tick reject start():
+        // this service is co-located in the janitor process and the serviceLoaders are
+        // awaited together, so a rejection here would crash the shared pod. The interval
+        // is already scheduled, so the next tick retries.
         await this.runOnce().catch((err) => {
             logger.error('CyclotronPoisonPillAutodrain initial run error', { error: String(err) })
         })
     }
 
     async runOnce(): Promise<AutodrainRunResult> {
-        // Pin the window once so discovery and the reruns it spawns agree on the
-        // same bounds — a rerun's filter must not span a wider window than the
-        // discovery that found it.
-        const windowEnd = new Date()
-        const windowStart = new Date(windowEnd.getTime() - this.config.windowHours * 60 * 60 * 1000)
-        const windowStartIso = windowStart.toISOString()
-        const windowEndIso = windowEnd.toISOString()
-
-        const groups = await this.discoverGroups(windowStartIso, windowEndIso)
-        autodrainGroupsCounter.inc(groups.length)
-
-        if (groups.length === 0) {
-            return { groups: 0, enqueued: 0 }
-        }
-
-        let enqueued = 0
-        for (const group of groups) {
-            const teamId = Number(group.team_id)
-            const functionKind = group.function_kind as RerunFunctionKind
-            try {
-                // Skip if a wrapper for this group is still outstanding. A rerun
-                // clears a group from discovery only once the worker re-enqueues
-                // its invocations (they flip to `running`); if the worker is down
-                // or stalled that never happens, so without this guard every tick
-                // would pile another wrapper into cyclotron_jobs indefinitely for
-                // the duration of the outage.
-                if (await this.rerunManager.hasInFlightWrapper(teamId, group.function_id)) {
-                    autodrainSkippedInFlightCounter.inc()
-                    continue
-                }
-                await this.rerunManager.enqueue(teamId, functionKind, group.function_id, {
-                    filter: {
-                        window_start: windowStartIso,
-                        window_end: windowEndIso,
-                        status: ['failed'],
-                        error_kind: [JANITOR_POISON_PILL_ERROR_KIND],
-                        max_attempts: this.config.maxAttempts,
-                        max_count: this.config.maxCountPerGroup,
-                    },
-                })
-                enqueued++
-            } catch (err) {
-                // One group failing must not abort the tick — record it and move
-                // on so the remaining groups still drain this cycle.
-                autodrainErrorsCounter.inc()
-                logger.error('CyclotronPoisonPillAutodrain failed to enqueue rerun for group', {
-                    team_id: teamId,
-                    function_kind: functionKind,
-                    function_id: group.function_id,
-                    error: err instanceof Error ? err.message : String(err),
-                })
+        try {
+            // Release parked poison pills back to their queue. `scheduled = 'infinity'`
+            // matches only currently-parked rows: a row released earlier this cycle has
+            // scheduled = now (a real timestamp) and is not re-matched, so it cannot be
+            // released twice. FOR UPDATE SKIP LOCKED makes concurrent ticks/pods disjoint.
+            const result = await this.pool.query<{ id: string }>(
+                `UPDATE cyclotron_jobs
+                 SET scheduled = NOW(), poison_retry_count = poison_retry_count + 1
+                 WHERE id IN (
+                     SELECT id FROM cyclotron_jobs
+                     WHERE poison_retry_count IS NOT NULL
+                       AND poison_retry_count < $1
+                       AND status = 'available'
+                       AND scheduled = 'infinity'
+                     ORDER BY last_transition ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id`,
+                [this.config.maxAttempts, this.config.batchSize]
+            )
+            const released = result.rowCount ?? 0
+            autodrainReleasedCounter.inc(released)
+            if (released > 0) {
+                logger.info('CyclotronPoisonPillAutodrain released parked poison pills', { released })
             }
+            return { released }
+        } catch (err) {
+            autodrainErrorsCounter.inc()
+            logger.error('CyclotronPoisonPillAutodrain release failed', {
+                error: err instanceof Error ? err.message : String(err),
+            })
+            return { released: 0 }
         }
-        autodrainEnqueuedCounter.inc(enqueued)
-
-        logger.info('CyclotronPoisonPillAutodrain drained poison-pill groups', {
-            groups: groups.length,
-            enqueued,
-        })
-
-        return { groups: groups.length, enqueued }
-    }
-
-    /**
-     * Find distinct (team_id, function_kind, function_id) groups that still have
-     * at least one poison pill pending a drain — an invocation whose LATEST
-     * lifecycle row (argMax by `version`) is a not-deleted `failed`
-     * `janitor_poison_pill` under the attempts cap, within the window.
-     *
-     * Loop prevention / dedup — why this converges without a cursor or state table:
-     *  - `max_attempts` bounds retries. The recorded `attempts` climbs on each
-     *    rerun; both this HAVING and the rerun paginator exclude over-cap
-     *    invocations, so a genuinely-always-poison job is drained a bounded number
-     *    of times and then left failed.
-     *  - Self-dedup. When the rerun re-enqueues an invocation it writes a
-     *    `running` lifecycle row, so that invocation's argMax(status) flips to
-     *    `running` and it drops out of discovery until it either completes (drops
-     *    out) or re-poisons — in which case the janitor writes a fresh `failed`
-     *    `janitor_poison_pill` row with `attempts+1`, rediscovered but closer to
-     *    the cap. No cursor or state table is needed for v1.
-     *  - Throttle. At most `group_batch` groups per tick, `max_count` invocations
-     *    per group, plus the tick interval between runs.
-     */
-    private async discoverGroups(windowStartIso: string, windowEndIso: string): Promise<DiscoveredGroupRow[]> {
-        // The table is partitioned by toYYYYMMDD(scheduled_at), so the window
-        // bound pins the query to a handful of partitions. But this table has no
-        // error_kind index and its primary key leads with team_id, so without a
-        // team/function predicate the per-invocation argMax aggregation would read
-        // every lifecycle row in those partitions, fleet-wide — cost scaling with
-        // total invocation volume, not the (tiny) poison-pill count. So first pick
-        // the candidate invocation_ids that recorded a poison pill (a cheap
-        // single-column scan), then run the full lifecycle aggregation only over
-        // those — the argMax(...) HAVING still validates the LATEST row per
-        // invocation (self-dedup correctness), just over a much smaller set.
-        const result = await this.clickhouse.query({
-            query: `/* query_type:cyclotron_poison_pill_autodrain_discover */
-                SELECT team_id, function_kind, function_id, count() AS pending
-                FROM (
-                    SELECT team_id, function_kind, function_id, invocation_id
-                    FROM hog_invocation_results
-                    WHERE scheduled_at >= {window_start:DateTime64(6,'UTC')}
-                      AND scheduled_at <  {window_end:DateTime64(6,'UTC')}
-                      AND invocation_id IN (
-                          SELECT invocation_id
-                          FROM hog_invocation_results
-                          WHERE scheduled_at >= {window_start:DateTime64(6,'UTC')}
-                            AND scheduled_at <  {window_end:DateTime64(6,'UTC')}
-                            AND error_kind = {error_kind:String}
-                      )
-                    GROUP BY team_id, function_kind, function_id, invocation_id
-                    HAVING argMax(is_deleted, version) = 0
-                       AND argMax(status, version) = 'failed'
-                       AND argMax(error_kind, version) = {error_kind:String}
-                       AND argMax(attempts, version) < {max_attempts:UInt8}
-                )
-                GROUP BY team_id, function_kind, function_id
-                ORDER BY pending DESC
-                LIMIT {group_batch:UInt32}`,
-            query_params: {
-                window_start: toClickhouseDateTime(windowStartIso),
-                window_end: toClickhouseDateTime(windowEndIso),
-                error_kind: JANITOR_POISON_PILL_ERROR_KIND,
-                max_attempts: this.config.maxAttempts,
-                group_batch: this.config.groupBatch,
-            },
-            format: 'JSONEachRow',
-        })
-
-        return (await result.json()) as DiscoveredGroupRow[]
     }
 
     isRunning(): boolean {

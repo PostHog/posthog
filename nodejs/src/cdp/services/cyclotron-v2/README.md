@@ -39,26 +39,26 @@ Responsibilities:
 - **Cleanup** — bounded `DELETE` of terminal jobs older than a grace period
 - **Stalled job recovery** — reset jobs with stale heartbeats back to `available`
 - **Poison pill recovery** — give up on jobs that have been reset too many times
-  (`janitor_touch_count`), but never silently: each is recorded as a `failed`,
-  replayable invocation result on `hog_invocation_results` (discoverable in the
-  Invocations UI, re-runnable by the rerun tooling) _before_ the cyclotron row is
-  deleted. Workers reset `janitor_touch_count = 0` on every deliberate release, so
-  the budget counts CONSECUTIVE stalls — long-lived waits don't accrue touches for
-  life.
+  (`janitor_touch_count`), but never silently: each is _parked_ in place —
+  the real row is kept, `scheduled` is pushed to `infinity` (so no worker dequeues
+  it), the lock is cleared and `poison_retry_count` is stamped — and best-effort
+  recorded as a `failed` `janitor_poison_pill` row on `hog_invocation_results` for
+  visibility in the Invocations UI. The autodrain (below) releases parked pills back
+  to their queue. Workers reset `janitor_touch_count = 0` on every deliberate
+  release, so the budget counts CONSECUTIVE stalls — long-lived waits don't accrue
+  touches for life.
 - **Queue depth metrics** — Prometheus gauges per queue
 
 ### Poison-pill autodrain
 
 Follows the co-located-singleton precedent of `appManagementSingleton` in the `cdp_api` mode.
 The interval catches every tick and the service reports health best-effort, so a failing drain never crashes or restarts the janitor sharing its process.
-The janitor _records_ poison-pill give-ups as replayable `failed` rows; recovering them was a manual operator rerun.
+The janitor _parks_ poison-pill give-ups (keeps the real row, `scheduled = infinity`, `poison_retry_count` stamped); recovering them was a manual operator rerun.
 This service automates that recovery.
 
-On each tick it discovers distinct `(team_id, function_kind, function_id)` groups whose latest lifecycle row is a not-deleted `failed` `janitor_poison_pill` under the attempts cap (within a recent `scheduled_at` window), then enqueues one rerun wrapper per group through the existing rerun tooling (`RerunJobManager`).
+On each tick it runs a single Postgres UPDATE that releases parked poison pills back to their queue — `scheduled = NOW()`, `poison_retry_count = poison_retry_count + 1` — for rows where `poison_retry_count IS NOT NULL AND poison_retry_count < max_attempts AND status = 'available' AND scheduled = 'infinity'`, picked `FOR UPDATE SKIP LOCKED` up to a batch cap. A worker then re-runs the real job.
 
-It converges without a cursor or state table:
-`CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS` bounds how many times a genuinely-always-poison group is drained (both discovery and the rerun paginator exclude over-cap invocations), and a rerun writes a `running` row that self-dedups the invocation out of discovery until it either completes or re-poisons with `attempts+1`.
-Throttled by `CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH` groups per tick, `CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_COUNT_PER_GROUP` invocations per group, and the tick interval.
+No ClickHouse in the loop — the retry decision reads and writes only strongly-consistent Postgres — so there is no ClickHouse-visibility lag that could re-select an already-run job. The release is one-shot by construction: once a row is released its `scheduled` is no longer `'infinity'`, so a later tick (or a concurrent janitor pod) can't re-release it, and it can't double-execute. `CYCLOTRON_POISON_PILL_AUTODRAIN_MAX_ATTEMPTS` bounds retries — after that the row stays parked (dead-letter); if the released job re-poisons, the janitor re-parks it (keeping the count). Throttled by `CYCLOTRON_POISON_PILL_AUTODRAIN_GROUP_BATCH` releases per tick and the tick interval.
 
 Opt-in per environment via `CYCLOTRON_POISON_PILL_AUTODRAIN_ENABLED` (default off) — it is a new autonomous re-enqueue loop, so it stays off until validated.
 
