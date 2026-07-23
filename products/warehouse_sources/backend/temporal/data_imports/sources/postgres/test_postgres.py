@@ -2833,7 +2833,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -2852,7 +2852,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         assert valid is True
         assert error is None
-        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None, api_version=None)
 
 
 class TestValidateCredentialsErrorMapping:
