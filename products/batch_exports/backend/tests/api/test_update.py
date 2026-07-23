@@ -400,6 +400,47 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
             "Higher frequency batch exports are not enabled for this team.",
             id="Cannot update to high frequency batch exports without feature flag",
         ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {
+                "offset_hour": 5,
+            },
+            {
+                "interval": "day",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": 5,
+                "interval_offset": 18000,  # 5 hours = 18000 seconds
+            },
+            None,
+            id="Patching offset_hour without interval on a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 0,
+                "offset_hour": 0,
+            },
+            {
+                "offset_day": 2,
+                "offset_hour": 3,
+            },
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 2,
+                "offset_hour": 3,
+                "interval_offset": 183600,  # 2 days + 3 hours = 183600 seconds
+            },
+            None,
+            id="Patching offsets without interval on a weekly export",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
