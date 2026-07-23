@@ -66,6 +66,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'AI_BLOB_OFFLOAD_TEAMS'
         | 'AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH'
         | 'AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT'
+        | 'AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY'
         | 'AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
@@ -162,13 +163,36 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
                 },
             })
+            // Blob store owned by the scope so its startup healthcheck runs at
+            // scope start, mirroring the Kafka consumer's connect-at-start
+            // contract: an unreachable bucket (bad credentials, missing bucket,
+            // no route) fails startup before any traffic is consumed, instead
+            // of crash-looping on the first blob-carrying event.
+            .add('aiBlobStore', {
+                start: async () => {
+                    const store = buildAiBlobStore(config)
+                    if (store) {
+                        await store.healthcheck()
+                    }
+                    return { value: { store }, stop: () => Promise.resolve() }
+                },
+            })
     )
 
-    const aiBlobStore = buildAiBlobStore(config)
+    const uploadMaxConcurrency = config.AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY
+    if (!Number.isInteger(uploadMaxConcurrency) || uploadMaxConcurrency <= 0) {
+        // The ingestion config layer coerces env overrides by hand (no schema
+        // validation), so a bad value would otherwise surface as a nameless
+        // TypeError from p-limit at pipeline construction.
+        throw new Error(
+            `AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY must be a positive integer, got ${uploadMaxConcurrency}`
+        )
+    }
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
         minBase64Length: config.AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH,
         maxBlobsPerEvent: config.AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT,
+        uploadMaxConcurrency,
     }
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
@@ -194,7 +218,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
             topHog: createTopHogWrapper(container.topHog),
-            aiBlobStore,
+            aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
         })
     )

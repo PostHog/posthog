@@ -17,6 +17,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
@@ -44,7 +45,9 @@ import { addTeamToContext } from './subpipelines/helpers'
  *     body steps                               .pipe
  *     resolve team, lift team into context     .resolveTeam()
  *     team-aware processing                    .pipe / .pipeChunk / .gather /
- *                                              .concurrentlyPerGroup / .compose
+ *                                              .concurrentlyPerGroup /
+ *                                              .fanOut(…).via(…).fanIn(…) /
+ *                                              .compose
  *     handleIngestionWarnings                  (automatic)
  *   handleResults                              (automatic)
  *   handleSideEffects                          (automatic)
@@ -52,7 +55,7 @@ import { addTeamToContext } from './subpipelines/helpers'
  * ```
  *
  * Consecutive `.pipe()` calls coalesce into one sequential per-element block;
- * any chunk-level call (`.pipeChunk`, `.gather`, `.concurrentlyPerGroup`,
+ * any chunk-level call (`.pipeChunk`, `.gather`, `.concurrentlyPerGroup`, `.fanOut`,
  * `.compose`, a phase marker that is chunk-level) closes the block. Block
  * boundaries therefore fall out of where the chunk operations sit, which is
  * how the hand-written pipelines were already shaped.
@@ -323,6 +326,18 @@ export class CommonPreTeamStage<
     }
 }
 
+/**
+ * Subpipeline callback of a fan-out stage. Sub-pipelines are context-agnostic
+ * (typed over the minimal base context, not the team-aware context): context
+ * gated surface like `teamAware` or `handleIngestionWarnings` is uncallable
+ * inside — sub warnings/side effects merge into the parent and are handled
+ * once by the skeleton. Fan-out functions put any team/message data sub-steps
+ * need into the sub-element value.
+ */
+type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
+    builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>
+) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, ROut>
+
 export class CommonTeamStage<
     TInput extends { message: Message },
     TContext extends { message: Message },
@@ -397,6 +412,31 @@ export class CommonTeamStage<
         )
     }
 
+    /**
+     * Open a fan-out/fan-in stage: `.fanOut(fn).via(cb).fanIn(fn)` (mirrors
+     * the framework method — the staged sequencing holds on the skeleton
+     * surface too, so an unclosed stage can't reach `afterBatch`/`build`).
+     */
+    fanOut<TSub>(
+        fanOutFn: FanOutFunction<TCurrent, TSub>
+    ): CommonFanOutStage<TInput, TContext, ROut, CBatch, TPost, TCurrent, TSub> {
+        const committed = this.chain.build()
+        return new CommonFanOutStage(
+            <TSubOut, U>(
+                subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
+                fanInFn: FanInFunction<TCurrent, TSubOut, U>
+            ) =>
+                new CommonTeamStage(
+                    this.config,
+                    this.beforeBatchCallback,
+                    this.preTeamTransform,
+                    committedChain((builder) =>
+                        committed(builder).fanOut(fanOutFn).via(subpipelineCallback).fanIn(fanInFn)
+                    )
+                )
+        )
+    }
+
     /** Escape hatch: apply a subpipeline function (a transform over the chunk builder). */
     compose<U>(
         fn: (
@@ -431,6 +471,70 @@ export class CommonTeamStage<
             preTeam(builder).filterMap(addTeamToContext, (b) =>
                 b.teamAware((teamAware) => inner(teamAware)).handleIngestionWarnings(outputs)
             )
+    }
+}
+
+/**
+ * Middle stage of the skeleton's `.fanOut(fn).via(cb).fanIn(fn)`. Its only
+ * method is `via`, so an unclosed fan-out stage cannot reach `afterBatch` or
+ * `build`.
+ */
+export class CommonFanOutStage<
+    TInput extends { message: Message },
+    TContext extends { message: Message },
+    ROut extends string,
+    CBatch,
+    TPost extends { team: Team },
+    TCurrent,
+    TSub,
+> {
+    // Completion-closure shape, like the framework's FanOutBuilder: TCurrent
+    // only appears in variance-neutral positions.
+    constructor(
+        private readonly completeStage: <TSubOut, U>(
+            subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
+            fanInFn: FanInFunction<TCurrent, TSubOut, U>
+        ) => CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U>
+    ) {}
+
+    /**
+     * Route the sub-elements through a subpipeline built on the full chunk
+     * builder surface, under the team-aware context (exactly what `compose`
+     * would provide).
+     */
+    via<TSubOut>(
+        subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>
+    ): CommonFanInStage<TInput, TContext, ROut, CBatch, TPost, TCurrent, TSubOut> {
+        return new CommonFanInStage(<U>(fanInFn: FanInFunction<TCurrent, TSubOut, U>) =>
+            this.completeStage(subpipelineCallback, fanInFn)
+        )
+    }
+}
+
+/**
+ * Final stage of the skeleton's `.fanOut(fn).via(cb).fanIn(fn)`. Its only
+ * method is `fanIn`, which closes the stage and returns the regular
+ * {@link CommonTeamStage} surface.
+ */
+export class CommonFanInStage<
+    TInput extends { message: Message },
+    TContext extends { message: Message },
+    ROut extends string,
+    CBatch,
+    TPost extends { team: Team },
+    TCurrent,
+    TSubOut,
+> {
+    // Completion-closure shape for the same variance reason as CommonFanOutStage.
+    constructor(
+        private readonly completeStage: <U>(
+            fanInFn: FanInFunction<TCurrent, TSubOut, U>
+        ) => CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U>
+    ) {}
+
+    /** Close the stage: fold each parent's collected sub-results back into the original element. */
+    fanIn<U>(fanInFn: FanInFunction<TCurrent, TSubOut, U>): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        return this.completeStage(fanInFn)
     }
 }
 

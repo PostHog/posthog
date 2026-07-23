@@ -43,6 +43,7 @@ describe('createAiConsumer', () => {
             AI_BLOB_OFFLOAD_TEAMS: '',
             AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
             AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+            AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
             AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
             ...({} as Pick<
                 IngestionConsumerConfig,
