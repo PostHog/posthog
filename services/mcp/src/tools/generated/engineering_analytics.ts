@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/engineering_analytics/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     EngineeringAnalyticsBrokenTestsQueryParams,
     EngineeringAnalyticsCiFailureLogsQueryParams,
@@ -15,8 +19,6 @@ import {
     EngineeringAnalyticsWorkflowJobsQueryParams,
     EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
 } from '@/generated/engineering_analytics/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EngineeringAnalyticsBrokenTestsSchema = EngineeringAnalyticsBrokenTestsQueryParams
 
@@ -81,7 +83,6 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
-                min_rerun_passes: params.min_rerun_passes,
                 repo: params.repo,
                 source_id: params.source_id,
             },
@@ -170,7 +171,6 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
-                min_rerun_passes: params.min_rerun_passes,
                 source_id: params.source_id,
             },
         })

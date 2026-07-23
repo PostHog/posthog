@@ -93,6 +93,17 @@
                     },
                     "type": "array"
                 },
+                "limit": {
+                    "description": "Max rows to return, ordered by total_duration_nano DESC. Defaults to 100; hard max 5000. Keep this small to bound the response size — a high value on high-cardinality span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with `serviceNames`/`filterGroup` over raising the limit.",
+                    "maximum": 5000,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "offset": {
+                    "description": "Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page through results beyond the first page.",
+                    "minimum": 0,
+                    "type": "number"
+                },
                 "serviceNames": {
                     "description": "Filter by service names.",
                     "items": {

@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JotformSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jotform import (
+    JotformSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform import JotformResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.settings import (
     ENDPOINTS,

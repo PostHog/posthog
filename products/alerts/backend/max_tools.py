@@ -100,7 +100,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
 
     # Listing alerts
     - To list existing alerts, use the list_data tool with kind="alerts"
-    - To view alerts in the UI, direct the user to /insights?tab=alerts
+    - To view alerts in the UI, direct the user to /alerts
     - To view alerts for a specific insight, direct the user to /insights/{insightShortId}/alerts
     """).strip()
 

@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/logs/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     LogsAlertsCreateBody,
     LogsAlertsDestinationsCreateBody,
@@ -27,8 +31,6 @@ import {
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
 } from '@/generated/logs/api'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
 
@@ -244,6 +246,7 @@ const logsAlertsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
             },

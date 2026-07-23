@@ -1,7 +1,13 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
@@ -22,13 +28,14 @@ import {
     HogFlowsPublishCreateBody,
     HogFlowsPublishCreateParams,
     HogFlowsRetrieveParams,
+    HogFlowsRevisionsListParams,
+    HogFlowsRevisionsListQueryParams,
+    HogFlowsRevisionsRestoreCreateBody,
+    HogFlowsRevisionsRestoreCreateParams,
+    HogFlowsRevisionsRetrieveParams,
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
 
@@ -120,6 +127,21 @@ const workflowsGetInvocation = (): ToolBase<
         const result = await context.api.request<Schemas.HogInvocationResultDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocation_results/${encodeURIComponent(String(params.invocation_id))}/`,
+        })
+        return result
+    },
+})
+
+const WorkflowsGetRevisionSchema = HogFlowsRevisionsRetrieveParams.omit({ project_id: true })
+
+const workflowsGetRevision = (): ToolBase<typeof WorkflowsGetRevisionSchema, Schemas.HogFlowRevision> => ({
+    name: 'workflows-get-revision',
+    schema: WorkflowsGetRevisionSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsGetRevisionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowRevision>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/`,
         })
         return result
     },
@@ -217,6 +239,30 @@ const workflowsListInvocations = (): ToolBase<
     },
 })
 
+const WorkflowsListRevisionsSchema = HogFlowsRevisionsListParams.omit({ project_id: true }).extend(
+    HogFlowsRevisionsListQueryParams.shape
+)
+
+const workflowsListRevisions = (): ToolBase<
+    typeof WorkflowsListRevisionsSchema,
+    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+> => ({
+    name: 'workflows-list-revisions',
+    schema: WorkflowsListRevisionsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsListRevisionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
 const WorkflowsLogsSchema = HogFlowsLogsRetrieveParams.omit({ project_id: true }).extend(
     HogFlowsLogsRetrieveQueryParams.shape
 )
@@ -273,12 +319,34 @@ const workflowsPublish = (): ToolBase<typeof WorkflowsPublishSchema, Schemas.Hog
         if (params.confirm !== undefined) {
             body['confirm'] = params.confirm
         }
-        if (params.draft_updated_at !== undefined) {
-            body['draft_updated_at'] = params.draft_updated_at
+        if (params.confirm_token !== undefined) {
+            body['confirm_token'] = params.confirm_token
         }
         const result = await context.api.request<Schemas.HogFlowPublishResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsRestoreRevisionSchema = HogFlowsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
+    HogFlowsRevisionsRestoreCreateBody.shape
+)
+
+const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSchema, Schemas.HogFlow> => ({
+    name: 'workflows-restore-revision',
+    schema: WorkflowsRestoreRevisionSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsRestoreRevisionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.overwrite !== undefined) {
+            body['overwrite'] = params.overwrite
+        }
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,
             body,
         })
         return result
@@ -422,13 +490,16 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
+    'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
+    'workflows-list-revisions': workflowsListRevisions,
     'workflows-logs': workflowsLogs,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
+    'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,

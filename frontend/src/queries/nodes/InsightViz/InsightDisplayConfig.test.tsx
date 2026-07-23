@@ -187,8 +187,9 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show total below chart',
+                        // In-chart legend toggle + position select ("Bottom" is the prospective default)
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -378,6 +379,7 @@ describe('InsightDisplayConfig', () => {
         it.each([
             ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar)],
             ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar)],
+            ['trends pie', () => makeTrendsQuery(ChartDisplayType.ActionsPie)],
             ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph)],
             ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar)],
             ['lifecycle', () => makeLifecycleQuery()],

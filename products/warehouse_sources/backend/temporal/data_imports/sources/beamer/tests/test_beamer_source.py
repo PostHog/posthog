@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.beamer imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.beamer import BeamerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.source import BeamerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BeamerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

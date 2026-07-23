@@ -131,6 +131,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def normalized_s3_folder_name(self) -> str:
+        """Normalized Delta folder leaf the loader actually wrote the table under.
+
+        Diverges from ``normalized_name`` for folder-pinned rows (e.g. Postgres ``public.users``
+        → folder ``users``); readers that resolve ``normalized_name`` point at a prefix with no
+        ``_delta_log`` and surface "No files in log segment".
+        """
+        return NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+
+    @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
 
@@ -149,6 +159,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_xmin(self):
         return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def cdc_halted(self) -> bool:
+        """True while a CDC marker absorbs status updates: the source is marked broken, or the
+        extraction schedule was paused after a non-retryable error. Cleared by repair, resume,
+        disable, or a successful extraction run."""
+        config = self.sync_type_config or {}
+        return bool(config.get("cdc_broken")) or bool(config.get("cdc_extraction_paused"))
+
+    @property
+    def sync_halted(self) -> bool:
+        """True when syncing will not resume without user action."""
+        return not self.should_sync or self.cdc_halted
 
     @property
     def xmin_last_value(self) -> int | None:
@@ -564,6 +587,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(value, datetime):
                 return value.isoformat()
+            elif isinstance(value, int | float) and not isinstance(value, bool):
+                return value
             else:
                 return str(value)
         return str(value)
@@ -627,6 +652,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(last_value_py, datetime):
                 last_value_json = last_value_py.isoformat()
+            elif isinstance(last_value_py, int | float) and not isinstance(last_value_py, bool):
+                last_value_json = last_value_py
             else:
                 last_value_json = str(last_value_py)
         else:
@@ -694,6 +721,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
+        # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
+        # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
@@ -701,6 +733,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
             return value.date()
 
         if isinstance(value, date):
+            return value
+
+        if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
         return parser.parse(value).date()
@@ -723,6 +758,10 @@ def apply_incremental_lookback(
         return value
 
     if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        # Epoch-number cursors (e.g. Stripe `created`) are in seconds, so shift them directly since
+        # timedelta subtraction only supports datetime/date operands.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value - lookback_seconds
         return value - timedelta(seconds=lookback_seconds)
 
     return value
@@ -828,6 +867,37 @@ def update_sync_type_config_keys(
                 update_fields.append(field)
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
+
+
+def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
+    """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
+
+    The sweeper can mark the source broken at any moment; checking ``cdc_broken`` outside the
+    row lock would let a stale instance repaint the schema healthy right after the sweeper wrote
+    FAILED, hiding the breakage from the UI and the failure digest (the loader-side twin of this
+    guard lives in jobs.update_external_job_status, which already checks under its own lock).
+    Clears a stale ``cdc_extraction_paused`` marker — a successful run proves extraction resumed.
+    Returns whether the repaint happened; the passed instance is refreshed either way.
+    """
+    with transaction.atomic():
+        fresh = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        config = fresh.sync_type_config or {}
+        repainted = not config.get("cdc_broken")
+        if repainted:
+            config.pop("cdc_extraction_paused", None)
+            fresh.sync_type_config = config
+            fresh.status = ExternalDataSchema.Status.COMPLETED
+            fresh.latest_error = None
+            fresh.last_synced_at = last_synced_at
+            fresh.save(
+                update_fields=["sync_type_config", "status", "latest_error", "last_synced_at", "updated_at"],
+                skip_activity_log=True,
+            )
+    schema.sync_type_config = fresh.sync_type_config
+    schema.status = fresh.status
+    schema.latest_error = fresh.latest_error
+    schema.last_synced_at = fresh.last_synced_at
+    return repainted
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:

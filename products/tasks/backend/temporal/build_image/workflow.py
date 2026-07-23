@@ -5,6 +5,7 @@ from typing import Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -64,12 +65,15 @@ class BuildSandboxImageWorkflow(PostHogWorkflow):
             return BuildSandboxImageOutput(success=True, modal_image_name=modal_image_name)
 
         except Exception as e:
+            cause = e.cause if isinstance(e, ActivityError) else None
+            cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else None)
+            error_message = cause_message or str(e)
             await workflow.execute_activity(
                 mark_image_build_failed,
                 MarkImageBuildFailedInput(
-                    image_id=input.image_id, team_id=input.team_id, error=str(e), refresh=input.refresh
+                    image_id=input.image_id, team_id=input.team_id, error=error_message, refresh=input.refresh
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            return BuildSandboxImageOutput(success=False, error=str(e))
+            return BuildSandboxImageOutput(success=False, error=error_message)

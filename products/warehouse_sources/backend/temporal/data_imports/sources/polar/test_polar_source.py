@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PolarSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar import polar as polar_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.source import PolarSource
 

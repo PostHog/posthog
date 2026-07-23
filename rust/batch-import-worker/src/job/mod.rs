@@ -20,7 +20,10 @@ use crate::{
     },
     extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
-    parse::{format::ParserFn, Parsed},
+    parse::{
+        format::{ParserFn, ParserFnFor},
+        Parsed,
+    },
     source::DataSource,
 };
 
@@ -120,6 +123,127 @@ fn should_pause_due_to_max_attempts(next_attempt: u32, max_attempts: u32) -> boo
     max_attempts > 0 && next_attempt >= max_attempts
 }
 
+/// Classify a fetch/parse error and transition the job accordingly: transient
+/// errors schedule a backoff (or pause once max attempts is exhausted), anything
+/// else pauses the job with a user-facing message. Shared by the import path
+/// ([`Job::process`]) and the trial path.
+///
+/// Cleanup is deferred until after classification: transient interruptions keep
+/// remote staging for the resume to attach to, while source-side pauses sweep it
+/// for a clean re-download.
+pub(crate) async fn handle_fetch_error(
+    e: &Error,
+    context: &Arc<AppContext>,
+    model: &Mutex<JobModel>,
+    state: &Mutex<JobState>,
+    source: &dyn DataSource,
+) -> Result<(), Error> {
+    let user_facing_error_message = get_user_message(e);
+    let current_date_range = {
+        let state = state.lock().await;
+        state
+            .parts
+            .iter()
+            .find(|p| !p.is_done())
+            .and_then(|p| source.get_date_range_for_key(&p.key))
+    };
+
+    let policy = context.config.backoff_policy();
+    let current_attempt = {
+        let model = model.lock().await;
+        model.backoff_attempt.max(0) as u32
+    };
+    let next_attempt = current_attempt.saturating_add(1);
+    match decide_on_error(
+        e,
+        current_date_range.as_deref(),
+        policy,
+        current_attempt,
+        &user_facing_error_message,
+    ) {
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        } => {
+            // Transient (or transient-persisted, below): keep staged
+            // remote parts so the resume attaches without re-hitting an
+            // origin that is likely still rate-limited or flaky.
+            if let Err(cleanup_err) = source.release_job_resources().await {
+                warn!("Failed to release job resources: {:?}", cleanup_err);
+            }
+            if should_pause_due_to_max_attempts(next_attempt, context.config.backoff_max_attempts) {
+                let mut model = model.lock().await;
+                let msg = match current_date_range.as_deref() {
+                    Some(dr) => format!(
+                        "Max backoff attempts reached for date range {dr} (attempt {next_attempt}). Pausing."
+                    ),
+                    None => {
+                        format!("Max backoff attempts reached (attempt {next_attempt}). Pausing.")
+                    }
+                };
+                model
+                    .pause(
+                        context.clone(),
+                        msg,
+                        Some(
+                            "Transient error persisted. Job paused after maximum retries."
+                                .to_string(),
+                        ),
+                    )
+                    .await?;
+                return Ok(());
+            }
+
+            error!(
+                job_id = %model.lock().await.id,
+                attempt = next_attempt,
+                delay_secs = delay.as_secs(),
+                "transient error, scheduling retry: {:#}",
+                e
+            );
+            metric_emit::backoff_event(delay.as_secs_f64());
+
+            let mut model = model.lock().await;
+            model
+                .schedule_backoff(
+                    &context.db,
+                    delay,
+                    status_msg,
+                    Some(display_msg),
+                    next_attempt as i32,
+                )
+                .await?;
+            Ok(())
+        }
+        ErrorHandlingDecision::Pause {
+            error_msg,
+            display_msg,
+        } => {
+            // Source-side pause: a human intervenes and may fix the
+            // source data in place, so the resume must re-download a
+            // clean copy, never attach to a stale staged one. Staged
+            // sources quarantine (rather than delete) the staged bytes,
+            // since they are the exact stream the failing offset points
+            // into — the evidence for debugging the parse failure.
+            if let Err(cleanup_err) = source.cleanup_after_data_error().await {
+                warn!("Failed to cleanup after data error: {:?}", cleanup_err);
+            }
+            let mut model = model.lock().await;
+            error!(
+                job_id = %model.id,
+                user_msg = %error_msg,
+                "Pausing job due to error: {:#}",
+                e
+            );
+            model
+                .pause(context.clone(), error_msg, Some(display_msg))
+                .await?;
+            Ok(())
+        }
+    }
+}
+
 async fn reset_backoff_after_success(
     context: Arc<AppContext>,
     model: &mut JobModel,
@@ -150,14 +274,14 @@ async fn mirror_part_total(model: &Mutex<JobModel>, key: &str, total: u64) {
 /// only on the empty-key short-circuit (so the caller skips the success backoff
 /// reset, matching the original control flow) and `true` otherwise. `None` means
 /// every part is done.
-pub async fn select_and_fetch_next_chunk(
+pub async fn select_and_fetch_next_chunk<T: Send + 'static>(
     state: &Mutex<JobState>,
     model: &Mutex<JobModel>,
     source: &dyn DataSource,
-    transform: &Arc<ParserFn>,
+    transform: &Arc<ParserFnFor<T>>,
     chunk_size: usize,
     job_id: Uuid,
-) -> Result<Option<(String, Parsed<Vec<InternallyCapturedEvent>>, bool)>, Error> {
+) -> Result<Option<(String, Parsed<Vec<T>>, bool)>, Error> {
     let mut state = state.lock().await;
 
     let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {
@@ -365,6 +489,45 @@ pub async fn select_and_fetch_next_chunk(
     Ok(Some((key, parsed, true)))
 }
 
+/// Load the job's state from the model, initializing the parts list from the
+/// source on first pickup. A freshly initialized state is mirrored back into
+/// the model so the next flush persists it. Shared by the import path
+/// ([`Job::new`]) and the trial path.
+pub(crate) async fn load_or_init_state(
+    source: &dyn DataSource,
+    model: &mut JobModel,
+) -> Result<JobState, Error> {
+    let mut state = model.state.clone().unwrap_or_default();
+
+    if state.parts.is_empty() {
+        info!(job_id = %model.id, "Found job with no parts, initializing parts list");
+        // If we have no parts, we assume this is the first time picking up the job,
+        // and populate the parts list
+        let mut parts = Vec::new();
+        let keys = source
+            .keys()
+            .await
+            .with_context(|| "Failed to get source keys".to_string())?;
+        for key in keys {
+            let size = source
+                .size(&key)
+                .await
+                .with_context(|| format!("Failed to get size for part {key}"))?;
+            debug!("Got size for part {key}: {size:?}");
+            parts.push(PartState {
+                key,
+                current_offset: 0,
+                total_size: size,
+            });
+        }
+        state.parts = parts;
+        model.state = Some(state.clone());
+        info!(job_id = %model.id, "Initialized parts list: {:?}", state.parts);
+    }
+
+    Ok(state)
+}
+
 /// Free a committed part's staging once it is fully consumed, best-effort.
 ///
 /// Called from `do_commit` after `complete_commit` persists the advanced offsets. Checks
@@ -467,37 +630,7 @@ impl Job {
             .await
             .with_context(|| format!("Failed to construct sink for job {}", model.id))?;
 
-        let mut state = model
-            .state
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| JobState { parts: vec![] });
-
-        if state.parts.is_empty() {
-            info!(job_id = %model.id, "Found job with no parts, initializing parts list");
-            // If we have no parts, we assume this is the first time picking up the job,
-            // and populate the parts list
-            let mut parts = Vec::new();
-            let keys = source
-                .keys()
-                .await
-                .with_context(|| "Failed to get source keys".to_string())?;
-            for key in keys {
-                let size = source
-                    .size(&key)
-                    .await
-                    .with_context(|| format!("Failed to get size for part {key}"))?;
-                debug!("Got size for part {key}: {size:?}");
-                parts.push(PartState {
-                    key,
-                    current_offset: 0,
-                    total_size: size,
-                });
-            }
-            state.parts = parts;
-            model.state = Some(state.clone());
-            info!(job_id = %model.id, "Initialized parts list: {:?}", state.parts);
-        }
+        let state = load_or_init_state(source.as_ref(), &mut model).await?;
 
         let job_id = model.id;
         let chunk_size = match &model.import_config.sink {
@@ -549,116 +682,15 @@ impl Job {
                 return Ok(None);
             }
             Err(e) => {
-                // Cleanup is deferred until after classification below: transient
-                // interruptions keep remote staging for the resume to attach to,
-                // while source-side pauses sweep it for a clean re-download.
-                let user_facing_error_message = get_user_message(&e);
-                let current_date_range = {
-                    let state = self.state.lock().await;
-                    state
-                        .parts
-                        .iter()
-                        .find(|p| !p.is_done())
-                        .and_then(|p| self.source.get_date_range_for_key(&p.key))
-                };
-
-                let policy = self.context.config.backoff_policy();
-                let current_attempt = {
-                    let model = self.model.lock().await;
-                    model.backoff_attempt.max(0) as u32
-                };
-                let next_attempt = current_attempt.saturating_add(1);
-                match decide_on_error(
+                handle_fetch_error(
                     &e,
-                    current_date_range.as_deref(),
-                    policy,
-                    current_attempt,
-                    &user_facing_error_message,
-                ) {
-                    ErrorHandlingDecision::Backoff {
-                        delay,
-                        status_msg,
-                        display_msg,
-                    } => {
-                        // Transient (or transient-persisted, below): keep staged
-                        // remote parts so the resume attaches without re-hitting an
-                        // origin that is likely still rate-limited or flaky.
-                        if let Err(cleanup_err) = self.source.release_job_resources().await {
-                            warn!("Failed to release job resources: {:?}", cleanup_err);
-                        }
-                        if should_pause_due_to_max_attempts(
-                            next_attempt,
-                            self.context.config.backoff_max_attempts,
-                        ) {
-                            let mut model = self.model.lock().await;
-                            let msg = match current_date_range.as_deref() {
-                                Some(dr) => format!(
-                                    "Max backoff attempts reached for date range {dr} (attempt {next_attempt}). Pausing."
-                                ),
-                                None => format!(
-                                    "Max backoff attempts reached (attempt {next_attempt}). Pausing."
-                                ),
-                            };
-                            model
-                                .pause(
-                                    self.context.clone(),
-                                    msg,
-                                    Some(
-                                        "Transient error persisted. Job paused after maximum retries."
-                                            .to_string(),
-                                    ),
-                                )
-                                .await?;
-                            return Ok(None);
-                        }
-
-                        error!(
-                            job_id = %self.model.lock().await.id,
-                            attempt = next_attempt,
-                            delay_secs = delay.as_secs(),
-                            "transient error, scheduling retry: {:#}",
-                            e
-                        );
-                        metric_emit::backoff_event(delay.as_secs_f64());
-
-                        let mut model = self.model.lock().await;
-                        model
-                            .schedule_backoff(
-                                &self.context.db,
-                                delay,
-                                status_msg,
-                                Some(display_msg),
-                                next_attempt as i32,
-                            )
-                            .await?;
-                        return Ok(None);
-                    }
-                    ErrorHandlingDecision::Pause {
-                        error_msg,
-                        display_msg,
-                    } => {
-                        // Source-side pause: a human intervenes and may fix the
-                        // source data in place, so the resume must re-download a
-                        // clean copy, never attach to a stale staged one. Staged
-                        // sources quarantine (rather than delete) the staged bytes,
-                        // since they are the exact stream the failing offset points
-                        // into — the evidence for debugging the parse failure.
-                        if let Err(cleanup_err) = self.source.cleanup_after_data_error().await {
-                            warn!("Failed to cleanup after data error: {:?}", cleanup_err);
-                        }
-                        let mut model = self.model.lock().await;
-                        error!(
-                            job_id = %model.id,
-                            user_msg = %error_msg,
-                            "Pausing job due to error: {:#}",
-                            e
-                        );
-                        model
-                            .pause(self.context.clone(), error_msg, Some(display_msg))
-                            .await?;
-                        return Ok(None);
-                    }
-                }
+                    &self.context,
+                    &self.model,
+                    &self.state,
+                    self.source.as_ref(),
+                )
+                .await?;
+                return Ok(None);
             }
         };
 
@@ -1155,7 +1187,10 @@ mod tests {
             status: super::model::JobStatus::Running,
             status_message: None,
             display_status_message: None,
-            state: Some(JobState { parts: vec![] }),
+            state: Some(JobState {
+                parts: vec![],
+                trial: None,
+            }),
             import_config: super::config::JobConfig {
                 // Construct a trivially valid config that won't be used by this test
                 source: super::config::SourceConfig::Folder(super::config::FolderSourceConfig {
@@ -1631,6 +1666,7 @@ mod tests {
                         total_size: None,
                     })
                     .collect(),
+                trial: None,
             }
         }
 
@@ -1841,6 +1877,7 @@ mod tests {
                         total_size: None,
                     },
                 ],
+                trial: None,
             };
             let state = Mutex::new(poisoned.clone());
             let model = Mutex::new(dummy_model(poisoned));
@@ -2619,6 +2656,7 @@ mod tests {
                         current_offset: resume_offset,
                         total_size: None,
                     }],
+                    trial: None,
                 };
                 let state = Mutex::new(resumed.clone());
                 let model = Mutex::new(dummy_model(resumed));
@@ -2698,6 +2736,7 @@ mod tests {
                         current_offset: offset,
                         total_size: part_total,
                     }],
+                    trial: None,
                 };
                 let state = Mutex::new(part_state.clone());
                 let model = Mutex::new(dummy_model(part_state));
@@ -2898,6 +2937,7 @@ mod tests {
                         total_size: None,
                     },
                 ],
+                trial: None,
             };
             let state = Mutex::new(poisoned.clone());
             let model = Mutex::new(dummy_model(poisoned));

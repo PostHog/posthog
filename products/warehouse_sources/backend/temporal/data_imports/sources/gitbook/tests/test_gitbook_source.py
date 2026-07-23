@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GitBookSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitbook import (
+    GitBookSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.gitbook import GitBookResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitbook.source import GitBookSource

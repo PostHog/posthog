@@ -4,7 +4,6 @@ on:
     push:
         branches: [master, main]
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -102,7 +101,7 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
                   rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 
@@ -154,6 +153,7 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
+                      "personhog-stateright": 700,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
                       "posthog-replay-anonymizer": 20,
@@ -292,7 +292,8 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 20
+        # stateright model checks need more headroom than the other shards
+        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
         permissions:
             contents: read
         env:
@@ -468,10 +469,12 @@ jobs:
                   done
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
-            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs
+            # and master, never on fork PRs or Dependabot, which have no secret.
+            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
+            # this upload skips.
             - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               continue-on-error: true
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
@@ -567,6 +570,17 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # Regression gate for eviction under writer lag: the cache is
+            # sized far below the person count so dirty entries evict while
+            # the paused writer guarantees their PG rows are stale. Before
+            # the dirty-index recovery this run lost thousands of acked
+            # writes.
+            - name: Run the e2e gate under cache eviction pressure + writer lag
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
+                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |

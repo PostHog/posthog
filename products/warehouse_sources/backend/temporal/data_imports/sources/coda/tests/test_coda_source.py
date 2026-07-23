@@ -5,7 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.source import CodaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coda import CodaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

@@ -80,6 +80,31 @@ export const LinearColorScale: Story = {
     },
 }
 
+export const BrushSelection: Story = {
+    // Skipped from visual regression: the brush overlay only appears mid-drag, so a static
+    // snapshot is just a plain heatmap with no incremental coverage. The story stays for
+    // interactive documentation of onBrush.
+    tags: ['test-skip'],
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={320}>
+                <Heatmap
+                    xLabels={X_LABELS}
+                    yLabels={Y_LABELS}
+                    cells={CELLS}
+                    theme={theme}
+                    config={{ xTickFormatter: (label, i) => (i % 6 === 0 ? label : null) }}
+                    // Drag a rectangle: a diagonal drag selects columns + rows; a near-flat drag
+                    // selects columns across every row.
+                    // eslint-disable-next-line no-console
+                    onBrush={(selection) => console.info('brushed', selection)}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const ClickableCells: Story = {
     render: function Render() {
         const theme = useReactiveTheme()

@@ -1,4 +1,5 @@
 use metrics::{counter, histogram};
+use personhog_common::properties::rewrite_out_of_range_numbers;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
@@ -15,8 +16,14 @@ pub async fn load_person_from_pg(
     let team_id_i32 = i32::try_from(key.team_id)
         .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))?;
 
+    // properties comes back as text and is parsed here rather than through
+    // sqlx's jsonb decode: rows written by other services can hold numerics
+    // whose PG-expanded rendering serde_json rejects, and the leniency
+    // lives in our parse step (see below). The cost is identical — sqlx's
+    // jsonb decode parses the same text under the hood.
     let row = sqlx::query(
-        "SELECT id, team_id, uuid::text, properties, created_at, version, is_identified
+        "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
+         is_identified
          FROM posthog_person
          WHERE team_id = $1 AND id = $2",
     )
@@ -36,10 +43,39 @@ pub async fn load_person_from_pg(
     let id: i64 = row.get("id");
     let team_id: i32 = row.get("team_id");
     let uuid: String = row.get("uuid");
-    let properties: serde_json::Value = row.get("properties");
+    // Borrowed from the row buffer — no copy; parse cost matches what
+    // sqlx's own jsonb decode would spend on the same bytes.
+    let properties_text: &str = row.get("properties");
     let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
     let version: Option<i64> = row.get("version");
     let is_identified: bool = row.get("is_identified");
+
+    let properties = match serde_json::from_str(properties_text) {
+        Ok(value) => value,
+        // Out-of-range numerics from other writers: rewrite to what
+        // JSON.parse would read (rounding, clamping beyond f64) instead
+        // of leaving the person permanently unloadable. Admission's
+        // sanitizer persists the healed form on the next write-through.
+        Err(strict_err) => {
+            match serde_json::from_str(&rewrite_out_of_range_numbers(properties_text)) {
+                Ok(value) => {
+                    counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
+                    tracing::warn!(
+                        team_id,
+                        person_id = id,
+                        "rewrote out-of-range numerics in stored person properties"
+                    );
+                    value
+                }
+                Err(rewritten_err) => {
+                    return Err(sqlx::Error::Protocol(format!(
+                        "person properties unparseable (team_id={team_id}, person_id={id}): \
+                     {strict_err}; after numeric rewrite: {rewritten_err}"
+                    )));
+                }
+            }
+        }
+    };
 
     counter!("personhog_leader_pg_fallback_total", "outcome" => "found").increment(1);
 

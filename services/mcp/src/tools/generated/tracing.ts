@@ -1,13 +1,19 @@
 // AUTO-GENERATED from products/tracing/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+
 import {
     TracingSpansAggregateCreateBody,
     TracingSpansAttributeBreakdownCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansCountCreateBody,
     TracingSpansDurationHistogramCreateBody,
+    TracingSpansLatencyHeatmapCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansSparklineCreateBody,
@@ -16,9 +22,6 @@ import {
     TracingSpansTreeCreateBody,
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
 
@@ -112,7 +115,7 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
 
 const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
 
-const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> => ({
+const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, Schemas._TracingAggregationResponse> => ({
     name: 'apm-spans-aggregate',
     schema: ApmSpansAggregateSchema,
     handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
@@ -121,12 +124,12 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> 
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAggregationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        const filtered = pickResponseFields(result, ['results', 'compare', 'has_more', 'next_offset']) as typeof result
         return filtered
     },
 })
@@ -166,6 +169,30 @@ const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramS
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansLatencyHeatmapSchema = TracingSpansLatencyHeatmapCreateBody
+
+const apmSpansLatencyHeatmap = (): ToolBase<
+    typeof ApmSpansLatencyHeatmapSchema,
+    Schemas._TracingLatencyHeatmapResponse
+> => ({
+    name: 'apm-spans-latency-heatmap',
+    schema: ApmSpansLatencyHeatmapSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansLatencyHeatmapSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._TracingLatencyHeatmapResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/latency-heatmap/`,
             body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -275,6 +302,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,
     'apm-spans-duration-histogram': apmSpansDurationHistogram,
+    'apm-spans-latency-heatmap': apmSpansLatencyHeatmap,
     'apm-spans-sparkline': apmSpansSparkline,
     'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,

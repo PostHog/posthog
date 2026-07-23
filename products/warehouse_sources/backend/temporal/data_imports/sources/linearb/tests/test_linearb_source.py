@@ -7,7 +7,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinearbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linearb import (
+    LinearbSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb import LinearbResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.source import LinearbSource

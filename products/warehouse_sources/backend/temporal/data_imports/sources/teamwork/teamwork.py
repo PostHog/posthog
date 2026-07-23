@@ -1,17 +1,21 @@
-import base64
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import (
     TEAMWORK_ENDPOINTS,
     TeamworkEndpointConfig,
@@ -21,12 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.s
 PAGE_SIZE = 500
 # A single V3 request is hard-capped at 50,000 records (= 100 pages of 500). We stop one run at that
 # boundary rather than letting the API error out. Incremental endpoints resume past it on the next
-# scheduled run (the cursor watermark has advanced); full-refresh endpoints can't, so we warn loudly.
+# scheduled run (the cursor watermark has advanced); full-refresh endpoints can't.
 MAX_PAGES = 100
-
-
-class TeamworkRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -56,12 +56,6 @@ def base_url(host: str) -> str:
     return f"https://{host}/projects/api/v3"
 
 
-def _auth_header(api_key: str) -> dict[str, str]:
-    # Teamwork uses HTTP Basic auth with the API key as the username and any value as the password.
-    token = base64.b64encode(f"{api_key}:x".encode()).decode()
-    return {"Authorization": f"Basic {token}", "Accept": "application/json"}
-
-
 def _format_updated_after(value: Any) -> str:
     """Format a cursor value as the ``yyyy-mm-ddThh:mm:ssZ`` string the V3 ``updatedAfter`` param wants."""
     if isinstance(value, datetime):
@@ -72,8 +66,41 @@ def _format_updated_after(value: Any) -> str:
     return str(value)
 
 
-def _build_params(config: TeamworkEndpointConfig, page: int, updated_after: str | None) -> dict[str, Any]:
-    params: dict[str, Any] = {"page": page, "pageSize": PAGE_SIZE}
+class TeamworkPaginator(PageNumberPaginator):
+    """Page-number paginator that also honors Teamwork's ``meta.page.hasMore`` stop signal.
+
+    The built-in ``PageNumberPaginator`` stops only on an empty page or ``maximum_page``, but Teamwork
+    signals the last page via ``meta.page.hasMore=false`` on a page that still carries rows — so we
+    stop there rather than paying one extra empty-page request. A single V3 request window is also
+    hard-capped at ``MAX_PAGES`` pages, enforced here via ``maximum_page``. Resume (``page``) is
+    inherited from the base paginator.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(base_page=1, page_param="page", maximum_page=MAX_PAGES)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is None or len(data) == 0:
+            self._has_next_page = False
+            return
+
+        try:
+            has_more = bool(response.json().get("meta", {}).get("page", {}).get("hasMore", False))
+        except Exception:
+            has_more = False
+
+        self.page += 1
+
+        if not has_more or (self.maximum_page is not None and self.page > self.maximum_page):
+            self._has_next_page = False
+            return
+
+        self._has_next_page = True
+
+
+def _build_params(config: TeamworkEndpointConfig, updated_after: str | None) -> dict[str, Any]:
+    # `page` is injected by the paginator; the rest are static for the whole sync window.
+    params: dict[str, Any] = {"pageSize": PAGE_SIZE}
     if config.order_by:
         params["orderBy"] = config.order_by
         params["orderMode"] = "asc"
@@ -82,132 +109,79 @@ def _build_params(config: TeamworkEndpointConfig, page: int, updated_after: str 
     return params
 
 
-@retry(
-    retry=retry_if_exception_type((TeamworkRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=60)
-
-    # The session never follows redirects (see `get_rows`), so a 3xx means the validated host tried to
-    # bounce us elsewhere. Refuse it rather than forwarding the Basic auth header off the host boundary.
-    if 300 <= response.status_code < 400:
-        raise ValueError(
-            f"Teamwork API returned an unexpected redirect (status={response.status_code}, url={url}); "
-            "refusing to forward credentials off the validated host."
-        )
-
-    # 429s resume after ~60s on Teamwork; let the exponential backoff handle it. 5xx are transient.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise TeamworkRetryableError(f"Teamwork API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error("Teamwork API error", status=response.status_code, body=response.text, url=url)
-        response.raise_for_status()
-
-    return response.json()
-
-
-def validate_credentials(host: str, api_key: str) -> bool:
-    # /me.json is the cheapest authenticated probe — it only needs a valid key, no extra scopes.
-    url = f"{base_url(host)}/me.json"
-    try:
-        # `allow_redirects=False`: a redirect would forward the Basic auth header off the validated host.
-        response = make_tracked_session(allow_redirects=False).get(url, headers=_auth_header(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def get_rows(
-    host: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TeamworkResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = TEAMWORK_ENDPOINTS[endpoint]
-    headers = _auth_header(api_key)
-    # `allow_redirects=False`: a redirect would forward the Basic auth header off the validated host.
-    session = make_tracked_session(allow_redirects=False)
-
-    is_incremental = should_use_incremental_field and config.incremental_field is not None
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        page = resume.page
-        updated_after = resume.updated_after
-    else:
-        page = 1
-        updated_after = (
-            _format_updated_after(db_incremental_field_last_value)
-            if is_incremental and db_incremental_field_last_value
-            else None
-        )
-
-    endpoint_url = f"{base_url(host)}{config.path}"
-
-    while True:
-        url = f"{endpoint_url}?{urlencode(_build_params(config, page, updated_after))}"
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get(config.data_key, [])
-        has_more = bool(data.get("meta", {}).get("page", {}).get("hasMore", False))
-
-        if items:
-            # Yield the page as-is; the pipeline buffers and batches. Save state AFTER yielding and
-            # pointing at the page we just emitted, so a crash re-yields it (merge dedupes on the
-            # primary key) rather than skipping it.
-            yield items
-            resumable_source_manager.save_state(TeamworkResumeConfig(page=page, updated_after=updated_after))
-
-        if not items or not has_more:
-            break
-
-        if page >= MAX_PAGES:
-            if is_incremental:
-                logger.info(
-                    f"Teamwork: reached the {MAX_PAGES * PAGE_SIZE}-record per-sync cap for '{endpoint}'; "
-                    "remaining rows will sync on the next run as the incremental cursor advances."
-                )
-            else:
-                logger.warning(
-                    f"Teamwork: reached the {MAX_PAGES * PAGE_SIZE}-record per-sync cap for full-refresh "
-                    f"endpoint '{endpoint}'; rows beyond this limit were not synced this run."
-                )
-            break
-
-        page += 1
-
-
 def teamwork_source(
     host: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TeamworkResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = TEAMWORK_ENDPOINTS[endpoint]
 
+    is_incremental = should_use_incremental_field and config.incremental_field is not None
+    updated_after = (
+        _format_updated_after(db_incremental_field_last_value)
+        if is_incremental and db_incremental_field_last_value
+        else None
+    )
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+            # A resumed run rebuilds the SAME query window it started with, not a freshly recomputed one.
+            updated_after = resume.updated_after
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(host),
+            # Only non-secret headers here; the API key travels via framework http_basic auth
+            # (redacted from logs) using the key as username and any value as password.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "http_basic", "username": api_key, "password": "x"},
+            "paginator": TeamworkPaginator(),
+            # Pin every request to the validated host and reject any redirect: the Basic auth
+            # header must never be forwarded off the host boundary (SSRF / credential leak).
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": _build_params(config, updated_after),
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash resumes at
+        # the next page (any re-fetch is deduped on the primary key by the merge).
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(
+                TeamworkResumeConfig(page=int(state["page"]), updated_after=updated_after)
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            host=host,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Rows are requested ascending (orderMode=asc), so the pipeline can checkpoint the watermark
         # after every batch and resume safely mid-sync.
@@ -218,3 +192,15 @@ def teamwork_source(
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(host: str, api_key: str) -> bool:
+    # /me.json is the cheapest authenticated probe — it only needs a valid key, no extra scopes.
+    # allow_redirects=False: a redirect would forward the Basic auth header off the validated host.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(allow_redirects=False),
+        f"{base_url(host)}/me.json",
+        headers={"Accept": "application/json"},
+        auth=HttpBasicAuth(username=api_key, password="x"),
+    )
+    return ok

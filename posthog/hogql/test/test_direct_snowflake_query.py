@@ -24,7 +24,9 @@ from posthog.hogql.snowflake_connection_cache import (
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+        SnowflakeSourceConfig,
+    )
 
 # Snowflake connector type codes (indices into FIELD_ID_TO_NAME). cursor.description
 # reports the integer code, not a name — see snowflake_field_type_to_clickhouse_type.

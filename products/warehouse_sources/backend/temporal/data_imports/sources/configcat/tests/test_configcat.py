@@ -1,3 +1,4 @@
+import json
 import base64
 from typing import Any
 
@@ -7,14 +8,14 @@ from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat import configcat
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.configcat import (
-    ConfigCatRetryableError,
+    CONFIGCAT_BASE_URL,
     _headers,
     check_access,
     configcat_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.settings import (
@@ -22,8 +23,33 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.
     ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_unwrapped = configcat._fetch.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+
+
+def _response(body: Any) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+    """Wire a mock session and capture each request's URL at send time."""
+    session.headers = {}
+    url_snapshots: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        url_snapshots.append(request.url)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestHeaders:
@@ -34,63 +60,44 @@ class TestHeaders:
         assert headers["Accept"] == "application/json"
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(monkeypatch: Any, items: list[dict], endpoint: str = "products") -> list[dict]:
-        def fake_fetch(session: Any, path: str, logger: Any) -> list[dict]:
-            return items
+class TestConfigCatSource:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_yields_full_collection_in_one_request(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        urls = _wire(session, [_response([{"productId": "a"}, {"productId": "b"}])])
 
-        monkeypatch.setattr(configcat, "_fetch", fake_fetch)
-        monkeypatch.setattr(configcat, "make_tracked_session", lambda **kwargs: MagicMock())
+        rows = _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j"))
 
-        rows: list[dict] = []
-        for batch in get_rows(username="user", password="pass", endpoint=endpoint, logger=MagicMock()):
-            rows.extend(batch)
-        return rows
-
-    def test_yields_full_collection_in_one_batch(self, monkeypatch: Any) -> None:
-        rows = self._collect(monkeypatch, [{"productId": "a"}, {"productId": "b"}])
         assert rows == [{"productId": "a"}, {"productId": "b"}]
+        # The list endpoint returns the whole collection in a single response — no pagination.
+        assert session.send.call_count == 1
+        assert urls[0] == f"{CONFIGCAT_BASE_URL}/v1/products"
 
-    def test_empty_collection_yields_nothing(self, monkeypatch: Any) -> None:
-        assert self._collect(monkeypatch, []) == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_collection_yields_no_rows(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
+        assert _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j")) == []
+        assert session.send.call_count == 1
 
-class TestFetch:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_fails_loud(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "nope"})])
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(ConfigCatRetryableError):
-            _fetch_unwrapped(session, "/v1/products", MagicMock())
+        # A 200 body that isn't a bare array means the response shape changed — fail loud instead of
+        # syncing the stray object as a single row.
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(configcat_source("user", "pass", "products", team_id=1, job_id="j"))
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_unwrapped(session, "/v1/products", MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_targets_endpoint_specific_path(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        urls = _wire(session, [_response([{"organizationId": "o"}])])
 
-    def test_success_returns_list_body(self) -> None:
-        body = [{"productId": "a"}]
-        session = self._session_returning(200, body)
-        assert _fetch_unwrapped(session, "/v1/products", MagicMock()) == body
-
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(ConfigCatRetryableError):
-            _fetch_unwrapped(session, "/v1/products", MagicMock())
+        _rows(configcat_source("user", "pass", "organizations", team_id=1, job_id="j"))
+        assert urls[0] == f"{CONFIGCAT_BASE_URL}/v1/organizations"
 
 
 class TestCheckAccess:
@@ -158,8 +165,10 @@ class TestCheckAccess:
 
 class TestConfigCatSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = configcat_source(username="user", password="pass", endpoint=endpoint, logger=MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession: MagicMock) -> None:
+        _wire(MockSession.return_value, [_response([])])
+        response = configcat_source(username="user", password="pass", endpoint=endpoint, team_id=1, job_id="j")
         assert response.name == endpoint
         assert response.primary_keys == CONFIGCAT_ENDPOINTS[endpoint].primary_keys
         # The list endpoints expose no stable timestamp, so we don't partition.

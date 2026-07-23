@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopWiredSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopwired import (
+    ShopWiredSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -99,25 +104,18 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only orders expose a server-side created-date filter (`from`), so every other endpoint is
         # full refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint in INCREMENTAL_FIELDS,
-                supports_append=endpoint in INCREMENTAL_FIELDS,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ShopWiredSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShopWiredSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key/secret pair is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key, config.api_secret)
@@ -138,7 +136,8 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,

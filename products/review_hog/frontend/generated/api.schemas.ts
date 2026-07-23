@@ -515,3 +515,22 @@ export const ReviewHogReviewsListScope = {
     Mine: 'mine',
     Everyone: 'everyone',
 } as const
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
+    /**
+     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope
+}
+
+export type ReviewHogReviewsPerspectiveStatsRetrieveScope =
+    (typeof ReviewHogReviewsPerspectiveStatsRetrieveScope)[keyof typeof ReviewHogReviewsPerspectiveStatsRetrieveScope]
+
+export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const

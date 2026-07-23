@@ -569,10 +569,12 @@ class TestBedrockCountTokensViaProvider:
         )
 
     @pytest.mark.parametrize(
-        "model,expected_mantle_model",
+        "model,region,expected_mantle_model",
         [
-            pytest.param("claude-opus-4-8", "us.anthropic.claude-opus-4-8", id="opus_4_8"),
-            pytest.param("claude-fable-5", "us.anthropic.claude-fable-5", id="fable_5"),
+            pytest.param("claude-opus-4-8", "us-east-1", "us.anthropic.claude-opus-4-8", id="opus_4_8"),
+            pytest.param("claude-fable-5", "us-east-1", "us.anthropic.claude-fable-5", id="fable_5"),
+            # EU maps fable to the global profile; it must skip runtime CountTokens like the us. form.
+            pytest.param("claude-fable-5", "eu-central-1", "global.anthropic.claude-fable-5", id="fable_5_eu_global"),
         ],
     )
     @patch("llm_gateway.api.anthropic.get_settings")
@@ -586,10 +588,11 @@ class TestBedrockCountTokensViaProvider:
         authenticated_client: TestClient,
         valid_request_headers: dict[str, str],
         model: str,
+        region: str,
         expected_mantle_model: str,
     ) -> None:
         mock_settings = MagicMock()
-        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.bedrock_region_name = region
         mock_settings.request_timeout = 300.0
         mock_get_settings.return_value = mock_settings
 
@@ -879,10 +882,17 @@ class TestModelMapping:
 
         assert map_to_bedrock_model("us.anthropic.claude-sonnet-4-6") == "us.anthropic.claude-sonnet-4-6"
 
-    def test_maps_to_eu_profile_for_eu_regions(self) -> None:
+    @pytest.mark.parametrize(
+        "anthropic_model,expected_bedrock_model",
+        [
+            pytest.param("claude-opus-4-6", "eu.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
+            pytest.param("claude-fable-5", "global.anthropic.claude-fable-5", id="fable_5"),
+        ],
+    )
+    def test_maps_to_available_profile_for_eu_regions(self, anthropic_model: str, expected_bedrock_model: str) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
 
-        assert map_to_bedrock_model("claude-opus-4-6", region_name="eu-west-1") == "eu.anthropic.claude-opus-4-6-v1"
+        assert map_to_bedrock_model(anthropic_model, region_name="eu-west-1") == expected_bedrock_model
 
     def test_raises_for_unknown_model(self) -> None:
         from llm_gateway.api.anthropic import map_to_bedrock_model
@@ -914,6 +924,9 @@ class TestSupportsBedrockRuntimeCountTokens:
             pytest.param("us.anthropic.claude-opus-4-8", False, id="unsupported_opus"),
             pytest.param("eu.anthropic.claude-opus-4-8", False, id="unsupported_opus_eu_prefix"),
             pytest.param("us.anthropic.claude-fable-5", False, id="unsupported_fable"),
+            # EU routes fable through the global profile (no eu. geo profile exists for it);
+            # runtime CountTokens rejects it the same as the us. form.
+            pytest.param("global.anthropic.claude-fable-5", False, id="unsupported_fable_global_prefix"),
         ],
     )
     def test_classifies_bedrock_model_ids(self, model: str, expected: bool) -> None:

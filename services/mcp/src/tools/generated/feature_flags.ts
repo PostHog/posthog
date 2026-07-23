@@ -1,7 +1,14 @@
 // AUTO-GENERATED from products/feature_flags/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
+import { castStringToInt } from '@/tools/cast-helpers'
+
 import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
@@ -29,11 +36,6 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
-import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
@@ -141,6 +143,7 @@ const featureFlagGetAll = (): ToolBase<
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                key: params.key,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

@@ -1,20 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import (
-    GOCARDLESS_ENDPOINTS,
-    GoCardlessEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import GOCARDLESS_ENDPOINTS
 
 GOCARDLESS_HOSTS = {
     "live": "https://api.gocardless.com",
@@ -24,13 +26,6 @@ GOCARDLESS_HOSTS = {
 GOCARDLESS_VERSION = "2015-07-06"
 # GoCardless list pages cap at 500 items.
 PAGE_SIZE = 500
-REQUEST_TIMEOUT_SECONDS = 60
-# 1000 req/min rate limit; 429s carry ratelimit headers but backoff suffices.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class GoCardlessRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -40,14 +35,21 @@ class GoCardlessResumeConfig:
     after: str
 
 
-def _get_session(access_token: str) -> requests.Session:
-    return make_tracked_session(
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "GoCardless-Version": GOCARDLESS_VERSION,
-        },
-        redact_values=(access_token,),
-    )
+class GoCardlessCursorPaginator(JSONResponseCursorPaginator):
+    """GoCardless cursor pagination via ``meta.cursors.after`` (``after=<id>``).
+
+    Also stops on an empty page even when the response still carries an ``after``
+    cursor, so a run can never loop on a stale cursor that points at no rows.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="meta.cursors.after", cursor_param="after")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
 
 
 def _base_url(environment: str) -> str:
@@ -67,115 +69,89 @@ def _format_created_at(value: Any) -> str:
     return str(value)
 
 
-def _build_params(
-    config: GoCardlessEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-    after: Optional[str],
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
-
-    if config.incremental_fields and should_use_incremental_field and db_incremental_field_last_value is not None:
-        # `gte` re-fetches the boundary row (merge dedupes on primary key) so
-        # records sharing the watermark timestamp are never skipped.
-        params["created_at[gte]"] = _format_created_at(db_incremental_field_last_value)
-
-    if after is not None:
-        params["after"] = after
-
-    return params
-
-
 def validate_credentials(environment: str, access_token: str) -> bool:
     """Confirm the access token is valid with a cheap one-customer probe."""
     try:
-        response = _get_session(access_token).get(
-            f"{_base_url(environment)}/customers?{urlencode({'limit': 1})}",
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
+        base_url = _base_url(environment)
+    except ValueError:
         return False
 
-
-def get_rows(
-    environment: str,
-    access_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[GoCardlessResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = GOCARDLESS_ENDPOINTS[endpoint]
-    session = _get_session(access_token)
-    base_url = _base_url(environment)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    after: Optional[str] = resume_config.after if resume_config is not None else None
-    if after is not None:
-        logger.debug(f"GoCardless: resuming {endpoint} from cursor {after}")
-
-    @retry(
-        retry=retry_if_exception_type((GoCardlessRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,)),
+        f"{base_url}/customers?{urlencode({'limit': 1})}",
+        headers={"Authorization": f"Bearer {access_token}", "GoCardless-Version": GOCARDLESS_VERSION},
     )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GoCardlessRetryableError(
-                f"GoCardless API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"GoCardless API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, after)
-        data = fetch_page(f"{base_url}{config.path}?{urlencode(params)}")
-        items = data.get(config.data_key, []) or []
-
-        if items:
-            yield items
-
-        next_after = ((data.get("meta") or {}).get("cursors") or {}).get("after")
-        if not next_after or not items:
-            break
-
-        after = next_after
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(GoCardlessResumeConfig(after=after))
+    return ok
 
 
 def gocardless_source(
     environment: str,
     access_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[GoCardlessResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GOCARDLESS_ENDPOINTS[endpoint]
+    base_url = _base_url(environment)
+
+    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    if config.incremental_fields and db_incremental_field_last_value is not None:
+        # `gte` re-fetches the boundary row (merge dedupes on primary key) so
+        # records sharing the watermark timestamp are never skipped.
+        params["created_at[gte]"] = _format_created_at(db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted
+            # from logs and raised errors; only the non-secret version header is set here.
+            "headers": {"GoCardless-Version": GOCARDLESS_VERSION},
+            "auth": {"type": "bearer", "token": access_token},
+            "paginator": GoCardlessCursorPaginator(),
+            # Cursor pagination stays on the base host; pin every request (including a seeded
+            # resume cursor) to it so a spoofed response can't redirect the token off-host.
+            "allowed_hosts": [],
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # GoCardless wraps rows under a per-resource key; a missing key is treated
+                    # as an empty page (not fail-loud), matching the hand-rolled behavior.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"cursor": resume.after}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on primary key) rather than skipping it.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(GoCardlessResumeConfig(after=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            environment=environment,
-            access_token=access_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
@@ -185,4 +161,5 @@ def gocardless_source(
         # GoCardless lists are reverse-chronological with no sort param; the
         # pipeline commits desc-sort watermarks only when a run completes.
         sort_mode="desc" if config.incremental_fields else "asc",
+        column_hints=resource.column_hints,
     )

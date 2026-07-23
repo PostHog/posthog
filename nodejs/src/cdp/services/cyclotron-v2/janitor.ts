@@ -4,7 +4,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
-import { CyclotronJobInvocationHogFlow } from '../../types'
+import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorConfig } from './types'
@@ -13,6 +13,24 @@ import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorCon
 // the janitor writes when it gives up on a poison pill. Lets operators target
 // exactly these give-ups from the rerun tooling (rerun filter `error_kind`).
 export const JANITOR_POISON_PILL_ERROR_KIND = 'janitor_poison_pill'
+
+// Only jobs on a real invocation queue carry a replayable invocation. Everything else on this
+// shared cyclotron_jobs table (the rerun + batch-resolve wrappers, and any future meta queue) has a
+// `function_id` pointing at a target function and a `state` that is not an invocation — recording
+// one as a give-up would tag it `function_kind='hog_flow'` and let the autodrain replay a real flow
+// with fabricated globals (see recordAndDeletePoisonPills). So the janitor records give-ups only for
+// this allow-list and drops everything else without a record. Keying off the canonical allow-list
+// (it *is* the `CyclotronJobQueueKind` type) is deliberately fail-safe: a new meta queue is dropped
+// by default, and a new invocation queue has to be added to this list to compile — no hand-kept
+// deny-list to fall out of sync (which is how the batch-resolve queue was missed originally).
+const INVOCATION_QUEUE_NAMES: string[] = [...CYCLOTRON_INVOCATION_JOB_QUEUES]
+
+// The first stall gets only this small jittered delay (not the full exponential
+// base), so a transient stall — a worker restart/deploy, where a healthy worker
+// should pick the job right back up — recovers in seconds rather than waiting a
+// full backoff step. The jitter still de-syncs a fleet-wide herd on that first
+// retry. Repeat stalls (a persistent signal) then pay the growing exponential.
+const STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 
 const janitorDeletedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_deleted',
@@ -33,6 +51,11 @@ const janitorPoisonedCounter = new Counter({
 const janitorGiveUpSkippedCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_give_up_skipped',
     help: 'Poison pills the janitor could not record a recovery row for, so kept (not deleted)',
+})
+
+const janitorWrapperDroppedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_wrapper_dropped',
+    help: 'Poisoned wrapper/meta jobs dropped without a replay record (a wrapper is not a replayable invocation)',
 })
 
 const janitorRunCounter = new Counter({
@@ -75,6 +98,8 @@ export class CyclotronV2Janitor {
     private readonly maxTouchCount: number
     private readonly cleanupGraceMs: number
     private readonly poisonRecoveryEnabled: boolean
+    private readonly stallBackoffBaseMs: number
+    private readonly stallBackoffMaxMs: number
 
     constructor(
         config: CyclotronV2JanitorConfig,
@@ -95,6 +120,13 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
+        // Clamp against a misconfigured value: a non-positive base disables backoff
+        // (same as 0), and a non-positive cap falls back to the default — otherwise
+        // a negative cap would win the LEAST() and schedule the retry in the past.
+        const backoffBaseMs = config.stallBackoffBaseMs ?? 60000
+        const backoffMaxMs = config.stallBackoffMaxMs ?? 600000
+        this.stallBackoffBaseMs = backoffBaseMs > 0 ? backoffBaseMs : 0
+        this.stallBackoffMaxMs = backoffMaxMs > 0 ? backoffMaxMs : 600000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -225,6 +257,15 @@ export class CyclotronV2Janitor {
     private async recordAndDeletePoisonPills(): Promise<string[]> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
+        // Wrapper/meta jobs (rerun, batch-resolve, any future non-invocation queue) share this table.
+        // A wrapper is not a replayable invocation — recording one as a `failed` result would give it
+        // `function_kind='hog_flow'` with the target's `function_id` (poisonRowToInvocation always tags
+        // hogFlow), making it indistinguishable from a genuine poisoned flow, and the autodrain would
+        // then rediscover and replay a real flow with fabricated globals. So give up on anything not on
+        // an invocation queue separately: delete it with NO record. This is self-healing — the work a
+        // wrapper was driving is re-derived on its next run.
+        await this.dropWrapperPoisonPills(heartbeatCutoff)
+
         const result = await this.pool.query<PoisonRow>(
             `SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
                     parent_run_id, state, distinct_id, person_id, action_id,
@@ -233,10 +274,11 @@ export class CyclotronV2Janitor {
              WHERE status = 'running'
                AND COALESCE(last_heartbeat, $1) <= $1
                AND janitor_touch_count >= $2
+               AND queue_name = ANY($4::text[])
              ORDER BY last_transition ASC
              LIMIT $3
              FOR UPDATE SKIP LOCKED`,
-            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+            [heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize, INVOCATION_QUEUE_NAMES]
         )
 
         if (result.rows.length === 0) {
@@ -306,6 +348,46 @@ export class CyclotronV2Janitor {
         return deletedIds
     }
 
+    /**
+     * Give up on poisoned wrapper/meta jobs — anything not on an invocation queue (rerun,
+     * batch-resolve, any future meta queue) — by deleting them with no replay record. See the
+     * rationale in recordAndDeletePoisonPills. A wrapper is not a replayable invocation, so there is
+     * nothing meaningful to record; dropping it is safe and self-healing (its work is re-derived on
+     * the next run).
+     */
+    private async dropWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
+        // Bound the delete to cleanupBatchSize and pick rows via FOR UPDATE SKIP
+        // LOCKED, mirroring the genuine-poison-pill path below. This runs first in
+        // the tick: an unbounded delete could both lock a large row set and block on
+        // a row a worker/other janitor holds, stalling the whole tick before genuine
+        // pills get recorded. Skipping locked rows and capping the batch keeps the
+        // wrapper drain from starving the rest of the sweep — leftovers drain next tick.
+        const deleted = await this.pool.query<{ id: string }>(
+            `DELETE FROM cyclotron_jobs
+             WHERE id IN (
+                 SELECT id FROM cyclotron_jobs
+                 WHERE status = 'running'
+                   AND queue_name <> ALL($1::text[])
+                   AND COALESCE(last_heartbeat, $2) <= $2
+                   AND janitor_touch_count >= $3
+                 ORDER BY last_transition ASC
+                 LIMIT $4
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id`,
+            [INVOCATION_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+        )
+        const count = deleted.rows.length
+        if (count > 0) {
+            janitorWrapperDroppedCounter.inc(count)
+            logger.warn('CyclotronV2Janitor dropped poisoned wrapper jobs (no replay record — meta-job)', {
+                count,
+                ids: deleted.rows.map((r) => r.id),
+            })
+        }
+        return count
+    }
+
     // Turn a raw poisoned row into a hog flow invocation the results service can
     // serialize. postgres-v2 backs hog flows, so we tag it as such — the stub
     // `hogFlow` carries only the id the lifecycle row needs (function_id), while
@@ -339,6 +421,28 @@ export class CyclotronV2Janitor {
     private async resetStalledJobs(): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
+        // Defer the reset job's next scheduled time so repeated stalls back off
+        // and a fleet-wide stall doesn't immediately re-flood the workers that
+        // just recovered. Two parts, both jittered to break a synchronized herd:
+        //   1. a small first-retry spread (0..FIRST_RETRY_SPREAD_MS) applied every
+        //      reset — on the FIRST stall it's the whole delay, so a transient
+        //      stall retries within seconds instead of a full backoff step;
+        //   2. an exponential term shifted by one (`2^touch_count - 1`), so it's 0
+        //      on the first stall and grows ~base, ~3x base, ... on repeats,
+        //      capped at max — half-jitter ([0.5, 1] x) on this part.
+        // Disabled when stallBackoffBaseMs <= 0 — scheduled is left untouched
+        // (immediate retry, the pre-backoff behavior).
+        const backoffEnabled = this.stallBackoffBaseMs > 0
+        const backoffClause = backoffEnabled
+            ? `, scheduled = NOW() + (
+                   $4::float8 * random()
+                   + LEAST($2::float8 * (POWER(2, janitor_touch_count) - 1), $3::float8) * (0.5 + 0.5 * random())
+               ) * INTERVAL '1 millisecond'`
+            : ''
+        const params: (Date | number)[] = backoffEnabled
+            ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
+            : [heartbeatCutoff]
+
         const result = await this.pool.query(
             `WITH stalled AS (
                 SELECT id
@@ -349,10 +453,10 @@ export class CyclotronV2Janitor {
             )
             UPDATE cyclotron_jobs
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                janitor_touch_count = janitor_touch_count + 1
+                janitor_touch_count = janitor_touch_count + 1${backoffClause}
             FROM stalled
             WHERE cyclotron_jobs.id = stalled.id`,
-            [heartbeatCutoff]
+            params
         )
 
         const count = result.rowCount ?? 0

@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TailscaleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tailscale import (
+    TailscaleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.settings import (
     AUDIT_LOG_RETENTION_DAYS,
     AUDIT_LOGS_ENDPOINT,
@@ -157,6 +159,7 @@ Alternatively, generate an API access token under **Settings > Keys**. Leave the
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -178,7 +181,11 @@ Alternatively, generate an API access token under **Settings > Keys**. Leave the
         return schemas
 
     def validate_credentials(
-        self, config: TailscaleSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TailscaleSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_tailscale_credentials(
             api_key=config.auth_method.api_key,

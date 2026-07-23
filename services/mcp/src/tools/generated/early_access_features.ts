@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/early_access_features/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     EarlyAccessFeatureCreateBody,
     EarlyAccessFeatureDestroyParams,
@@ -10,8 +14,6 @@ import {
     EarlyAccessFeaturePartialUpdateParams,
     EarlyAccessFeatureRetrieveParams,
 } from '@/generated/early_access_features/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EarlyAccessFeatureCreateSchema = EarlyAccessFeatureCreateBody.omit({ _create_in_folder: true })
 

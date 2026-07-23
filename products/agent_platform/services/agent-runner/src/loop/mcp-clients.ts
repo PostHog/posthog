@@ -223,6 +223,10 @@ export interface OpenMcpClientsDeps {
     identity?: {
         resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
     }
+    /** Provider ids backed by declared, linkable `identity_providers[]` entries.
+     * Auth failures for implicit seed-only providers must not be advertised as
+     * repairable through `@posthog/identity-connect`. */
+    linkableProviders?: ReadonlySet<string>
     /**
      * Agent-level shared-credential resolver (`ref.connection` → a native
      * `mcp_store` installation), team-bound by the worker. Returns the upstream
@@ -303,7 +307,10 @@ export async function openMcpClients(
             ref,
             category,
             devReason: err.message,
-            provider: category === 'auth' ? ref.auth?.provider : undefined,
+            provider:
+                category === 'auth' && ref.auth?.provider && deps.linkableProviders?.has(ref.auth.provider)
+                    ? ref.auth.provider
+                    : undefined,
         })
         log('warn', 'mcp.open.failed', { prefix: ref.id, category, devReason: err.message })
     }

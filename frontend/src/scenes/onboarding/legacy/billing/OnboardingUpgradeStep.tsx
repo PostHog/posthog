@@ -58,13 +58,14 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
         <OnboardingStep
             title="Select a plan"
             stepKey={OnboardingStepKey.PLANS}
-            // The packages screen carries its own heading and its own Skip/Next nav (below the cards),
-            // so the "Select a plan" title (misleading once subscribed) and the bottom Next are dropped there.
-            hideTitle={showPlatformPackages}
+            // Once subscribed there's no plan left to select — both the celebration screen and the
+            // packages screen (which carries its own heading) contradict the "Select a plan" title,
+            // so drop it. The packages screen also brings its own Skip/Next nav below the cards.
+            hideTitle={!!product.subscribed}
             showContinue={!!product.subscribed && !showPlatformPackages}
         >
             {!product.subscribed && <PlanCards product={product} />}
-            {product.subscribed && !showPlatformPackages && <SubscribedCelebration product={product} />}
+            {product.subscribed && !showPlatformPackages && <SubscribedCelebration />}
             {showPlatformPackages && platformProduct && (
                 <PlatformPackagesUpsell
                     platformProduct={platformProduct}
@@ -79,7 +80,7 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
 }
 OnboardingUpgradeStep.stepKey = OnboardingStepKey.PLANS
 
-const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+const SubscribedCelebration = (): JSX.Element => {
     const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
     useEffect(() => {
@@ -104,9 +105,8 @@ const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): 
             </div>
 
             <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
-            <p className="text-gray-700 dark:text-gray-400">
-                You've unlocked all features for <strong>{product.name}</strong>.
-            </p>
+            {/* Subscribing unlocks every product, so don't scope this to the product being onboarded. */}
+            <p className="text-gray-700 dark:text-gray-400">You're all signed up. You've unlocked all features.</p>
         </div>
     )
 }

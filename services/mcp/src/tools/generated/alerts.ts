@@ -1,7 +1,11 @@
 // AUTO-GENERATED from products/alerts/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+
 import {
     AlertsCreateBody,
     AlertsDestroyParams,
@@ -12,8 +16,6 @@ import {
     AlertsRetrieveQueryParams,
     AlertsSimulateCreateBody,
 } from '@/generated/alerts/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertCreateSchema = AlertsCreateBody
 
@@ -225,7 +227,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/insights?tab=alerts')
+        return await withPostHogUrl(context, result, '/alerts')
     },
 })
 

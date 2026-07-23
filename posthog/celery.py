@@ -1,6 +1,7 @@
 import os
 import time
 import errno
+import threading
 
 from django.dispatch import receiver
 
@@ -219,6 +220,9 @@ def on_worker_start(**kwargs) -> None:
     _initialize_worker_metrics()
 
 
+_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
+
+
 @worker_process_shutdown.connect
 def on_worker_process_shutdown(**kwargs) -> None:
     """Remove metric files for this child so recycled workers don't leak stale data."""
@@ -226,6 +230,33 @@ def on_worker_process_shutdown(**kwargs) -> None:
         from prometheus_client import multiprocess
 
         multiprocess.mark_process_dead(os.getpid())
+
+    # Flush the posthoganalytics SDK's final metrics window: `client.metrics`
+    # aggregates in memory and flushes on an interval, so a recycled child
+    # (--max-tasks-per-child) would otherwise drop up to one interval of samples.
+    # Inert on SDK versions without the metrics API and on untouched/disabled clients.
+    import posthoganalytics  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    try:
+        client = posthoganalytics.default_client
+        metrics = getattr(client, "metrics", None) if client is not None else None
+        if metrics is not None:
+            # Bound the wait: an unreachable metrics endpoint must not hold a
+            # recycling child hostage (same hazard otel_instrumentation.py caps
+            # with a 5s force_flush). The daemon thread is abandoned on timeout.
+            def _flush() -> None:
+                try:
+                    metrics.flush()
+                except Exception:
+                    logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+            flush_thread = threading.Thread(target=_flush, name="posthoganalytics-metrics-flush", daemon=True)
+            flush_thread.start()
+            flush_thread.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
+            if flush_thread.is_alive():
+                logger.warning("posthoganalytics_metrics_flush_timed_out")
+    except Exception:
+        logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
 
 
 # Set up clickhouse query instrumentation

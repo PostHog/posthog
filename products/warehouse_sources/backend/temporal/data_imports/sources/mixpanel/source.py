@@ -22,15 +22,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MixpanelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
+    MixpanelSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
     MixpanelResumeConfig,
     mixpanel_source,
     validate_credentials as validate_mixpanel_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
+    DEFAULT_API_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_API_VERSIONS,
     SUPPORTS_INCREMENTAL,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -38,7 +42,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
-    api_docs_url = "https://developer.mixpanel.com"
+    api_docs_url = "https://developer.mixpanel.com/reference/raw-data-export-api"
+
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -125,6 +132,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -142,7 +150,11 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
         return schemas
 
     def validate_credentials(
-        self, config: MixpanelSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MixpanelSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_mixpanel_credentials(
             region=config.region,
@@ -163,6 +175,12 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
                 "access to the project and reconnect."
             ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 (rate limit) or 5xx is retried internally honoring Retry-After; if those retries
+        # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
+        # activity without surfacing it as tracked exception noise.
+        return {"Mixpanel API error (retryable)"}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)
@@ -185,4 +203,5 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
