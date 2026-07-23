@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+import psycopg
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
     DuckgresColumn,
     _ensure_duckgres_apply_table,
@@ -734,28 +736,42 @@ class TestLiveSessionReuse:
 
 
 def _existence_conn(exists: bool):
-    """A mock connection whose information_schema probe reports table existence."""
+    """A mock connection whose LIMIT-0 probe reports existence: it succeeds when
+    the table exists, and raises duckgres's XX000 "... does not exist" when not."""
     conn = MagicMock()
-    cur = MagicMock()
-    cur.fetchone.return_value = (1,) if exists else None
-    conn.execute.return_value = cur
+    if not exists:
+        conn.execute.side_effect = psycopg.errors.InternalError_(
+            "flight execute: ... Catalog Error: Table with name t does not exist!"
+        )
     return conn
 
 
-class TestTableExistsCache:
-    """`information_schema.tables` forces duckgres to materialize its whole-catalog
-    compat view — tens of seconds under concurrent snapshot commits on a large
-    DuckLake catalog (prod, 2026-07). Cache the answer per connection so it is
-    paid at most once per connection, not once per batch."""
+class TestTableExistsProbeAndCache:
+    """The existence check the sink runs every non-first batch: a cheap
+    single-table LIMIT-0 probe (the whole-catalog information_schema check cost
+    ~48s under concurrent snapshot commits, prod 2026-07), cached per connection."""
 
-    def test_second_check_on_same_connection_skips_the_catalog_query(self):
+    def test_probe_succeeds_means_exists(self):
+        assert _table_exists(_existence_conn(True), "s", "t") is True
+
+    def test_probe_not_found_means_absent(self):
+        assert _table_exists(_existence_conn(False), "s", "t") is False
+
+    def test_other_error_propagates_not_treated_as_absent(self):
+        # A transient failure must NOT be read as "table absent" (that would pick
+        # the create path); only DuckDB's "does not exist" means absent.
+        conn = MagicMock()
+        conn.execute.side_effect = psycopg.errors.InternalError_("flight execute: rpc error: Unavailable")
+        with pytest.raises(psycopg.Error):
+            _table_exists(conn, "s", "t")
+
+    def test_second_check_on_same_connection_skips_the_probe(self):
         conn = _existence_conn(True)
         assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
         assert _table_exists(conn, "posthog_data_imports_team_1", "customers") is True
-        # information_schema queried exactly once despite two existence checks.
-        assert conn.execute.call_count == 1
+        assert conn.execute.call_count == 1  # probed once despite two checks
 
-    def test_distinct_tables_each_check_once(self):
+    def test_distinct_tables_each_probe_once(self):
         conn = _existence_conn(True)
         _table_exists(conn, "s", "a")
         _table_exists(conn, "s", "b")

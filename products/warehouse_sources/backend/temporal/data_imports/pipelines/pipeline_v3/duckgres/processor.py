@@ -649,10 +649,10 @@ def _plan_batch_operation(
     raise PermanentBatchApplyError(f"Unsupported Duckgres sync type: {batch.sync_type}")
 
 
-# Per-connection cache of tables confirmed to exist: the information_schema
-# probe below is expensive on a large, high-churn DuckLake catalog and the sink
-# runs it every non-first batch. Only positive results are cached (a table may
-# be created between batches); GC'd with the connection, so reuse re-checks.
+# Per-connection cache of tables confirmed to exist: the sink checks existence
+# every non-first batch, so cache positive results (a table stays existing for
+# the connection's life — the sink never drops tables mid-run). Only positives
+# are cached (a table may be created between batches); GC'd with the connection.
 _existing_tables: WeakKeyDictionary[psycopg.Connection[Any], set[tuple[str, str]]] = WeakKeyDictionary()
 
 
@@ -660,20 +660,32 @@ def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_
     known = _existing_tables.setdefault(conn, set())
     if (duckgres_schema, duckgres_table) in known:
         return True
-    cursor = conn.execute(
-        """
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = %s
-            AND table_name = %s
-        LIMIT 1
-        """,
-        [duckgres_schema, duckgres_table],
-    )
-    exists = cursor.fetchone() is not None
+    exists = _probe_table_exists(conn, duckgres_schema, duckgres_table)
     if exists:
         known.add((duckgres_schema, duckgres_table))
     return exists
+
+
+def _probe_table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str) -> bool:
+    """Cheap single-table existence probe (autocommit, so a raised error is inert).
+
+    A `LIMIT 0` reference loads only this table's metadata (~0.1-0.6s even under
+    concurrent snapshot commits); the former `information_schema.tables` check
+    re-materialized the whole catalog (~48s under load on a large catalog).
+    duckgres reports a missing table as a generic XX000 carrying DuckDB's stable
+    "... does not exist" message; anything else is a real error and propagates.
+    """
+    try:
+        conn.execute(
+            sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(
+                sql.Identifier(duckgres_schema), sql.Identifier(duckgres_table)
+            )
+        )
+        return True
+    except psycopg.Error as err:
+        if "does not exist" in str(err).lower():
+            return False
+        raise
 
 
 def _replace_table(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, paths: list[str]) -> None:
