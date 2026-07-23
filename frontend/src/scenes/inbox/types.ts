@@ -290,36 +290,6 @@ export interface SignalRun {
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
-/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
-export type ScoutOrigin = 'canonical' | 'custom'
-
-/** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
-export interface SignalScoutConfig {
-    id: string
-    /** The `signals-scout-*` skill this config controls. Fixed at creation. */
-    skill_name: string
-    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
-    description: string
-    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
-    scout_origin: ScoutOrigin
-    /** Whether this scout runs on its schedule. */
-    enabled: boolean
-    /** Whether the scout writes findings to the inbox. false = dry-run. */
-    emit: boolean
-    /** Minutes between runs (30–43200). */
-    run_interval_minutes: number
-    /** When the coordinator last dispatched this scout; null if never. */
-    last_run_at: string | null
-    created_at: string
-}
-
-/** Editable subset of a scout config (PATCH `signals/scout/configs/{id}`). */
-export interface SignalScoutConfigUpdate {
-    enabled?: boolean
-    emit?: boolean
-    run_interval_minutes?: number
-}
-
 /** Status from the linked TaskRun behind a scout run. */
 export type SignalScoutRunStatus = 'not_started' | 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 

@@ -2484,11 +2484,11 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-metric-run": {
-        "description": "Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result as canonical.",
+        "description": "Run a governed metric from the semantic layer — the source of truth for business measures and KPIs. For an executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result as canonical.",
         "category": "Data catalog",
         "feature": "data_catalog",
-        "summary": "Run a catalog metric",
-        "title": "Run a catalog metric",
+        "summary": "Run a governed metric (semantic layer)",
+        "title": "Run a governed metric (semantic layer)",
         "required_scopes": ["data_catalog:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5719,34 +5719,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-parser-recipe-create": {
-        "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Compiles, validates, and saves a custom parser recipe for an LLM analytics trace event.",
-        "title": "Create parser recipe",
-        "required_scopes": ["llm_analytics:write", "query:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-parser-recipe-reference": {
-        "description": "Returns the LLM analytics parser recipe DSL reference: the syntax and a set of worked examples for writing parser recipes. Call this before `llma-parser-recipe-create` so you know the recipe grammar.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Returns the parser recipe DSL syntax and worked examples.",
-        "title": "Parser recipe reference",
-        "required_scopes": ["llm_analytics:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-personal-spend": {
         "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product` query param is required and scopes the tool / model / day breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
@@ -7729,8 +7701,24 @@
         "feature_flag": "mcp-analytics",
         "system_prompt_hint": "Distinct effective descriptions seen for one MCP tool"
     },
+    "query-mcp-tool-failure-occurrences": {
+        "description": "Return individual errored $mcp_tool_call events for a single MCP tool within one failure bucket, newest first (up to 50). Each occurrence carries the timestamp, distinct_id, session id, resolved harness, the agent's stated intent, the captured error message ($mcp_error_message — empty on events that predate message capture), and the HTTP status. Pass toolName plus the errorType (raw $mcp_error_type; \"unknown\" for events without one) and optional errorStatus exactly as returned by query-mcp-tool-failures — when errorStatus is omitted, only events without a status match. Use to answer \"show me the actual errors\" after a failure bucket looks suspicious.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Individual errored calls in one failure bucket",
+        "title": "Individual errored calls in one failure bucket",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Individual errored calls (with error messages) for one MCP tool's failure bucket"
+    },
     "query-mcp-tool-failures": {
-        "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status (there is no free-text error message on tool calls). Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+        "description": "Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error rate — grouped by $mcp_error_type and HTTP $mcp_error_status. Each bucket carries the raw error_type and error_status, which you can pass to query-mcp-tool-failure-occurrences to see individual errored calls with their error messages. Pass toolName (effective tool name, resolved server-side, matching the other tool-detail tools) and a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Top errors for one MCP tool",
@@ -8230,7 +8218,7 @@
         }
     },
     "scout-config-create": {
-        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *' that takes precedence when set), `enabled`, and `emit` (false = dry-run). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout config",
@@ -8258,7 +8246,7 @@
         }
     },
     "scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project. Each `signals-scout-*` skill has one row with its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -8286,7 +8274,7 @@
         }
     },
     "scout-config-update": {
-        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "description": "Tune one scout by its config `id`: change its schedule (rolling `run_interval_minutes`, 30–43200, or a five-field cron `run_cron_schedule` like '30 9 * * *', '0 9,17 * * *', or '0 9 * * 1-5' that takes precedence when set), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). Cron schedules use the project timezone automatically and occurrences must be at least 30 minutes apart; set null to return to the rolling interval. `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a scout config",
@@ -8482,7 +8470,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",

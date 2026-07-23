@@ -2317,9 +2317,9 @@ snapshots:
     exporter-trends--trends-pie-insight-legend--light:
         hash: v1.k794b7964.2eee29146a4cd703a88df5986742cf2bfe804374e9b46e04f3a065acb3bb0d8f.vDNDFJu83-A5zpZF5hhUW1uHl36Hd18AwHbnNLrLnOA
     exporter-trends--trends-table-insight--dark:
-        hash: v1.k794b7964.92191f5d6ed09bce9843b2168a0ae277493e522cfb6bd52fd7a5b91397d91fa5.2VnfYOZnlJzHQtD34o5Rws-OY7mm8onFWP_ZIfiPj-8
+        hash: v1.k794b7964.d2351308c6493ff330fef71e6af5d43c0a52ef28004f39d7112c49cb9ba6b4d4.vVRXq4GJ2nofvbBEpopRDL3DsKgpTC2fL5H4KNEdjMU
     exporter-trends--trends-table-insight--light:
-        hash: v1.k794b7964.fbfe6112e758938dcdce47ad87f44b5a12846796ae55ffebbc7f5c1f2b796fa3.cjdnak6QmLsWypy7NBfjJLFAJPHwao2i6QwqgqIvjpc
+        hash: v1.k794b7964.249fa82816a002cc5dd7af1b232914f0a1a638365d47cd51c8cff80a1fe91958.gJ72UIUwBqI7vOSBJqnbpJzbA9WurFHjhYIhLRjl3v0
     exporter-trends--trends-world-map-insight--dark:
         hash: v1.k794b7964.9db49f05cafcb9471da9287819b17a7c76eb7c28f0de19dc53501063d8a4b47d.Or90JHFX4C_EH0id0iP_FCW07ZXb280MhNhhWtXvgQQ
     exporter-trends--trends-world-map-insight--light:
@@ -4709,7 +4709,7 @@ snapshots:
     products-alerts-alert-modal--create-wizard--dark:
         hash: v1.k794b7964.e3efb1235db76f2fe8b3ccff465df9b84263211b8648d57a725cfcf3a92c08c9.mTtZUY5-gkDVf9yjhBIR_Cx1_5arKEIEJh-2g-cLQBQ
     products-alerts-alert-modal--create-wizard--light:
-        hash: v1.k794b7964.5d3e5771de5e54394886c7912e522f324add97132f71b60692b5d6efaeb8fdd3.mki0HDX74WZcOqtylWsX2ebTI-U1tVS9-5XcmKpY-bo
+        hash: v1.k794b7964.494bd726adc6e478744c5418538e1e5bc6e3afdffd7ffc6ee5db7f9447736ad8.XrOtsQ190MyCOe3g_QspkQn_2iNZXZmb0QaWh1xt-t8
     products-alerts-alert-modal--edit-alert--dark:
         hash: v1.k794b7964.1b0b3ec51cc999c02f8442559b676a2e2f352998c0f3d4a9b10da7da8fc3aac1.ZktPS8oprYMZQ-rLsncCgMlyidqF97zUzqDfKjQGo1A
     products-alerts-alert-modal--edit-alert--light:
@@ -4754,6 +4754,10 @@ snapshots:
         hash: v1.k794b7964.3f137bbf7a90843202ca75d89d5dec7f102945cf55f2c4532ccac3b4e8073c9b.phN1IPBCANIC0EsrGxopacxr96qniH5DnAm-ZnKVUz0
     products-alerts-shared-components--notifications--light:
         hash: v1.k794b7964.240b6085693c57e601cf978fe479a2cb6124c80c7cd743f44ff61744e94c90bb.v4D0nGdwscIlnUoeTqwHQsyEggk4eOm3GBGvgvFkXII
+    products-alerts-shared-components--notifications-multiple-slack-workspaces--dark:
+        hash: v1.k794b7964.44080ef3cc8fb24fb5ad535ee387b4911358d8804045747939750530be5c6235.7UCJ4oJX1LEan-IVOu2iA5Hzz14HQQoZENCw_SMOxss
+    products-alerts-shared-components--notifications-multiple-slack-workspaces--light:
+        hash: v1.k794b7964.7af987b36145b9e49adca1cbc6d1a4616ae94866476f72bc510ab96d286e4133.3H70LHwnl5IAqi3fUW4lQZZ7UT9o23krCbiAdBvWpvY
     products-alerts-shared-components--quiet-hours--dark:
         hash: v1.k794b7964.3a4e054512c5b607cf75f1cc3e6dd2212333d05e4fb89274b580b47f01e5aeaf.nPp2_jJIgcpjkQgHQA63v-eqzVox-oIfDi3SQKPdRis
     products-alerts-shared-components--quiet-hours--light:
@@ -6299,9 +6303,9 @@ snapshots:
     scenes-app-insights-loading-messages--loading-messages--light:
         hash: v1.k794b7964.8127887a8cefedcd7ed93385885d6847022c7fa290f01ba60c42deb1216aa9b8.7DnuefE-HifUz5vzz32GzJAmV6eG8Or-yMF3OpaDuw8
     scenes-app-insights-mcp-missing-capability--mcp-missing-capability--dark:
-        hash: v1.k794b7964.f250895219333202c28d21570219a9430aa10b41a3851e0c1c4dbda4f46d4f78.m8QqxDmzk6Rif-oSNHNpYIIn0wvVDHCVYB63cime7eE
+        hash: v1.k794b7964.0437dd655c7b78ec6e051f8a966a3db0aacaa698bbd575887696f03b1d277fc6.xBIh6OnGCQTM0zftdVNaO6ig0h-4oLpd3bIDgixmAzw
     scenes-app-insights-mcp-missing-capability--mcp-missing-capability--light:
-        hash: v1.k794b7964.f16f9a878965f2a9c65430ae15d8f28aa5e42cf06d164c2d8a34bcbb825403bf.V9V7xTdOK4Ae-b5Ks5E5oZCMfBIxv_HImZRcJUFOMLc
+        hash: v1.k794b7964.27c8a5311feed5b8811a92f4651a5437b1776718dd951ac103c986a320c912e7.zv4ZV2Lh4TbIBWDm-5xZh6P6s6R55ut_-jDmzNAt7b0
     scenes-app-insights-side-panel-actions--saved-data-visualization--dark:
         hash: v1.k794b7964.3911a695d4b7b073bd0bfbaa183acb078d81df968e2cfecd18f84bc1c181bb66.2Hh9UrgF9n3vN3ZVif3FKqyz4F9mFROKhyLIEflEvDY
     scenes-app-insights-side-panel-actions--saved-data-visualization--light:
