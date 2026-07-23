@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -817,6 +817,60 @@ describe('StateManager', () => {
 
             await stateManager.getOrFetchGroupTypes(projectId)
             expect(getGroupTypes).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([
+            [
+                'a 404 from a direct project/org get (user not a member of the org)',
+                new PostHogApiError({
+                    status: 404,
+                    statusText: 'Not Found',
+                    body: '{"type":"authentication_error","detail":"You need to belong to an organization."}',
+                    url: 'https://app.posthog.com/api/projects/42/',
+                    method: 'GET',
+                }),
+            ],
+            [
+                'a 403 permission_denied',
+                new PostHogPermissionError({
+                    detail: 'permission denied',
+                    url: 'https://app.posthog.com/api/projects/42/',
+                    method: 'GET',
+                }),
+            ],
+        ])('does not capture %s (recoverable user-config state)', async (_label, error) => {
+            // Reached via getOrgField -> getCachedOrFetchProject on every MCP
+            // request; a token whose org membership changed keeps hitting this.
+            // Capturing it would flood the AI team's error tracking.
+            const getGroupTypes = vi.fn().mockRejectedValue(error)
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toBeUndefined()
+            expect(reportSpy).not.toHaveBeenCalled()
+        })
+
+        it('still captures genuine failures (5xx and unexpected errors)', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(
+                new PostHogApiError({
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    body: 'boom',
+                    url: 'https://app.posthog.com/api/projects/42/',
+                    method: 'GET',
+                })
+            )
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toBeUndefined()
+            expect(reportSpy).toHaveBeenCalledOnce()
         })
 
         it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
