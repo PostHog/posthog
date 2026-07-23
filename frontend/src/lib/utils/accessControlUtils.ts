@@ -43,7 +43,7 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The maximum access level required, or null if no maximum is set
  */
 export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
-    if (resource === AccessControlResourceType.ActivityLog) {
+    if (resource === AccessControlResourceType.ActivityLog || resource === AccessControlResourceType.Toolbar) {
         return AccessControlLevel.Viewer
     }
     return null
@@ -61,6 +61,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability'
+    } else if (resource === AccessControlResourceType.AiObservabilityClusters) {
+        return 'AI trace clusters'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
@@ -69,15 +71,26 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking'
     } else if (resource === AccessControlResourceType.WarehouseObjects) {
         // Umbrella label for warehouse tables + views (both inherit from this)
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Metrics) {
+        return 'metrics'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
+    } else if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'sharing'
+    } else if (resource === AccessControlResourceType.Toolbar) {
+        return 'toolbar'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.ReplayScanner) {
+        // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
+        return 'replay vision'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -94,7 +107,7 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
     }
-    if (resourceType === AccessControlResourceType.ActivityLog) {
+    if (resourceType === AccessControlResourceType.ActivityLog || resourceType === AccessControlResourceType.Toolbar) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
@@ -112,14 +125,24 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability resource'
+    } else if (resourceType === AccessControlResourceType.AiObservabilityClusters) {
+        return 'AI trace clusters resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
+    } else if (resourceType === AccessControlResourceType.Metrics) {
+        return 'metrics resource'
+    } else if (resourceType === AccessControlResourceType.Tracing) {
+        return 'tracing resource'
     } else if (resourceType === AccessControlResourceType.Workflow) {
         return 'workflow'
+    } else if (resourceType === AccessControlResourceType.ReplayScanner) {
+        return 'replay vision resource'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -282,6 +305,12 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
         return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
+    }
+    if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'Controls whether users can share resources like dashboards, insights, etc. with anyone via a public link.'
+    }
+    if (resource === AccessControlResourceType.Metrics) {
+        return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'
     }
     return null
 }

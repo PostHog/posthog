@@ -51,6 +51,47 @@ DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 
+def _delta_merge_spill_kwargs() -> dict[str, int]:
+    """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
+
+    A merge decompresses the target partition into an Arrow working set that can exceed the pod's
+    memory limit and take down every co-tenant activity. When the byte budgets are configured (and the
+    worker mounts a scratch disk at its TMPDIR), delta-rs bounds DataFusion's memory pool: bytes past
+    `max_spill_size` spill to disk, capped at `max_temp_directory_size`. Unset → omit the kwargs so
+    DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
+    deltalake versions predating the parameters.
+    """
+    kwargs: dict[str, int] = {}
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
+        kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
+    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:
+        kwargs["max_temp_directory_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES
+    return kwargs
+
+
+async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
+
+    A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
+    markers, and — mid-write — partial `_delta_log` files). Strays are corrupting: a later
+    `write_deltalake` append onto a half-cleared temp then sees a malformed table ("No table metadata
+    or protocol found in delta log"), and a swap copy that lands on top of undeleted live files leaves
+    a merged `_delta_log` whose row count is wrong ("swap verification failed: live > expected").
+    Enumerate and delete explicitly first, then a best-effort recursive sweep.
+
+    The dircache is dropped first: delta-rs writes through its own Rust object store, so s3fs's
+    listing cache never learns about those files — a cached listing would leave exactly them behind.
+    """
+    s3.invalidate_cache()
+    if not await s3._exists(uri):
+        return
+    files = await s3._find(uri)
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+    if await s3._exists(uri):
+        await s3._rm(uri, recursive=True)
+
+
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
     table_data: pa.Table,
@@ -95,7 +136,9 @@ def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
         if pa.types.is_decimal(field.type) and any(
             (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
         ):
-            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)], type=field.type)
+            # concat_arrays preserves the chunks' (decimal) type; pyarrow-stubs has no
+            # chunked_array overload for an explicit decimal type=.
+            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)])
             realigned = True
         else:
             new_columns[field.name] = column
@@ -127,7 +170,7 @@ def _first_per_pk_table(
     # We use numpy for the final sort because pyarrow's type stubs for
     # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
     idx_col_name = "__ph_cdc_row_idx"
-    aggregate = "min" if keep == "first" else "max"
+    aggregate: Literal["min", "max"] = "min" if keep == "first" else "max"
 
     # 1. Add a row-position column: [0, 1, 2, ..., n-1]
     indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
@@ -140,6 +183,46 @@ def _first_per_pk_table(
 
     # 4. Materialize the rows at those positions from the original table
     return pa_table.take(kept_indices)
+
+
+def delta_storage_options() -> dict[str, str]:
+    """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
+    read path (e.g. the person-property backfill) can open a Delta table without constructing a full
+    ``DeltaTableHelper`` (which carries caching, first-sync mutation, and corruption-repair)."""
+    if settings.USE_LOCAL_SETUP:
+        if (
+            not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
+            or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
+            or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
+        ):
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
+            )
+
+        ensure_bucket_exists(
+            settings.BUCKET_URL,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            settings.OBJECT_STORAGE_ENDPOINT,
+        )
+
+        options = {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+        }
+    else:
+        options = {}
+
+    # Conditional puts make a clashing concurrent commit fail loudly instead of
+    # clobbering _delta_log; set explicitly so a library default change can't undo it.
+    options["conditional_put"] = "etag"
+    if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
+        options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+    return options
 
 
 class DeltaTableHelper:
@@ -161,40 +244,7 @@ class DeltaTableHelper:
         return self._is_first_sync
 
     def _get_credentials(self):
-        if settings.USE_LOCAL_SETUP:
-            if (
-                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
-                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
-                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
-            ):
-                raise KeyError(
-                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
-                )
-
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-            options = {
-                "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-            }
-        else:
-            options = {}
-
-        # Conditional puts make a clashing concurrent commit fail loudly instead of
-        # clobbering _delta_log; set explicitly so a library default change can't undo it.
-        options["conditional_put"] = "etag"
-        if settings.DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME:
-            options["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
-        return options
+        return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
@@ -286,9 +336,12 @@ class DeltaTableHelper:
     async def reset_table(self):
         delta_uri = await self._get_delta_table_uri()
 
-        async with aget_s3_client() as s3:
+        # Explicit purge on a fresh client: a stale dircache or an incomplete recursive delete can
+        # leave `_delta_log` strays behind, and the rebuild then commits version 0 into a log that
+        # still holds old commits — recreating exactly the corruption a reset is meant to clear.
+        async with aget_s3_client(fresh_instance=True) as s3:
             try:
-                await s3._rm(delta_uri, recursive=True)
+                await _purge_s3_prefix(s3, delta_uri)
             except FileNotFoundError:
                 pass
 
@@ -394,7 +447,7 @@ class DeltaTableHelper:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
+                unique_partitions = list(pc.unique(data[PARTITION_KEY]))
 
                 await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 
@@ -427,6 +480,7 @@ class DeltaTableHelper:
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
+                                **_delta_merge_spill_kwargs(),
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
@@ -450,6 +504,7 @@ class DeltaTableHelper:
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -596,6 +651,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
+                            **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
                         .execute()
@@ -719,8 +775,8 @@ class DeltaTableHelper:
         `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
 
         Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
-        decide. Returns the current version to persist as the new watermark when it vacuumed, or on first
-        encounter (seeding the watermark without vacuuming, to avoid a synchronized vacuum wave on deploy);
+        decide. Returns the current version to persist as the new watermark when it vacuumed, on first
+        encounter, or when the table was recreated (both reseed the watermark without vacuuming);
         None when nothing changed.
         """
         table = await self.get_delta_table()
@@ -728,9 +784,12 @@ class DeltaTableHelper:
             return None
 
         version = await asyncio.to_thread(table.version)
-        if last_vacuum_version is None:
+        if last_vacuum_version is None or version < last_vacuum_version:
             # First encounter: seed the watermark without vacuuming so existing tables clean up gradually
             # over the next `commit_threshold` commits rather than all vacuuming at once on deploy.
+            # A version below the watermark means the table was reset/recreated (delta versions are
+            # monotonic within one incarnation) and no reset path clears the persisted watermark —
+            # left alone it would block the cadence until the new table out-versioned the old one.
             return version
 
         commits_since = version - last_vacuum_version
@@ -777,6 +836,11 @@ class DeltaTableHelper:
         time tracks total files — a high partition_count must not let a table accumulate
         tens of thousands of files while staying under the per-partition bar.
 
+        When `partition_count` is None it is derived from the table's actual layout (the
+        distinct file directories in the delta log, no extra I/O) — only md5 partitioning
+        persists a count on the schema, so datetime/numerical-partitioned tables always
+        arrive here with None.
+
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
         healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
@@ -788,6 +852,11 @@ class DeltaTableHelper:
 
         file_uris = await self.get_file_uris()
         total_files = len(file_uris)
+        if partition_count is None:
+            # One directory per partition value; unpartitioned tables collapse to the single
+            # table root. Without this, a partitioned table with no persisted count reads as
+            # one giant partition and trips the per-partition threshold on every run.
+            partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris})
         # Treat unpartitioned tables as one "partition" for the threshold math.
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions
@@ -819,8 +888,9 @@ class DeltaTableHelper:
         vacuums as part of compaction, so when it runs it supersedes the cadence vacuum (no double vacuum
         in one run) and the watermark advances to the post-compaction version. When nothing was fragmented,
         fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
-        `last_vacuum_version` watermark, or None when nothing changed; the caller is the sole writer of
-        the watermark so it lives in exactly one place.
+        `last_vacuum_version` watermark, or None when nothing changed. Callers persist the watermark
+        via `update_sync_type_config_keys` (row-locked merge): the pre-write defensive path in
+        `common/extract.py` and the CDC post-load path in `common/load.py`.
         """
         compacted = await self.compact_if_fragmented(partition_count=partition_count)
         if compacted:

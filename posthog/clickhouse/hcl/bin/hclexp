@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # Wrapper for the `hclexp` declarative ClickHouse schema tool (../python-clickhouse-schema).
 #
-# Resolution order:
-#   1. $HCLEXP_BIN            — explicit path to a local hclexp binary
-#   2. `hclexp` on $PATH
-#   3. the pinned container image (CI default)
+# Resolution order, most explicit first:
+#   1. $HCLEXP_BIN    — that binary (explicit: a local build, for fast iteration)
+#   2. $HCLEXP_IMAGE  — that image  (explicit: trying another pin)
+#   3. bin/image.txt  — the pin. The default, and what CI runs.
 #
-# CI uses the container image; locals can point HCLEXP_BIN at a built binary
-# (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
+# An `hclexp` on $PATH is deliberately NOT consulted. It used to win over both the
+# pin and an explicit $HCLEXP_IMAGE, which meant `HCLEXP_IMAGE=<new> bin/hclexp ...`
+# silently ran whatever stale binary happened to be installed. That is not a loud
+# failure — it is a wrong answer, and it cost real time: a released hclexp feature
+# looked missing because an ambient build shadowed the image being tested. Goldens
+# are canonicalization-sensitive, so "whatever is on PATH" is exactly what a pin
+# exists to prevent. Use $HCLEXP_BIN to say so on purpose.
 set -euo pipefail
 
-# Pinned to a concrete build (not :latest) for reproducibility.
-# Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-0409212}"
+# Pinned to a concrete build (not :latest) for reproducibility, in bin/image.txt
+# — the one place to bump. Override for a single run via $HCLEXP_IMAGE.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HERE/image.txt")}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"
-fi
-
-if command -v hclexp >/dev/null 2>&1; then
-  exec hclexp "$@"
 fi
 
 # Mount the repo (relative layer/golden paths resolve under -w /work) and the temp

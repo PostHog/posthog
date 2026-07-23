@@ -10,7 +10,10 @@ use crate::{
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
-    invocation_context::{context, init_context, set_telemetry_command_name, INVOCATION_CONTEXT},
+    invocation_context::{
+        capture_command_run_without_context, context, init_context, set_telemetry_command_name,
+        set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
+    },
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
@@ -38,7 +41,14 @@ pub struct Cli {
     /// Load PostHog credentials from this dotenv-style file when not present in the process
     /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
     /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
-    #[arg(long = "dotenv-file", alias = "env-file", value_name = "PATH")]
+    /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
+    /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
+    #[arg(
+        long = "dotenv-file",
+        alias = "env-file",
+        value_name = "PATH",
+        env = "POSTHOG_CLI_DOTENV_FILE"
+    )]
     env_file: Option<PathBuf>,
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
@@ -316,7 +326,10 @@ impl ExpCommand {
 }
 
 impl Cli {
-    pub fn run() -> Result<(), CapturedError> {
+    /// `Ok(Some(code))` means the command completed by delegating to a child
+    /// process that exited non-zero; the caller should exit with that code
+    /// after flushing telemetry.
+    pub fn run() -> Result<Option<i32>, CapturedError> {
         let command = Cli::parse();
         let no_fail = command.no_fail;
         set_telemetry_command_name(command.command.telemetry_command_name());
@@ -328,14 +341,14 @@ impl Cli {
         }
 
         match result {
-            Ok(_) => Ok(()),
+            Ok(exit_code) => Ok(if no_fail { None } else { exit_code }),
             Err(e) => {
                 if no_fail {
                     match &e.exception_id {
                         Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
                         None => eprintln!("Oops! {:?}", e.inner),
                     };
-                    Ok(())
+                    Ok(None)
                 } else {
                     Err(e)
                 }
@@ -343,7 +356,7 @@ impl Cli {
         }
     }
 
-    fn run_impl(self) -> Result<(), CapturedError> {
+    fn run_impl(self) -> Result<Option<i32>, CapturedError> {
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
@@ -351,7 +364,7 @@ impl Cli {
                      Nothing was sent to PostHog and no credentials were used. \
                      Do not use --dry-run for release builds."
                 );
-                return Ok(());
+                return Ok(None);
             }
         }
 
@@ -370,6 +383,8 @@ impl Cli {
                 self.env_file.clone(),
             )?;
         }
+
+        let mut api_exit_code: Option<i32> = None;
 
         match self.command {
             Commands::Login => {
@@ -429,6 +444,15 @@ impl Cli {
                 }
             },
             Commands::Api { args } => {
+                // The proxy often runs without stored credentials (env-var auth,
+                // metadata subcommands), so attach the project id from the
+                // environment for telemetry attribution; init_context overrides
+                // it with the stored value when it runs.
+                set_telemetry_env_id_from_environment();
+                // No InvocationContext on this path, so capture the usage event
+                // directly — without it the `api` command has no telemetry
+                // denominator to compute failure rates against.
+                let usage_capture = capture_command_run_without_context();
                 let api_context = if api_command_needs_stored_credentials(&args) {
                     match init_context(
                         self.host.clone(),
@@ -445,7 +469,9 @@ impl Cli {
                 } else {
                     None
                 };
-                api_proxy::run(args, self.host, api_context)?;
+                let run_result = api_proxy::run(args, self.host, api_context);
+                let _ = usage_capture.join();
+                api_exit_code = run_result?;
             }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
@@ -493,7 +519,7 @@ impl Cli {
             },
         }
 
-        Ok(())
+        Ok(api_exit_code)
     }
 }
 
@@ -517,6 +543,19 @@ mod tests {
         assert_eq!(
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DRY_RUN"))
+        );
+    }
+
+    #[test]
+    fn env_file_flag_is_wired_to_env_var() {
+        let cmd = Cli::command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id().as_str() == "env_file")
+            .expect("env_file arg should exist");
+        assert_eq!(
+            arg.get_env(),
+            Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
     }
 

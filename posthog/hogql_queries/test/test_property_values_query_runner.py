@@ -3,7 +3,11 @@ from datetime import datetime, timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.property_values_query_runner import (
@@ -31,6 +35,46 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         names = {r.name for r in results}
         assert names == {"Chrome", "Firefox"}
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_event_property_values_new_schema_uses_json_subcolumn(self):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        runner = PropertyValuesQueryRunner(
+            team=self.team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"),
+        )
+        response = runner.calculate()
+        physical_query = execute_hogql_query(runner.to_query(), team=self.team)
+
+        assert {r.name for r in response.results} == {"Chrome"}
+        assert physical_query.clickhouse is not None
+        assert "events_json" in physical_query.clickhouse
+        assert "events.properties.browser" in physical_query.clickhouse
+        assert "events.properties.^browser" in physical_query.clickhouse
+        assert "JSONExtractRaw" not in physical_query.clickhouse
+        assert "toJSONString" in physical_query.clickhouse
+        assert "toString(events.properties)" not in physical_query.clickhouse
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_event_property_values_new_schema_includes_object_values(self):
+        _create_event(
+            event="$pageview",
+            distinct_id="u1",
+            team=self.team,
+            properties={"profile": {"first_name": "Mary", "last_name": "Smith"}},
+        )
+        _create_event(event="$pageview", distinct_id="u2", team=self.team, properties={"profile": "plain"})
+        flush_persons_and_events()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="profile"))
+
+        names: set[str] = set()
+        for result in results:
+            assert isinstance(result.name, str)
+            names.add(result.name.replace(" ", ""))
+        assert names == {'{"first_name":"Mary","last_name":"Smith"}', "plain"}
 
     def test_event_property_values_excludes_null(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
@@ -362,9 +406,10 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             )
         assert {r.name for r in results} == {"TableValue"}
 
-    def test_restricted_property_key_uses_events_scan(self):
+    def test_restricted_property_key_is_not_served(self):
         self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventOnly"})
+        flush_persons_and_events()
 
         with (
             self._flag_on(),
@@ -374,7 +419,8 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             ),
         ):
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
-        assert {r.name for r in results} == {"EventOnly"}
+
+        assert {result.name for result in results} == set()
 
     def test_is_column_uses_events_scan(self):
         self._insert_rows([(self.team.pk, "event", "event", "TableOnly", 3, datetime.now())])

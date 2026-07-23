@@ -103,6 +103,28 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(testInput).toBeInTheDocument()
         })
 
+        it('allows renaming the control variant for product experiments', () => {
+            renderComponent(defaultExperiment)
+
+            const controlInput = screen.getByDisplayValue('control')
+            expect(controlInput).toBeEnabled()
+
+            fireEvent.change(controlInput, { target: { value: 'baseline' } })
+
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: [expect.objectContaining({ key: 'baseline' }), expect.objectContaining({ key: 'test' })],
+                })
+            )
+        })
+
+        it('locks the control variant key for web experiments', () => {
+            renderComponent({ ...defaultExperiment, type: 'web' })
+
+            expect(screen.getByDisplayValue('control')).toBeDisabled()
+            expect(screen.getByDisplayValue('test')).toBeEnabled()
+        })
+
         it('renders variant split labels by default', () => {
             renderComponent(defaultExperiment)
 

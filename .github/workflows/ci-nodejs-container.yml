@@ -2,8 +2,7 @@ name: Build and deploy node container image
 
 on:
     workflow_dispatch:
-    # paths mirror the changes job's dorny filter, which still gates push and
-    # merge_group events (merge_group triggers don't support paths).
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
         paths:
             - 'nodejs/**'
@@ -14,6 +13,7 @@ on:
             - 'common/replay-headless/**'
             - 'rust/cyclotron-node/**'
             - 'rust/common/hogvm/**'
+            - 'rust/replay-anonymizer/**'
             - 'rust/replay-anonymizer-node/**'
             - 'Dockerfile.node'
             - '.github/workflows/ci-nodejs-container.yml'
@@ -21,7 +21,6 @@ on:
             - 'package.json'
             - 'pnpm-lock.yaml'
             - 'pnpm-workspace.yaml'
-    merge_group:
     push:
         branches:
             - 'master'
@@ -37,7 +36,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
@@ -66,6 +65,7 @@ jobs:
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
@@ -79,9 +79,8 @@ jobs:
         name: Build and push node image
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
-            github.event_name == 'merge_group' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -120,7 +119,7 @@ jobs:
                   context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
-                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.node
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}

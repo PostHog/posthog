@@ -49,6 +49,7 @@ from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
+    TYPES_THAT_CAN_RERUN,
     TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunction,
     HogFunctionState,
@@ -258,6 +259,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
+        # Uncompilable filters only block saves that leave the function enabled - disabling or
+        # deleting must stay possible even when e.g. the team's test account filters have since
+        # gained a cohort that real-time filters can't evaluate. Coerce via BooleanField so
+        # form-encoded string values ("true"/"false") are read correctly, not by Python truthiness.
+        to_bool = serializers.BooleanField().to_internal_value
+        deleted = to_bool(data["deleted"]) if data.get("deleted") is not None else False
+        enabled = (
+            to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
+        )
+        self.context["function_will_be_enabled"] = False if deleted else enabled
         # Warehouse-table sources deliver the synced row under event.properties, so input templates
         # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
         self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
@@ -619,7 +630,9 @@ class HogFunctionViewSet(
         if not query:
             return Response([])
 
-        icons = CDPIconsService().list_icons(query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=")
+        icons = CDPIconsService().list_icons(
+            query, icon_url_base="/api/projects/@current/hog_functions/icon/?id=", team_id=self.team_id
+        )
 
         return Response(icons)
 
@@ -631,7 +644,7 @@ class HogFunctionViewSet(
 
         icon_service = CDPIconsService()
 
-        return icon_service.get_icon_http_response(id)
+        return icon_service.get_icon_http_response(id, team_id=self.team_id)
 
     @extend_schema(
         request=HogFunctionInvocationSerializer,
@@ -680,16 +693,28 @@ class HogFunctionViewSet(
         run reuses the original `invocation_id` with `is_retry=1` set on the
         new lifecycle row so the UI can surface that it was a rerun.
 
-        For source-webhook functions the worker strips `request.headers` from
-        the rehydrated globals before re-enqueuing (see the rerun paginator):
-        those headers carry the inbound sender's credentials, and replaying
-        them through a reconfigured function would let a write-access user
-        exfiltrate stored secrets.
+        Only types a cyclotron worker executes (`TYPES_THAT_CAN_RERUN`) can be
+        rerun: rerun re-enqueues onto the cyclotron hog queue, and other types
+        run elsewhere (source webhooks inline in the cdp-api HTTP handler,
+        transformations during ingestion, `site_*` transpiled to client-side
+        JS). A re-enqueued invocation of one of those would never drain and
+        wedges the partition, so a rerun of a non-rerunnable type is rejected
+        with a 400 here.
 
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_function:write`.
         """
         hog_function = self.get_object()
+
+        if hog_function.type not in TYPES_THAT_CAN_RERUN:
+            return Response(
+                {
+                    "queued_count": 0,
+                    "skipped_count": 0,
+                    "detail": f"Re-runs aren't supported for '{hog_function.type}' functions.",
+                },
+                status=400,
+            )
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

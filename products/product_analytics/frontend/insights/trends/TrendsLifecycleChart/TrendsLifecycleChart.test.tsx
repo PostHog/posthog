@@ -100,7 +100,9 @@ describe('TrendsLifecycleChart', () => {
         expect(tooltip.row('New')).toBeTruthy()
         expect(tooltip.row('Returning')).toBeTruthy()
         expect(tooltip.row('Resurrecting')).toBeTruthy()
-        expect(tooltip.row('Dormant')).toBeTruthy()
+        // Dormant data is emitted negative (-2 at this index) so it stacks below zero, but the
+        // tooltip shows the magnitude — the "Dormant" label carries the direction.
+        expect(tooltip.row('Dormant')).toBe('2')
         // "Users" is the group type label.
         expect(tooltip.element.textContent).toMatch(/Users/)
     })

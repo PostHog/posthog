@@ -5,7 +5,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SmartwaiverSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartwaiver import (
+    SmartwaiverSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import (
     ENDPOINTS,
     SMARTWAIVER_ENDPOINTS,
@@ -36,7 +38,6 @@ class TestSmartwaiverSource:
         assert config.name.value == "Smartwaiver"
         assert config.label == "Smartwaiver"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/smartwaiver.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/smartwaiver"
 

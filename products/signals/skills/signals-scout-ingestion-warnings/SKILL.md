@@ -41,8 +41,8 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-- `signals-scout-scratchpad-search` (`text=ingestion-warnings`) — durable steering from past runs. `pattern:` entries record this project's baseline types and rates; `noise:` marks chronic types the team accepts; `dedupe:` gates causes already surfaced; `report:` points at the live report covering a cause; `reviewer:` caches an instrumentation owner.
-- `signals-scout-runs-list` (last 7d) — what prior runs found and ruled out. Pull `-runs-retrieve` only for a summary you're about to build on.
+- `scout-scratchpad-search` (`text=ingestion-warnings`) — durable steering from past runs. `pattern:` entries record this project's baseline types and rates; `noise:` marks chronic types the team accepts; `dedupe:` gates causes already surfaced; `report:` points at the live report covering a cause; `reviewer:` caches an instrumentation owner.
+- `scout-runs-list` (last 7d) — what prior runs found and ruled out. Pull `-runs-retrieve` only for a summary you're about to build on.
 - `ingestion-warnings-list` (24h, then `since=-7d` for anything interesting) — the stream itself, grouped by type with category, severity, count, sparkline, and samples.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the warning type or root cause, then `ingestion_warning` for health-checks overlap) — reports already in the inbox, yours and the health-checks scout's. A cause that's still live is an **edit**, not a fresh report; pull close matches with `inbox-reports-retrieve` before authoring.
 
@@ -96,7 +96,7 @@ The generic report mechanics — inbox search first, edit-vs-author, status rule
 
 ### Close out
 
-One paragraph: which types you looked at, what you authored or edited (and why), what you baselined or ruled out. The harness saves this as the run summary; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Stream at baseline, nothing meaningful" is a real outcome.
+One paragraph: which types you looked at, what you authored or edited (and why), what you baselined or ruled out. The harness saves this as the run summary; future runs read it via `scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Stream at baseline, nothing meaningful" is a real outcome.
 
 ## Untrusted data — details and identifiers
 
@@ -127,8 +127,8 @@ Direct (read-only):
 - `health-issues-summary` — cross-check whether the deterministic `ingestion_warning` check is firing, and what the health-checks scout may already be triaging.
 - `execute-sql` / `read-data-schema` — corroborate real impact against the event stream (volume dips, offending property shapes, SDK version mix).
 - `inbox-reports-list` / `inbox-reports-retrieve` — dedupe against existing reports before authoring.
-- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to an instrumentation or pipeline owner.
+- `scout-members-list` — the in-run roster for routing `suggested_reviewers` to an instrumentation or pipeline owner.
 
-Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search` / `-remember` / `-forget`, `signals-scout-runs-list` / `-runs-retrieve`, `signals-scout-emit-report` / `signals-scout-edit-report` (the report-channel contract is in the harness prompt).
+Harness-level: `scout-project-profile-get`, `scout-scratchpad-search` / `-remember` / `-forget`, `scout-runs-list` / `-runs-retrieve`, `scout-emit-report` / `scout-edit-report` (the report-channel contract is in the harness prompt).
 
 For deeper query playbooks the sandbox bakes `posthog:querying-posthog-data` (HogQL syntax + `system.*` patterns).

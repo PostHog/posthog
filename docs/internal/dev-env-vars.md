@@ -43,4 +43,6 @@ CLOUD_DEPLOYMENT=E2E
 Do **not** set `CLOUD_DEPLOYMENT=US` and unset `DEBUG` to get around the guard — unsetting `DEBUG` then trips the sandbox-provider guards (`docker` / `MODAL_DOCKER` require `DEBUG`), and you end up playing whack-a-mole between the two.
 Code that branches on the literal region (`get_instance_region()`, `region == "US"`) will see `"E2E"`; for region-specific work, override it per-test with `@override_settings(CLOUD_DEPLOYMENT="US")` (tests are exempt from the guard).
 
+`COMPACT_IN_REGION` controls which Cloud region registers the daily AI checkpoint compaction schedule. It defaults to `US`; set it explicitly only when moving the rollout to another region.
+
 See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Code sandbox providers.

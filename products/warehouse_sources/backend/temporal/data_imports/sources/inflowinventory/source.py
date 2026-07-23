@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inflowinventory import (
     InflowinventorySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowInventoryResumeConfig]):
+    supported_versions = ("2023-04-01",)
+    default_version = "2023-04-01"
+    api_docs_url = "https://cloudapi.inflowinventory.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -106,6 +110,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — inFlow's list endpoints expose cursor pagination but
         # no reliably ordered server-side timestamp filter, so there is no incremental cursor.
@@ -125,7 +130,11 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         return schemas
 
     def validate_credentials(
-        self, config: InflowinventorySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InflowinventorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key, config.company_id)
@@ -146,6 +155,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
             api_key=config.api_key,
             company_id=config.company_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

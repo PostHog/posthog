@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SegmentSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
+    SegmentSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -42,6 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
+    api_docs_url = "https://docs.segmentapis.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SEGMENT
@@ -53,7 +57,6 @@ class SegmentSource(ResumableSource[SegmentSourceConfig, SegmentResumeConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Segment",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Twilio Segment workspace-scoped Public API token to pull your Segment workspace configuration into the PostHog Data warehouse.
 
 Create a **Public API token** in your Segment workspace under **Settings → Access Management → Tokens**, and pick the region your workspace lives in.
@@ -106,6 +109,7 @@ This connects to the Segment **Public API** (workspace configuration, admin, and
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Segment Public API exposes no server-side timestamp filter on these resources, so every
         # endpoint is full refresh only.
@@ -127,7 +131,11 @@ This connects to the Segment **Public API** (workspace configuration, admin, and
         return schemas
 
     def validate_credentials(
-        self, config: SegmentSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SegmentSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_segment_credentials(config.api_token, config.region):
             return True, None

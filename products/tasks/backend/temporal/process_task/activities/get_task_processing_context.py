@@ -12,12 +12,15 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-    vm_sandbox_allowed_origins,
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -93,6 +96,9 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+    # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
+    continue_as_new_enabled: bool = False
+    continue_as_new_history_threshold: int = 0
 
     @property
     def mode(self) -> str:
@@ -113,8 +119,19 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def github_read_access(self) -> bool:
+        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        return (self.state or {}).get("github_read_access") is True
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def loop_id(self) -> str | None:
+        """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
+        value = (self.state or {}).get("loop_id")
+        return value if isinstance(value, str) else None
 
     @property
     def runtime_adapter(self) -> str | None:
@@ -195,6 +212,10 @@ class TaskProcessingContext:
             return self._branch
         value = (self.state or {}).get("branch")
         return value if isinstance(value, str) else None
+
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
 
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
@@ -297,9 +318,9 @@ def _is_sandbox_event_ingest_enabled(
     state: dict | None = None,
 ) -> bool:
     # Slack runs must stay on the relay path regardless of the flag or any
-    # override: permission brokering and the Slack approval-card escalation only
-    # run in relay_sandbox_events, so a Slack run in ingest mode would stall
-    # forever on its first gated tool call.
+    # override: the permission auto-responder only runs in relay_sandbox_events,
+    # so a legacy Slack run in ingest mode would stall forever on its first
+    # gated tool call.
     if is_slack_interaction_state(state):
         return False
 
@@ -348,6 +369,7 @@ def _is_modal_vm_sandbox_enabled(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
     if allowed_domains is not None:
@@ -358,8 +380,46 @@ def _is_modal_vm_sandbox_enabled(
         )
         return False
 
-    state_override = (state or {}).get("use_modal_vm_sandbox")
-    if isinstance(state_override, bool):
+    # A trusted, server-set per-run override (image builders) forces the runtime
+    # decision without consulting the flag; any non-bool value is ignored.
+    raw_state_override = (state or {}).get("use_modal_vm_sandbox")
+    state_override: bool | None = raw_state_override if isinstance(raw_state_override, bool) else None
+
+    # Resolve the flag payload once and derive both allowlists from it, skipping the
+    # fetch entirely when a bool state override is present (so image-builder runs never
+    # depend on the flag service):
+    #   - allowed_origins: origins permitted on the VM runtime (custom images are VM-only).
+    #   - default_base_origins: origins that may run on the bare VM *base* image even
+    #     without a custom image — makes the VM runtime the default for standard runs.
+    allowed_origins: set[str] = set()
+    default_base_origins: set[str] = set()
+    if state_override is None:
+        try:
+            payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        except Exception as e:
+            log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+            return False
+        allowed_origins = vm_sandbox_allowed_origin_products(payload)
+        default_base_origins = vm_sandbox_default_base_origin_products(payload)
+
+    origin_allows_default_base = origin_product in default_base_origins
+
+    # Custom images are VM-only, so VM historically required one. image_builder always
+    # runs on VM (it builds images on that base); origins in the default-base allowlist
+    # may run on the bare VM base image with no custom image at all.
+    if (
+        origin_product != Task.OriginProduct.IMAGE_BUILDER
+        and not custom_image_available
+        and not origin_allows_default_base
+    ):
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_without_custom_image",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
+    if state_override is not None:
         log_with_activity_context(
             "modal_vm_sandbox_state_override",
             run_id=run_id,
@@ -367,19 +427,15 @@ def _is_modal_vm_sandbox_enabled(
         )
         return state_override
 
-    try:
-        allowed_origins = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-    except Exception as e:
-        log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    result = origin_product in allowed_origins
+    result = origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        default_base_origin_products=sorted(default_base_origins),
+        custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
     return result
@@ -506,6 +562,49 @@ def _is_modal_directory_resume_snapshots_enabled(
         run_id=run_id,
         use_modal_directory_resume_snapshots=enabled,
     )
+    return enabled
+
+
+def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
+    """Loop runs opt into the CI/review-comment follow-up loop when the loop's
+    snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
+    `watch_ci` / `fix_review_comments`). Read from the run-state config snapshot, not
+    the live `Loop` row, so editing a loop's behaviors never changes an in-flight or
+    already-queued run.
+    """
+    if task.origin_product != Task.OriginProduct.LOOP:
+        return False
+    behaviors = ((state or {}).get("config_snapshot") or {}).get("behaviors") or {}
+    return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
+
+
+def _is_continue_as_new_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    # The env setting force-enables (local E2E / emergency on); otherwise the org-level flag
+    # decides, so it can be toggled without a deploy. Captured at workflow start, so the
+    # continue_as_new trigger stays deterministic across replay. Fails closed.
+    if settings.TASKS_CONTINUE_AS_NEW_ENABLED:
+        return True
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                CONTINUE_AS_NEW_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("continue_as_new_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("continue_as_new_flag_checked", run_id=run_id, continue_as_new_enabled=enabled)
     return enabled
 
 
@@ -640,6 +739,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # gets for its PRs.
     pr_loop_enabled = (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
@@ -666,6 +766,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
     emit_agent_log(
@@ -792,4 +893,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
+        continue_as_new_enabled=_is_continue_as_new_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
     )

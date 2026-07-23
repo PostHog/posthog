@@ -23,12 +23,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AttioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attio import AttioSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AttioSource(SimpleSource[AttioSourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.attio.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -95,6 +99,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Attio API doesn't support updatedAt filtering, so only full refresh is supported
         schemas = [
@@ -112,7 +117,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
         return schemas
 
     def validate_credentials(
-        self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None
+        self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_attio_credentials(config.api_key)
 

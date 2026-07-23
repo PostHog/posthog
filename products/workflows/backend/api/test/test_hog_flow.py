@@ -13,6 +13,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.event_usage import EventSource
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -93,6 +94,37 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
         return response.json()["id"]
+
+    def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
+        # A webhook action whose headers carry a bearer token — the kind of credential-like value
+        # that must not leak from a workflow *listing*.
+        secret = "Bearer super-secret-token-abc123"
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "headers": {"value": {"Authorization": secret}},
+                },
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+
+        mcp_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert mcp_response.status_code == 200, mcp_response.json()
+        result = mcp_response.json()["results"][0]
+        assert "actions" not in result
+        assert "edges" not in result
+        assert secret not in mcp_response.content.decode()
+
+        # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
+        # and it does carry the secret, proving the MCP omission above is the summary serializer at
+        # work, not validation quietly dropping the header.
+        web_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert web_response.status_code == 200, web_response.json()
+        assert "actions" in web_response.json()["results"][0]
+        assert secret in web_response.content.decode()
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
@@ -265,6 +297,37 @@ class TestHogFlowAPI(APIBaseTest):
             self._make_delay_flow({"delay_duration": delay_duration}),
         )
         assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            ("bare_string", "greeting", {"key": "greeting"}),
+            ("string_list", ["a", "b"], [{"key": "a"}, {"key": "b"}]),
+            ("already_object", {"key": "greeting", "result_path": "r"}, {"key": "greeting", "result_path": "r"}),
+        ]
+    )
+    def test_output_variable_coerced_to_worker_shape(self, _name, sent, stored):
+        # The worker's schema only parses {key, ...} objects; a bare string stored as-is makes the
+        # whole flow row unparseable for the worker.
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1]["output_variable"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["actions"][1]["output_variable"] == stored
+
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("empty_string", ""),
+            ("dict_without_key", {"result_path": "r"}),
+            ("list_with_invalid_entry", ["a", 42]),
+        ]
+    )
+    def test_output_variable_invalid_shapes_rejected(self, _name, sent):
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1]["output_variable"] = sent
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert "output_variable" in str(response.json())
 
     def test_hog_flow_delay_validation_lenient_for_drafts(self):
         # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
@@ -3047,6 +3110,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["deleted"] == 3
         assert HogFlow.objects.filter(id__in=ids).count() == 0
+        assert ActivityLog.objects.filter(scope="HogFlow", activity="deleted", item_id__in=ids).count() == 3
+
+    @patch("products.workflows.backend.api.hog_flow.report_user_action")
+    def test_delete_writes_deleted_activity_and_usage_event(self, mock_report):
+        flow_id = self._create_flow(name="Doomed")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 204, response.content
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "deleted"
+        deleted_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_deleted"]
+        assert len(deleted_events) == 1
+        assert deleted_events[0].args[2]["workflow_id"] == flow_id
 
     @parameterized.expand(
         [

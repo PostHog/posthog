@@ -63,9 +63,16 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=75.0,
+    burst_limit_usd=20.0,
     burst_window_seconds=86400,
-    sustained_limit_usd=75.0,
+    sustained_limit_usd=20.0,
+    sustained_window_seconds=2592000,
+)
+
+ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=float("inf"),
+    burst_window_seconds=86400,
+    sustained_limit_usd=float("inf"),
     sustained_window_seconds=2592000,
 )
 
@@ -142,6 +149,17 @@ class Settings(BaseSettings):
     cloudflare_api_key: str | None = None
     cloudflare_account_id: str | None = None
 
+    # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
+    # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
+    modal_api_base: str | None = None
+    modal_key: str | None = None
+    modal_secret: str | None = None
+
+    # User-sticky fraction (0..1) of GLM traffic served by Modal; per-product entries override the
+    # global value. The tasks-glm-modal-inference flag ORs with this.
+    glm_modal_traffic_fraction: float = 0.0
+    glm_modal_product_traffic_fractions: dict[str, float] = {}
+
     # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
@@ -165,10 +183,21 @@ class Settings(BaseSettings):
     # Combined with the team multiplier by taking the larger of the two.
     staff_rate_limit_multiplier: int = 10
 
+    # When true, PostHog staff (authenticated is_staff) bypass the per-user
+    # burst/sustained cost caps entirely, on every product. Spend is still
+    # recorded for observability — only enforcement and the reported usage
+    # status treat staff as unlimited. Set false to fall back to the
+    # elevated-but-finite `staff_rate_limit_multiplier` cap.
+    staff_unlimited_usage: bool = True
+
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
+
+    # TODO: flip on when Code migrates all users to usage-based billing
+    posthog_code_model_gate_enabled: bool = False
+    posthog_code_free_tier_models: list[str] = ["@cf/zai-org/glm-5.2"]
 
     default_fallback_cost_usd: float = 0.01
 
@@ -197,6 +226,38 @@ class Settings(BaseSettings):
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
+
+    @field_validator("glm_modal_traffic_fraction")
+    @classmethod
+    def validate_glm_modal_traffic_fraction(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"glm_modal_traffic_fraction must be between 0 and 1, got {v}")
+        return v
+
+    @field_validator("glm_modal_product_traffic_fractions", mode="before")
+    @classmethod
+    def parse_glm_modal_product_traffic_fractions(cls, v: str | dict[str, float] | None) -> dict[str, float]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in glm_modal_product_traffic_fractions: {e}") from e
+        if not isinstance(v, dict):
+            raise ValueError("glm_modal_product_traffic_fractions must be a JSON object")
+        result: dict[str, float] = {}
+        for product, fraction in v.items():
+            try:
+                value = float(fraction)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"glm_modal_product_traffic_fractions values must be numbers: {e}") from e
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"glm_modal_product_traffic_fractions values must be between 0 and 1, got {value} for {product}"
+                )
+            result[_normalize_cost_key(str(product))] = value
+        return result
 
     @field_validator("staff_rate_limit_multiplier")
     @classmethod

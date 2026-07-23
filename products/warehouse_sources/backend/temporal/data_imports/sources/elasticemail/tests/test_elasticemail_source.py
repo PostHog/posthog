@@ -30,7 +30,6 @@ class TestSourceConfig:
         config = ElasticemailSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.fields is not None
         assert len(config.fields) == 1
         api_key_field = config.fields[0]
@@ -126,13 +125,17 @@ class TestResumableAndCanonical:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = SimpleNamespace(
             schema_name="events",
+            team_id=1,
+            job_id="job",
             logger=MagicMock(),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00",
         )
+        manager = MagicMock()
+        manager.can_resume.return_value = False
         response = ElasticemailSource().source_for_pipeline(
             SimpleNamespace(api_key="key"),  # type: ignore[arg-type]
-            MagicMock(),
+            manager,
             inputs,  # type: ignore[arg-type]
         )
         assert response.name == "events"

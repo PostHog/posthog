@@ -98,6 +98,17 @@ export const ToolConfigSchema = z
                          * fully replace the schema; cast composes with the existing one).
                          */
                         cast: z.enum(['string-int']).optional(),
+                        /**
+                         * Alternate key names accepted for this param and normalized to it
+                         * before validation — for identifier params agents guess different
+                         * spellings for (e.g. `id` ← `insightId` / `short_id`). The
+                         * canonical key wins on conflict, then the first-listed alias;
+                         * alias keys never reach the handler. The advertised JSON schema
+                         * still shows only the canonical param. Codegen wraps the composed
+                         * tool schema with `z.preprocess(normalizeParamAliases(...), ...)`
+                         * — see generate-tools.ts and @/tools/cast-helpers.
+                         */
+                        aliases: z.array(z.string()).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
@@ -179,10 +190,27 @@ export const ToolConfigSchema = z
                 include: z.array(z.string()).optional(),
                 /** Dot-path patterns of response fields to remove. */
                 exclude: z.array(z.string()).optional(),
+                /**
+                 * Expose an optional `fields` request param so the agent can narrow the response to a
+                 * subset of `include` at call time (constrained to the allowlist). Omitting `fields`
+                 * returns the full `include` set. Requires `include`; incompatible with `exclude`.
+                 */
+                selectable: z.boolean().optional(),
+                /** Wrap user-authored response data in an explicit informational-only tag boundary. */
+                informational_wrapper: z
+                    .object({
+                        tag: z.string().regex(/^[a-z][a-z0-9-]*$/),
+                        purpose: z.string().min(1).optional(),
+                    })
+                    .strict()
+                    .optional(),
             })
             .strict()
             .refine((data) => !(data.include?.length && data.exclude?.length), {
                 message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .refine((data) => !(data.selectable && !data.include?.length), {
+                message: 'response.selectable requires response.include (the allowlist to select from)',
             })
             .optional(),
         /**
@@ -233,6 +261,11 @@ export const ToolConfigSchema = z
                 'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
         }
     )
+    .refine((data) => !(data.confirmed_action && data.input_schema), {
+        message:
+            '`confirmed_action` cannot be combined with `input_schema` yet because custom input schemas bypass the confirmed-action prepare/execute codegen path. Remove `input_schema` or extend custom-schema codegen to support confirmed actions.',
+        path: ['confirmed_action'],
+    })
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })
@@ -339,7 +372,7 @@ const ListUiAppSchema = z
     .strict()
 
 /**
- * Custom UI app — handwritten entry point, only gets a registry entry.
+ * Custom UI app — handwritten entry point with optional render-ui dispatch.
  *
  * Use for apps that need fully custom logic (e.g. debug.tsx, query-results.tsx).
  * The generator does NOT create an entry point file — you maintain it manually at
@@ -353,6 +386,20 @@ const CustomUiAppSchema = z
         app_name: z.string(),
         /** Short description for the MCP resource. Required for custom apps. */
         description: z.string(),
+        /** Reusable view component that lets the render-ui umbrella app mount this custom app. */
+        render_ui: z
+            .object({
+                /** Import path for the reusable view component, relative to src/ui-apps/generated. */
+                component_import: z.string(),
+                /** React component name that renders the tool result. */
+                view_component: z.string(),
+                /** Prop name that receives the tool result. */
+                view_prop: z.string(),
+                /** TypeScript type for the tool result. Omit when the component accepts unknown. */
+                data_type: z.string().optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict()
 
@@ -386,6 +433,19 @@ export interface ResolvedListUiApp {
     list_data_type: string
     item_data_type: string
     view_component: string
+}
+
+/** Custom config, including an optional reusable view for render-ui dispatch. */
+export interface ResolvedCustomUiApp {
+    type: 'custom'
+    app_name: string
+    description: string
+    render_ui?: {
+        component_import: string
+        view_component: string
+        view_prop: string
+        data_type?: string
+    }
 }
 
 /**
