@@ -17,10 +17,13 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCall,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
+    SubagentUpdateEvent,
 )
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -28,16 +31,20 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_PREFIX,
     CONVERSATION_STREAM_TIMEOUT,
+    ApprovalEvent,
+    ConversationEvent,
     ConversationRedisStream,
     ConversationStreamSerializer,
+    GenerationStatusEvent,
     MessageEvent,
     StatusPayload,
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    UpdateEvent,
     get_subagent_stream_key,
 )
-from ee.hogai.utils.types.base import AssistantOutput
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
 class TestRedisStream(BaseTest):
@@ -635,6 +642,62 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         self.assertEqual(result.event.type, AssistantEventType.MESSAGE)
         self.assertIs(type(result.event.payload), type(payload))  # smart-union resolved to same member
         self.assertEqual(result.event.payload, payload)  # no data lost on round-trip
+
+    @parameterized.expand(
+        [
+            ("conversation", ConversationEvent(type="conversation", payload=uuid4())),
+            (
+                "generation_status",
+                GenerationStatusEvent(
+                    type=AssistantEventType.STATUS,
+                    payload=AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR),
+                ),
+            ),
+            (
+                "update_assistant",
+                UpdateEvent(
+                    type=AssistantEventType.UPDATE,
+                    payload=AssistantUpdateEvent(content="progress", id="u1", tool_call_id="tc1"),
+                ),
+            ),
+            (
+                "update_subagent",
+                UpdateEvent(
+                    type=AssistantEventType.UPDATE,
+                    payload=SubagentUpdateEvent(
+                        content=AssistantToolCall(id="tc2", name="run", args={"x": 1}), id="u2", tool_call_id="tc2"
+                    ),
+                ),
+            ),
+            ("stream_status", StreamStatusEvent(payload=StatusPayload(status="complete"))),
+            (
+                "approval",
+                ApprovalEvent(
+                    type=AssistantEventType.APPROVAL,
+                    payload=ApprovalPayload(
+                        proposal_id="p1",
+                        decision_status="pending",
+                        tool_name="run",
+                        preview="preview",
+                        payload={},
+                        original_tool_call_id=None,
+                        message_id=None,
+                    ),
+                ),
+            ),
+        ]
+    )
+    def test_deserialize_json_event_branch_round_trips(self, _name, event):
+        # Every StreamEventUnion branch must survive the JSON round trip before the writer cutover.
+        # UpdateEvent.payload is a second smart-mode union (AssistantUpdateEvent | SubagentUpdateEvent),
+        # the same resolution risk as MessageEvent's payload.
+        serializer = ConversationStreamSerializer()
+        stream_event = StreamEvent(event=event)
+
+        result = serializer.deserialize({b"data": stream_event.model_dump_json().encode("utf-8")})
+
+        self.assertIs(type(result.event), type(event))
+        self.assertEqual(result.event, event)
 
     def test_deserialize_still_reads_legacy_pickle(self):
         serializer = ConversationStreamSerializer()
