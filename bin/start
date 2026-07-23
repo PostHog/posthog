@@ -248,7 +248,11 @@ preflight_port_check() {
         read -t 30 -r -p "   Stop foreign stack '$stack' now? [y/N] " answer || echo
         if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
             echo "   Stopping compose project '$stack'…"
-            $teardown || true
+            if $teardown; then
+                echo "   Stopped '$stack'."
+            else
+                echo "   ⚠️  Could not stop '$stack' (see docker's output above) — its ports may still be held."
+            fi
         else
             echo "   Leaving '$stack' running. Stop it later with:"
             echo "     $teardown"

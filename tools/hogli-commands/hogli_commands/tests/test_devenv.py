@@ -1019,3 +1019,21 @@ class TestDockerComposeShellFailurePath:
             )
         assert ("docker-compose ready" in result.stdout) == expect_ready
         assert (result.returncode == 0) == expect_ready
+
+    @parameterized.expand([("generated",), ("static",)])
+    def test_sandbox_guard_short_circuits_before_docker(self, source: str) -> None:
+        # Sandboxes have no docker CLI; the shell must report ready without
+        # invoking docker at all. A fake docker that always fails proves the
+        # guard short-circuits; a fake sleep lets the sandbox branch terminate.
+        shell = dict(self._shells())[source]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, body in [("docker", "#!/bin/sh\nexit 1\n"), ("sleep", "#!/bin/sh\nexit 0\n")]:
+                fake = Path(tmp) / name
+                fake.write_text(body)
+                fake.chmod(0o755)
+            env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "POSTHOG_SANDBOX": "1"}
+            result = subprocess.run(
+                ["bash", "-c", shell], env=env, capture_output=True, text=True, timeout=10, check=False
+            )
+        assert "docker-compose ready" in result.stdout
+        assert result.returncode == 0
