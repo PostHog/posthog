@@ -709,6 +709,36 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_chatgpt_click(self):
+        # ask chatgpt -> click a link in the answer
+        self.assertEqual(
+            "AI Assistant",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://www.asos.com/women/shoes/cat/?cid=4172",
+                "https://chatgpt.com/",
+            ),
+        )
+
+    def test_perplexity_click(self):
+        # ask perplexity -> click a link in the answer
+        self.assertEqual(
+            "AI Assistant",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://www.asos.com/women/shoes/cat/?cid=4172",
+                "https://perplexity.ai/",
+            ),
+        )
+
+    def test_claude_click(self):
+        # ask claude -> click a link in the answer
+        self.assertEqual(
+            "AI Assistant",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://www.asos.com/women/shoes/cat/?cid=4172",
+                "https://claude.ai/",
+            ),
+        )
+
     def test_duckduckgo_organic_click(self):
         # go to duckduckgo -> search shoes -> click an organic result
         # firefox
