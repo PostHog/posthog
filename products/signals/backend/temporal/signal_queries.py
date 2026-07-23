@@ -6,6 +6,7 @@ from typing import Union
 
 import structlog
 import temporalio
+import temporalio.exceptions
 
 from posthog.schema import EmbeddingModelName
 
@@ -27,6 +28,11 @@ logger = structlog.get_logger(__name__)
 
 
 WAIT_POLL_INTERVAL_SECONDS = 10
+
+# Lower bound on inserted_at relative to the earliest signal timestamp. Excludes stale rows
+# from a previous emission of the same document_id while staying wide enough to absorb clock
+# skew and pipeline lag between a signal's timestamp and when its row lands in ClickHouse.
+WAIT_INSERTED_AT_LOOKBACK = timedelta(minutes=30)
 
 
 def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
@@ -398,20 +404,19 @@ class WaitForClickHouseInput:
 @scoped_temporal()
 @close_db_connections
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
+    """Poll ClickHouse until all emitted signals appear, or fail after max_wait_time_seconds.
 
-    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
-    previous emission of the same document_id (e.g. deleted then reingested). The window
-    is generous because signals are emitted during the sequential phase before this
-    activity starts, so early signals may already be minutes old.
+    Filters on inserted_at >= (earliest signal timestamp - lookback) to avoid matching stale
+    rows from a previous emission of the same document_id (e.g. deleted then reingested),
+    while still matching every freshly-written row (its inserted_at is always >= its own
+    timestamp). Anchoring to the signals' own timestamps — rather than wall-clock at activity
+    start — keeps the lower bound stable: it can't drift forward and start excluding rows that
+    genuinely arrived when emission takes a long time or when the activity is retried.
     """
     if not input.signals:
         return
 
-    from django.utils import timezone
-
     team = await Team.objects.aget(pk=input.team_id)
-    inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
     signal_ids = [s.signal_id for s in input.signals]
@@ -419,6 +424,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     # Widen the timestamp range to account for precision loss (Python microseconds vs ClickHouse DateTime64(3) milliseconds)
     min_timestamp = min(timestamps) - timedelta(minutes=2)
     max_timestamp = max(timestamps) + timedelta(minutes=2)
+    inserted_at_threshold = min(timestamps) - WAIT_INSERTED_AT_LOOKBACK
 
     query = """
         SELECT count(DISTINCT document_id)
@@ -477,9 +483,15 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     metrics.increment_ch_wait_timeout()
     logger.warning(
-        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
+        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s",
         signal_ids=signal_ids,
         team_id=input.team_id,
+    )
+    # Raise so the activity's retry policy engages instead of silently proceeding with
+    # signals that never landed — a missing signal here corrupts the downstream report.
+    raise temporalio.exceptions.ApplicationError(
+        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s",
+        type="SignalsClickHouseWaitTimeout",
     )
 
 
