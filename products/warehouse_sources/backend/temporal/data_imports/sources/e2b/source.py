@@ -91,6 +91,7 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every E2B list endpoint is a point-in-time inventory with no server-side timestamp filter,
         # so all are full refresh (no incremental / append).
@@ -109,7 +110,7 @@ You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](h
         return schemas
 
     def validate_credentials(
-        self, config: E2BSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: E2BSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             if validate_e2b_credentials(config.api_key):

@@ -2008,6 +2008,57 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert project["inherited_access_level"] == "member"
         assert project["inherited_access_level_reason"] == "project_default"
 
+    def test_members_without_project_access_hidden_when_org_restricts_member_list_visibility(self):
+        # Private project: default access "none", explicit grants for everyone but user3 and the org admin
+        user3 = self._create_user("user3@example.com")
+        user3_membership = user3.organization_memberships.get(organization=self.organization)
+        org_admin = self._create_user("admin4@example.com")
+        org_admin_membership = org_admin.organization_memberships.get(organization=self.organization)
+        org_admin_membership.level = OrganizationMembership.Level.ADMIN
+        org_admin_membership.save()
+        self._put_project_access_control({"access_level": "none"})
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "member"}
+        )
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        # Non-editor with default visibility: full roster (current behavior preserved)
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        assert self._find_member(res.json()["results"], user3_membership.id) is not None
+
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        # Non-editor with restricted visibility: members without project-scoped access are
+        # hidden — including org admins, whose implicit access doesn't count
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is False
+        assert self._find_member(data["results"], user3_membership.id) is None
+        assert self._find_member(data["results"], org_admin_membership.id) is None
+        assert self._find_member(data["results"], self.user2_membership.id) is not None
+        assert self._find_member(data["results"], self.organization_membership.id) is not None
+
+        # Org admins always see the full roster so they can grant access
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        results = res.json()["results"]
+        assert self._find_member(results, user3_membership.id) is not None
+        assert self._find_member(results, org_admin_membership.id) is not None
+
+        # Explicit project admins who aren't org admins can edit, but still don't see the full roster
+        self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get("/api/projects/@current/access_control_members")
+        data = res.json()
+        assert data["can_edit"] is True
+        assert self._find_member(data["results"], user3_membership.id) is None
+
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
         from ee.models.rbac.access_control import AccessControl

@@ -129,6 +129,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             external_data_source_id=inputs.source_id,
             external_data_schema_id=inputs.schema_id,
             external_data_job_id=inputs.run_id,
+            schema_name=model.schema.name if model.schema is not None else None,
+            sync_type=model.schema.sync_type if model.schema is not None else None,
+            pipeline_version=model.pipeline_version,
         )
 
         job_inputs = PipelineInputs(
@@ -230,7 +233,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 # fails identically on every attempt — there is nothing to retry. Treat it as
                 # non-retryable so the job gives up cleanly instead of crash-looping and spamming
                 # error tracking. Mirrors the skip in `sync_new_schemas_activity`.
-                await handle_non_retryable_error(job_inputs, str(e), logger, e)
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
@@ -334,11 +339,15 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
     non_retryable_errors = source_cls.get_non_retryable_errors()
     if any(match in error_msg for match in non_retryable_errors):
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
     retryable_errors = source_cls.get_retryable_errors()
     if any(match in error_msg for match in retryable_errors):

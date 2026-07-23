@@ -99,6 +99,7 @@ class ZapSignSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Documents are merge-only: the created_from filter re-fetches the watermark's whole day,
         # so append mode would write duplicate rows.
@@ -111,7 +112,11 @@ class ZapSignSource(
         )
 
     def validate_credentials(
-        self, config: ZapSignSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZapSignSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.api_token, config.environment)
 
@@ -121,10 +126,14 @@ class ZapSignSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: ZapSignSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: ZapSignSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return api_client.create_webhook(config.api_token, config.environment, webhook_url)
 
-    def delete_webhook(self, config: ZapSignSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: ZapSignSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook()
 
     def source_for_pipeline(

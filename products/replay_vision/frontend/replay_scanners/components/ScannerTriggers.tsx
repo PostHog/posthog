@@ -22,6 +22,7 @@ import {
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
@@ -32,7 +33,8 @@ import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
-const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
+// Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
+const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.Replay,
     TaxonomicFilterGroupType.Events,
@@ -73,9 +75,11 @@ function ScannerFilterGroup(): JSX.Element {
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
+    const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -83,67 +87,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
     return (
         <div className="space-y-6">
-            <LemonField
-                name="sampling_mode"
-                label="Session coverage"
-                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
-            >
-                {({ value, onChange }) => {
-                    const mode = (value ?? 'comprehensive') as SamplingMode
-                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
-                    return (
-                        <div className="space-y-1">
-                            <LemonSegmentedButton
-                                value={mode}
-                                onChange={onChange}
-                                options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                            />
-                            <div className="text-xs text-muted">{option?.description}</div>
-                        </div>
-                    )
-                }}
-            </LemonField>
-
-            <LemonField name="sampling_rate">
-                {({ value, onChange }) => {
-                    const ratio = typeof value === 'number' ? value : 0
-                    const samplingPercent = Math.round(ratio * 1000) / 10
-                    return (
-                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="space-y-1">
-                                <LemonLabel>Sampling</LemonLabel>
-                                <div className="text-xs text-muted">
-                                    Each observation counts against your monthly Vision quota.
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(v / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <LemonInput
-                                        type="number"
-                                        value={samplingPercent}
-                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
-                                        min={0.1}
-                                        max={100}
-                                        step={0.1}
-                                        suffix={<span>%</span>}
-                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
-                                    />
-                                </div>
-                            </div>
-                        </LemonCard>
-                    )
-                }}
-            </LemonField>
-
             <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
@@ -208,7 +151,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
-                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                taxonomicGroupTypes={scannerFilterTypes}
                                 onChange={(filterGroup) => applyUniversal({ ...universal, filter_group: filterGroup })}
                             >
                                 {universal.filter_group.values.length > 0 &&
@@ -216,7 +159,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         <UniversalFilters
                                             rootKey={`replay-scanner-${scanner.id}.nested`}
                                             group={universal.filter_group.values[0]}
-                                            taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                            taxonomicGroupTypes={scannerFilterTypes}
                                             onChange={(nestedGroup) =>
                                                 applyUniversal({
                                                     ...universal,
@@ -232,7 +175,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         >
                                             <RecordingsUniversalFilterAddFilterPopover
                                                 categoryDropdownVariant={categoryDropdownVariant}
-                                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                                taxonomicGroupTypes={scannerFilterTypes}
                                             />
                                         </UniversalFilters>
                                     )}
@@ -273,6 +216,70 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     )}
                                 </div>
                             </UniversalFilters>
+                        </LemonCard>
+                    )
+                }}
+            </LemonField>
+
+            <LemonField name="sampling_rate">
+                {({ value, onChange }) => {
+                    const ratio = typeof value === 'number' ? value : 0
+                    const samplingPercent = Math.round(ratio * 1000) / 10
+                    return (
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="space-y-1">
+                                <LemonLabel>Sampling</LemonLabel>
+                                <div className="text-xs text-muted">
+                                    Each observation counts against your monthly Vision quota.
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange(v / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                    />
+                                </div>
+                                <div className="w-24">
+                                    <LemonInput
+                                        type="number"
+                                        value={samplingPercent}
+                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
+                                        min={0.1}
+                                        max={100}
+                                        step={0.1}
+                                        suffix={<span>%</span>}
+                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
+                                    />
+                                </div>
+                            </div>
+                        </LemonCard>
+                    )
+                }}
+            </LemonField>
+
+            <LemonField name="sampling_mode">
+                {({ value, onChange }) => {
+                    const mode = (value ?? 'comprehensive') as SamplingMode
+                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
+                    return (
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="space-y-1">
+                                <LemonLabel info="Filters which matching recordings this scanner watches, based on how much activity a recording has (interactions, errors, navigation). Narrower options skip low-activity recordings so your budget goes to recordings worth watching.">
+                                    Session coverage
+                                </LemonLabel>
+                            </div>
+                            <div className="space-y-1">
+                                <LemonSegmentedButton
+                                    value={mode}
+                                    onChange={onChange}
+                                    options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                                />
+                                <div className="text-xs text-muted">{option?.description}</div>
+                            </div>
                         </LemonCard>
                     )
                 }}

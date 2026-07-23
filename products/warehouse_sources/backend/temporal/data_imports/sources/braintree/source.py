@@ -119,14 +119,19 @@ You can find your public and private keys in the [Braintree control panel](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: BraintreeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BraintreeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_braintree_credentials(
-            config.environment, config.public_key, config.private_key, self.resolve_api_version(None)
+            config.environment, config.public_key, config.private_key, self.resolve_api_version(api_version)
         ):
             return True, None
 
