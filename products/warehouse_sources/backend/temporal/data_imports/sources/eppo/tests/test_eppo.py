@@ -2,9 +2,9 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
-import pytest
 from parameterized import parameterized
 from requests import Response
 
