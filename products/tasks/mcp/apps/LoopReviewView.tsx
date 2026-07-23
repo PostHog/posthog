@@ -82,6 +82,51 @@ const ADAPTER_LABELS: Record<string, string> = {
     codex: 'Codex',
 }
 
+function stringList(value: unknown): string[] {
+    if (typeof value === 'string') {
+        return [value]
+    }
+    if (Array.isArray(value)) {
+        return value.filter((item): item is string => typeof item === 'string')
+    }
+    return []
+}
+
+function describeGithubTrigger(config: Record<string, unknown>): string {
+    const repository = typeof config.repository === 'string' ? config.repository : 'a repo'
+    const filters = (config.filters ?? {}) as Record<string, unknown>
+    const actions = [...stringList(filters.actions), ...stringList(filters.action)]
+    const events: string[] = []
+    for (const raw of stringList(config.events)) {
+        // the API also accepts `issues.opened` shorthand; render it as event + action
+        const dot = raw.indexOf('.')
+        const event = dot > 0 ? raw.slice(0, dot) : raw
+        const action = dot > 0 ? raw.slice(dot + 1) : ''
+        if (!events.includes(event)) {
+            events.push(event)
+        }
+        if (action && !actions.includes(action)) {
+            actions.push(action)
+        }
+    }
+    if (events.length === 0) {
+        return `GitHub (${repository})`
+    }
+    let summary = events.join(', ')
+    if (actions.length > 0) {
+        summary += ` ${actions.join('/')}`
+    }
+    const branches = [...stringList(filters.branches), ...stringList(filters.branch)]
+    if (branches.length > 0) {
+        summary += ` on ${branches.join(', ')}`
+    }
+    const labels = [...stringList(filters.labels), ...stringList(filters.label)]
+    if (labels.length > 0) {
+        summary += ` labeled ${labels.join(', ')}`
+    }
+    return `GitHub (${repository}: ${summary})`
+}
+
 function describeTrigger(trigger: LoopReviewTrigger): string {
     if (trigger.type === 'schedule') {
         const config = trigger.config ?? {}
@@ -94,8 +139,7 @@ function describeTrigger(trigger: LoopReviewTrigger): string {
         return 'Schedule'
     }
     if (trigger.type === 'github') {
-        const repository = (trigger.config?.repository as string | undefined) ?? 'a repo'
-        return `GitHub (${repository})`
+        return describeGithubTrigger(trigger.config ?? {})
     }
     return 'API'
 }
@@ -203,7 +247,10 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
     const items: { label: string; value: ReactNode }[] = [
         { label: 'Name', value: data.name?.trim() || 'Not set' },
         ...(data.description?.trim() ? [{ label: 'Description', value: data.description }] : []),
-        { label: 'Visibility', value: data.visibility === 'team' ? 'Team' : 'Personal' },
+        {
+            label: 'Visibility',
+            value: data.visibility === 'team' ? 'Team' : 'Personal',
+        },
         {
             label: 'What it does',
             value: <span className="whitespace-pre-wrap">{data.instructions?.trim() || 'No prompt'}</span>,
@@ -212,13 +259,25 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
         { label: 'Context', value: describeContext(data.context_target) },
         { label: 'Repository', value: describeRepository(data.repositories) },
         { label: 'Model', value: describeModel(data) },
-        { label: 'Opens PRs', value: data.behaviors?.create_prs ? 'Yes' : 'No' },
+        {
+            label: 'Opens PRs',
+            value: data.behaviors?.create_prs ? 'Yes' : 'No',
+        },
         { label: 'Watches CI', value: data.behaviors?.watch_ci ? 'Yes' : 'No' },
-        { label: 'Fixes review comments', value: describeFixReviewComments(data.behaviors) },
-        { label: 'PostHog access', value: describePosthogAccess(data.connectors) },
+        {
+            label: 'Fixes review comments',
+            value: describeFixReviewComments(data.behaviors),
+        },
+        {
+            label: 'PostHog access',
+            value: describePosthogAccess(data.connectors),
+        },
         { label: 'Connectors', value: describeConnectors(data.connectors) },
         { label: 'Sandbox', value: data.sandbox_environment || 'None' },
-        { label: 'Notifications', value: describeNotifications(data.notifications) },
+        {
+            label: 'Notifications',
+            value: describeNotifications(data.notifications),
+        },
     ]
 
     const creating = state?.loading ?? false
