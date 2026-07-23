@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, timedelta
 from typing import cast
 
@@ -123,7 +124,7 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
-from products.signals.backend.tasks import sync_signals_refund_credit
+from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -2070,6 +2071,27 @@ class ReviewerWriteError(Exception):
     """A reviewer write payload that couldn't be resolved. Callers surface it as a 400 `{"error": ...}`."""
 
 
+def _schedule_reviewer_added_slack_notifications(
+    *, team_id: int, report_id: str, added_logins: Sequence[str], actor_user_id: int | None
+) -> None:
+    """After commit, Slack-notify reviewers a human just added to this report.
+
+    Enqueued on commit so nothing is sent if the write rolls back, and so delivery's
+    network calls (metadata lookups, Slack) run on a worker instead of holding up the
+    request. Best-effort — a Slack failure must never break the reviewer edit.
+    """
+    # robust=True: a broker outage while enqueuing must not 500 an edit that already committed.
+    transaction.on_commit(
+        lambda: send_reviewer_added_slack_notifications.delay(
+            report_id=report_id,
+            team_id=team_id,
+            added_github_logins=list(added_logins),
+            exclude_user_id=actor_user_id,
+        ),
+        robust=True,
+    )
+
+
 def append_suggested_reviewers(
     *,
     team: Team,
@@ -2237,6 +2259,19 @@ def append_suggested_reviewers(
                     ],
                 ),
             )
+
+            # A human added reviewers: ping the newly-added ones on their own Slack channel so
+            # someone added after generation still hears about an actionable report, mirroring
+            # the notification sent when it first went ready. Removals aren't notified.
+            prior_login_set = set(prior_logins)
+            added_logins = [login for login in new_logins if login not in prior_login_set]
+            if added_logins:
+                _schedule_reviewer_added_slack_notifications(
+                    team_id=team.id,
+                    report_id=str(report_id),
+                    added_logins=added_logins,
+                    actor_user_id=attribution.user_id,
+                )
 
     return new_artefact, seen
 

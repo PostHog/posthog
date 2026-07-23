@@ -7,10 +7,18 @@
 //! they are *stashed* here until the worker's in-flight resolves, then flushed
 //! (re-routed) in order.
 //!
-//! The stash keeps two things:
-//! - the deferred groups themselves, keyed by the batch that produced them, so
-//!   the consumer can flush a batch's deferred work as part of completing that
-//!   batch (preserving per-batch offset ownership and oldest-first order);
+//! Entries are held in a per-routing-key FIFO ordered by **batch sequence** —
+//! the arrival order of the batch that produced them, assigned via
+//! [`Stash::register_batch`] on the consumer loop before any deferral for the
+//! batch can occur. Batch ids themselves (timestamp + random) are not
+//! sortable, and deferrals can arrive out of batch order (`defer_failed` lands
+//! in send-gather order), so insertion order can't be trusted; the sequence
+//! can.
+//!
+//! Besides the queues, the stash keeps:
+//! - a per-batch live-entry count, so the consumer can flush a batch's
+//!   deferred work as part of completing that batch (preserving per-batch
+//!   offset ownership and oldest-first order);
 //! - a per-routing-key **outstanding count**, which the dispatcher consults to
 //!   (a) keep deferring new messages for a key that already has deferred work,
 //!   so they can't race ahead, and (b) avoid evicting a pin while its key still
@@ -21,7 +29,7 @@
 //! groups out to attempt a flush ([`Stash::take_batch`]) and putting back the
 //! ones that couldn't route ([`Stash::put_back`]) do not change the count.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::types::SerializedKafkaMessage;
 
@@ -38,10 +46,22 @@ impl DeferredGroup {
     }
 }
 
+struct Entry {
+    batch_seq: u64,
+    batch_id: String,
+    messages: Vec<SerializedKafkaMessage>,
+}
+
 #[derive(Default)]
 pub struct Stash {
-    /// Deferred groups awaiting flush, keyed by the batch id that produced them.
-    by_batch: HashMap<String, Vec<DeferredGroup>>,
+    /// Per routing key: deferred entries ordered by batch sequence (oldest first).
+    queues: HashMap<String, VecDeque<Entry>>,
+    /// Batch id → arrival sequence, assigned by `register_batch` (or lazily on
+    /// first deferral for callers that don't register, e.g. tests).
+    batch_seqs: HashMap<String, u64>,
+    next_seq: u64,
+    /// Batch id → number of entries currently stashed for it.
+    batch_live: HashMap<String, usize>,
     /// Per routing key: how many deferred groups are outstanding (not yet routed).
     outstanding: HashMap<String, u32>,
 }
@@ -51,16 +71,59 @@ impl Stash {
         Self::default()
     }
 
+    /// Record `batch_id`'s arrival order. Must be called in true batch order
+    /// (i.e. from the consumer loop, before the batch is processed) — the
+    /// sequence orders a key's entries across batches, so a later deferral for
+    /// an older batch still queues ahead of a newer batch's entries.
+    pub fn register_batch(&mut self, batch_id: &str) {
+        if !self.batch_seqs.contains_key(batch_id) {
+            self.batch_seqs.insert(batch_id.to_string(), self.next_seq);
+            self.next_seq += 1;
+        }
+    }
+
+    /// Forget a completed batch's sequence. Call once the batch is fully done
+    /// (committed) — no further deferral for it can occur after that.
+    pub fn release_batch(&mut self, batch_id: &str) {
+        self.batch_seqs.remove(batch_id);
+    }
+
+    fn seq_for(&mut self, batch_id: &str) -> u64 {
+        if let Some(&seq) = self.batch_seqs.get(batch_id) {
+            return seq;
+        }
+        let seq = self.next_seq;
+        self.next_seq += 1;
+        self.batch_seqs.insert(batch_id.to_string(), seq);
+        seq
+    }
+
+    fn insert_entry(&mut self, routing_key: &str, entry: Entry) {
+        *self.batch_live.entry(entry.batch_id.clone()).or_insert(0) += 1;
+        let queue = self.queues.entry(routing_key.to_string()).or_default();
+        // Ordered by batch_seq, stable for equal seqs; append is the common case.
+        let pos = queue
+            .iter()
+            .rposition(|e| e.batch_seq <= entry.batch_seq)
+            .map_or(0, |i| i + 1);
+        queue.insert(pos, entry);
+    }
+
     /// Defer a group produced by `batch_id`, bumping its key's outstanding count.
     pub fn defer(&mut self, batch_id: &str, group: DeferredGroup) {
+        let batch_seq = self.seq_for(batch_id);
         *self
             .outstanding
             .entry(group.routing_key.clone())
             .or_insert(0) += 1;
-        self.by_batch
-            .entry(batch_id.to_string())
-            .or_default()
-            .push(group);
+        self.insert_entry(
+            &group.routing_key,
+            Entry {
+                batch_seq,
+                batch_id: batch_id.to_string(),
+                messages: group.messages,
+            },
+        );
     }
 
     /// Whether the key currently has any outstanding deferred groups. New
@@ -72,7 +135,7 @@ impl Stash {
 
     /// Whether `batch_id` has any deferred groups still awaiting flush.
     pub fn has_batch(&self, batch_id: &str) -> bool {
-        self.by_batch.contains_key(batch_id)
+        self.batch_live.get(batch_id).is_some_and(|&n| n > 0)
     }
 
     /// Remove and return a batch's deferred groups so the caller can try to
@@ -80,15 +143,56 @@ impl Stash {
     /// groups that couldn't route are returned via [`Stash::put_back`]. Neither
     /// this call nor `put_back` changes outstanding counts — only `completed` does.
     pub fn take_batch(&mut self, batch_id: &str) -> Vec<DeferredGroup> {
-        self.by_batch.remove(batch_id).unwrap_or_default()
+        let mut taken = Vec::new();
+        self.queues.retain(|routing_key, queue| {
+            let mut i = 0;
+            while i < queue.len() {
+                if queue[i].batch_id == batch_id {
+                    let entry = queue.remove(i).expect("index in bounds");
+                    taken.push(DeferredGroup {
+                        routing_key: routing_key.clone(),
+                        messages: entry.messages,
+                    });
+                } else {
+                    i += 1;
+                }
+            }
+            !queue.is_empty()
+        });
+        self.batch_live.remove(batch_id);
+        taken
+    }
+
+    /// Pop the key's oldest deferred entry for eager release, returning the
+    /// owning batch id and the messages. Does not change the outstanding
+    /// count — the caller is routing the group now, and [`Stash::completed`]
+    /// fires when its send resolves, exactly as with [`Stash::take_batch`].
+    pub fn pop_next(&mut self, routing_key: &str) -> Option<(String, Vec<SerializedKafkaMessage>)> {
+        let queue = self.queues.get_mut(routing_key)?;
+        let entry = queue.pop_front()?;
+        if queue.is_empty() {
+            self.queues.remove(routing_key);
+        }
+        match self.batch_live.get_mut(&entry.batch_id) {
+            Some(n) if *n > 1 => *n -= 1,
+            _ => {
+                self.batch_live.remove(&entry.batch_id);
+            }
+        }
+        Some((entry.batch_id, entry.messages))
     }
 
     /// Re-stash a taken group that couldn't be routed yet (no healthy worker).
     pub fn put_back(&mut self, batch_id: &str, group: DeferredGroup) {
-        self.by_batch
-            .entry(batch_id.to_string())
-            .or_default()
-            .push(group);
+        let batch_seq = self.seq_for(batch_id);
+        self.insert_entry(
+            &group.routing_key,
+            Entry {
+                batch_seq,
+                batch_id: batch_id.to_string(),
+                messages: group.messages,
+            },
+        );
     }
 
     /// Mark one deferred group for `routing_key` as routed — decrements the
@@ -104,24 +208,24 @@ impl Stash {
 
     /// Total deferred groups currently stashed (for metrics/tests).
     pub fn len(&self) -> usize {
-        self.by_batch.values().map(Vec::len).sum()
+        self.queues.values().map(VecDeque::len).sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.by_batch.is_empty()
+        self.queues.is_empty()
     }
 
     /// Number of batches that currently have deferred groups awaiting flush.
     pub fn batch_count(&self) -> usize {
-        self.by_batch.len()
+        self.batch_live.len()
     }
 
     /// Total deferred messages currently stashed across all batches and groups.
     pub fn message_count(&self) -> usize {
-        self.by_batch
+        self.queues
             .values()
-            .flat_map(|groups| groups.iter())
-            .map(DeferredGroup::message_count)
+            .flat_map(|queue| queue.iter())
+            .map(|entry| entry.messages.len())
             .sum()
     }
 }
@@ -254,5 +358,46 @@ mod tests {
         let _ = stash.take_batch("batch-1");
         assert_eq!(stash.batch_count(), 1);
         assert_eq!(stash.message_count(), 3);
+    }
+
+    #[test]
+    fn test_late_deferral_for_registered_older_batch_queues_ahead() {
+        // batch-1 arrives before batch-2 (registration order), but its
+        // deferral lands later (a failed send re-defers after the newer batch
+        // already stashed). The older batch's entry must still queue ahead of
+        // the newer batch's for the same key.
+        let mut stash = Stash::new();
+        stash.register_batch("batch-1");
+        stash.register_batch("batch-2");
+
+        stash.defer("batch-2", group("t:a", 1));
+        stash.defer("batch-1", group("t:a", 2));
+
+        let (batch_id, messages) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-1", "older batch pops first");
+        assert_eq!(messages.len(), 2);
+        let (batch_id, _) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-2");
+        assert!(stash.pop_next("t:a").is_none());
+    }
+
+    #[test]
+    fn test_pop_next_keeps_outstanding_until_completed() {
+        let mut stash = Stash::new();
+        stash.defer("batch-1", group("t:a", 1));
+
+        let (batch_id, _) = stash.pop_next("t:a").unwrap();
+        assert_eq!(batch_id, "batch-1");
+        assert!(
+            !stash.has_batch("batch-1"),
+            "popped entry no longer counts toward its batch"
+        );
+        assert!(
+            stash.is_deferring("t:a"),
+            "popping for a flush attempt must not clear the outstanding count"
+        );
+
+        stash.completed("t:a");
+        assert!(!stash.is_deferring("t:a"));
     }
 }

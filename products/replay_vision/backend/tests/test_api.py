@@ -2107,9 +2107,9 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
-        # Defaults to the baseline model when the request names none.
-        self.assertEqual(body["credits_per_observation"], 15)
-        self.assertEqual(body["estimated_credits_per_month"], 45)
+        # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
+        self.assertEqual(body["credits_per_observation"], 5)
+        self.assertEqual(body["estimated_credits_per_month"], 15)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
         for index in range(3):
