@@ -16,6 +16,7 @@ import {
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
+    signalsScoutRunsList,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
@@ -141,10 +142,10 @@ export interface scoutFleetLogicActions {
         errorObject?: any
     }
     loadScoutConfigsSuccess: (
-        scoutConfigs: SignalScoutConfigApi[],
+        scoutConfigs: SignalScoutConfigApi[] | null,
         payload?: any
     ) => {
-        scoutConfigs: SignalScoutConfigApi[]
+        scoutConfigs: SignalScoutConfigApi[] | null
         payload?: any
     }
     loadScoutMetadata: () => any
@@ -281,7 +282,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : []
+                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
                 },
             },
         ],
@@ -326,6 +327,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
             {
                 loadRunsWindow: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.runsWindow
+                    }
                     // Walk the full window newest→oldest, paginating via a `date_to` cursor so
                     // every scout shows its real run history (not just the fleet-wide newest 100).
                     const windowStart = dayjs().subtract(SCOUT_RUNS_WINDOW_HOURS, 'hours').toISOString()
@@ -335,7 +340,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     let complete = false
 
                     for (let page = 0; page < MAX_RUNS_PAGES; page++) {
-                        const pageRuns = await api.signalScout.runs.list({
+                        const pageRuns = await signalsScoutRunsList(String(teamId), {
                             limit: RUNS_PAGE_LIMIT,
                             date_from: windowStart,
                             date_to: cursor,
@@ -528,38 +533,61 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
             const inFlight: Set<string> = (cache.updatingScoutIds ??= new Set())
+            const pendingUpdates: Map<string, SignalScoutConfigUpdate> = (cache.pendingScoutConfigUpdates ??= new Map())
+
             if (inFlight.has(configId)) {
-                // The controls disable while a save is in flight, so this only catches the
-                // sub-render race (e.g. blur-save then an immediate click). Say so instead of
-                // silently dropping the change.
-                lemonToast.info('Still saving the previous change. Try again in a moment.')
+                actions.patchScoutConfigLocally(configId, updates)
+                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
                 return
             }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.updateScoutConfigFinished(configId)
+                return
+            }
+
+            let confirmedConfig = values.scoutConfigs?.find((config) => config.id === configId)
+            let updatesToSend: SignalScoutConfigUpdate | undefined = updates
+            let queuedUpdatesAfterFailure: SignalScoutConfigUpdate | undefined
             inFlight.add(configId)
-            const previousConfig = values.scoutConfigs?.find((config) => config.id === configId)
-            // Optimistic update so the toggle/select feels instant.
             actions.patchScoutConfigLocally(configId, updates)
+
             try {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    throw new Error('Could not resolve the active project')
-                }
-                const updated = await signalsScoutConfigUpdate(String(teamId), configId, updates)
-                // Reconcile this one row against the server (preserves concurrent edits to others).
-                actions.patchScoutConfigLocally(configId, updated)
-                if (updates.run_cron_schedule === null && previousConfig?.run_cron_schedule) {
-                    // Clearing the schedule is a valid save, not an error — but it can also come
-                    // from a half-typed time input blurring empty, so never let it pass silently.
-                    lemonToast.info('Scheduled run time cleared. The scout is back on its rolling interval.')
+                while (updatesToSend) {
+                    const previousCronSchedule = confirmedConfig?.run_cron_schedule
+                    const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
+                    confirmedConfig = updated
+
+                    if (updatesToSend.run_cron_schedule === null && previousCronSchedule) {
+                        lemonToast.info('Scheduled run time cleared. The scout is back on its rolling interval.')
+                    }
+
+                    const queuedUpdates = pendingUpdates.get(configId)
+                    if (!queuedUpdates) {
+                        actions.patchScoutConfigLocally(configId, updated)
+                        updatesToSend = undefined
+                        continue
+                    }
+
+                    pendingUpdates.delete(configId)
+                    // Keep queued optimistic changes visible while their follow-up request runs.
+                    actions.patchScoutConfigLocally(configId, { ...updated, ...queuedUpdates })
+                    updatesToSend = queuedUpdates
                 }
             } catch (error: any) {
-                if (previousConfig) {
-                    actions.patchScoutConfigLocally(configId, previousConfig)
+                queuedUpdatesAfterFailure = pendingUpdates.get(configId)
+                if (confirmedConfig) {
+                    actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
                 lemonToast.error(error?.detail || error?.message || 'Failed to update scout config')
             } finally {
                 inFlight.delete(configId)
+                pendingUpdates.delete(configId)
                 actions.updateScoutConfigFinished(configId)
+                if (queuedUpdatesAfterFailure) {
+                    actions.updateScoutConfig(configId, queuedUpdatesAfterFailure)
+                }
             }
         },
         deleteScout: async ({ configId }) => {

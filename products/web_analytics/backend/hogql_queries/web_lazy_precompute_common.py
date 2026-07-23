@@ -1,7 +1,7 @@
 """Shared eligibility gate + helpers for web-analytics lazy precompute paths.
 
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
-share the same rollout/safety gate (org feature flag + per-query opt-in,
+share the same rollout/safety gate (org feature flag + per-query opt-out,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
 at most one `$host` exact filter, bounded date range) and the same TTL /
 session-pad / UTC-day helpers. Keeping a single source of truth avoids
@@ -406,12 +406,8 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
 
-class PerQueryOptInNotSet(LazyPrecomputeIneligible):
-    pass
-
-
 class PerQueryOptedOut(LazyPrecomputeIneligible):
-    """Unrestricted team where the user explicitly turned precompute off."""
+    """The user explicitly turned the "Allow precompute" toggle off."""
 
     pass
 
@@ -490,8 +486,7 @@ def is_precompute_unrestricted_for_team(team: Team) -> bool:
     """Whether a team may precompute *any* web analytics query.
 
     Unrestricted teams bypass the single-`$host`-exact filter-shape gate (any
-    property filter becomes a distinct cache key) and treat the per-query toggle
-    as opt-out rather than opt-in. Driven by the dedicated
+    property filter becomes a distinct cache key). Driven by the dedicated
     `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
     """
     return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
@@ -547,15 +542,13 @@ def check_common_eligibility(
     if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
-    unrestricted = is_precompute_unrestricted_for_team(team)
+    # Precompute defaults ON for every enrolled team: an untouched toggle
+    # (`None`) takes the precompute path; only an explicit `False` (the
+    # "Allow precompute" toggle turned off) opts a query out.
+    if use_web_analytics_precompute is False:
+        raise PerQueryOptedOut()
 
-    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
-    # Restricted teams keep the opt-in default (`None`/`False` both reject).
-    if unrestricted:
-        if use_web_analytics_precompute is False:
-            raise PerQueryOptedOut()
-    elif use_web_analytics_precompute is not True:
-        raise PerQueryOptInNotSet()
+    unrestricted = is_precompute_unrestricted_for_team(team)
 
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()
