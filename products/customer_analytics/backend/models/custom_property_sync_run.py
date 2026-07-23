@@ -7,7 +7,7 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 class SyncTrigger(models.TextChoices):
     # A run started automatically as a child of the underlying warehouse sync.
     SCHEDULED = "scheduled", "scheduled"
-    # A run the user kicked off from the UI (a re-run of the underlying source sync).
+    # A full-table backfill the user kicked off from the UI (the "Backfill" button).
     MANUAL = "manual", "manual"
     # A full-table read from S3 to populate historical rows a new/changed mapping never saw.
     BACKFILL = "backfill", "backfill"

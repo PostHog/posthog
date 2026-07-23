@@ -592,35 +592,23 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
                 )
-                if workflow.patched("person-property-sync-per-schema-2026-07"):
-                    # Keyed per schema so only one person-property sync runs per table at a time: a
-                    # concurrent sync gets WorkflowAlreadyStartedError, which we swallow (mirrors the
-                    # semantic-enrichment child below).
-                    try:
-                        await workflow.start_child_workflow(
-                            "sync-warehouse-person-properties",
-                            person_property_sync_inputs,
-                            id=f"sync-warehouse-person-properties-{inputs.external_data_schema_id}",
-                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                            task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                            execution_timeout=dt.timedelta(hours=6),
-                        )
-                    except WorkflowAlreadyStartedError:
-                        workflow.logger.info(
-                            "Person-property sync already running for schema, skipping",
-                            extra={"schema_id": str(inputs.external_data_schema_id)},
-                        )
-                else:
-                    await workflow.start_child_workflow(
-                        "sync-warehouse-person-properties",
-                        person_property_sync_inputs,
-                        id=f"sync-warehouse-person-properties-{job_id}",
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-                        parent_close_policy=ParentClosePolicy.ABANDON,
-                        execution_timeout=dt.timedelta(hours=6),
-                    )
+                # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
+                # S3 prefix that only its own child consumes. A per-schema id would coalesce a
+                # concurrent job's child (WorkflowAlreadyStartedError) and silently drop that job's
+                # staged delta — swept as abandoned days later, so those person-property updates were
+                # lost. Per-job children can safely run concurrently for one schema: the folder-based
+                # snapshot (_write_snapshot_hashes) is concurrency-safe by design. Gated by the
+                # person_property_sync_enabled activity field (defaults False for old histories),
+                # matching the emit-signals sibling above.
+                await workflow.start_child_workflow(
+                    "sync-warehouse-person-properties",
+                    person_property_sync_inputs,
+                    id=f"sync-warehouse-person-properties-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=6),
+                )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need
             # (feature flag + AI consent AND unannotated columns / missing table description, resolved in

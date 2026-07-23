@@ -893,6 +893,7 @@ def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
     references: list[contracts.CustomPropertyReference] | None = None,
     user_access_control: "UserAccessControl | None" = None,
+    enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
         id=definition.id,
@@ -905,7 +906,7 @@ def _to_custom_property_definition_view(
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
         references=references or [],
-        source=_definition_source_view(definition, user_access_control),
+        source=_definition_source_view(definition, user_access_control, enrichment_by_source_id),
         options=_to_custom_property_options(definition.options),
     )
 
@@ -947,16 +948,24 @@ def _custom_property_references_by_definition_id(
 
 
 def _definition_source_view(
-    definition: CustomPropertyDefinition, user_access_control: "UserAccessControl | None" = None
+    definition: CustomPropertyDefinition,
+    user_access_control: "UserAccessControl | None" = None,
+    enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertySourceView | None:
     """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
     ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query. Warehouse
-    schedule/run enrichment is gated on the caller's warehouse-source viewer access."""
+    schedule/run enrichment is gated on the caller's warehouse-source viewer access, and batched by the
+    list path via ``enrichment_by_source_id`` to avoid per-row queries."""
     try:
         source = definition.source
     except CustomPropertySource.DoesNotExist:
         return None
-    return _to_custom_property_source_view(source, user_access_control)
+    enrichment = (
+        enrichment_by_source_id.get(source.id, _RESOLVE_ENRICHMENT_INLINE)
+        if enrichment_by_source_id is not None
+        else _RESOLVE_ENRICHMENT_INLINE
+    )
+    return _to_custom_property_source_view(source, user_access_control, enrichment)
 
 
 def list_custom_property_definitions(
@@ -968,14 +977,22 @@ def list_custom_property_definitions(
     read workflows — see ``_can_read_workflow_references``."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
     total_count = queryset.count()
-    page = queryset[offset : offset + limit]
+    page = list(queryset[offset : offset + limit])
     references = (
         _custom_property_references_by_definition_id(team_id)
         if _can_read_workflow_references(user_access_control)
         else {}
     )
+    sources: list[CustomPropertySource] = []
+    for d in page:
+        try:
+            sources.append(d.source)
+        except CustomPropertySource.DoesNotExist:
+            pass
+    enrichment = _batch_source_enrichment(team_id, sources, user_access_control)
     return [
-        _to_custom_property_definition_view(d, references.get(str(d.id), []), user_access_control) for d in page
+        _to_custom_property_definition_view(d, references.get(str(d.id), []), user_access_control, enrichment)
+        for d in page
     ], total_count
 
 
@@ -1175,21 +1192,33 @@ def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
     return interval.total_seconds(), next_sync_at
 
 
+# Sentinel so a caller can pass a prefetched (schema, latest_run) pair — including ``(None, None)``
+# for a person source the caller can't see — distinct from "resolve inline" (the detail path).
+_RESOLVE_ENRICHMENT_INLINE: Any = object()
+
+
 def _to_custom_property_source_view(
-    source: CustomPropertySource, user_access_control: "UserAccessControl | None" = None
+    source: CustomPropertySource,
+    user_access_control: "UserAccessControl | None" = None,
+    enrichment: "tuple[Any, CustomPropertySyncRun | None]" = _RESOLVE_ENRICHMENT_INLINE,
 ) -> contracts.CustomPropertySourceView:
     # Schedule + latest-run enrichment applies only to person sources; account sources leave it None.
     # A person source is exactly the one bound to a warehouse schema (the facade enforces one binding),
     # so this discriminates without a definition fetch. The enrichment exposes the underlying billable
     # warehouse source's schedule and run metadata, so it's gated on the caller's warehouse-source viewer
     # access — a caller without it sees the source but not its warehouse-derived metadata.
+    # ``enrichment`` lets list endpoints prefetch the schema + latest run in one batched query each
+    # (see ``_batch_source_enrichment``) instead of paying two queries per row.
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
-    schema = _resolve_person_source_schema(source, user_access_control)
+    if enrichment is _RESOLVE_ENRICHMENT_INLINE:
+        schema = _resolve_person_source_schema(source, user_access_control)
+        latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
+    else:
+        schema, latest = enrichment
     if schema is not None:
         sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
-        latest = source.sync_runs.order_by("-created_at").first()
         latest_run = _to_sync_run_view(latest) if latest is not None else None
 
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
@@ -1217,6 +1246,45 @@ def _to_custom_property_source_view(
         next_sync_at=next_sync_at,
         latest_run=latest_run,
     )
+
+
+def _batch_source_enrichment(
+    team_id: int, sources: list[CustomPropertySource], user_access_control: "UserAccessControl | None"
+) -> dict[Any, "tuple[Any, CustomPropertySyncRun | None]"]:
+    """Resolve the schema (with warehouse-viewer access applied) and latest run for a page of person
+    sources in one query each, so a list endpoint doesn't issue two per-row queries (see the per-row
+    path in ``_to_custom_property_source_view``). Returns ``{source_id: (schema_or_None, latest_run)}``;
+    account sources (no warehouse binding) are absent, so they resolve inline to no enrichment."""
+    person_sources = [s for s in sources if s.external_data_schema_id is not None]
+    if not person_sources:
+        return {}
+    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+    schemas_by_id = {
+        schema.id: schema
+        for schema in schema_model.objects.filter(
+            id__in={s.external_data_schema_id for s in person_sources}, team_id=team_id
+        ).select_related("source")
+    }
+    # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
+    latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
+        run.source_id: run
+        for run in CustomPropertySyncRun.objects.for_team(team_id)
+        .filter(source_id__in=[s.id for s in person_sources])
+        .order_by("source_id", "-created_at")
+        .distinct("source_id")
+    }
+    enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    for source in person_sources:
+        schema = schemas_by_id.get(source.external_data_schema_id)
+        if (
+            schema is not None
+            and user_access_control is not None
+            and not user_access_control.check_access_level_for_object(schema.source, required_level="viewer")
+        ):
+            schema = None
+        latest = latest_run_by_source_id.get(source.id) if schema is not None else None
+        enrichment[source.id] = (schema, latest)
+    return enrichment
 
 
 def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
@@ -1265,52 +1333,74 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
 
 
-def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> None:
+def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person source on the schema that isn't already running.
     The UI shows these as in-progress and disables the trigger while they exist; the backfill activity
     reconciles them to their terminal state (see record_sync_run). Skipping sources that already have a
-    running run makes this a no-op when a backfill for the table is already in flight (coalesced)."""
-    sources = list(
-        CustomPropertySource.objects.for_team(team_id).filter(
-            external_data_schema_id=schema_id,
-            is_enabled=True,
-            definition__target_type=TargetType.PERSON.value,
-        )
-    )
-    if not sources:
-        return
-    already_running = set(
-        CustomPropertySyncRun.objects.for_team(team_id)
-        .filter(source__in=sources, status=SyncStatus.RUNNING.value)
-        .values_list("source_id", flat=True)
-    )
-    now = timezone.now()
-    CustomPropertySyncRun.objects.bulk_create(
-        [
-            CustomPropertySyncRun(
-                team_id=team_id,
-                source=source,
-                schema_id=schema_id,
-                trigger=trigger,
-                status=SyncStatus.RUNNING.value,
-                started_at=now,
+    running run makes this a no-op when a backfill for the table is already in flight (coalesced).
+    Returns the source ids a placeholder was created for, so the caller can reconcile them to FAILED if
+    the workflow start never happens (see ``_fail_created_runs``)."""
+    with transaction.atomic():
+        # Lock the candidate sources so a concurrent trigger for the same schema can't pass the
+        # "already running" check and insert a duplicate RUNNING row before this one commits.
+        sources = list(
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(
+                external_data_schema_id=schema_id,
+                is_enabled=True,
+                definition__target_type=TargetType.PERSON.value,
             )
-            for source in sources
-            if source.id not in already_running
-        ]
-    )
+            .select_for_update()
+        )
+        if not sources:
+            return []
+        already_running = set(
+            CustomPropertySyncRun.objects.for_team(team_id)
+            .filter(source__in=sources, status=SyncStatus.RUNNING.value)
+            .values_list("source_id", flat=True)
+        )
+        to_create = [source for source in sources if source.id not in already_running]
+        now = timezone.now()
+        CustomPropertySyncRun.objects.bulk_create(
+            [
+                CustomPropertySyncRun(
+                    team_id=team_id,
+                    source=source,
+                    schema_id=schema_id,
+                    trigger=trigger,
+                    status=SyncStatus.RUNNING.value,
+                    started_at=now,
+                )
+                for source in to_create
+            ]
+        )
+    return [source.id for source in to_create]
+
+
+def _fail_created_runs(team_id: int, source_ids: list[Any], error: str) -> None:
+    """Reconcile the RUNNING placeholders just created for these sources to FAILED. Called when the
+    workflow start never happened (Temporal unreachable), so the rows don't sit 'running' forever with
+    the UI trigger disabled, and the next attempt isn't coalesced against a dead placeholder."""
+    if not source_ids:
+        return
+    CustomPropertySyncRun.objects.for_team(team_id).filter(
+        source_id__in=source_ids, status=SyncStatus.RUNNING.value
+    ).update(status=SyncStatus.FAILED.value, finished_at=timezone.now(), error=error)
 
 
 def _start_backfill(team_id: int, schema_id: str, trigger: str) -> None:
     """Start the person-property backfill workflow. Failure must not fail the originating write."""
+    created_source_ids: list[Any] = []
     try:
         # Placeholder rows before starting, so the activity always finds a running row to reconcile.
-        _create_running_runs(team_id, schema_id, trigger)
+        created_source_ids = _create_running_runs(team_id, schema_id, trigger)
         # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
         from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
 
         start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
     except Exception as e:
+        # The workflow never started, so nothing will reconcile the placeholders — fail them here.
+        _fail_created_runs(team_id, created_source_ids, "Failed to start backfill")
         capture_exception(e)
 
 
@@ -1413,10 +1503,16 @@ def trigger_person_property_backfill(
         return None
     _assert_warehouse_source_editor(team_id, schema_id, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
-    _create_running_runs(team_id, schema_id, trigger)
+    created_source_ids = _create_running_runs(team_id, schema_id, trigger)
     from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
 
-    return start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
+    try:
+        return start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
+    except Exception:
+        # The workflow never started; reconcile the placeholders so the source isn't stuck 'running'
+        # with its trigger disabled, then surface the error to the caller.
+        _fail_created_runs(team_id, created_source_ids, "Failed to start backfill")
+        raise
 
 
 def list_custom_property_sources(
@@ -1426,8 +1522,12 @@ def list_custom_property_sources(
     schedule/run enrichment per source is gated on the caller's warehouse-source viewer access."""
     queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
     total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_custom_property_source_view(s, user_access_control) for s in page], total_count
+    page = list(queryset[offset : offset + limit])
+    enrichment = _batch_source_enrichment(team_id, page, user_access_control)
+    return [
+        _to_custom_property_source_view(s, user_access_control, enrichment.get(s.id, _RESOLVE_ENRICHMENT_INLINE))
+        for s in page
+    ], total_count
 
 
 def get_custom_property_source(

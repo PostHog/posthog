@@ -33,7 +33,7 @@ const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
 
 // Run history for one source, loaded lazily when its row is expanded.
 function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
-    const { runsBySourceId, runsBySourceIdLoading } = useValues(customPropertyDefinitionsLogic)
+    const { runsBySourceId, runsLoadingBySourceId } = useValues(customPropertyDefinitionsLogic)
     const runs = runsBySourceId[sourceId] ?? []
 
     const columns: LemonTableColumns<CustomPropertySyncRunApi> = [
@@ -68,7 +68,7 @@ function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
         <LemonTable
             columns={columns}
             dataSource={runs}
-            loading={runsBySourceIdLoading}
+            loading={runsLoadingBySourceId[sourceId] ?? false}
             rowKey="id"
             size="small"
             emptyState="No runs yet."
@@ -79,7 +79,7 @@ function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
 // First-class Customer analytics view of the warehouse → person property sources: manages the person
 // mappings, shows the next scheduled sync, lets you trigger a sync or backfill, and expands to run history.
 export function WarehousePersonPropertiesSetting(): JSX.Element {
-    const { definitions, definitionsLoading, triggeringSourceId } = useValues(customPropertyDefinitionsLogic)
+    const { definitions, definitionsLoading, triggeringSourceIds } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
@@ -143,15 +143,20 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                     return <span className="text-secondary">—</span>
                 }
                 const status = sourceSyncStatus(definition.source)
-                const affected = definition.source.latest_run?.existing
+                // Only report an affected count for a finished run — an in-progress/failed run's count
+                // isn't "the last run". status.tooltip is undefined for the synced/pending states, so
+                // build the title from the present parts rather than interpolating undefined into it.
+                const latestRun = definition.source.latest_run
+                const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
+                const tooltipTitle =
+                    [
+                        status.tooltip,
+                        affected != null ? `${affected} people affected on the last run` : null,
+                    ]
+                        .filter(Boolean)
+                        .join(' — ') || undefined
                 return (
-                    <Tooltip
-                        title={
-                            affected != null
-                                ? `${status.tooltip} — ${affected} people affected on the last run`
-                                : status.tooltip
-                        }
-                    >
+                    <Tooltip title={tooltipTitle}>
                         <span className="flex items-center gap-2">
                             <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
                             {status.level === 'synced' && definition.source.last_synced_at && (
@@ -177,7 +182,7 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
             width: 0,
             render: (_, definition) => {
                 const source = definition.source
-                const triggering = !!source && triggeringSourceId === source.id
+                const triggering = !!source && triggeringSourceIds.includes(source.id)
                 const running = source?.latest_run?.status === 'running'
                 // A run is in flight for this table; block a second trigger and show it as busy.
                 const busyReason = running ? 'A sync or backfill is already running for this table' : undefined

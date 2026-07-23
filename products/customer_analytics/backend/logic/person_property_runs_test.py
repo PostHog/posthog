@@ -122,3 +122,30 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert CustomPropertySyncRun.objects.unscoped().filter(source=self.source).count() == 2
         placeholder.refresh_from_db()
         assert placeholder.status == "running"
+
+    def test_scheduled_retry_dedups_on_job_id_and_counts_failure_once(self):
+        # The scheduled sync activity retries up to 3 times, calling the recorder on each failed
+        # attempt. Dedup on job_id so retries update the one row instead of inserting a fresh failed
+        # row and re-incrementing the failure streak (which would auto-disable from retry noise).
+        record_sync_run(self._record(status="failed", error="boom"))
+        record_sync_run(self._record(status="failed", error="boom"))
+        record_sync_run(self._record(status="failed", error="boom"))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source, job_id="job-1")
+        assert runs.count() == 1
+        self.source.refresh_from_db()
+        assert self.source.consecutive_failures == 1
+
+    def test_scheduled_retry_that_finally_succeeds_clears_the_failure(self):
+        # A transient failure followed by a successful retry (same job_id) must resolve the row to
+        # completed and reset the source's failure streak / last-synced time.
+        record_sync_run(self._record(status="failed", error="boom"))
+        record_sync_run(self._record(status="completed", error=None))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source, job_id="job-1")
+        assert runs.count() == 1
+        assert runs.get().status == "completed"
+        self.source.refresh_from_db()
+        assert self.source.consecutive_failures == 0
+        assert self.source.last_synced_at is not None
+        assert self.source.last_sync_error is None

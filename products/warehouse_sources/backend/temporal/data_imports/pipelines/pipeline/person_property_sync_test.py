@@ -184,7 +184,9 @@ class TestBackfillOrchestration:
         team = MagicMock(api_token="tok")
         schema = MagicMock()
         schema.folder_path.return_value = "team_1_stripe_schema-1"
-        schema.normalized_name = "charges"
+        # The backfill resolves the Delta folder from the loader's actual folder name, not normalized_name.
+        schema.resolved_s3_folder_name = "charges"
+        schema.name = "charges"
         sources = [
             PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
             PersonPropertySyncSource("s2", "d2", "distinct_id", {"plan": "tier"}),

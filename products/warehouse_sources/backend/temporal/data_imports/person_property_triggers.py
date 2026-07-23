@@ -65,7 +65,13 @@ def start_person_property_backfill(*, team_id: int, schema_id: str, trigger: str
     concurrent triggers for the same table coalesce: returns False (does not raise) when one is
     already running. Also returns False when the schema no longer exists."""
     log = logger.bind(team_id=team_id, schema_id=str(schema_id), trigger=trigger)
-    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).select_related("source").first()
+    # exclude(deleted=True): a soft-deleted schema (its source removed) must not kick off a backfill.
+    schema = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(id=schema_id, team_id=team_id)
+        .select_related("source")
+        .first()
+    )
     if schema is None:
         log.warning("person-property backfill not started: schema no longer exists")
         return False

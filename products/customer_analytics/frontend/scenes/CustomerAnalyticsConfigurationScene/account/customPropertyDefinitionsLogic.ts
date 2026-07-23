@@ -37,6 +37,11 @@ import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 export type CustomPropertyTargetType = 'account' | 'person'
 
+// After triggering a sync/backfill, poll until the source's run settles so the UI reflects
+// completion without a manual refresh. Bounded so a stuck run can't poll forever.
+const RUNS_POLL_INTERVAL_MS = 3000
+const RUNS_POLL_MAX_ATTEMPTS = 20
+
 // One warehouse-column → person-property pair in the person-target editor. Serialized to the
 // backend's `column_property_map` object ({column: property}) on save.
 export interface ColumnPropertyMapping {
@@ -170,7 +175,7 @@ export interface customPropertyDefinitionsLogicValues {
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
-    runsBySourceIdLoading: boolean
+    runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     selectedSourceColumns: string[]
@@ -179,7 +184,7 @@ export interface customPropertyDefinitionsLogicValues {
     selectedWarehouseSchemaId: string | null
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
-    triggeringSourceId: string | null
+    triggeringSourceIds: string[]
     warehouseTables: DataWarehouseTable[]
     warehouseTablesLoading: boolean
 }
@@ -255,26 +260,24 @@ export interface customPropertyDefinitionsLogicActions {
         personPropertyDefinitions: PropertyDefinition[]
         payload?: any
     }
+    addTriggeringSource: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    removeTriggeringSource: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
     loadRuns: ({ sourceId }: { sourceId: string }) => {
         sourceId: string
     }
-    loadRunsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    runsLoaded: ({ sourceId, runs }: { sourceId: string; runs: CustomPropertySyncRunApi[] }) => {
+        sourceId: string
+        runs: CustomPropertySyncRunApi[]
     }
-    loadRunsSuccess: (
-        runsBySourceId: Record<string, CustomPropertySyncRunApi[]>,
-        payload?: {
-            sourceId: string
-        }
-    ) => {
-        runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
-        payload?: {
-            sourceId: string
-        }
+    runsLoadFailed: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    pollRunsStatus: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
     }
     loadSavedQueries: () => any
     loadSavedQueriesFailure: (
@@ -351,9 +354,6 @@ export interface customPropertyDefinitionsLogicActions {
     }
     setEditingDefinition: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
-    }
-    setTriggeringSourceId: (sourceId: string | null) => {
-        sourceId: string | null
     }
     submitCustomPropertyForm: () => {
         value: boolean
@@ -434,10 +434,23 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         closeModal: true,
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
-        // starts a full-table backfill. setTriggeringSourceId drives the per-row double-submit guard.
+        // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
+        // guard, keyed by source so triggering one row never re-enables another's in-flight button.
         triggerSync: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
         triggerBackfill: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
-        setTriggeringSourceId: (sourceId: string | null) => ({ sourceId }),
+        addTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        removeTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        // Run history per source (lazy on row-expand), driven by explicit actions so loading state is
+        // tracked per source rather than one shared loader boolean.
+        loadRuns: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        runsLoaded: ({ sourceId, runs }: { sourceId: string; runs: CustomPropertySyncRunApi[] }) => ({
+            sourceId,
+            runs,
+        }),
+        runsLoadFailed: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        // Poll definitions/runs after a trigger until the source's run settles, so the buttons and
+        // status stop reflecting a stale 'running' state without a manual page refresh.
+        pollRunsStatus: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
     }),
     reducers({
         modalVisible: [
@@ -457,11 +470,31 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 closeModal: () => null,
             },
         ],
-        // The source whose sync/backfill trigger is in flight, for the per-row loading/disabled guard.
-        triggeringSourceId: [
-            null as string | null,
+        // The sources whose sync/backfill trigger is in flight, for the per-row loading/disabled guard.
+        // Keyed per source (not a single scalar) so a second row's trigger can't unblock the first's
+        // still-in-flight button.
+        triggeringSourceIds: [
+            [] as string[],
             {
-                setTriggeringSourceId: (_, { sourceId }) => sourceId,
+                addTriggeringSource: (state, { sourceId }) =>
+                    state.includes(sourceId) ? state : [...state, sourceId],
+                removeTriggeringSource: (state, { sourceId }) => state.filter((id) => id !== sourceId),
+            },
+        ],
+        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        runsBySourceId: [
+            {} as Record<string, CustomPropertySyncRunApi[]>,
+            {
+                runsLoaded: (state, { sourceId, runs }) => ({ ...state, [sourceId]: runs }),
+            },
+        ],
+        // Per-source loading flag so expanding one row's history doesn't spin every expanded row.
+        runsLoadingBySourceId: [
+            {} as Record<string, boolean>,
+            {
+                loadRuns: (state, { sourceId }) => ({ ...state, [sourceId]: true }),
+                runsLoaded: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoadFailed: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
             },
         ],
     }),
@@ -521,20 +554,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         limit: 1000,
                     })
                     return response.results
-                },
-            },
-        ],
-        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
-        runsBySourceId: [
-            {} as Record<string, CustomPropertySyncRunApi[]>,
-            {
-                loadRuns: async ({
-                    sourceId,
-                }: {
-                    sourceId: string
-                }): Promise<Record<string, CustomPropertySyncRunApi[]>> => {
-                    const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
-                    return { ...values.runsBySourceId, [sourceId]: response.results }
                 },
             },
         ],
@@ -725,7 +744,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
             if (targetType) {
@@ -846,20 +865,21 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             lemonToast.error('Failed to load data warehouse tables')
         },
         triggerSync: async ({ sourceId }) => {
-            actions.setTriggeringSourceId(sourceId)
+            actions.addTriggeringSource({ sourceId })
             try {
                 await customPropertySourcesSyncCreate(String(values.currentProjectId), sourceId)
                 lemonToast.success('Sync triggered — it may take a few minutes to run')
                 actions.loadDefinitions()
+                actions.pollRunsStatus({ sourceId })
             } catch (error) {
                 posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerSync' })
                 lemonToast.error('Could not trigger a sync for this property')
             } finally {
-                actions.setTriggeringSourceId(null)
+                actions.removeTriggeringSource({ sourceId })
             }
         },
         triggerBackfill: async ({ sourceId }) => {
-            actions.setTriggeringSourceId(sourceId)
+            actions.addTriggeringSource({ sourceId })
             try {
                 const response = await customPropertySourcesBackfillCreate(String(values.currentProjectId), sourceId)
                 const alreadyRunning = (response as { already_running?: boolean } | undefined)?.already_running
@@ -870,12 +890,59 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 )
                 actions.loadRuns({ sourceId })
                 actions.loadDefinitions()
+                actions.pollRunsStatus({ sourceId })
             } catch (error) {
                 posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerBackfill' })
                 lemonToast.error('Could not start a backfill for this property')
             } finally {
-                actions.setTriggeringSourceId(null)
+                actions.removeTriggeringSource({ sourceId })
             }
+        },
+        loadRuns: async ({ sourceId }) => {
+            try {
+                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
+                actions.runsLoaded({ sourceId, runs: response.results })
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadRuns' })
+                actions.runsLoadFailed({ sourceId })
+                lemonToast.error('Failed to load run history')
+            }
+        },
+        pollRunsStatus: ({ sourceId }) => {
+            cache.pollSourceIds = cache.pollSourceIds ?? new Set<string>()
+            cache.pollAttempts = cache.pollAttempts ?? {}
+            cache.pollSourceIds.add(sourceId)
+            cache.pollAttempts[sourceId] = 0
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadDefinitions(), RUNS_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'runsPoll')
+        },
+        loadDefinitionsSuccess: () => {
+            // Reschedule the trigger poll until each polled source's run settles (or attempts run out),
+            // so the buttons/status reflect completion without a manual refresh (see pollRunsStatus).
+            const pollSourceIds: Set<string> | undefined = cache.pollSourceIds
+            if (!pollSourceIds || pollSourceIds.size === 0) {
+                return
+            }
+            for (const sourceId of [...pollSourceIds]) {
+                const definition = values.definitions.find((d) => d.source?.id === sourceId)
+                const stillRunning = definition?.source?.latest_run?.status === 'running'
+                const attempts = (cache.pollAttempts[sourceId] ?? 0) + 1
+                cache.pollAttempts[sourceId] = attempts
+                actions.loadRuns({ sourceId })
+                if (!stillRunning || attempts >= RUNS_POLL_MAX_ATTEMPTS) {
+                    pollSourceIds.delete(sourceId)
+                }
+            }
+            if (pollSourceIds.size === 0) {
+                cache.disposables.dispose('runsPoll')
+                return
+            }
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadDefinitions(), RUNS_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'runsPoll')
         },
     })),
     afterMount(({ actions }) => {

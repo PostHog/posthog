@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     person_property_sync_sources_for,
     record_person_property_sync_run,
 )
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     delta_storage_options,
 )
@@ -269,7 +270,14 @@ async def _clear_staged(team_id: int, schema_id: str, job_id: str) -> None:
 
 def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
     # select_related the source so folder_path() (which reads source.source_type) doesn't lazy-load.
-    return ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).select_related("source").first()
+    # exclude(deleted=True) matches the rest of the codebase's schema lookups — a soft-deleted schema
+    # (source removed) must not be backfilled against.
+    return (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(id=schema_id, team_id=team_id)
+        .select_related("source")
+        .first()
+    )
 
 
 def _filter_existing_persons(team_id: int, distinct_ids: list[str]) -> set[str]:
@@ -467,6 +475,18 @@ def _read_delta_bundles(
     # Project only columns that exist — a misconfigured column drops out rather than erroring.
     project = sorted(wanted & available)
 
+    # A source whose key column itself is missing produces zero bundles for the whole table, which is
+    # otherwise indistinguishable from a genuinely idle backfill. Log it so a misconfigured mapping
+    # (table dropped/renamed the identifier column) is diagnosable rather than silent.
+    for source in sources:
+        if source.key_column not in available:
+            logger.warning(
+                "person-property backfill: source key column missing from table, will produce nothing",
+                uri=uri,
+                source_id=str(source.source_id),
+                key_column=source.key_column,
+            )
+
     rows_read = 0
     for batch in dataset.to_batches(columns=project, batch_size=BACKFILL_BATCH_SIZE):
         rows = batch.to_pylist()
@@ -505,7 +525,12 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_name}"
+    # Resolve the Delta folder leaf the same way the loader wrote it: `resolved_s3_folder_name`
+    # (or the schema name) normalized, never `normalized_name`. For schema-qualified/migration-pinned
+    # sources (e.g. Postgres `public.users` → folder `users`) these diverge, and `normalized_name`
+    # would point at a prefix with no Delta log — a silent 0-row no-op.
+    folder_leaf = NamingConvention.normalize_identifier(schema.resolved_s3_folder_name or schema.name)
+    uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
     accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
     result.rows_read = rows_read
