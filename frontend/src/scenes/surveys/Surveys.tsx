@@ -21,6 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/
 
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
+import { SurveyLoadDetector } from './SurveyLoadDetector'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
 
@@ -102,6 +103,7 @@ function Surveys(): JSX.Element {
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
+                    { key: SurveysTabs.LoadDetector, label: 'Load detector' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
                     { key: SurveysTabs.Settings, label: 'Settings' },
@@ -109,6 +111,7 @@ function Surveys(): JSX.Element {
                 sceneInset={true}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
+            {tab === SurveysTabs.LoadDetector && <SurveyLoadDetector />}
             {tab === SurveysTabs.Notifications && <SurveyNotificationsList />}
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}

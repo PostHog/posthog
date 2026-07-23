@@ -7350,3 +7350,130 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestSurveyLoadDetector(ClickhouseTestMixin, APIBaseTest):
+    def _shown(self, distinct_id: str, survey_id: str, timestamp: datetime) -> None:
+        _create_event(
+            team=self.team,
+            event="survey shown",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties={"$survey_id": survey_id},
+        )
+
+    def test_detects_overloaded_users_overlaps_and_per_survey_rates(self):
+        survey_a = Survey.objects.create(
+            team=self.team, name="NPS survey", type="popover", questions=[{"type": "open", "question": "A?"}]
+        )
+        survey_b = Survey.objects.create(
+            team=self.team, name="CSAT survey", type="popover", questions=[{"type": "open", "question": "B?"}]
+        )
+        survey_c = Survey.objects.create(
+            team=self.team, name="Feedback survey", type="popover", questions=[{"type": "open", "question": "C?"}]
+        )
+        deleted_survey_id = str(uuid.uuid4())
+        id_a, id_b, id_c = str(survey_a.id), str(survey_b.id), str(survey_c.id)
+
+        p1, p2, p3, p4 = (create_person(team=self.team, distinct_ids=[f"user_{i}"]) for i in range(1, 5))
+        base = datetime.now(UTC) - timedelta(days=2)
+
+        # p1: two surveys 10 minutes apart -> overloaded; dismisses B for real
+        self._shown(p1.distinct_ids[0], id_a, base)
+        self._shown(p1.distinct_ids[0], id_b, base + timedelta(minutes=10))
+        _create_event(
+            team=self.team,
+            event="survey dismissed",
+            distinct_id=p1.distinct_ids[0],
+            timestamp=base + timedelta(minutes=11),
+            properties={"$survey_id": id_b},
+        )
+        # p2: two surveys 2 hours apart -> outside the 1h window, not overloaded
+        self._shown(p2.distinct_ids[0], id_a, base)
+        self._shown(p2.distinct_ids[0], id_c, base + timedelta(hours=2))
+        # p3: a single survey, responds to it
+        self._shown(p3.distinct_ids[0], id_a, base)
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id=p3.distinct_ids[0],
+            timestamp=base + timedelta(minutes=5),
+            properties={"$survey_id": id_a},
+        )
+        # p4: a deleted survey then A within 30 minutes -> overloaded; partial dismissal must not count
+        self._shown(p4.distinct_ids[0], deleted_survey_id, base)
+        self._shown(p4.distinct_ids[0], id_a, base + timedelta(minutes=30))
+        _create_event(
+            team=self.team,
+            event="survey dismissed",
+            distinct_id=p4.distinct_ids[0],
+            timestamp=base + timedelta(minutes=31),
+            properties={"$survey_id": id_a, "$survey_partially_completed": "true"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/load_detector/",
+            data={"window_seconds": 3600, "overload_threshold": 2, "lookback_days": 30},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+
+        assert data["config"] == {"window_seconds": 3600, "overload_threshold": 2, "lookback_days": 30}
+        assert data["summary"] == {"users_shown": 4, "overloaded_users": 2, "overloaded_users_rate": 50.0}
+
+        overlap_pairs = {(o["survey_id_1"], o["survey_id_2"], o["users_affected"]) for o in data["overlaps"]}
+        assert overlap_pairs == {
+            (min(id_a, id_b), max(id_a, id_b), 1),
+            (min(id_a, deleted_survey_id), max(id_a, deleted_survey_id), 1),
+        }
+        names_in_overlaps = {o["survey_id_1"]: o["survey_name_1"] for o in data["overlaps"]} | {
+            o["survey_id_2"]: o["survey_name_2"] for o in data["overlaps"]
+        }
+        assert names_in_overlaps[id_a] == "NPS survey"
+        assert names_in_overlaps[deleted_survey_id] is None
+
+        rows = {row["survey_id"]: row for row in data["surveys"]}
+        assert set(rows) == {id_a, id_b, id_c, deleted_survey_id}
+        assert data["surveys"][0]["survey_id"] == id_a  # most overloaded users first
+        assert rows[id_a] == {
+            "survey_id": id_a,
+            "survey_name": "NPS survey",
+            "users_shown": 4,
+            "times_shown": 4,
+            "overloaded_users_shown": 2,
+            "overloaded_users_rate": 50.0,
+            "dismissal_rate": 0.0,  # p4's dismissal is partial and must be excluded
+            "response_rate": 25.0,
+        }
+        assert rows[id_b]["users_shown"] == 1
+        assert rows[id_b]["overloaded_users_shown"] == 1
+        assert rows[id_b]["dismissal_rate"] == 100.0
+        assert rows[id_c]["overloaded_users_shown"] == 0
+        assert rows[deleted_survey_id]["survey_name"] is None
+        assert rows[deleted_survey_id]["overloaded_users_shown"] == 1
+
+    def test_uses_team_saved_config_and_returns_empty_state(self):
+        self.team.survey_config = {
+            "appearance": {"whiteLabel": True},
+            "load_detector": {"window_seconds": 7200, "overload_threshold": 3, "lookback_days": 7},
+        }
+        self.team.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/load_detector/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["config"] == {"window_seconds": 7200, "overload_threshold": 3, "lookback_days": 7}
+        assert data["summary"] == {"users_shown": 0, "overloaded_users": 0, "overloaded_users_rate": 0.0}
+        assert data["overlaps"] == []
+        assert data["surveys"] == []
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/load_detector/", data={"overload_threshold": 5}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"] == {"window_seconds": 7200, "overload_threshold": 5, "lookback_days": 7}
+
+    def test_rejects_out_of_range_params(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/load_detector/", data={"window_seconds": 1})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -15,6 +15,7 @@ import type {
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
     SurveyGlobalStatsResponseApi,
+    SurveyLoadDetectorResponseApi,
     SurveyQuestionLabelsResponseApi,
     SurveyResponsesListApi,
     SurveySerializerCreateUpdateOnlyApi,
@@ -23,6 +24,7 @@ import type {
     SurveySummarizeRequestApi,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysLoadDetectorRetrieveParams,
     SurveysResponsesListParams,
     SurveysStatsRetrieveParams,
     SurveysSummarizeResponsesCreateParams,
@@ -426,6 +428,37 @@ export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
 
 export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSurveysLoadDetectorRetrieveUrl = (projectId: string, params?: SurveysLoadDetectorRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/load_detector/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/load_detector/`
+}
+
+/**
+ * Analyze `survey shown` events to find users who were shown too many surveys too close together. A user counts as overloaded when at least `overload_threshold` distinct surveys were shown to them within one rolling window of `window_seconds`. Thresholds default to the values saved in the team's survey configuration (`survey_config.load_detector`) and can be overridden per request.
+ * @summary Detect survey overload
+ */
+export const surveysLoadDetectorRetrieve = async (
+    projectId: string,
+    params?: SurveysLoadDetectorRetrieveParams,
+    options?: RequestInit
+): Promise<SurveyLoadDetectorResponseApi> => {
+    return apiMutator<SurveyLoadDetectorResponseApi>(getSurveysLoadDetectorRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

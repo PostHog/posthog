@@ -725,6 +725,12 @@ export interface ProjectType extends ProjectBasicType {
 
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
+    /** Saved defaults for the surveys load detector. Values are clamped server-side. */
+    load_detector?: {
+        window_seconds?: number
+        overload_threshold?: number
+        lookback_days?: number
+    }
 }
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'

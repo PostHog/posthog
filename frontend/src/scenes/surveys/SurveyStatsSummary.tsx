@@ -15,14 +15,14 @@ import { SurveyEventName, SurveyRates, SurveyStats, SurveyType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
-interface StatRowItem {
+export interface StatRowItem {
     title: string
     value: string | number
     description: string | React.ReactNode
     valueClassName?: string
 }
 
-function StatRow({ items, isLoading }: { items: StatRowItem[]; isLoading?: boolean }): JSX.Element {
+export function StatRow({ items, isLoading }: { items: StatRowItem[]; isLoading?: boolean }): JSX.Element {
     return (
         <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-bg-light/40">
             {items.map((item, index) => (
