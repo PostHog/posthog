@@ -1,15 +1,17 @@
 /**
  * Parses YAML frontmatter from a SKILL.md file.
- * Extracts `name` and `description` fields.
+ * Extracts `name`, `description`, and `disable-model-invocation` fields.
  *
  * Handles:
  * - Simple values: `name: my-skill`
  * - Quoted strings: `description: 'Some text'` or `description: "Some text"`
  * - Multi-line folded: `description: >-\n  line1\n  line2`
  */
-export function parseSkillFrontmatter(
-  content: string,
-): { name: string; description: string } | null {
+export function parseSkillFrontmatter(content: string): {
+  name: string;
+  description: string;
+  disableModelInvocation: boolean;
+} | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
 
@@ -18,7 +20,15 @@ export function parseSkillFrontmatter(
   if (!name) return null;
 
   const description = extractYamlValue(yaml, "description") ?? "";
-  return { name, description };
+  const disableModelInvocation = parseYamlBoolean(
+    extractYamlValue(yaml, "disable-model-invocation"),
+  );
+  return { name, description, disableModelInvocation };
+}
+
+/** YAML 1.2 core-schema booleans: `true`/`True`/`TRUE` (quoted forms too). */
+function parseYamlBoolean(value: string | null): boolean {
+  return value !== null && value.toLowerCase() === "true";
 }
 
 /**

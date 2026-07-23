@@ -85,6 +85,24 @@ describe("listSkills", () => {
     expect(repoSkill?.editable).toBe(true);
     expect(bundledSkill?.editable).toBe(false);
   });
+
+  it("surfaces disable-model-invocation from frontmatter", async () => {
+    await createSkill(
+      repoSkillsDir,
+      "manual-skill",
+      `---\nname: manual-skill\ndescription: d\ndisable-model-invocation: true\n---\nbody`,
+    );
+    await createSkill(repoSkillsDir, "auto-skill");
+
+    const skills = await makeService().listSkills();
+
+    expect(
+      skills.find((s) => s.name === "manual-skill")?.disableModelInvocation,
+    ).toBe(true);
+    expect(
+      skills.find((s) => s.name === "auto-skill")?.disableModelInvocation,
+    ).toBeUndefined();
+  });
 });
 
 describe("getSkillContents", () => {
@@ -680,6 +698,35 @@ describe("skill mutations", () => {
     });
     const content = await service.readSkillFile(skillPath, "SKILL.md");
     expect(content).toContain("# Alpha");
+  });
+
+  it("writes and clears disable-model-invocation through manifest saves", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+    const service = makeService();
+
+    await service.saveSkillManifest(skillPath, {
+      name: "alpha",
+      description: "d",
+      body: "body",
+      disableModelInvocation: true,
+    });
+    let skills = await service.listSkills();
+    expect(
+      skills.find((s) => s.path === skillPath)?.disableModelInvocation,
+    ).toBe(true);
+
+    await service.saveSkillManifest(skillPath, {
+      name: "alpha",
+      description: "d",
+      body: "body",
+      disableModelInvocation: false,
+    });
+    skills = await service.listSkills();
+    expect(
+      skills.find((s) => s.path === skillPath)?.disableModelInvocation,
+    ).toBeUndefined();
+    const content = await service.readSkillFile(skillPath, "SKILL.md");
+    expect(content).not.toContain("disable-model-invocation");
   });
 
   it("rejects manifest saves without a name", async () => {

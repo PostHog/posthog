@@ -1,6 +1,14 @@
 import type { SkillInfo } from "@posthog/shared";
 import { toast } from "@posthog/ui/primitives/toast";
-import { Box, Button, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
+import {
+  Box,
+  Button,
+  Flex,
+  Switch,
+  Text,
+  TextArea,
+  TextField,
+} from "@radix-ui/themes";
 import { useRef, useState } from "react";
 import { SkillCodeEditor } from "./SkillCodeEditor";
 import { skillErrorDescription } from "./skillErrors";
@@ -25,6 +33,9 @@ export function SkillManifestEditor({
 }: SkillManifestEditorProps) {
   const [name, setName] = useState(skill.name);
   const [description, setDescription] = useState(skill.description);
+  const [disableModelInvocation, setDisableModelInvocation] = useState(
+    skill.disableModelInvocation ?? false,
+  );
   // Captured at mount: background refetches must not reset in-flight edits.
   const [mountedBody] = useState(initialBody);
   const bodyRef = useRef(mountedBody);
@@ -37,6 +48,7 @@ export function SkillManifestEditor({
         name,
         description,
         body: bodyRef.current,
+        disableModelInvocation,
       });
       onSaved();
     } catch (error) {
@@ -72,6 +84,22 @@ export function SkillManifestEditor({
             placeholder="When should an agent use this skill?"
           />
         </Box>
+        <Flex align="center" justify="between" gap="2">
+          <Box>
+            <Text className="block text-[12px] text-gray-12">
+              Manual invocation only
+            </Text>
+            <Text className="block text-[11px] text-gray-10">
+              The agent won't use this skill on its own — only when you invoke
+              it
+            </Text>
+          </Box>
+          <Switch
+            size="1"
+            checked={disableModelInvocation}
+            onCheckedChange={setDisableModelInvocation}
+          />
+        </Flex>
       </Flex>
 
       <Box className="min-h-0 flex-1 border-t border-t-(--gray-5)">

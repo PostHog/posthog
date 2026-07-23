@@ -11,6 +11,12 @@ export interface SkillInfo {
   editable: boolean;
   /** Size of SKILL.md in bytes (context-cost signal). */
   skillMdBytes: number;
+  /**
+   * Frontmatter `disable-model-invocation: true`: the agent never invokes the
+   * skill on its own — only an explicit user invocation (slash command or
+   * composer skill tag) runs it.
+   */
+  disableModelInvocation?: boolean;
 }
 
 export interface SkillFileEntry {
@@ -44,13 +50,18 @@ export interface ExportedSkill {
  * sandbox, so it must not drift between hosts.
  */
 export function serializeSkillMarkdown(
-  meta: { name: string; description: string },
+  meta: {
+    name: string;
+    description: string;
+    disableModelInvocation?: boolean;
+  },
   body: string,
 ): string {
   const frontmatter = [
     "---",
     `name: ${serializeSkillScalar(meta.name)}`,
     `description: ${serializeSkillScalar(meta.description)}`,
+    ...(meta.disableModelInvocation ? ["disable-model-invocation: true"] : []),
     "---",
   ].join("\n");
 
