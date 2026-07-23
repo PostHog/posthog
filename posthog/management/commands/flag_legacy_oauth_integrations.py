@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import F, Func, JSONField, Value
 
 import structlog
 
@@ -10,14 +11,31 @@ logger = structlog.get_logger(__name__)
 # Kinds whose current client id we can name, so `aud` can be compared against it.
 CURRENT_CLIENT_ID_SETTING = {"bing-ads": "BING_ADS_CLIENT_ID"}
 
+# JSON-level merges so a concurrent refresh's read-modify-write of `config` (backoff counters,
+# refreshed_at) can't be clobbered by this pass, nor vice versa.
+_FLAG_SET = Func(
+    F("config"),
+    Value(f"{{{CONFIG_LEGACY_OAUTH_CLIENT}}}"),
+    function="jsonb_set",
+    template="%(function)s(%(expressions)s::text[], 'true'::jsonb)",
+    output_field=JSONField(),
+)
+_FLAG_CLEARED = Func(
+    F("config"),
+    Value(CONFIG_LEGACY_OAUTH_CLIENT),
+    template="%(expressions)s",
+    arg_joiner=" - ",
+    output_field=JSONField(),
+)
+
 
 class Command(BaseCommand):
     """Classify OAuth connections by the app they were established with.
 
-    Safe to re-run, and worth re-running: this rewrites `config` the same way the refresh sweep
-    does, so a refresh landing mid-pass can overwrite the flag on that row with its own
-    (equally valid) verdict. Both paths converge on the same answer, and a second pass settles
-    any row that lost the race.
+    Safe to re-run, and worth re-running: the refresh sweep rewrites `config` wholesale, so a
+    refresh whose in-memory snapshot predates this pass can overwrite the flag on that row with
+    its own (equally valid) verdict. Both paths converge on the same answer, and a second pass
+    settles any row that lost the race.
     """
 
     help = "Flag OAuth integrations still connected through a superseded client id, so the product can ask those teams to reconnect before the old app is retired."
@@ -49,11 +67,7 @@ class Command(BaseCommand):
             if already_flagged == is_legacy or dry_run:
                 continue
 
-            if is_legacy:
-                integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
-            else:
-                integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
-            integration.save(update_fields=["config"])
+            Integration.objects.filter(pk=integration.pk).update(config=_FLAG_SET if is_legacy else _FLAG_CLEARED)
 
         self.stdout.write(
             f"{kind}: {counts['legacy']} on a superseded client, {counts['current']} current, "
