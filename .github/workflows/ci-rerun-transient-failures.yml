@@ -1,0 +1,41 @@
+name: Rerun transient CI failures
+
+# Frontend CI's typecheck job runs on spot capacity and is occasionally killed
+# mid-step by a runner shutdown (spot preemption / runner recycle), which shows
+# up as a "failure" even though the code is fine — a re-run passes on the same
+# commit. This listener detects that signature and re-runs only the failed jobs,
+# so the flake doesn't need a human to click "re-run". Genuine failures are left
+# untouched. See .github/scripts/ci-rerun-transient-failures.js.
+
+on:
+    workflow_run:
+        workflows: ['Frontend CI']
+        types: [completed]
+
+# Serialize per triggering run so a run is never re-dispatched twice at once.
+concurrency:
+    group: ci-rerun-transient-failures-${{ github.event.workflow_run.id }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    actions: write
+
+jobs:
+    rerun:
+        if: github.event.workflow_run.conclusion == 'failure'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/ci-rerun-transient-failures.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Re-run failed jobs if the failure was a transient runner shutdown
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              with:
+                  script: |
+                      const script = require('./.github/scripts/ci-rerun-transient-failures.js')
+                      await script({ github, context, core })
