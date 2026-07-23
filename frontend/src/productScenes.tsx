@@ -37,6 +37,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
+    Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
+    AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),

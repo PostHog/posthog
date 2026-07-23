@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "horizon_days": {
+            "default": 7,
+            "description": "Predict whether the target event occurs within this many days.",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "inference_population": {
+            "description": "Population filter for daily scoring. Defaults to training_population if not provided."
+        },
+        "target_definition": {
+            "description": "Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event."
+        },
+        "target_event": {
+            "default": "",
+            "description": "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead).",
+            "type": "string"
+        },
+        "training_lookback_days": {
+            "default": 180,
+            "description": "How far back to look for training examples. Default: 180.",
+            "maximum": 730,
+            "minimum": 7,
+            "type": "number"
+        },
+        "training_population": {
+            "description": "Population filter for training examples. Use {} for all identified users."
+        }
+    },
+    "type": "object"
+}

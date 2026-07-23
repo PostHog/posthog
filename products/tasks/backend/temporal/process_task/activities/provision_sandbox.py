@@ -81,6 +81,7 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
+    sandbox_template: str = SandboxTemplate.DEFAULT_BASE.value
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
@@ -356,7 +357,8 @@ def _build_environment_variables(
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-    elif run_state.handoff_resumed:
+    else:
+        # Fresh runs and handoff-resumed runs both submit output to the current run.
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
     # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
@@ -524,6 +526,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
+            sandbox_template=run_state.sandbox_template or SandboxTemplate.DEFAULT_BASE.value,
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
@@ -553,7 +556,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         use_vm_sandbox = ctx.use_modal_vm_sandbox
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate(prepared.sandbox_template),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,

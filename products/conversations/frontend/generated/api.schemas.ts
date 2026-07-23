@@ -1117,10 +1117,10 @@ export interface ZendeskImportStartApi {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type ZendeskImportJobStatusEnumApi =
-    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+export type AutoresearchRunStatusEnumApi =
+    (typeof AutoresearchRunStatusEnumApi)[keyof typeof AutoresearchRunStatusEnumApi]
 
-export const ZendeskImportJobStatusEnumApi = {
+export const AutoresearchRunStatusEnumApi = {
     Pending: 'pending',
     Running: 'running',
     Completed: 'completed',
@@ -1136,7 +1136,7 @@ export interface ZendeskImportJobApi {
      * * `running` - Running
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: ZendeskImportJobStatusEnumApi
+    readonly status: AutoresearchRunStatusEnumApi
     /**
      * Zendesk subdomain used for this import job.
      * @nullable

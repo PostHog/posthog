@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "best_iteration_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used."
+        },
+        "distillation": {
+            "default": "",
+            "description": "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this autoresearch training run.",
+            "type": "string"
+        },
+        "model_explanation": {
+            "additionalProperties": {},
+            "description": "Global feature importance / directionality bundle for the champion model card.",
+            "properties": {},
+            "type": "object"
+        },
+        "pipeline_id": {
+            "type": "string"
+        },
+        "recommended_next": {
+            "default": "",
+            "description": "What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "pipeline_id"],
+    "type": "object"
+}

@@ -317,6 +317,7 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_template: str | None = None
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:

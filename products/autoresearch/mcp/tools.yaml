@@ -1,0 +1,574 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Autoresearch
+feature: autoresearch
+url_prefix: /autoresearch
+ui_apps: {}
+tools:
+    autoresearch-archive-create:
+        operation: autoresearch_archive_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Archive pipeline
+        description: >
+            Soft-delete a pipeline. Stops daily scoring and training. Prediction history and model artifacts are
+            preserved. Archived pipelines are excluded from autoresearch-list. This is reversible only via direct DB
+            access — use pause instead if you want to temporarily stop a pipeline.
+    autoresearch-create:
+        operation: autoresearch_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create a pipeline
+        description: >
+            Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this
+            endpoint does not block on validation errors. The prediction target is either an event (pass target_event,
+            e.g. '$pageview') or a PostHog action (pass target_definition = {"type": "action", "action_id": N} to predict
+            a multi-step / property / autocapture matcher; target_event is then optional and used only as a display
+            label). Provide exactly one. horizon_days defaults to 7. The output person property (e.g.
+            'predicted_p_pageview') is auto-derived from target_event if omitted. After creating, call
+            autoresearch-train-create to run stub training and generate a champion model.
+        exclude_params:
+            - id
+            - created_by
+            - created_at
+            - updated_at
+            - last_scored_at
+            - status
+            - iteration_budget_remaining
+    autoresearch-destroy:
+        operation: autoresearch_destroy
+        enabled: false
+    autoresearch-list:
+        operation: autoresearch_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List pipelines
+        description: >
+            List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each
+            pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event,
+            horizon, and timestamps. Use autoresearch-retrieve to get full details including population definitions.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - target_event
+                - horizon_days
+                - status
+                - iteration_budget
+                - iteration_budget_remaining
+                - last_scored_at
+                - created_at
+                - updated_at
+    autoresearch-materialize-features:
+        operation: autoresearch_training_runs_materialize_features_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Materialize training features to the sandbox
+        description: >
+            Run your features.sql server-side against the labeled training population and write the train/holdout
+            feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path,
+            train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list —
+            the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
+            returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
+            whenever you change features.sql.
+    autoresearch-models-list:
+        operation: autoresearch_models_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List models for a pipeline
+        description: >
+            List champion, challenger, and archived model versions for a pipeline. Each model includes its
+            holdout_score, role, recipe_hash, is_preliminary flag, and agent_description. The active scoring model has
+            role='champion'. Use the recipe_hash to detect when the champion has changed across training runs.
+        response:
+            include:
+                - id
+                - pipeline
+                - role
+                - recipe_hash
+                - holdout_score
+                - realized_score
+                - is_preliminary
+                - agent_description
+                - trained_on_start
+                - trained_on_end
+                - promoted_at
+                - created_at
+    autoresearch-models-retrieve:
+        operation: autoresearch_models_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get model
+        description: >
+            Get full details for a specific model version, including the portable model recipe (feature SQL, transforms,
+            model class, params) and feature importance explanation.
+    autoresearch-partial-update:
+        operation: autoresearch_partial_update
+        enabled: false
+    autoresearch-pause-create:
+        operation: autoresearch_pause_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Pause pipeline
+        description: >
+            Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use
+            autoresearch-resume-create to restart.
+    autoresearch-resolve-template-create:
+        operation: autoresearch_resolve_template_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a template
+        description: >
+            Resolve a template key and optional overrides into a ready-to-use pipeline config. For activity-based
+            templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is
+            auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then
+            re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and
+            'repeat_key_behavior', supply target_event (required). After resolving: (1) call
+            autoresearch-validate-create with the resolved target_event, training_population, and inference_population
+            to check volume and warnings; (2) if can_proceed is true, call autoresearch-create with the resolved fields
+            as-is.
+        exclude_params:
+            - resolved_activity_event
+            - activity_event_alternatives
+            - display_name
+            - description
+            - notes
+    autoresearch-resume-create:
+        operation: autoresearch_resume_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Resume pipeline
+        description: |
+            Resume a paused pipeline. Returns 400 if the pipeline is not currently paused.
+    autoresearch-retrieve:
+        operation: autoresearch_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get pipeline
+        description: >
+            Get full details for a specific autoresearch pipeline by ID, including population definitions, training
+            configuration, and current status.
+    autoresearch-runs-list:
+        operation: autoresearch_runs_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List inference runs
+        description: >
+            List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status
+            to understand scoring history. run_type is 'inference' for daily scoring runs.
+        response:
+            include:
+                - id
+                - pipeline
+                - model
+                - run_type
+                - status
+                - rows_scored
+                - error
+                - started_at
+                - completed_at
+                - created_at
+    autoresearch-runs-retrieve:
+        operation: autoresearch_runs_retrieve
+        enabled: false
+    autoresearch-score-create:
+        operation: autoresearch_score_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run inference (score users)
+        description: >
+            Score the inference population using the champion model and emit 'autoresearch_prediction' events for each
+            user. Returns the inference run object with rows_scored and status. Requires a champion model — run
+            autoresearch-train-create first if the pipeline has no champion. Each scored user gets a '$autoresearch_p_y'
+            property on their prediction event and a person property update. After scoring, query predictions with
+            execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event =
+            'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY
+            properties.$autoresearch_p_y DESC LIMIT 50.
+    autoresearch-suggestions-create:
+        operation: autoresearch_suggestions_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Submit a suggestion
+        description: >
+            Inject a free-text hypothesis or direction into a running pipeline for the sandbox agent to consider. The
+            agent reads queued suggestions at the start of each training batch and decides whether to translate the
+            suggestion into a concrete iteration ('acted_on'), apply it as a search constraint ('picked_up'), or reject
+            it with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before
+            autonomous iterations; 'consider' (default) is advisory. Check 'agent_response' after the next training run
+            to see how the suggestion was interpreted. Examples: 'try a gradient boosting model', 'remove recency
+            features — I suspect leakage', 'the target event has a 7-day spike on Mondays, account for day-of-week'.
+            Suggestions survive pipeline pauses and are included in the next training batch when the pipeline resumes.
+        exclude_params:
+            - source
+            - status
+            - agent_response
+            - created_by
+            - linked_iteration_ids
+    autoresearch-suggestions-list:
+        operation: autoresearch_suggestions_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List suggestions
+        description: >
+            List steering suggestions for a pipeline, ordered most recent first. Each entry shows the prompt, priority,
+            status (queued/picked_up/acted_on/dismissed), and the agent's response when available. Use
+            'linked_iteration_ids' to trace which iterations were spawned from a suggestion.
+        response:
+            include:
+                - id
+                - pipeline
+                - prompt
+                - priority
+                - status
+                - source
+                - agent_response
+                - linked_iteration_ids
+                - created_at
+    autoresearch-suggestions-retrieve:
+        operation: autoresearch_suggestions_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get suggestion
+        description: |
+            Get full details for a specific suggestion including its status and agent_response.
+    autoresearch-suggestions-respond:
+        operation: autoresearch_suggestions_respond_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Respond to a suggestion
+        description: >
+            Record how you handled a steering suggestion so the human who submitted it sees the outcome (it stays
+            'queued' in the UI until you do). Set status to 'picked_up' (applied as a search constraint across
+            iterations), 'acted_on' (spawned one or more iterations from it), or 'dismissed' (rejected — explain why in
+            agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set
+            already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion
+            picked_up/dismissed without a dedicated iteration.
+    autoresearch-templates-list:
+        operation: autoresearch_templates_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List available templates
+        description: >
+            List all built-in autoresearch prediction templates. Each entry includes the template key, display name,
+            description, default horizon, prediction mode, and whether you need to supply a target_event. Templates:
+            'likely_active_soon' (best universal starter — predicts next-7d activity), 'at_risk_of_inactivity' (predicts
+            14d inactivity risk), 'return_after_first_use' (predicts new-user return within 7d), 'feature_adoption'
+            (predicts first use of your chosen event within 14d — requires target_event), 'repeat_key_behavior'
+            (predicts repeat use of your chosen event within 7d — requires target_event). After picking a template, call
+            autoresearch-resolve-template-create to get a resolved pipeline config.
+        response:
+            include:
+                - key
+                - display_name
+                - description
+                - default_horizon_days
+                - requires_user_event
+                - requires_activity_resolution
+                - notes
+    autoresearch-train-create:
+        operation: autoresearch_train_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start training
+        description: >
+            Start a training run for a pipeline. Creates a champion model and marks the pipeline as running. Currently
+            synchronous stub training (hand-authored recipe, ~0.7 holdout AUC). Returns the training run object with
+            status, iteration_count, and best_holdout_score. After training completes, call autoresearch-score-create to
+            run inference and emit prediction events. You can optionally override the iteration_budget for this run.
+    autoresearch-training-runs-artifacts-delete-create:
+        operation: autoresearch_training_runs_artifacts_delete_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete an artifact bundle file
+        description: |
+            Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
+    autoresearch-training-runs-artifacts-get-create:
+        operation: autoresearch_training_runs_artifacts_get_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an artifact bundle file
+        description: >
+            Fetch one file from a training run's artifact bundle, base64-encoded. Use this to read the prior champion's
+            train.py / features.sql as a starting point before iterating (look up the champion's source_training_run via
+            autoresearch-models-retrieve).
+    autoresearch-training-runs-artifacts-retrieve:
+        operation: autoresearch_training_runs_artifacts_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List artifact bundle files
+        description: >
+            List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, and any
+            eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.
+    autoresearch-training-runs-artifacts-upload-create:
+        operation: autoresearch_training_runs_artifacts_upload_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Upload an artifact bundle file
+        description: >
+            Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in
+            content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/
+            notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and
+            predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days}
+            contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference
+            runs in a sandbox.
+    autoresearch-training-runs-complete-create:
+        operation: autoresearch_training_runs_complete_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Complete a training run
+        description: >
+            Finalize a training run. The backend selects the best iteration (highest holdout_score, or the
+            best_iteration_id you name), decides champion vs challenger via the promotion ladder (cold-start
+            preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the
+            champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting
+            champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card.
+            Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run
+            should try next) — these are stored in the run summary and read back by the next run during orientation; the
+            backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.
+    autoresearch-training-runs-create:
+        operation: autoresearch_training_runs_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Open a training run
+        description: >
+            Open a new training run for a pipeline and return its id. An agent (your own, the in-house sandbox, or a
+            scheduled job) then records iterations against this run with autoresearch-training-runs-iterations-create
+            and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally
+            override the iteration_budget for this run.
+    autoresearch-training-runs-history:
+        operation: autoresearch_training_runs_history_retrieve
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read prior training-run history
+        description: >
+            Cross-run learning memory. Returns recent completed training runs — this pipeline first, then same-target
+            sibling pipelines on the team. Each run has a distilled `summary` (read this first: distillation,
+            recommended_next, the kept_ladder of winning approaches, and dead_ends to avoid) plus the full `iterations`
+            trail (every recipe tried, its agent_description rationale, holdout_score, kept/discarded status,
+            model_spec) to drill into when a summary points somewhere worth it. Call this before iterating to reuse the
+            features and transforms that won and avoid repeating approaches already discarded. Optional `limit` (default
+            5, max 20) caps how many prior runs are returned.
+    autoresearch-training-runs-iterations-create:
+        operation: autoresearch_training_runs_iterations_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Record a training iteration
+        description: >
+            Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number
+            updates that iteration in place. The recipe is validated server-side: model_class in model_spec must be in
+            the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on
+            person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed'
+            on failure. Iterations are picked up at completion time to choose the champion. If this iteration was
+            spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the
+            iteration to the suggestion for attribution and marks the suggestion 'acted_on'.
+    autoresearch-training-runs-list:
+        operation: autoresearch_training_runs_list
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List training runs
+        description: >
+            List training runs for a pipeline, ordered most recent first. Check status (completed/failed),
+            iteration_count, and best_holdout_score to understand training history.
+        response:
+            include:
+                - id
+                - pipeline
+                - status
+                - iteration_budget
+                - iteration_count
+                - best_holdout_score
+                - error
+                - started_at
+                - completed_at
+                - created_at
+    autoresearch-training-runs-retrieve:
+        operation: autoresearch_training_runs_retrieve
+        enabled: false
+    autoresearch-update:
+        operation: autoresearch_update
+        enabled: false
+    autoresearch-validate-create:
+        operation: autoresearch_validate_create
+        enabled: true
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate a pipeline definition
+        description: >
+            Validate a proposed autoresearch pipeline before creating it. The target is either an event (pass
+            target_event) or a PostHog action (pass target_definition = {"type": "action", "action_id": N}); base-rate
+            and volume estimates are computed against whichever you provide. Returns volume estimates, base rate, positive
+            and negative example counts, and a list of warnings. Check 'can_proceed' before calling autoresearch-create:
+            if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking warnings worth
+            noting. Typical errors: low_volume (fewer than 100 users), low_positives (fewer than 20 positive examples),
+            or extreme_imbalance (base rate below 0.001). Always validate before creating.
+    autoresearch-validate-online-create:
+        operation: autoresearch_validate_online_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run online validation
+        description: >
+            Validate predictions against realized outcomes for all matured prediction dates. A prediction date is
+            matured when today >= prediction_date + horizon_days — meaning the outcome window has closed and
+            ground-truth labels can be fetched. Computes per-model realized AUC, Brier score, expected calibration error
+            (ECE), and lift@10/20. Updates the model's realized_score and calibration_error in Postgres, and clears the
+            is_preliminary flag after the first successful validation cycle. Already-validated dates are skipped
+            automatically. Returns one run object per prediction date processed; an empty list means no dates have
+            matured yet. In production this is triggered by the daily Temporal validation workflow after inference runs.
+            Call autoresearch-models-list after this to see updated realized_score values on champion/challenger models.

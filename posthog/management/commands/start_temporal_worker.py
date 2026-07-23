@@ -175,6 +175,10 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.autoresearch.backend.temporal import (
+    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
+    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -488,6 +492,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.AUTORESEARCH_TASK_QUEUE,
+        AUTORESEARCH_WORKFLOWS,
+        AUTORESEARCH_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,

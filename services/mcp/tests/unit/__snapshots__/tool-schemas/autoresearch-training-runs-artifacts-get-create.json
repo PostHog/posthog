@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this autoresearch training run.",
+            "type": "string"
+        },
+        "path": {
+            "description": "Relative path of the file within the bundle, e.g. 'train.py'.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "pipeline_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "pipeline_id", "path"],
+    "type": "object"
+}

@@ -5701,6 +5701,7 @@ export const API_SCOPE_OBJECTS = [
     'alert',
     'annotation',
     'approvals',
+    'autoresearch',
     'batch_export',
     'batch_import',
     'batch_import_support',

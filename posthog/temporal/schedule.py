@@ -84,6 +84,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.autoresearch.backend.temporal.schedule import create_autoresearch_daily_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.engineering_analytics.backend.facade.temporal import (
@@ -833,6 +834,7 @@ schedules = [
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
+    create_autoresearch_daily_schedule,
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_replay_vision_reconciler_schedule,

@@ -93,6 +93,7 @@ PRODUCTS_APPS = [
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
     "products.wizard.backend.apps.WizardConfig",
     "products.exports.backend.apps.ExportsConfig",
@@ -611,6 +612,9 @@ SPECTACULAR_SETTINGS = {
         "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
         "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
+        "AutoresearchPipelineStatusEnum": "products.autoresearch.backend.models.AutoresearchPipeline.Status",
+        "AutoresearchRunStatusEnum": "products.autoresearch.backend.models.AutoresearchRun.Status",
+        "AutoresearchIterationStatusEnum": "products.autoresearch.backend.models.AutoresearchIteration.Status",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # Pin the subscriptions target enum to its existing name so adding customer_analytics'
