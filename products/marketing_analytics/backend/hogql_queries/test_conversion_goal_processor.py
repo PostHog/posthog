@@ -657,8 +657,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert "upper(" in live
         assert "currency_code" in live
-        # The guard keeps rows with no currency property in the base currency instead of nulling them out
+        # The guard keeps rows with no currency property (or an empty-string value, which convertCurrency
+        # would null out) in the base currency instead of dropping their revenue
         assert "isNull(" in live
+        assert "nullIf(" in live
 
     def test_math_type_average_fallback_behavior(self):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""
