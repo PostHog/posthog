@@ -116,6 +116,7 @@ the row lists both.
 | canny                            | HTTP                        | requests                                                        | ✅                          |
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
+| census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
 | chargebee                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
@@ -799,7 +800,6 @@ doesn't conflict with concurrent PRs.
 - castor_edc
 - catchpoint
 - cdc_open_data
-- census
 - checkly
 - chift
 - chorus
