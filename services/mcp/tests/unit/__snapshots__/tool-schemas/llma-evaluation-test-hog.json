@@ -34,6 +34,19 @@
             "description": "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n* `generation` - Generation\n* `trace` - Trace",
             "enum": ["generation", "trace"],
             "type": "string"
+        },
+        "target_config": {
+            "description": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
+            "properties": {
+                "window_seconds": {
+                    "default": 1800,
+                    "description": "Aggregation window for trace samples, in seconds.",
+                    "maximum": 7200,
+                    "minimum": 10,
+                    "type": "number"
+                }
+            },
+            "type": "object"
         }
     },
     "required": ["source"],
