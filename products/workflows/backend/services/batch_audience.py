@@ -9,8 +9,9 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.constants import PropertyOperatorType
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex
+from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons, replace_proxy_properties
@@ -108,7 +109,7 @@ def get_batch_audience_count(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(cleaned_filter.property_groups, team, scope="person"),
+        property_to_expr(_audience_property_groups(cleaned_filter), team, scope="person"),
     ]
 
     select_query = ast.SelectQuery(
@@ -121,6 +122,24 @@ def get_batch_audience_count(
     response = execute_hogql_query(query=select_query, team=team)
 
     return response.results[0][0] if response.results else 0
+
+
+def _audience_property_groups(filter: Filter) -> PropertyGroup:
+    """
+    Combine the batch trigger's audience conditions with OR.
+
+    The audience builder presents its conditions as OR (the `orFiltering` UI and the
+    workflow docs both promise OR logic), but the conditions are stored as a flat
+    `properties` list, which `Filter` wraps in AND by default. Left as AND, a person is
+    dropped unless they match every condition — the opposite of what the UI advertises,
+    silently excluding intended recipients. Re-wrap the top-level conditions in OR so the
+    query matches the promised semantics.
+
+    Empty and single-condition groups are unaffected: `property_to_expr` renders both
+    identically regardless of the group type, so this only changes behavior once there are
+    two or more conditions.
+    """
+    return PropertyGroup(type=PropertyOperatorType.OR, values=filter.property_groups.values)
 
 
 def _email_dedupe_group_expr() -> ast.Expr:
@@ -148,7 +167,7 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(filter.property_groups, team, scope="person"),
+        property_to_expr(_audience_property_groups(filter), team, scope="person"),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:
