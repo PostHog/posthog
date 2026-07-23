@@ -286,13 +286,14 @@ class DuckgresBatchQueue:
         is the hard backstop. Teams without a mapping row are uncapped
         (None = no caps at all, for tests/dev).
 
-        Intra-run head-of-line: LIVE batches stay strictly ordered (any
-        unapplied lower batch_index blocks). Backfill CHUNKS relax this so a
-        whole run drains in one claim: a pending predecessor blocks a chunk
-        only when it cannot be returned AHEAD of it in this same fetch (see the
-        gate's inline comments). Co-claimable predecessors sort earlier, land
-        in the same group, and the group is processed strictly in order with a
-        halt on first non-success — so chunk 0's CREATE still applies first.
+        Intra-run head-of-line: a pending predecessor blocks a batch only when
+        it cannot be returned AHEAD of it in this same fetch (see the gate's
+        inline comments) — for LIVE batches and backfill CHUNKS alike, so a
+        run's consecutive delta-succeeded prefix drains in one claim (bounded
+        by ``limit``). Co-claimable predecessors sort earlier, land in the same
+        group, and the group is processed strictly in order with a halt on
+        first non-success — so chunk 0's CREATE (and a live run's lowest
+        batch) still applies first, and nothing ever applies past a gap.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -420,13 +421,14 @@ class DuckgresBatchQueue:
                                 )
                                 AND a.id IS NULL
                                 AND (
-                                    -- LIVE batches: any unapplied predecessor blocks.
-                                    {LIVE_BATCH_SQL_PREDICATE}
-                                    -- Backfill chunks: block only on predecessors that
-                                    -- cannot be co-claimed AHEAD of this chunk —
-                                    -- not delta-succeeded (fail closed; enqueue_chunks
-                                    -- writes chunks pre-succeeded atomically):
-                                    OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
+                                    -- Both batch kinds co-claim: a predecessor blocks
+                                    -- only when it cannot be returned AHEAD of this
+                                    -- batch in this same fetch (live batches gained
+                                    -- this in 2026-07; one-at-a-time head-of-line
+                                    -- capped a group at ~1 batch per fetch rotation
+                                    -- and could not keep up with a fast producer).
+                                    -- Not delta-succeeded (fail closed):
+                                    ds_prev.job_state IS DISTINCT FROM 'succeeded'
                                     -- sorting later in the fetch order (a reconcile
                                     -- replay re-inserts dropped chunks with a fresh
                                     -- created_at):

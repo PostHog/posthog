@@ -1,8 +1,9 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { ExportedAssetType, ExporterFormat } from '~/types'
+import { ExportedAssetType, ExporterFormat, SidePanelTab } from '~/types'
 
 import { downloadExportedAsset } from './exporter'
 import { exportsLogic, pickPollDelayMs } from './exportsLogic'
@@ -118,6 +119,8 @@ describe('exportsLogic', () => {
             settles: { resolved: string } | { rejected: string }
             expectsDownload: boolean
             freshIds: number[]
+            expectsViewExportsButton: boolean
+            expectsPanelOpen: boolean
         }[] = [
             {
                 label: 'async export resolves to "Export started" and is tracked as undownloaded',
@@ -126,6 +129,8 @@ describe('exportsLogic', () => {
                 settles: { resolved: 'Export started' },
                 expectsDownload: false,
                 freshIds: [11],
+                expectsViewExportsButton: true,
+                expectsPanelOpen: true,
             },
             {
                 label: 'blocking export with content is downloaded and resolves to "Export complete!"',
@@ -134,6 +139,8 @@ describe('exportsLogic', () => {
                 settles: { resolved: 'Export complete!' },
                 expectsDownload: true,
                 freshIds: [],
+                expectsViewExportsButton: false,
+                expectsPanelOpen: false,
             },
             {
                 label: 'export that failed in the request rejects with the error',
@@ -142,6 +149,8 @@ describe('exportsLogic', () => {
                 settles: { rejected: 'Export failed: boom' },
                 expectsDownload: false,
                 freshIds: [],
+                expectsViewExportsButton: true,
+                expectsPanelOpen: false,
             },
             {
                 label: 'create request that throws rejects with the error',
@@ -150,35 +159,57 @@ describe('exportsLogic', () => {
                 settles: { rejected: 'Export failed: network down' },
                 expectsDownload: false,
                 freshIds: [],
+                expectsViewExportsButton: true,
+                expectsPanelOpen: false,
             },
         ]
 
-        it.each(createCases)('$label', async ({ response, rejectWith, format, settles, expectsDownload, freshIds }) => {
-            const createSpy = jest.spyOn(api.exports, 'create')
-            if (rejectWith) {
-                createSpy.mockRejectedValue(rejectWith)
-            } else {
-                createSpy.mockResolvedValue(response!)
-            }
+        it.each(createCases)(
+            '$label',
+            async ({
+                response,
+                rejectWith,
+                format,
+                settles,
+                expectsDownload,
+                freshIds,
+                expectsViewExportsButton,
+                expectsPanelOpen,
+            }) => {
+                const createSpy = jest.spyOn(api.exports, 'create')
+                if (rejectWith) {
+                    createSpy.mockRejectedValue(rejectWith)
+                } else {
+                    createSpy.mockResolvedValue(response!)
+                }
 
-            logic.actions.createExport({ exportData: { export_format: format } })
-            await flush()
+                logic.actions.createExport({ exportData: { export_format: format } })
+                await flush()
 
-            // The loading spinner is driven by lemonToast.promise, so the user always sees "Preparing export…".
-            expect(lemonToast.promise).toHaveBeenCalledWith(
-                expect.any(Promise),
-                expect.objectContaining({ pending: 'Preparing export…' }),
-                expect.objectContaining({ toastId: expect.any(String) })
-            )
-            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
-            if ('resolved' in settles) {
-                await expect(runPromise).resolves.toBe(settles.resolved)
-            } else {
-                await expect(runPromise).rejects.toThrow(settles.rejected)
+                // The loading spinner is driven by lemonToast.promise, so the user always sees "Preparing export…".
+                expect(lemonToast.promise).toHaveBeenCalledWith(
+                    expect.any(Promise),
+                    expect.objectContaining({ pending: 'Preparing export…' }),
+                    expect.objectContaining({ toastId: expect.any(String) })
+                )
+                // Video renders finish out of band, so their kickoff toast must link to the exports panel.
+                const toastOptions = jest.mocked(lemonToast.promise).mock.calls[0][2]
+                expect(toastOptions?.button?.label).toEqual(expectsViewExportsButton ? 'View exports' : undefined)
+                const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
+                if ('resolved' in settles) {
+                    await expect(runPromise).resolves.toBe(settles.resolved)
+                } else {
+                    await expect(runPromise).rejects.toThrow(settles.rejected)
+                }
+                expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
+                // selectedTab is persisted across kea contexts, so assert the open+tab combination.
+                expect(
+                    sidePanelStateLogic.values.sidePanelOpen &&
+                        sidePanelStateLogic.values.selectedTab === SidePanelTab.Exports
+                ).toBe(expectsPanelOpen)
             }
-            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual(expectsDownload ? [[response]] : [])
-            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
-        })
+        )
 
         it('does not confirm completion when the content download fails', async () => {
             // The export toast must not settle as "Export complete!" if retrieval failed — otherwise
@@ -197,6 +228,91 @@ describe('exportsLogic', () => {
             // ...and the generic failure toast is dismissed, since downloadExportedAsset
             // already surfaced the specific error.
             expect(lemonToast.dismiss).toHaveBeenCalled()
+        })
+
+        it('notifies once with a Download button that routes through downloadExport', async () => {
+            const pending = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: false })
+            const finished = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: true })
+            // An unrelated completed export in the list must not trigger a toast of its own.
+            const unrelated = asset({ id: 99, export_format: ExporterFormat.CSV, has_content: true })
+            const downloadExportSpy = jest.spyOn(logic.actions, 'downloadExport')
+
+            logic.actions.addFresh(pending)
+            logic.actions.loadExportsSuccess([finished, unrelated])
+            await flush()
+            // A second poll of the same finished export must not re-toast it.
+            logic.actions.loadExportsSuccess([finished, unrelated])
+            await flush()
+
+            expect(jest.mocked(lemonToast.success).mock.calls).toEqual([
+                [
+                    'Export complete!',
+                    expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) }),
+                ],
+            ])
+            // The export keeps its "not downloaded" highlight until the user actually downloads it.
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([21])
+
+            jest.mocked(lemonToast.success).mock.calls[0][1]!.button!.action()
+            expect(downloadExportSpy).toHaveBeenCalledWith(finished)
+        })
+
+        it.each([
+            {
+                label: 'clears the highlight when the download succeeds',
+                downloadOk: true,
+                remainingIds: [] as number[],
+            },
+            { label: 'keeps the highlight when the download fails', downloadOk: false, remainingIds: [41] },
+        ])('downloadExport $label', async ({ downloadOk, remainingIds }) => {
+            const tracked = asset({ id: 41, export_format: ExporterFormat.MP4, has_content: true })
+            logic.actions.addFresh(tracked)
+            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(downloadOk)
+
+            logic.actions.downloadExport(tracked)
+            await flush()
+
+            expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[tracked]])
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(remainingIds)
+        })
+
+        it('surfaces the failure and stops tracking when a tracked async export fails', async () => {
+            const pending = asset({ id: 22, export_format: ExporterFormat.MP4, has_content: false })
+            const failed = asset({ id: 22, export_format: ExporterFormat.MP4, exception: 'render crashed' })
+
+            logic.actions.addFresh(pending)
+            logic.actions.loadExportsSuccess([failed])
+            await flush()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Export failed: render crashed')
+            expect(logic.values.freshUndownloadedExports).toEqual([])
+        })
+
+        it('keeps polling a tracked export when its individual fetch fails', async () => {
+            // A tracked export can be missing from a format-filtered list, so it is fetched directly.
+            // A transient fetch failure must not stop the poll loop and orphan the export.
+            jest.useFakeTimers()
+            try {
+                const pending = asset({ id: 31, export_format: ExporterFormat.MP4, has_content: false })
+                // The list omits id 31 and its only entry is already complete, so a re-poll can
+                // only come from the failed export being kept in the pending set.
+                const unrelatedDone = asset({ id: 88, export_format: ExporterFormat.CSV, has_content: true })
+                jest.spyOn(api.exports, 'get').mockRejectedValue(new Error('transient'))
+                const loadExportsSpy = jest.spyOn(logic.actions, 'loadExports')
+
+                logic.actions.addFresh(pending)
+                logic.actions.loadExportsSuccess([unrelatedDone])
+                await jest.advanceTimersByTimeAsync(30000)
+
+                expect(api.exports.get).toHaveBeenCalledWith(31)
+                expect(loadExportsSpy).toHaveBeenCalled()
+                // The export is neither dropped nor prematurely notified as complete/failed.
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toContain(31)
+                expect(lemonToast.success).not.toHaveBeenCalled()
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
