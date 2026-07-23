@@ -8,6 +8,7 @@ from django.conf import settings
 
 import redis
 import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
@@ -42,8 +43,22 @@ def _lock_meta_key(team_id: int, schema_id: str) -> str:
     return f"{LOCK_META_KEY_PREFIX}:{team_id}:{schema_id}"
 
 
+@retry(
+    retry=retry_if_exception_type((redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.1, max=1),
+    reraise=True,
+)
+def _connect_and_ping(redis_client: redis.Redis) -> None:
+    redis_client.ping()
+
+
 @contextmanager
 def _get_redis_client() -> Generator[redis.Redis | None]:
+    # The acquire/release activities run with a single Temporal attempt (see
+    # external_data_job.py), so a bare DNS/connection blip here has no outer retry
+    # and would skip the whole scheduled sync run. Absorb a few quick retries before
+    # falling back to the fail-closed/fail-silent behavior callers rely on.
     redis_client = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
@@ -52,7 +67,7 @@ def _get_redis_client() -> Generator[redis.Redis | None]:
             )
 
         redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
+        _connect_and_ping(redis_client)
     except Exception as e:
         logger.exception("redis_unavailable_for_v3_pipeline_lock", error=str(e))
         capture_exception(e)
