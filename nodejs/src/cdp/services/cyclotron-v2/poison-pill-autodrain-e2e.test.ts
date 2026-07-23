@@ -89,19 +89,65 @@ const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promi
     }
 }
 
+// Insert a recorded poison-pill row straight into ClickHouse, in the exact shape the
+// janitor's give-up produces (function_kind='hog_flow', status='failed',
+// error_kind='janitor_poison_pill'). insert_distributed_sync makes it immediately
+// visible to discovery, so a test that only exercises the autodrain's dedup logic —
+// not the janitor -> MV write path — stays deterministic without the Kafka/MV probe.
+const insertRecordedPoisonPill = async (
+    chClient: ClickHouseClient,
+    opts: { teamId: number; functionId: string; invocationId: string }
+): Promise<void> => {
+    const now = DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'")
+    await chClient.insert({
+        table: 'hog_invocation_results',
+        format: 'JSONEachRow',
+        values: [
+            {
+                team_id: opts.teamId,
+                function_kind: 'hog_flow',
+                function_id: opts.functionId,
+                invocation_id: opts.invocationId,
+                parent_run_id: '',
+                status: 'failed',
+                attempts: 0,
+                is_retry: 0,
+                scheduled_at: now,
+                first_scheduled_at: now,
+                started_at: null,
+                finished_at: null,
+                duration_ms: null,
+                error_kind: JANITOR_POISON_PILL_ERROR_KIND,
+                error_message: 'poison pill',
+                event_uuid: '',
+                distinct_id: '',
+                person_id: '',
+                invocation_globals: '{}',
+                version: String(BigInt(Date.now()) * 1000n),
+                is_deleted: 0,
+            },
+        ],
+        clickhouse_settings: { insert_distributed_sync: 1 },
+    })
+}
+
 /**
- * End-to-end exercise of the poison-pill autodrain — nothing is mocked.
+ * End-to-end exercise of the poison-pill autodrain against real infrastructure
+ * (Kafka + ClickHouse + Postgres), nothing mocked.
  *
- * The janitor records a real give-up (real HogInvocationResultsService -> real
- * Kafka -> real ClickHouse Kafka MV -> hog_invocation_results) and deletes the
- * cyclotron row, exactly as it does in production. Then the real autodrain runs
- * its real `discoverGroups` ClickHouse query against that recorded row and
- * enqueues a real rerun wrapper into cyclotron_jobs via the real RerunJobManager.
+ * Its reason to exist — the one thing only this test can prove: the autodrain's
+ * real `discoverGroups` ClickHouse query actually matches a row the janitor really
+ * WRITES (janitor buildLifecycleRow -> Kafka -> ClickHouse Kafka MV ->
+ * hog_invocation_results: schema / argMax / ReplacingMergeTree agreement). The unit
+ * test mocks ClickHouse, so it cannot catch a drift there — a renamed column or a
+ * changed `version` semantics that silently makes discovery return nothing. It also
+ * proves a real rerun wrapper lands, and that the real in-flight-wrapper query
+ * skips a group whose wrapper is still outstanding.
  *
- * This is the integration seam the unit test can't reach: it mocks ClickHouse and
- * the RerunJobManager, so it never proves the discovery SQL actually matches a row
- * the janitor writes (schema/argMax/ReplacingMergeTree agreement), nor that a
- * wrapper really lands — nor that the in-flight guard self-dedups on the next tick.
+ * What it deliberately does NOT prove: that duplicates can't happen. The only dedup
+ * it exercises is the in-flight-wrapper guard (the easy case). The harder duplicate
+ * — a completed-and-swept rerun re-discovered while ClickHouse still lags — is
+ * Finding 1, a known gap covered by its own test below.
  */
 describe('CyclotronPoisonPillAutodrain e2e', () => {
     jest.setTimeout(60_000)
@@ -174,7 +220,7 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         await kafkaProducer?.disconnect()
     })
 
-    it('records a poison pill, then discovers and drains it into a rerun wrapper, deduping next tick', async () => {
+    it('discovers a janitor-recorded poison pill, drains it into a rerun wrapper, and skips while that wrapper is in-flight', async () => {
         const functionId = uuidv7()
         const jobId = uuidv7()
 
@@ -223,8 +269,12 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
         // recorded function under that same target function_id.
         expect(wrappers.rows[0].function_id).toBe(functionId)
 
-        // ── 5. Next tick self-dedups: the wrapper is still in-flight, so the
-        // group is skipped rather than piling up a second wrapper ───────────────
+        // ── 5. In-flight guard: while the wrapper from step 4 is still on the rerun
+        // queue, the next tick's real hasInFlightWrapper query finds it and skips the
+        // group, so no second wrapper piles up. This proves ONLY the in-flight guard
+        // (the real query, end to end) — it does NOT prove duplicates are impossible:
+        // once the wrapper completes and is swept, a stale ClickHouse row re-triggers
+        // a drain (Finding 1), which the next test documents.
         const drainAgain = await autodrain.runOnce()
         expect(drainAgain).toEqual({ groups: 1, enqueued: 0 })
         const wrappersAfter = await nodePool.query(
@@ -232,5 +282,60 @@ describe('CyclotronPoisonPillAutodrain e2e', () => {
             [TEST_TEAM_ID, RERUN_QUEUE_NAME]
         )
         expect(wrappersAfter.rows[0].c).toBe(1)
+    })
+
+    // KNOWN BUG — Finding 1 (ClickHouse-lag duplicate). This test exists to make the
+    // gap the in-flight guard does NOT close visible in the suite, rather than hidden
+    // behind a green "dedup" assertion.
+    //
+    // Mechanism: cross-tick dedup relies entirely on ClickHouse argMax visibility. The
+    // only airtight guard (the in-flight wrapper) protects a group ONLY while its
+    // cyclotron row exists. Once a drained rerun completes and its row is swept, but
+    // the rerun's new running/succeeded lifecycle rows have not yet landed in
+    // ClickHouse (ingestion lag), the next tick still sees the stale poison row, finds
+    // no in-flight wrapper, and re-enqueues — a duplicate rerun that re-fires
+    // post-currentAction side effects (emails/webhooks). Bounded by max_attempts, but
+    // each cycle is a real duplicate. Reachable single-pod whenever
+    // ClickHouse-visibility-lag > autodrain interval.
+    //
+    // The fix is a durable Postgres drain-marker keyed by invocation_id (the state the
+    // stateless v1 design deliberately punted on). When it lands, tick 2 below becomes
+    // enqueued: 0 and this assertion flips RED — at that point change it to
+    // `enqueued: 0`, drop this note, and it becomes the real regression guard.
+    it('re-drains a completed invocation when its wrapper is gone but ClickHouse still shows the poison', async () => {
+        const functionId = uuidv7()
+        const invocationId = uuidv7()
+
+        // A poison pill already recorded in ClickHouse (as if the janitor gave up on
+        // it). Inserted directly — this test exercises the autodrain's cross-tick
+        // dedup, not the janitor -> MV write path (the test above covers that), so it
+        // skips the Kafka/MV hop and stays deterministic.
+        await insertRecordedPoisonPill(chClient, { teamId: TEST_TEAM_ID, functionId, invocationId })
+        await waitForExpect(async () => {
+            const rows = await clickhouse.query<{ c: number }>(
+                `SELECT count() AS c FROM hog_invocation_results
+                 WHERE team_id = ${TEST_TEAM_ID} AND error_kind = '${JANITOR_POISON_PILL_ERROR_KIND}'`
+            )
+            expect(Number(rows[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
+        }, 10_000)
+
+        // Tick 1: discovers the group and enqueues a wrapper.
+        expect(await autodrain.runOnce()).toEqual({ groups: 1, enqueued: 1 })
+
+        // The drained rerun COMPLETED and its wrapper was swept by cleanupTerminalJobs,
+        // but its running/succeeded lifecycle rows have NOT yet materialized in
+        // ClickHouse. Modeled by deleting the wrapper while the stale poison row stays
+        // in place: no in-flight wrapper, ClickHouse still shows the pill.
+        await nodePool.query('DELETE FROM cyclotron_jobs WHERE team_id = $1 AND queue_name = $2', [
+            TEST_TEAM_ID,
+            RERUN_QUEUE_NAME,
+        ])
+
+        // Tick 2 SHOULD skip (the invocation already ran) -> enqueued 0. It does not
+        // today: the stale ClickHouse row is re-discovered and re-enqueued. Asserting
+        // the current buggy value so the suite stays green until Finding 1 is fixed,
+        // at which point this flips red (see the note above).
+        const tick2 = await autodrain.runOnce()
+        expect(tick2).toEqual({ groups: 1, enqueued: 1 }) // BUG: should be { groups: 1, enqueued: 0 }
     })
 })
