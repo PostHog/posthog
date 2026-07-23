@@ -1763,6 +1763,26 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(error) for key in non_retryable)
 
+    def test_dns_resolution_failure_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when a manifest's base_url doesn't
+        # resolve via DNS — a permanent, deterministic failure until the manifest is
+        # edited. Build the real message `validate_manifest_urls` raises (prefix +
+        # `_is_host_safe`'s wording) so this breaks if either side's wording drifts
+        # from the classifier's key.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Couldn't resolve the host 'api.example.com'. Check that it's spelled correctly and reachable from the public internet.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
