@@ -8,18 +8,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -393,3 +397,52 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestHandleNonRetryableError:
+    @staticmethod
+    def _job_inputs() -> MagicMock:
+        inputs = MagicMock()
+        inputs.team_id = 1
+        inputs.source_id = uuid.uuid4()
+        inputs.run_id = str(uuid.uuid4())
+        return inputs
+
+    @staticmethod
+    def _patched_redis(attempts: int):
+        client = AsyncMock()
+        client.incr = AsyncMock(return_value=attempts)
+        client.expire = AsyncMock()
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=client)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return patch(f"{_EXTRACT_MODULE}._get_redis", return_value=cm)
+
+    @pytest.mark.asyncio
+    async def test_within_retry_limit_wraps_as_non_reportable_not_non_retryable(self):
+        # Within the hedge window the error is re-raised so Temporal retries. It must be wrapped as
+        # NonReportableError (so the retry attempts aren't reported to error tracking as defects) and
+        # must NOT be a NonRetryableException, or Temporal would stop retrying immediately. The
+        # original message is preserved so the friendly-message match still works on the last attempt.
+        original = ValueError("Table db.table_123 not found or has no columns")
+        with self._patched_redis(attempts=1):
+            with pytest.raises(NonReportableError) as exc_info:
+                await handle_non_retryable_error(
+                    self._job_inputs(), str(original), MagicMock(adebug=AsyncMock()), original
+                )
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert "not found or has no columns" in str(exc_info.value)
+        assert exc_info.value.__cause__ is original
+
+    @pytest.mark.asyncio
+    async def test_beyond_retry_limit_raises_non_retryable_preserving_cause(self):
+        # Past the hedge window we give up with a NonRetryableException (in the activity's
+        # non_retryable_error_types, so Temporal stops), keeping the original error as the cause so
+        # finalize can still read it via e.cause.cause for the user-facing friendly message.
+        original = ValueError("Table db.table_123 not found or has no columns")
+        with self._patched_redis(attempts=99):
+            with pytest.raises(NonRetryableException) as exc_info:
+                await handle_non_retryable_error(
+                    self._job_inputs(), str(original), MagicMock(adebug=AsyncMock()), original
+                )
+        assert exc_info.value.__cause__ is original

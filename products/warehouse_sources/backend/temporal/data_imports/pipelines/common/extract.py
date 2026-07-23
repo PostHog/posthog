@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
@@ -210,7 +211,12 @@ async def handle_non_retryable_error(
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
-            raise error
+            # We still hedge with a few Temporal retries, but the error is already classified as a
+            # user-config problem — wrap it as NonReportableError so those retry attempts don't get
+            # reported to error tracking as defects. The type isn't NonRetryableException, so Temporal
+            # keeps retrying; the message is preserved so the friendly-message match in finalize still
+            # works if this ends up being the last attempt.
+            raise NonReportableError(error_msg) from error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
     raise NonRetryableException() from error
