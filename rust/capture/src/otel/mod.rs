@@ -324,18 +324,17 @@ pub async fn logs_handler(
         counter!("capture_ai_otel_logs_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
-    let evaluation_record_count = logs::count_evaluation_records(&request);
-    if evaluation_record_count > MAX_AI_EVENTS_PER_REQUEST {
+    let received_at = Utc::now();
+    let request_fallback_distinct_id = identity::request_fallback_distinct_id();
+    let mut events = logs::expand_into_events(&request, &request_fallback_distinct_id);
+    if events.len() > MAX_AI_EVENTS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
-            "Too many evaluation records: {evaluation_record_count} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}"
+            "Too many evaluation events: {} exceeds limit of {MAX_AI_EVENTS_PER_REQUEST}",
+            events.len()
         ));
         report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
         return Err(err.into_response());
     }
-
-    let received_at = Utc::now();
-    let request_fallback_distinct_id = identity::request_fallback_distinct_id();
-    let mut events = logs::expand_into_events(&request, &request_fallback_distinct_id);
     provenance::apply(&mut events, gateway_provenance);
     let event_count = events.len();
     Span::current().record("record_count", event_count);

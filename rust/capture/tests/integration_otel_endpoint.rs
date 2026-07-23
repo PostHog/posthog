@@ -715,6 +715,57 @@ async fn test_logs_batch_rejects_too_many_evaluation_records() {
 }
 
 #[tokio::test]
+async fn test_logs_batch_limits_only_valid_evaluation_events() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let mut records = (0..101)
+        .map(|index| LogRecord {
+            time_unix_nano: index,
+            event_name: "gen_ai.evaluation.result".to_string(),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    records.push(make_evaluation_log_record(102));
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(make_logs_request(records).encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_logs_batch_filters_non_finite_numeric_evaluation() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+    let mut record = make_evaluation_log_record(0);
+    record.attributes.retain(|attribute| {
+        attribute.key != "gen_ai.evaluation.score.label"
+            && attribute.key != "gen_ai.evaluation.score.value"
+    });
+    record.attributes.push(make_kv(
+        "gen_ai.evaluation.score.value",
+        any_value::Value::DoubleValue(f64::NAN),
+    ));
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(make_logs_request(vec![record]).encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert!(sink.get_events().await.is_empty());
+}
+
+#[tokio::test]
 async fn test_logs_batch_does_not_trust_trace_signature_scope() {
     const SECRET: &str = "test-signing-secret";
 
