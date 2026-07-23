@@ -178,6 +178,9 @@ REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 # immediately makes the background work contend with the very read it is serving.
 # Dashboard bursts finish in seconds; the warm's purpose is the NEXT visit, so a
 # fixed delay costs nothing and removes the contention deterministically.
+# Celery holds countdown tasks worker-side until runnable, but the per-shape
+# debounce bounds in-flight delayed tasks to at most one per (team, family,
+# shape) per debounce window — a trickle, not a queue-occupying backlog.
 REVALIDATION_START_DELAY_SECONDS = 90
 
 
@@ -192,6 +195,7 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     # The task module imports this module (for the trigger constant), so the reverse
     # import must stay local to avoid a cycle.
     from products.web_analytics.backend.tasks.lazy_precompute_revalidation import (  # noqa: PLC0415
+        REVALIDATION_EXPIRES_SECONDS,
         revalidate_web_analytics_precompute,
     )
 
@@ -202,6 +206,9 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
         revalidate_web_analytics_precompute.apply_async(
             kwargs={"team_id": team.id, "query": query.model_dump(mode="json", exclude_none=True)},
             countdown=REVALIDATION_START_DELAY_SECONDS,
+            # `expires` is measured from publication; extend it by the countdown so
+            # the queue keeps the task's full pickup window despite the head start.
+            expires=REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS,
         )
     except Exception:
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED.labels(family=family).inc()

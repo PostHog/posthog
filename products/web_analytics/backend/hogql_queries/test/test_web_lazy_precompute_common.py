@@ -51,6 +51,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
 
@@ -516,6 +517,9 @@ class TestStaleRevalidationEnqueue(BaseTest):
         # The warm gets a head start delay so it never contends with the
         # dashboard burst that enqueued it.
         assert delay.call_args.kwargs["countdown"] == REVALIDATION_START_DELAY_SECONDS
+        # Expiry is measured from publication, so the head start must not eat
+        # into the queue's pickup window.
+        assert delay.call_args.kwargs["expires"] == REVALIDATION_START_DELAY_SECONDS + REVALIDATION_EXPIRES_SECONDS
         payload = delay.call_args.kwargs["kwargs"]
         assert payload["team_id"] == self.team.pk
         assert payload["query"]["kind"] == "WebOverviewQuery"
