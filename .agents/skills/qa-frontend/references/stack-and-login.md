@@ -13,7 +13,7 @@ STACK_STARTED_BY_AGENT=0
 
 Reuse the user's existing setup by default. Do not start, restart, or replace a dev stack just because you are running QA. First check whether PostHog is already reachable at `BASE_URL`.
 
-In PR mode, prefer a stack where the PR's code executes away from the developer's machine - for example a remote devbox serving `BASE_URL` through a forwarded port. Using a stack that runs on the developer's own machine for PR mode needs the explicit approval described in `safety-rules.md`, because it executes the PR author's code locally. Local mode carries no such gate: it tests the developer's own code.
+In PR mode, prefer a stack where the PR's code executes away from the developer's machine - for example a remote devbox serving `BASE_URL` through a forwarded port (the repo's `setting-up-devbox` skill covers provisioning one). Using a stack that runs on the developer's own machine for PR mode needs the explicit approval described in `safety-rules.md`, because it executes the PR author's code locally. Local mode carries no such gate: it tests the developer's own code.
 
 When `.agents/skills/run-posthog/SKILL.md` is present in the repo, read it and use its current readiness checks, phrocs process guidance, and `setup_test`/login recipe as the source of truth. This skill only adds the QA-specific constraints: reuse the user's stack when it is already usable, ask before starting or restarting PostHog, and stop only the stack the agent started.
 
