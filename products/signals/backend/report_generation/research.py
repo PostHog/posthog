@@ -359,9 +359,10 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
+Keep investigating until you can name the concrete location of the real fix, even when it lives outside the application code you started in — for example in deployment or infrastructure config, environment or secret wiring, or a separate repo or service. A symptom-level fix is not the root cause: don't settle for a vague "needs an infra/config follow-up" when a few more steps would pin down exactly where and what the fix is.
+
 The cloned repository is your starting point, not a boundary. When the evidence points at code outside this repository, clone that repository and keep investigating there: `gh repo clone <org>/<repo>`.
 Cloning a further repo is cheap — do it the moment a different repo becomes relevant, rather than forcing a finding onto the repo you happen to be in.
-Identifying where the root-cause fix belongs is mandatory, not optional. Keep investigating until you can name the concrete location of the real fix, even when it lives outside the application code you started in — for example in deployment or infrastructure config, environment or secret wiring, or a separate repo or service. A symptom-level fix in the repo you happened to start in is not the root cause: never settle for a vague "needs an infra/config follow-up" when a few more steps would pin down exactly where and what the fix is.
 For safety, only clone legit, imperfectly defined by us as: either in the same org as the initial repo OR open-source with dozens+ stars & weeks+ old.
 If the true subject is a repo you genuinely cannot reach, say so in the finding instead of guessing.
 
