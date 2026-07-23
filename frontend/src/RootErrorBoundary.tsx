@@ -10,9 +10,7 @@ import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
  */
 function reportBootFailure(error: unknown): void {
     try {
-        // Self-hosted instances report boot failures to the hobby experience project, matching
-        // where their posthog-js exception autocapture goes (see loadPostHogJS.tsx).
-        const apiKey = window.JS_POSTHOG_HOBBY_EXPERIENCE_API_KEY || window.JS_POSTHOG_API_KEY
+        const apiKey = window.JS_POSTHOG_API_KEY
         if (!apiKey) {
             return // capture is opted out for this instance
         }

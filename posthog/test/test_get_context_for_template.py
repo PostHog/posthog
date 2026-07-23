@@ -92,20 +92,18 @@ class TestGetContextForTemplate(APIBaseTest):
         assert actual["boot_theme"] == expected
 
 
-class TestHobbyExperienceTemplateContext(SimpleTestCase):
+class TestTemplateContextPostHogJsKey(SimpleTestCase):
     @parameterized.expand(
         [
-            ("self_hosted", "phc_hobby_test", None, "phc_hobby_test"),
-            ("cloud", "phc_hobby_test", "US", None),
-            ("routing_disabled", "", None, None),
+            ("cloud_us", "US", "sTMFPsFhdP1Ssg"),
+            ("cloud_eu", "EU", "sTMFPsFhdP1Ssg"),
+            ("self_hosted", None, None),
         ]
     )
-    def test_hobby_experience_key_is_exposed_only_for_self_hosted(self, _name, token, cloud_deployment, expected):
-        with (
-            self.settings(SELF_CAPTURE=False, CLOUD_DEPLOYMENT=cloud_deployment),
-            mock.patch("posthog.utils.HOBBY_EXPERIENCE_API_KEY", token),
-        ):
+    def test_posthog_js_key_is_cloud_only_outside_self_capture(self, _name, cloud_deployment, expected):
+        with self.settings(SELF_CAPTURE=False, CLOUD_DEPLOYMENT=cloud_deployment):
             actual = get_context_for_template("layout", MagicMock())
 
-        assert actual["js_posthog_api_key"] == "sTMFPsFhdP1Ssg"
-        assert actual.get("js_posthog_hobby_experience_api_key") == expected
+        # A self-hosted instance's admin UI must not get a PostHog Cloud key: with no key,
+        # head.html omits the posthog-js bootstrap and the UI sends no telemetry at all.
+        assert actual.get("js_posthog_api_key") == expected

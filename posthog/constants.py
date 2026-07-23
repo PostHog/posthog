@@ -7,9 +7,9 @@ FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted ver
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
 # Project token of the PostHog Cloud US "hobby experience" project. Self-hosted deployments route
-# exception autocapture and admin-UI session replay there (see posthog/apps.py and posthog/utils.py)
-# so that PostHog's internal product analytics project only receives lifecycle/usage telemetry.
-# While empty, that routing is disabled and self-hosted instances behave as before.
+# server-side exception autocapture there (see posthog/apps.py) so that PostHog's internal product
+# analytics project only receives lifecycle/usage telemetry. While empty, that routing is disabled
+# and self-hosted exceptions keep flowing to the internal project as before.
 HOBBY_EXPERIENCE_API_KEY = ""
 
 
