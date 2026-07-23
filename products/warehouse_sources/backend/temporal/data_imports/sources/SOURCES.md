@@ -187,6 +187,7 @@ the row lists both.
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
 | doit                             | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
+| dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | drata                            | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
@@ -863,7 +864,6 @@ doesn't conflict with concurrent PRs.
 - donorbox
 - doorloop
 - doppler
-- dovetail
 - drata
 - drchrono
 - dremio
