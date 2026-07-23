@@ -8,16 +8,8 @@ import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
-import type { ObservationStatusValue, ObservationVerdictValue } from '../replayScannerLogic'
+import type { ObservationVerdictValue } from '../replayScannerLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
-
-const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
-    { value: 'succeeded', label: 'Succeeded' },
-    { value: 'failed', label: 'Failed' },
-    { value: 'ineligible', label: 'Ineligible' },
-    { value: 'running', label: 'Running' },
-    { value: 'pending', label: 'Pending' },
-]
 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -44,19 +36,14 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
         scanner,
         overviewDateFrom,
         overviewDateTo,
-        overviewStatusFilter,
         overviewVerdictFilter,
         overviewTagFilter,
         availableTags,
         hasActiveOverviewFilters,
     } = useValues(scannerOverviewLogic({ scannerId }))
-    const {
-        setOverviewDateRange,
-        setOverviewStatusFilter,
-        setOverviewVerdictFilter,
-        setOverviewTagFilter,
-        clearOverviewFilters,
-    } = useActions(scannerOverviewLogic({ scannerId }))
+    const { setOverviewDateRange, setOverviewVerdictFilter, setOverviewTagFilter, clearOverviewFilters } = useActions(
+        scannerOverviewLogic({ scannerId })
+    )
 
     const scannerType = scanner?.scanner_type
     const tagOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
@@ -69,12 +56,6 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
                 dateTo={overviewDateTo}
                 dateOptions={OVERVIEW_DATE_OPTIONS}
                 onChange={(dateFrom, dateTo) => setOverviewDateRange(dateFrom, dateTo)}
-            />
-            <FilterPill<ObservationStatusValue>
-                label="Status"
-                options={STATUS_OPTIONS}
-                value={overviewStatusFilter}
-                onChange={setOverviewStatusFilter}
             />
             {scannerType === 'monitor' && (
                 <FilterPill<ObservationVerdictValue>

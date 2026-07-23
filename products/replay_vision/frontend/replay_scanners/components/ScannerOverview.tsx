@@ -54,23 +54,23 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
 }
 
 function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, scannerImpact, scannerImpactLoading, affectedCohortLoading } = useValues(
-        replayScannerLogic({ id: scannerId })
-    )
+    const { scanner, overviewImpact, overviewImpactLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    // Cohort creation is a scanner-level action, independent of the overview's filter set.
+    const { affectedCohortLoading } = useValues(replayScannerLogic({ id: scannerId }))
     const { saveAffectedCohort } = useActions(replayScannerLogic({ id: scannerId }))
 
     // Impact needs a per-type predicate; only the monitor one (verdict-yes) exists without a qualifier.
     if (scanner?.scanner_type !== 'monitor') {
         return null
     }
-    if (!scannerImpact || scannerImpact.affected_sessions === 0) {
+    if (!overviewImpact || overviewImpact.affected_sessions === 0) {
         return (
             <OverviewPanel title="Impact" fill>
                 <PanelEmpty
-                    loading={scannerImpactLoading}
+                    loading={overviewImpactLoading}
                     message={
-                        scannerImpact
-                            ? `No affected sessions in the last ${scannerImpact.window_days} days.`
+                        overviewImpact
+                            ? `No affected sessions in the last ${overviewImpact.window_days} days.`
                             : "Couldn't load impact counts."
                     }
                 />
@@ -78,15 +78,16 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
         )
     }
     return (
-        <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`} fill>
+        <OverviewPanel title="Impact" subtitle={`last ${overviewImpact.window_days} days`} fill>
             <div className="flex items-center justify-between gap-4">
                 <div className="text-sm">
-                    Matched <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
-                    session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
-                    <strong className="tabular-nums">{scannerImpact.affected_users.toLocaleString()}</strong> user
-                    {scannerImpact.affected_users === 1 ? '' : 's'}
-                    {scannerImpact.sessions_without_user > 0 && (
-                        <span className="text-muted"> ({scannerImpact.sessions_without_user} without a user)</span>
+                    Matched{' '}
+                    <strong className="tabular-nums">{overviewImpact.affected_sessions.toLocaleString()}</strong>{' '}
+                    session{overviewImpact.affected_sessions === 1 ? '' : 's'} from{' '}
+                    <strong className="tabular-nums">{overviewImpact.affected_users.toLocaleString()}</strong> user
+                    {overviewImpact.affected_users === 1 ? '' : 's'}
+                    {overviewImpact.sessions_without_user > 0 && (
+                        <span className="text-muted"> ({overviewImpact.sessions_without_user} without a user)</span>
                     )}
                 </div>
                 <LemonButton
@@ -95,7 +96,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
                     icon={<IconPeople />}
                     onClick={() => saveAffectedCohort()}
                     loading={affectedCohortLoading}
-                    disabledReason={scannerImpact.affected_users === 0 ? 'No users to save' : undefined}
+                    disabledReason={overviewImpact.affected_users === 0 ? 'No users to save' : undefined}
                     data-attr="vision-save-affected-cohort"
                     className="shrink-0"
                 >

@@ -29,7 +29,6 @@ import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
     visionScannersEstimateCreate,
-    visionScannersImpactRetrieve,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
     visionScannersObserveCreate,
@@ -42,7 +41,6 @@ import type {
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
-    ScannerImpactApi,
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
@@ -252,8 +250,6 @@ export interface replayScannerLogicValues {
     scannerEstimateError: string | null
     scannerEstimateLoading: boolean
     scannerHasErrors: boolean
-    scannerImpact: ScannerImpactApi | null
-    scannerImpactLoading: boolean
     scannerLoading: boolean
     scannerManualErrors: Record<string, any>
     scannerTouched: boolean
@@ -321,21 +317,6 @@ export interface replayScannerLogicActions {
     }
     loadScannerFailure: () => {
         value: true
-    }
-    loadScannerImpact: () => any
-    loadScannerImpactFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadScannerImpactSuccess: (
-        scannerImpact: ScannerImpactApi | null,
-        payload?: any
-    ) => {
-        scannerImpact: ScannerImpactApi | null
-        payload?: any
     }
     loadScannerSuccess: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
@@ -710,18 +691,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     loaders(({ props, values }) => ({
-        scannerImpact: [
-            null as ScannerImpactApi | null,
-            {
-                loadScannerImpact: async () => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || props.id === 'new') {
-                        return null
-                    }
-                    return await visionScannersImpactRetrieve(String(teamId), props.id)
-                },
-            },
-        ],
         affectedCohort: [
             null as { cohort_id: number } | null,
             {
@@ -1177,10 +1146,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
                     actions.loadObservations()
                     actions.loadObservationStats()
-                }
-                // Impact needs the scanner type known; only monitors have a qualifier-free predicate.
-                if (props.id !== 'new' && scanner.scanner_type === 'monitor') {
-                    actions.loadScannerImpact()
                 }
             },
 
