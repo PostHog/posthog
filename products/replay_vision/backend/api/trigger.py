@@ -1,6 +1,7 @@
 """Shared Temporal trigger for on-demand scanner applications (observe and retry)."""
 
 import enum
+from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
@@ -26,7 +27,10 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
+    PROCESS_VISION_ACTION_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
+    build_process_vision_action_workflow_id,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
@@ -103,5 +107,50 @@ def start_apply_scanner_workflow(
         return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
     except Exception:
         logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+        return workflow_id, WorkflowStartOutcome.FAILED
+    return workflow_id, WorkflowStartOutcome.STARTED
+
+
+def start_process_vision_action_workflow(
+    vision_action_id: UUID,
+    team_id: int,
+    *,
+    scheduled_at: datetime,
+) -> tuple[str, WorkflowStartOutcome]:
+    """Start the per-action processing workflow on demand ("Run now"); never raises.
+
+    Reuses the same deterministic workflow id as the scheduled sweep, so a manual run coalesces with
+    an already-running run (scheduled or manual) rather than double-charging — ALREADY_RUNNING is
+    returned in that case. The workflow never advances next_run_at, so the recurring schedule is
+    untouched; passing scheduled_at=now just anchors this run's observation window at the present.
+    """
+    # Deferred: importing this triggers the vision_actions package __init__, which pulls the whole
+    # engine (workflows + activities + LLM clients). Keep that off the API module-load path — only
+    # the web process, only when Run now is actually invoked, pays for it.
+    from products.replay_vision.backend.temporal.vision_actions.types import ProcessVisionActionInputs  # noqa: PLC0415
+
+    workflow_id = build_process_vision_action_workflow_id(vision_action_id)
+    try:
+        client = sync_connect()
+        async_to_sync(client.start_workflow)(  # type: ignore[misc]
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,  # type: ignore[arg-type]
+            ProcessVisionActionInputs(  # type: ignore[arg-type]
+                vision_action_id=vision_action_id,
+                team_id=team_id,
+                scheduled_at=scheduled_at,
+                mode="group_summary",
+            ),
+            id=workflow_id,
+            task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+            execution_timeout=PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
+        )
+    except WorkflowAlreadyStartedError as exc:
+        if exc.workflow_id != workflow_id:
+            logger.exception("replay_vision.run_now.workflow_id_mismatch", workflow_id=workflow_id)
+            return workflow_id, WorkflowStartOutcome.FAILED
+        logger.info("replay_vision.run_now.workflow_already_started", workflow_id=workflow_id)
+        return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
+    except Exception:
+        logger.exception("replay_vision.run_now.workflow_start_failed", workflow_id=workflow_id)
         return workflow_id, WorkflowStartOutcome.FAILED
     return workflow_id, WorkflowStartOutcome.STARTED
