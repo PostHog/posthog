@@ -181,16 +181,21 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert flag.active is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
-    def test_request_less_update_allows_empty_groups(self):
+    @parameterized.expand(["system_write", "supplied_shim_request"])
+    def test_shim_request_update_allows_empty_groups(self, mode):
         # The shim must report PATCH: with POST, create-only validation rejects empty
         # groups and early access demotion/deletion 400s instead of clearing enrollment.
+        # Caller-built shims (experiments service) default to POST and must be normalized too.
         flag = self._create_flag(filters={"groups": [], "feature_enrollment": True})
+        user = None if mode == "system_write" else self.user
+        request = None if mode == "system_write" else ServiceRequest(self.user)
 
         update_flag(
             flag,
             {"filters": set_feature_enrollment(flag.get_filters(), None)},
             team=self.team,
-            user=None,
+            user=user,
+            request=request,
         )
 
         flag.refresh_from_db()

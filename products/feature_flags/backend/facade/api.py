@@ -45,7 +45,9 @@ def _serializer_context(team: Team, user: Any, request: Any | None, *, method: s
     ``user=None`` makes this a system write (see module docstring); the shim declares
     it explicitly via ``is_system``, the only signal the approval gate skips on.
     ``method`` is the HTTP method the shim reports — the serializer branches on it
-    (create-only validation runs on "POST"), so updates must pass "PATCH".
+    (create-only validation runs on "POST"), so updates must pass "PATCH". Supplied
+    ``ServiceRequest`` shims are rebuilt with it; real HTTP requests pass through
+    untouched.
 
     Pass BOTH get_team and get_organization so the approval gate resolves the policy
     from context rather than falling back to instance derivation.
@@ -55,6 +57,9 @@ def _serializer_context(team: Team, user: Any, request: Any | None, *, method: s
     # goes to request.user) — reject the contradiction instead.
     if user is None and request_has_user:
         raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
+    if isinstance(request, ServiceRequest):
+        # Caller-built shims default to POST — rebuild so the method matches this write.
+        request = ServiceRequest(request.user, is_system=request.is_system, method=method)
     flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None, method=method)
     return {
         "request": flag_request,
