@@ -730,6 +730,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self._where_predicates(where_expr),
             group_by=[_event_session_id_field()],
+            # Negating a very common event (e.g. $pageview) can push the blocklist past this cap on
+            # high-traffic teams, silently under-excluding sessions beyond it. Typical negatives (rare
+            # events, property filters) stay well under it, so the bound is kept for memory safety.
             limit=ast.Constant(value=1000000),
         )
 

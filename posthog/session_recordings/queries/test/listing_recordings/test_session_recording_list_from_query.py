@@ -989,6 +989,109 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         result = ReplayFiltersEventsSubQuery(team=self.team, query=query).get_event_ids_for_session()
         assert [str(row[0]) for row in result.results] == [pageview_uuid]
 
+    def test_multiple_negated_event_filters_exclude_sessions_matching_any(self) -> None:
+        user = "test_multiple_negated-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_purchase = f"purchase-{str(uuid4())}"
+        session_signup = f"signup-{str(uuid4())}"
+        session_neither = f"neither-{str(uuid4())}"
+        for session_id, extra_event in [
+            (session_purchase, "purchase"),
+            (session_signup, "signup"),
+            (session_neither, None),
+        ]:
+            produce_replay_summary(
+                distinct_id=user, session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+            )
+            create_event(
+                team=self.team,
+                distinct_id=user,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id, "$window_id": "1"},
+            )
+            if extra_event:
+                create_event(
+                    team=self.team,
+                    distinct_id=user,
+                    timestamp=self.an_hour_ago,
+                    event_name=extra_event,
+                    properties={"$session_id": session_id, "$window_id": "1"},
+                )
+
+        # The blocklist unions both negated entities, so matching either one excludes the session.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                    {"id": "signup", "type": "events", "order": 1, "name": "signup", "negation": True},
+                ],
+            },
+            [session_neither],
+        )
+
+    def test_negated_entity_and_negative_property_share_one_blocklist(self) -> None:
+        user = "test_negated_combined-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_purchase = f"purchase-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_purchase, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_purchase, "$window_id": "1", "$current_url": "https://app.io/home"},
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            event_name="purchase",
+            properties={"$session_id": session_purchase, "$window_id": "1"},
+        )
+
+        session_internal = f"internal-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_internal, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={
+                "$session_id": session_internal,
+                "$window_id": "1",
+                "$current_url": "https://app.io/internal/dashboard",
+            },
+        )
+
+        session_clean = f"clean-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user, session_id=session_clean, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_clean, "$window_id": "1", "$current_url": "https://app.io/home"},
+        )
+
+        # A negated entity and a negative event property both feed the single AND blocklist; a session
+        # matching either (did purchase, or visited /internal) is excluded.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True},
+                ],
+                "properties": [
+                    {"key": "$current_url", "value": "/internal", "operator": "not_icontains", "type": "event"},
+                ],
+            },
+            [session_clean],
+        )
+
     @snapshot_clickhouse_queries
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
