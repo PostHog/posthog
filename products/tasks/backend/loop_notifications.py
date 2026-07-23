@@ -18,7 +18,7 @@ from django.db import transaction
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_footer_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 from posthog.tasks.push_notifications import send_user_push
@@ -159,6 +159,7 @@ def _send_email(
             "event_title": title,
             "event_body": body,
             "run_url": str(payload.get("url") or ""),
+            **get_email_footer_context(team=loop.team),
         }
         message = EmailMessage(
             campaign_key=campaign_key,

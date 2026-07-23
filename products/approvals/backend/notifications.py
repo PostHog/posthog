@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from structlog import get_logger
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_footer_context, is_email_available
 from posthog.models import User
 from posthog.utils import absolute_uri
 
@@ -124,7 +124,7 @@ def _send_approval_email(
 
     template_context = {
         "change_request_url": change_request_url,
-        "team_name": change_request.team.name,
+        **get_email_footer_context(team=change_request.team),
     }
     if extra_context:
         template_context.update(extra_context)
