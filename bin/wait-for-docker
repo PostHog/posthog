@@ -97,6 +97,8 @@ compose() {
 # shadow the real service in the last-write-wins scan below). `-a` keeps
 # exited containers visible so timeout diagnostics can show their logs.
 # Fails when the daemon is unreachable, which the main loop uses to back off.
+# stderr is captured by the caller: a failure isn't necessarily a stopped
+# daemon (bad context, socket permissions), so the real error is reported.
 poll_containers() {
     docker ps -a \
         --filter "label=com.docker.compose.project=${PROJECT}" \
@@ -149,9 +151,13 @@ print_service_diagnostics() {
     echo "=========================================="
 }
 
+POLL_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/wait-for-docker-err.XXXXXX")"
+trap 'rm -f "$POLL_ERR_FILE"' EXIT
+
 SECONDS=0
 last_progress_log=-5
 daemon_down=0
+poll_error=""
 pending=("${SERVICES[@]}")
 # Services that time out, captured at the moment of timeout as
 # "svc|status|container_id" (this iteration's status is the last observed).
@@ -159,19 +165,21 @@ timed_out=()
 
 while [ ${#pending[@]} -gt 0 ]; do
     ps_output=""
-    if ! ps_output=$(poll_containers 2>/dev/null); then
-        # Nothing can converge until the daemon is back, so poll slowly.
+    if ! ps_output=$(poll_containers 2>"$POLL_ERR_FILE"); then
+        poll_error="$(head -n 1 "$POLL_ERR_FILE" 2>/dev/null || true)"
+        # Nothing can converge until docker is back, so poll slowly.
         if [ "$SECONDS" -ge "$TIMEOUT" ]; then
             echo ""
             echo "=========================================="
             echo "TIMEOUT: ${TIMEOUT}s waiting for the Docker daemon"
             echo "=========================================="
-            echo "The Docker daemon was unreachable the whole time."
-            echo "Start Docker (OrbStack, Docker Desktop, colima, ...) and retry."
+            echo "docker ps kept failing with: ${poll_error:-no error output}"
+            echo "If the daemon isn't running, start Docker (OrbStack, Docker Desktop, colima, ...) and retry."
             exit 1
         fi
         if [ "$daemon_down" -eq 0 ] || [ $(( SECONDS - last_progress_log )) -ge 10 ]; then
-            echo "Docker daemon is not running. Start it (OrbStack, Docker Desktop, colima, ...); retrying... (${SECONDS}s)"
+            echo "Docker is not reachable: ${poll_error:-no error output}"
+            echo "If the daemon isn't running, start it (OrbStack, Docker Desktop, colima, ...); retrying... (${SECONDS}s)"
             last_progress_log=$SECONDS
             daemon_down=1
         fi
