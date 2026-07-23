@@ -356,6 +356,69 @@ class RelaySlackMessageInput:
     message_id: str | None = None
 
 
+def _record_relay_delivery(run_id: str, relay_id: str) -> None:
+    """Stamp the relay id into run state (rolling window) so retries stay idempotent."""
+    from products.tasks.backend.models import TaskRun
+
+    def _record_sent_relay(state: dict[str, Any]) -> None:
+        sent_relay_ids = state.get("slack_sent_relay_ids") or []
+        if relay_id in sent_relay_ids:
+            raise _RelayAlreadyRecorded
+
+        sent_relay_ids.append(relay_id)
+        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
+        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
+
+    try:
+        TaskRun.mutate_state_atomic(run_id, _record_sent_relay)
+    except _RelayAlreadyRecorded:
+        logger.info("slack_relay_duplicate_skipped", run_id=run_id, relay_id=relay_id)
+
+
+# Telegram caps messages at 4096 chars; leave margin for chunk fences the splitter adds.
+_TELEGRAM_MESSAGE_TEXT_LIMIT = 3900
+
+
+def _relay_to_telegram(task_run: Any, input: RelaySlackMessageInput) -> bool:
+    """Post the relayed text into the run's Telegram chat, if it has one.
+
+    Returns True when the run is Telegram-mapped (whether or not there was text to
+    post) so the caller can record delivery instead of dropping the relay. Text is
+    passed through as plain markdown — Telegram renders it literally, which is
+    legible; a MarkdownV2 escaper would add a whole failure mode where one bad
+    entity drops the message entirely.
+    """
+    from products.slack_app.backend.models import TelegramChatTaskMapping
+    from products.slack_app.backend.telegram_thread import TelegramThreadContext, TelegramThreadHandler
+
+    mapping = (
+        TelegramChatTaskMapping.objects.for_team(task_run.team_id)
+        .filter(task_run=task_run)
+        .select_related("integration")
+        .first()
+    )
+    if mapping is None:
+        return False
+
+    text = (input.text or "").strip()
+    if not text:
+        return True
+
+    handler = TelegramThreadHandler(
+        TelegramThreadContext(
+            integration_id=mapping.integration_id,
+            chat_id=mapping.chat_id,
+            root_message_id=mapping.root_message_id,
+            telegram_user_id=mapping.telegram_user_id,
+        )
+    )
+    for chunk in _split_markdown_for_slack(text, limit=_TELEGRAM_MESSAGE_TEXT_LIMIT):
+        handler.post_thread_message(chunk)
+    if input.reaction_emoji is not None:
+        handler.update_reaction(input.reaction_emoji)
+    return True
+
+
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
@@ -379,6 +442,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     if mapping is None:
+        if _relay_to_telegram(task_run, input):
+            _record_relay_delivery(input.run_id, input.relay_id)
+            return
         logger.info("slack_relay_mapping_not_found", run_id=input.run_id, relay_id=input.relay_id)
         return
 
@@ -447,16 +513,4 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 
-    def _record_sent_relay(state: dict[str, Any]) -> None:
-        sent_relay_ids = state.get("slack_sent_relay_ids") or []
-        if input.relay_id in sent_relay_ids:
-            raise _RelayAlreadyRecorded
-
-        sent_relay_ids.append(input.relay_id)
-        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
-        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
-
-    try:
-        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
-    except _RelayAlreadyRecorded:
-        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
+    _record_relay_delivery(input.run_id, input.relay_id)

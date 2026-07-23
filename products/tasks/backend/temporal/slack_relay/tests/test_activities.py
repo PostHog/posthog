@@ -12,7 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
@@ -724,3 +724,86 @@ class TestRelaySlackMessageChunking(TestCase):
 
         self.task_run.refresh_from_db()
         assert "relay-chunked" in self.task_run.state.get("slack_sent_relay_ids", [])
+
+
+class TestRelayToTelegram(TestCase):
+    """Runs mapped to a Telegram chat (and not a Slack thread) must still receive
+    relayed agent output — the Slack-mapping miss used to be a terminal early return."""
+
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organization.objects.create(name="TestOrg")
+        cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
+        cls.user = User.objects.create(email="bob@test.com")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="Telegram task",
+            description="desc",
+            origin_product=Task.OriginProduct.TELEGRAM,
+            created_by=cls.user,
+            repository="org/repo",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={},
+        )
+        cls.integration = Integration.objects.create(
+            team=cls.team,
+            kind="telegram",
+            integration_id="-100555",
+            config={},
+        )
+        TelegramChatTaskMapping.objects.for_team(cls.team.id).create(
+            team=cls.team,
+            integration=cls.integration,
+            chat_id="-100555",
+            root_message_id="42",
+            task=cls.task,
+            task_run=cls.task_run,
+            telegram_user_id="777",
+        )
+
+    def setUp(self):
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["state", "updated_at"])
+
+    @patch("products.slack_app.backend.telegram_thread.TelegramBotClient")
+    def test_relay_falls_back_to_telegram_mapping(self, mock_client_cls):
+        relay_slack_message(RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id="r-1", text="hello there"))
+
+        send = mock_client_cls.return_value.send_message
+        send.assert_called_once()
+        assert send.call_args.kwargs["chat_id"] == "-100555"
+        assert send.call_args.kwargs["reply_to_message_id"] == "42"
+        assert "hello there" in send.call_args.kwargs["text"]
+        self.task_run.refresh_from_db()
+        assert "r-1" in (self.task_run.state or {}).get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.telegram_thread.TelegramBotClient")
+    def test_relay_dedup_covers_telegram_path(self, mock_client_cls):
+        # A Temporal retry of the relay activity must not double-post into the chat.
+        relay_slack_message(RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id="r-2", text="once"))
+        relay_slack_message(RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id="r-2", text="once"))
+
+        assert mock_client_cls.return_value.send_message.call_count == 1
+
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow", return_value="relay-1")
+    def test_facade_gate_accepts_telegram_only_run(self, mock_execute):
+        # The facade gate used to require a Slack mapping; skipping Telegram-only runs
+        # means the relay workflow is never even enqueued.
+        from products.tasks.backend.facade.api import relay_task_run_message
+
+        status, relay_id = relay_task_run_message(self.task_run.id, self.task.id, self.team.id, text="agent says hi")
+
+        assert status == "accepted"
+        assert relay_id == "relay-1"
+        mock_execute.assert_called_once()
