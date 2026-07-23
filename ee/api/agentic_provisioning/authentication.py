@@ -109,7 +109,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         if parsed is None:
             return None
 
-        timestamp_str, signature_hex = parsed
+        timestamp_str, signature_hex = parsed.timestamp, parsed.signature
         body = _get_raw_body(request)
         if body is None:
             return None
@@ -204,7 +204,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         if parsed is None:
             raise AuthenticationFailed("Missing or malformed signature header")
 
-        timestamp_str, signature_hex = parsed
+        timestamp_str, signature_hex = parsed.timestamp, parsed.signature
         timestamp = int(timestamp_str)
         if abs(int(time.time()) - timestamp) > MAX_TIMESTAMP_DRIFT_SECONDS:
             raise AuthenticationFailed("Timestamp too old or too far in the future")

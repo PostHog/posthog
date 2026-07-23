@@ -213,18 +213,18 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
 
     def test_credential_helper_function_behavior(self):
         with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
-            access_key, access_secret = _get_s3_credentials()
-            assert access_key is None
-            assert access_secret is None
+            creds = _get_s3_credentials()
+            assert creds.access_key is None
+            assert creds.access_secret is None
 
         with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
             with patch("posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_ACCESS_KEY_ID", "debug_key"):
                 with patch(
                     "posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_SECRET_ACCESS_KEY", "debug_secret"
                 ):
-                    access_key, access_secret = _get_s3_credentials()
-                    assert access_key == "debug_key"
-                    assert access_secret == "debug_secret"
+                    creds = _get_s3_credentials()
+                    assert creds.access_key == "debug_key"
+                    assert creds.access_secret == "debug_secret"
 
     def test_s3_table_creation_integration(self):
         with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):

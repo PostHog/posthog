@@ -250,7 +250,7 @@ def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
     if not isinstance(authorization_endpoint, str) or not authorization_endpoint:
         return None
 
-    _code_verifier, code_challenge = generate_pkce()
+    code_challenge = generate_pkce().code_challenge
     query_params = {
         "client_id": client_id,
         "redirect_uri": _probe_redirect_uri(),

@@ -26,7 +26,8 @@ class TestPostHogCodeEventHandler(TestCase):
 
     def _post_event(self, payload: dict, **extra_headers) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         return self.client.post(
             "/slack/event-callback/",
             data=body,
@@ -53,7 +54,8 @@ class TestPostHogCodeEventHandler(TestCase):
     def test_retry_returns_200(self, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        _signed = sign_slack_request(body, self.signing_secret)
+        signature, ts = _signed.signature, _signed.timestamp
         response = self.client.post(
             "/slack/event-callback/",
             data=body,
@@ -1058,7 +1060,8 @@ class TestChannelApprovalGate(TestCase):
             "event": {"type": "app_mention", "channel": "C_EXT", "user": "U123", "ts": "1.0"},
         }
         body = json.dumps(envelope).encode()
-        signature, ts = sign_slack_request(body, "secret")
+        _signed = sign_slack_request(body, "secret")
+        signature, ts = _signed.signature, _signed.timestamp
         APIClient().post(
             "/slack/event-callback/",
             data=body,

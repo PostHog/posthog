@@ -3,6 +3,7 @@ import pytest
 from django.test.utils import override_settings
 
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    S3StagingCredentials,
     _get_s3_credentials,
     _get_s3_endpoint_url,
     get_s3_staging_folder,
@@ -49,7 +50,9 @@ def test_internal_stage_uses_object_storage_endpoint_for_self_hosted_local_and_t
             _get_test_s3_staging_folder_url()
             == f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{EXPECTED_STAGE_FOLDER}"
         )
-        assert _get_s3_credentials() == (OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY)
+        assert _get_s3_credentials() == S3StagingCredentials(
+            OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+        )
 
 
 @pytest.mark.parametrize("cloud_deployment", ["DEV", "US", "EU", "E2E"])
@@ -65,7 +68,7 @@ def test_internal_stage_uses_aws_s3_for_cloud(cloud_deployment: str) -> None:
             _get_test_s3_staging_folder_url()
             == f"https://{OBJECT_STORAGE_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com/{EXPECTED_STAGE_FOLDER}"
         )
-        assert _get_s3_credentials() == (None, None)
+        assert _get_s3_credentials() == S3StagingCredentials(None, None)
 
 
 def test_s3_endpoint_url_self_hosted_uses_configured_endpoint_not_localhost() -> None:

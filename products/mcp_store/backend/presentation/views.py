@@ -921,7 +921,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # _template_uses_dcr guarantees client_id is present here.
             client_id = template.oauth_credentials["client_id"]
 
-        code_verifier, code_challenge = generate_pkce()
+        _pkce = generate_pkce()
+        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1182,7 +1183,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             ]
         )
 
-        code_verifier, code_challenge = generate_pkce()
+        _pkce = generate_pkce()
+        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1316,7 +1318,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             client_id = template.oauth_credentials["client_id"]
 
         redirect_uri = _get_oauth_redirect_uri()
-        code_verifier, code_challenge = generate_pkce()
+        _pkce = generate_pkce()
+        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1399,7 +1402,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         redirect_uri = _get_oauth_redirect_uri()
-        code_verifier, code_challenge = generate_pkce()
+        _pkce = generate_pkce()
+        code_verifier, code_challenge = _pkce.code_verifier, _pkce.code_challenge
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,

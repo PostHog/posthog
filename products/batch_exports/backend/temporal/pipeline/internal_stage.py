@@ -100,7 +100,14 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
-def _get_s3_credentials() -> tuple[str | None, str | None]:
+@dataclass(frozen=True)
+class S3StagingCredentials:
+    # Both None when keyless (IAM-role) auth is used.
+    aws_access_key_id: str | None
+    aws_secret_access_key: str | None
+
+
+def _get_s3_credentials() -> S3StagingCredentials:
     """Get the S3 credentials for S3 internal staging bucket.
 
     If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
@@ -108,12 +115,11 @@ def _get_s3_credentials() -> tuple[str | None, str | None]:
     """
     use_keyless_s3_auth = not _uses_object_storage_endpoint()
     if use_keyless_s3_auth:
-        aws_access_key_id = None
-        aws_secret_access_key = None
-    else:
-        aws_access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
-        aws_secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
-    return aws_access_key_id, aws_secret_access_key
+        return S3StagingCredentials(aws_access_key_id=None, aws_secret_access_key=None)
+    return S3StagingCredentials(
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
 
 
 def socket_factory(addr_info):
@@ -151,7 +157,8 @@ class AIOHTTPSession(BaseAIOHTTPSession):
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
-    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
+    _s3_creds = _get_s3_credentials()
+    aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -410,7 +417,9 @@ async def _get_query(
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
     assert num_partitions is not None  # to satisfy mypy
 
-    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
+    _s3_creds = _get_s3_credentials()
+
+    aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
     s3_function = get_s3_function_call(
         s3_folder=s3_staging_folder_url,
         s3_key=aws_access_key_id,
@@ -610,7 +619,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
+                _s3_creds = _get_s3_credentials()
+                aws_access_key_id, aws_secret_access_key = _s3_creds.aws_access_key_id, _s3_creds.aws_secret_access_key
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,

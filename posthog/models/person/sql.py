@@ -742,7 +742,8 @@ def CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY():
     This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime,
     not at module import time (which causes issues in E2E tests where env vars aren't loaded yet).
     """
-    clickhouse_user, clickhouse_password = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+    _dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+    clickhouse_user, clickhouse_password = _dict_reader_creds.user, _dict_reader_creds.password
     return """
 CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
     `team_id` Int64, -- team_id could be made hierarchical to save some space.

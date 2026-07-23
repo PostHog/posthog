@@ -1,3 +1,5 @@
+import secrets
+from dataclasses import dataclass
 from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
@@ -85,13 +87,15 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         return None
 
 
-def generate_scim_token() -> tuple[str, str]:
-    """
-    Generate a new SCIM bearer token.
-    Returns (plain_token, hashed_token) tuple.
-    """
-    import secrets
+@dataclass(frozen=True)
+class ScimToken:
+    # `plain` is shown to the user once; only `hashed` is persisted.
+    plain: str
+    hashed: str
 
+
+def generate_scim_token() -> ScimToken:
+    """Generate a new SCIM bearer token."""
     plain_token = secrets.token_urlsafe(32)
     hashed_token = make_password(plain_token)
-    return plain_token, hashed_token
+    return ScimToken(plain=plain_token, hashed=hashed_token)

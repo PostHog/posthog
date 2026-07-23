@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -76,22 +78,29 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def _get_s3_credentials() -> tuple[str | None, str | None]:
+@dataclass(frozen=True)
+class S3WebCredentials:
+    # Both None outside DEBUG, where the external web-analytics bucket is read without keys.
+    access_key: str | None
+    access_secret: str | None
+
+
+def _get_s3_credentials() -> S3WebCredentials:
     if DEBUG:
-        return OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
-    return None, None
+        return S3WebCredentials(access_key=OBJECT_STORAGE_ACCESS_KEY_ID, access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY)
+    return S3WebCredentials(access_key=None, access_secret=None)
 
 
 def _create_s3_web_table(team_id: int, table_name: str, s3_name: str, structure_func, fields: dict) -> S3Table:
     url = get_s3_url(table_name=table_name, team_id=team_id)
-    access_key, access_secret = _get_s3_credentials()
+    creds = _get_s3_credentials()
 
     return S3Table(
         name=s3_name,
         url=url,
         format="Native",
-        access_key=access_key,
-        access_secret=access_secret,
+        access_key=creds.access_key,
+        access_secret=creds.access_secret,
         structure=structure_func(),
         fields=fields,
     )

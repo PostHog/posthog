@@ -11,6 +11,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 
 from ee.api.agentic_provisioning.signature import (
+    ParsedSignature,
     _parse_signature_header,
     compute_signature,
     verify_provisioning_signature,
@@ -22,8 +23,12 @@ HMAC_SECRET = "test_hmac_secret"
 class TestParseSignatureHeader(TestCase):
     @parameterized.expand(
         [
-            ("valid", f"t=1234567890,v1={'ab' * 32}", ("1234567890", "ab" * 32)),
-            ("uppercase_hex", f"t=1234567890,v1={'AB' * 32}", ("1234567890", "AB" * 32)),
+            ("valid", f"t=1234567890,v1={'ab' * 32}", ParsedSignature(timestamp="1234567890", signature="ab" * 32)),
+            (
+                "uppercase_hex",
+                f"t=1234567890,v1={'AB' * 32}",
+                ParsedSignature(timestamp="1234567890", signature="AB" * 32),
+            ),
             ("missing_t", f"v1={'ab' * 32}", None),
             ("missing_v1", "t=1234567890", None),
             ("malformed_no_equals", "garbage", None),

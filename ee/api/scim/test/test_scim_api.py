@@ -34,7 +34,8 @@ class TestSCIMAPI(APILicensedTest):
         )
 
         # Generate SCIM token
-        self.plain_token, hashed_token = generate_scim_token()
+        _token = generate_scim_token()
+        self.plain_token, hashed_token = _token.plain, _token.hashed
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
         )
@@ -69,7 +70,8 @@ class TestSCIMAPI(APILicensedTest):
     def test_unverified_domain_is_rejected(self):
         # SCIM can be enabled on a config independently of any domain, so an unverified domain with
         # a SCIM-enabled config must still be rejected — provisioning stays gated behind verification.
-        plain_token, hashed_token = generate_scim_token()
+        _token = generate_scim_token()
+        plain_token, hashed_token = _token.plain, _token.hashed
         unverified = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="unverified.example.com",
@@ -272,7 +274,8 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
+        _token = generate_scim_token()
+        self.plain_token, hashed_token = _token.plain, _token.hashed
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
         )
@@ -511,7 +514,8 @@ class TestSCIMAuditLogging(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
+        _token = generate_scim_token()
+        self.plain_token, hashed_token = _token.plain, _token.hashed
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
         )
@@ -607,7 +611,8 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
 
-        self.plain_token, hashed_token = generate_scim_token()
+        _token = generate_scim_token()
+        self.plain_token, hashed_token = _token.plain, _token.hashed
         config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
         )

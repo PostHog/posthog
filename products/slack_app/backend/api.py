@@ -603,7 +603,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
 
     body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
-    signature, ts = sign_slack_request(body, signing_secret)
+    signed = sign_slack_request(body, signing_secret)
+    signature, ts = signed.signature, signed.timestamp
 
     try:
         response = requests.post(
