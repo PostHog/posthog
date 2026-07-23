@@ -47,7 +47,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
@@ -1278,6 +1277,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
+
+        from posthog.hogql_queries.actors_query_runner import (  # noqa: PLC0415 — breaks import cycle (actors_query_runner imports from this module)
+            ActorsQueryRunner,
+        )
 
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
         filter = prepare_actor_query_filter(filter)
