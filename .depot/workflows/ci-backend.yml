@@ -34,7 +34,9 @@
 # - report-test-timings: canonical emits per-test OTLP spans from the uploaded JUnit. The shadow
 #   strips artifact uploads (above) and posts no telemetry, so the whole job is depot-exempt —
 #   changes confined to it (script deps, the reporter's availability guard, emission secret
-#   plumbing such as dual-project tokens) need no depot bump.
+#   plumbing such as dual-project tokens, re-run attempt handling — including the
+#   attempt-suffixed junit artifact names canonical uploads so the reporter can pair re-run
+#   recoveries with attempt-1 failures) need no depot bump.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA

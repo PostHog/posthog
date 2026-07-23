@@ -25,6 +25,8 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
+
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
@@ -48,11 +50,13 @@ const SOURCE_MODE_OPTIONS: { value: CustomPropertySourceMode; label: string }[] 
 const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] = [
     { value: 'account', label: 'Account' },
     { value: 'person', label: 'Person' },
+    { value: 'group', label: 'Group' },
 ]
 
-// Person-target editor: pick a synced warehouse table, the distinct_id column, and the
-// column → person-property mappings. The binding + mappings are create-only on the backend, so
-// they're read-only once a source exists (only the key column + enabled switch stay editable).
+// Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
+// (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
+// also picks which group type. The binding + mappings are create-only on the backend, so they're
+// read-only once a source exists (only the key column + enabled switch stay editable).
 function PersonSourceEditor(): JSX.Element {
     const {
         customPropertyForm,
@@ -64,12 +68,19 @@ function PersonSourceEditor(): JSX.Element {
         selectedTableColumnsLoading,
     } = useValues(customPropertyDefinitionsLogic)
     const { setCustomPropertyFormValue, loadSelectedTableColumns } = useActions(customPropertyDefinitionsLogic)
+    const { groupTypes } = useValues(groupsModel)
 
+    const isGroup = customPropertyForm.targetType === 'group'
+    const entityLabel = isGroup ? 'group' : 'person'
     const hasExistingSource = !!editingDefinition?.source
     const noTables = !warehouseTablesLoading && warehouseTables.length === 0
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
     const columnOptions = selectedTableColumns.map((column) => ({ key: column, label: column }))
+    const groupTypeOptions = Array.from(groupTypes.values()).map((groupType) => ({
+        value: groupType.group_type_index,
+        label: groupType.name_singular || groupType.group_type,
+    }))
 
     // Only block on missing tables while creating a source — an existing source still needs its
     // key column and enabled switch editable even if its table was later deleted or filtered out.
@@ -84,16 +95,30 @@ function PersonSourceEditor(): JSX.Element {
 
     return (
         <>
+            {isGroup && !hasExistingSource && (
+                <LemonField name="groupTypeIndex" label="Group type" help="Which group type this property attaches to.">
+                    {({ value, onChange }) => (
+                        <LemonSelect
+                            value={value}
+                            onChange={onChange}
+                            options={groupTypeOptions}
+                            placeholder="Select a group type"
+                            fullWidth
+                        />
+                    )}
+                </LemonField>
+            )}
             {hasExistingSource ? (
                 <LemonBanner type="info">
                     The warehouse table and column mappings are fixed once a source is created. To change them, delete
-                    this property and create a new one. You can still update the distinct ID column and toggle syncing.
+                    this property and create a new one. You can still update the {isGroup ? 'group key' : 'distinct ID'}{' '}
+                    column and toggle syncing.
                 </LemonBanner>
             ) : (
                 <LemonField
                     name="warehouseTable"
                     label="Warehouse table"
-                    help="Rows from this synced table are upserted onto matching people."
+                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s.`}
                 >
                     {({ value, onChange }) => (
                         <LemonSearchableSelect
@@ -119,8 +144,10 @@ function PersonSourceEditor(): JSX.Element {
             )}
             <LemonField
                 name="keyColumn"
-                label="Distinct ID column"
-                help="The column holding each row's distinct ID — used to match the person to update."
+                label={isGroup ? 'Group key column' : 'Distinct ID column'}
+                help={`The column holding each row's ${
+                    isGroup ? 'group key' : 'distinct ID'
+                } — used to match the ${entityLabel} to update.`}
             >
                 {({ value, onChange }) => (
                     <LemonInputSelect
@@ -138,7 +165,7 @@ function PersonSourceEditor(): JSX.Element {
                 <div className="flex flex-col gap-2">
                     <LemonLabel>Column mappings</LemonLabel>
                     <span className="text-secondary text-xs">
-                        Map each warehouse column to the person property name it should set.
+                        Map each warehouse column to the {entityLabel} property name it should set.
                     </span>
                     {mappings.map((mapping, index) => (
                         <div key={index} className="flex flex-col gap-1">
@@ -167,7 +194,7 @@ function PersonSourceEditor(): JSX.Element {
                                         onChange={(property) =>
                                             setMappings(mappings.map((m, i) => (i === index ? { ...m, property } : m)))
                                         }
-                                        placeholder="Person property"
+                                        placeholder={`${isGroup ? 'Group' : 'Person'} property`}
                                         fullWidth
                                     />
                                 </div>
@@ -289,9 +316,10 @@ export function CustomPropertyModal(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showBigNumberSwitch = isNumericDisplayType(customPropertyForm.displayType)
     const { sourceMode, targetType } = customPropertyForm
-    // Person-target properties are gated behind the rollout flag; an existing person property
+    const isProfileTarget = targetType === 'person' || targetType === 'group'
+    // Person/group-target properties are gated behind the rollout flag; an existing profile property
     // stays editable so a rollback doesn't strand its configuration.
-    const personTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || targetType === 'person'
+    const profileTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || isProfileTarget
     const hasExistingSource = !!editingDefinition?.source
     const noViews = !savedQueriesLoading && materializedViews.length === 0
 
@@ -308,10 +336,10 @@ export function CustomPropertyModal(): JSX.Element {
             : option
     )
 
-    // A new person source needs at least one complete column → property pair. The mapping rows
+    // A new person/group source needs at least one complete column → property pair. The mapping rows
     // aren't LemonFields, so this gates the submit button rather than showing a per-field error.
     const missingPersonMapping =
-        targetType === 'person' &&
+        isProfileTarget &&
         !hasExistingSource &&
         !customPropertyForm.columnMappings.some((mapping) => mapping.column.trim() && mapping.property.trim())
 
@@ -363,7 +391,7 @@ export function CustomPropertyModal(): JSX.Element {
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
                 </LemonField>
-                {personTargetAvailable && (
+                {profileTargetAvailable && (
                     <LemonField
                         name="targetType"
                         label="Attach to"
@@ -406,7 +434,7 @@ export function CustomPropertyModal(): JSX.Element {
                         {customPropertyForm.displayType === 'select' && <CustomPropertyOptionsEditor />}
                     </>
                 )}
-                {targetType === 'person' && <PersonSourceEditor />}
+                {isProfileTarget && <PersonSourceEditor />}
                 {targetType === 'account' && (
                     <>
                         <LemonField name="sourceMode" label="Source">

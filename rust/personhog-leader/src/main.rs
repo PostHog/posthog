@@ -28,10 +28,11 @@ use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService};
+use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::{
     fetch_writer_committed_offsets, WarmingConfig, WarmingRetryPolicy,
 };
+use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
 
@@ -192,9 +193,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
+    let warnings = WarningsProducer::new(
+        kafka_producer.clone(),
+        config.ingestion_warnings_topic.clone(),
+    );
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         config.kafka_person_state_topic.clone(),
         fallback_pool,
         Arc::clone(&locks),
@@ -202,6 +207,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_partitions,
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
+        PropertySizeLimits::new(
+            config.properties_size_threshold,
+            config.properties_trim_target,
+        ),
+        warnings.clone(),
     );
 
     let handler = LeaderHandoffHandler::new(
@@ -247,13 +257,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks
+    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
     let sweep_locks = Arc::clone(&locks);
+    let sweep_warnings = warnings.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
+            sweep_warnings.sweep_throttle();
         }
     });
 
