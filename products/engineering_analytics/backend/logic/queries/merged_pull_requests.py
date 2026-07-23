@@ -4,7 +4,8 @@ The discovery seam behind ReviewHog telemetry — "which PRs merged recently, an
 branch tip". Embeds the curated pull-requests source (see ``logic.views.pull_requests``) as a
 subquery and keeps only PRs that have merged (``merged_at`` is non-null exactly when a PR actually
 merged — the same condition the source derives ``state = 'merged'`` from) at or after ``since``,
-scoped to a single ``owner/name`` repository, newest merge first.
+carry a branch-tip SHA (a malformed snapshot without one is excluded, never surfaced empty), scoped
+to a single ``owner/name`` repository, newest merge first.
 
 ``head_sha`` is the run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge``
 commit (SPEC §7). Repo matching is case-insensitive, like ``resolve_branch``: the curated repo
@@ -32,6 +33,11 @@ _SELECT = f"""
     FROM __PR_SOURCE__ AS pr
     WHERE pr.merged_at IS NOT NULL
         AND pr.merged_at >= {{since}}
+        -- head_sha is raw JSONExtractString over the Nullable `head` blob: NULL when the blob is
+        -- NULL, '' when the JSON lacks 'sha'. Either way the row is useless to this read (callers
+        -- feed the SHA to a GitHub compare) and a NULL would fail MergedPullRequest's non-null
+        -- contract for the whole batch — exclude it so the contract holds by construction.
+        AND ifNull(pr.head_sha, '') != ''
         AND lower(pr.repo_owner) = {{repo_owner}}
         AND lower(pr.repo_name) = {{repo_name}}
         __NUMBERS_FILTER__

@@ -247,7 +247,9 @@ class MergedPullRequest:
     """A merged pull request reduced to its branch-tip head SHA — the discovery seam for ReviewHog
     telemetry ("which PRs merged recently, and the commit at each branch tip"). ``head_sha`` is the
     run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge`` commit (SPEC §7).
-    ``merged_at`` is non-null by construction: the read keeps only PRs that actually merged.
+    ``merged_at`` and ``head_sha`` are non-null and non-empty by construction: the read keeps only
+    PRs that actually merged and whose snapshot carries a branch-tip SHA (a malformed row without
+    one is excluded, not surfaced as an empty SHA no consumer could use).
     """
 
     number: int

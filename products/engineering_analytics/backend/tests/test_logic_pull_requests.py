@@ -777,6 +777,10 @@ class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
                 ),
                 # merged in-window -> returned unless a `numbers` scope excludes it
                 _pr_row(24, "erin", "closed", 0, _ago(2), merged_at=_ago(1), head_sha="sha24"),
+                # merged in-window but the snapshot carries no branch-tip SHA -> excluded; a NULL
+                # would otherwise fail MergedPullRequest's non-null contract and crash the batch,
+                # and an empty SHA is useless to callers (it feeds a GitHub compare)
+                _pr_row(25, "faye", "closed", 0, _ago(2), merged_at=_ago(1), head_sha=""),
             ],
         )
         # workflow_runs is required for the source to resolve, though this read only touches PRs.
