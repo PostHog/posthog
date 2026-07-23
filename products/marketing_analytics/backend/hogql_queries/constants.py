@@ -82,6 +82,12 @@ TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 
+# Derived column built from conversion goals marked counts_as_revenue: their summed value over
+# the channel divided by that channel's spend. Distinct from REPORTED_ROAS, which uses the ad
+# platform's own reported conversion value. Left out of MarketingAnalyticsBaseColumns because it
+# needs the unified conversion goals CTE, not just campaign_costs.
+ROAS_COLUMN = "ROAS"
+
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
