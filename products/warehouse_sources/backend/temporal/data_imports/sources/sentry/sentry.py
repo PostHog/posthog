@@ -347,7 +347,7 @@ def _iter_issue_tag_values_rows(
         # by the API process for schema discovery) — the reader loads only when syncing.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
             iter_parent_pages_from_warehouse,
-            resolve_parent_table_uri,
+            resolve_parent_table_ref,
         )
 
         # Streamed unordered scan — the reader must never materialize the table. The
@@ -356,12 +356,12 @@ def _iter_issue_tag_values_rows(
         # are refused by the dependency gates before a sync reaches this path. lastSeen is
         # only projected when an incremental cutoff needs it — a parent whose column
         # selection dropped it can still drive full-refresh children.
-        issues_table_uri = resolve_parent_table_uri(team_id, source_id, "issues")
+        issues_table = resolve_parent_table_ref(team_id, source_id, "issues")
         parent_columns = ["id", "lastSeen"] if cutoff_last_seen is not None else ["id"]
         issues = (
             row
             for page in iter_parent_pages_from_warehouse(
-                table_uri=issues_table_uri,
+                table=issues_table,
                 parent_name="issues",
                 columns=parent_columns,
                 page_size=100,

@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
+)
 
 
 @dataclass
@@ -381,8 +384,8 @@ _WAREHOUSE_FANOUT = DependentEndpointConfig(
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 @patch(
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-    return_value="s3://bucket/team_1_x_y/parents",
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
 )
 @patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
@@ -418,7 +421,10 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
     pages = list(parent_resource["data_iterator"]())
     assert pages == [[{"id": "p1"}]]
     mock_reader.assert_called_once_with(
-        table_uri="s3://bucket/team_1_x_y/parents", parent_name="parents", columns=["id"], page_size=3
+        table=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
+        parent_name="parents",
+        columns=["id"],
+        page_size=3,
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
@@ -479,8 +485,8 @@ class _FakeChildOnlyClient:
 
 
 @patch(
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-    return_value="s3://bucket/team_1_x_y/parents",
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+    return_value=ParentTableRef(uri="s3://bucket/team_1_x_y/parents", version=7),
 )
 @patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"

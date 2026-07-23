@@ -622,7 +622,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 # does Temporal RPCs, so defer it post-commit — no idle-in-transaction network I/O,
                 # and no Temporal schedule surviving a rolled-back request.
                 def _enable_parent(parent_id: str = str(parent.id)) -> None:
-                    update_should_sync(schema_id=parent_id, team_id=instance.team_id, should_sync=True)
+                    try:
+                        update_should_sync(schema_id=parent_id, team_id=instance.team_id, should_sync=True)
+                    except Exception:
+                        # update_should_sync commits should_sync before touching the schedule, so a
+                        # failed RPC would leave the parent "enabled" with no schedule — and the
+                        # child's run-time gate, seeing an enabled and already-initialized parent,
+                        # would keep fanning out over a table that never syncs again. Put the flag
+                        # back so the child fails loudly instead of going quietly stale.
+                        ExternalDataSchema.objects.filter(id=parent_id, team_id=instance.team_id).update(
+                            should_sync=False
+                        )
+                        raise
 
                 self._run_temporal_side_effect(_enable_parent)
 

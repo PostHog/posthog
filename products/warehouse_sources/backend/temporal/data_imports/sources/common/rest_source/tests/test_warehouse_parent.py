@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -8,9 +9,10 @@ import deltalake
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import warehouse_parent
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
     WarehouseParentTableNotFoundError,
     iter_parent_pages_from_warehouse,
-    resolve_parent_table_uri,
+    resolve_parent_table_ref,
 )
 
 
@@ -28,15 +30,26 @@ def _write_parent_table(tmp_path: Path) -> str:
     return uri
 
 
-def _patched_reader(uri: str, **kwargs):
+def _patched_reader(uri: str, version: int | None = None, **kwargs):
+    ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version() if version is None else version)
     with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
-        return list(iter_parent_pages_from_warehouse(table_uri=uri, parent_name="issues", **kwargs))
+        return list(iter_parent_pages_from_warehouse(table=ref, parent_name="issues", **kwargs))
 
 
-def test_resolve_parent_table_uri_raises_when_parent_schema_missing() -> None:
+def _patched_resolve(uri: str):
+    parent_schema = SimpleNamespace(resolved_s3_folder_name=None, folder_path=lambda: "team_1_sentry_x")
+    with (
+        patch.object(warehouse_parent, "get_schema_if_exists", return_value=parent_schema),
+        patch.object(warehouse_parent, "build_delta_table_uri", return_value=uri),
+        patch.object(warehouse_parent, "delta_storage_options", return_value={}),
+    ):
+        return resolve_parent_table_ref(1, "00000000-0000-0000-0000-000000000000", "issues")
+
+
+def test_resolve_parent_table_ref_raises_when_parent_schema_missing() -> None:
     with patch.object(warehouse_parent, "get_schema_if_exists", return_value=None):
         with pytest.raises(WarehouseParentTableNotFoundError, match="does not exist for source"):
-            resolve_parent_table_uri(1, "00000000-0000-0000-0000-000000000000", "issues")
+            resolve_parent_table_ref(1, "00000000-0000-0000-0000-000000000000", "issues")
 
 
 def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
@@ -56,9 +69,26 @@ def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
     assert all(set(row) == {"id", "lastSeen"} for row in rows)
 
 
-def test_reader_raises_when_table_missing(tmp_path: Path) -> None:
+def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
     with pytest.raises(WarehouseParentTableNotFoundError, match="no synced table"):
-        _patched_reader(str(tmp_path / "does_not_exist"), columns=["id"], page_size=10)
+        _patched_resolve(str(tmp_path / "does_not_exist"))
+
+
+def test_reader_stays_on_the_pinned_version_when_the_parent_re_syncs(tmp_path: Path) -> None:
+    uri = _write_parent_table(tmp_path)
+    pinned = _patched_resolve(uri)
+
+    # The parent's next full refresh overwrites the table while the child is still fanning out.
+    deltalake.write_deltalake(
+        uri,
+        pa.table({"id": ["9"], "last_seen": ["2026-04-01"], "title": ["z"]}),
+        mode="overwrite",
+    )
+
+    with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
+        pages = list(iter_parent_pages_from_warehouse(table=pinned, parent_name="issues", columns=["id"], page_size=10))
+
+    assert sorted(row["id"] for page in pages for row in page) == ["1", "2", "3"]
 
 
 def test_reader_raises_when_requested_columns_missing(tmp_path: Path) -> None:

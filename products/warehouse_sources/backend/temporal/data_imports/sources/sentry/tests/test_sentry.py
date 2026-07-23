@@ -7,6 +7,9 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError, JSONDecodeError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    ParentTableRef,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
@@ -1002,8 +1005,8 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-        return_value="s3://bucket/team_123_sentry_x/issues",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
@@ -1036,7 +1039,7 @@ class TestWarehouseParentReuse:
         rows = list(cast(Any, resp.items()))
         assert rows == [{"value": "Chrome", "timesSeen": 1, "issue_id": "100", "tag_key": "browser"}]
         mock_reader.assert_called_once_with(
-            table_uri="s3://bucket/team_123_sentry_x/issues",
+            table=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
             parent_name="issues",
             columns=["id"],
             page_size=100,
@@ -1044,8 +1047,8 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-        return_value="s3://bucket/team_123_sentry_x/issues",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
@@ -1095,8 +1098,8 @@ class TestWarehouseParentReuse:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-        return_value="s3://bucket/team_123_sentry_x/issues",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
@@ -1132,8 +1135,8 @@ class TestWarehouseParentReuse:
         assert rows == [{"value": "Chrome", "issue_id": "200", "tag_key": "browser"}]
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_uri",
-        return_value="s3://bucket/team_123_sentry_x/issues",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"

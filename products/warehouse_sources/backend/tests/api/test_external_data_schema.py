@@ -15,7 +15,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.views import external_data_schema as external_data_schema_views
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -3758,6 +3759,28 @@ class TestFanoutParentEnforcement(APIBaseTest):
         assert response.status_code == 200, response.json()
         parent.refresh_from_db()
         assert parent.should_sync is True
+
+    def test_parent_enable_rolls_back_when_the_schedule_update_fails(self):
+        # update_should_sync commits should_sync before its Temporal RPCs. Leaving the parent
+        # "enabled" with no schedule would let the child keep fanning out over a table that
+        # never syncs again, so the flag has to go back.
+        _, parent, child = self._create_sentry_fanout_pair(parent_sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
+        real_update_should_sync = external_data_schema_views.update_should_sync
+
+        def fail_for_parent(schema_id, team_id, should_sync):
+            if str(schema_id) == str(parent.id):
+                raise RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
+            return real_update_should_sync(schema_id=schema_id, team_id=team_id, should_sync=should_sync)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.update_should_sync",
+            side_effect=fail_for_parent,
+        ):
+            response = self._patch_schema(child.id, {"should_sync": True})
+
+        assert response.status_code == 500
+        parent.refresh_from_db()
+        assert parent.should_sync is False
 
     def test_enabling_fanout_child_with_unconfigured_parent_errors(self):
         _, parent, child = self._create_sentry_fanout_pair(parent_sync_type=None)
