@@ -251,7 +251,9 @@ async def maybe_flag_for_repartition(
         target, reason = select_repartition_target(schema, partition_bytes, split_budget)
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
-            # `reason` is reported on the metric + event so a skipped table is diagnosable.
+            # This is an expected, handled condition that recurs on every sync for a permanently-stuck table,
+            # so it is NOT captured as an exception — the `DELTA_REPARTITION_SKIP_TOTAL` metric and the
+            # `warehouse_repartition_skipped` event below carry `reason` for dashboards and alerting instead.
             DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
             props = base_event_props(schema, source, str(job.id))
             props.update(
@@ -276,7 +278,6 @@ async def maybe_flag_for_repartition(
                 partition_format=schema.partition_format,
                 partition_count=len(partition_bytes),
             )
-            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             return
 
         pending = {**target.to_dict(), "trigger_reason": trigger_reason, "attempts": 0}
