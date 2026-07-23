@@ -19,22 +19,50 @@ const TRANSIENT_PATTERNS = [/operation was canceled/i, /runner has received a sh
 const GATE_JOB_PATTERN = /Tests Pass$/
 
 // Stop retrying once a run has reached this many attempts (so we auto-rerun at most twice).
-const MAX_ATTEMPTS = Number(process.env.MAX_ATTEMPTS || 3)
+const DEFAULT_MAX_ATTEMPTS = 3
+
+// A job failed transiently when it emitted failure annotations and every one of
+// them matches the runner-shutdown signature (no other failure reason present).
+function isTransientFailure(failureMessages) {
+    return failureMessages.length > 0 && failureMessages.every((m) => TRANSIENT_PATTERNS.some((p) => p.test(m)))
+}
+
+// Pure decision used by the orchestrator and the tests. `jobs` is the run's jobs
+// shaped as { name, conclusion, failureMessages: string[] }.
+function shouldRerun({ conclusion, runAttempt, maxAttempts = DEFAULT_MAX_ATTEMPTS, jobs }) {
+    if (conclusion !== 'failure') {
+        return false
+    }
+    if (runAttempt >= maxAttempts) {
+        return false
+    }
+
+    const failedLeafJobs = jobs.filter(
+        (j) => (j.conclusion === 'failure' || j.conclusion === 'cancelled') && !GATE_JOB_PATTERN.test(j.name)
+    )
+    if (failedLeafJobs.length === 0) {
+        return false
+    }
+
+    // Any non-transient leaf failure means a real problem — don't mask it.
+    return failedLeafJobs.every((j) => isTransientFailure(j.failureMessages))
+}
 
 module.exports = async ({ github, context, core }) => {
     const run = context.payload.workflow_run
     const { owner, repo } = context.repo
+    const maxAttempts = Number(process.env.MAX_ATTEMPTS || DEFAULT_MAX_ATTEMPTS)
 
     if (run.conclusion !== 'failure') {
         core.info(`Run ${run.id} concluded '${run.conclusion}', not 'failure' — nothing to do.`)
         return
     }
-    if (run.run_attempt >= MAX_ATTEMPTS) {
-        core.info(`Run ${run.id} is on attempt ${run.run_attempt} (cap ${MAX_ATTEMPTS}) — not retrying again.`)
+    if (run.run_attempt >= maxAttempts) {
+        core.info(`Run ${run.id} is on attempt ${run.run_attempt} (cap ${maxAttempts}) — not retrying again.`)
         return
     }
 
-    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+    const rawJobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
         owner,
         repo,
         run_id: run.id,
@@ -42,39 +70,32 @@ module.exports = async ({ github, context, core }) => {
         per_page: 100,
     })
 
-    const failedLeafJobs = jobs.filter(
-        (j) => (j.conclusion === 'failure' || j.conclusion === 'cancelled') && !GATE_JOB_PATTERN.test(j.name)
-    )
-    if (failedLeafJobs.length === 0) {
-        core.info('No failed non-aggregator jobs — leaving the run alone (gate failed without a leaf cause).')
-        return
-    }
-
-    let sawTransient = false
-    for (const job of failedLeafJobs) {
+    const jobs = []
+    for (const job of rawJobs) {
+        if (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') {
+            continue
+        }
         const annotations = await github.paginate(github.rest.checks.listAnnotations, {
             owner,
             repo,
             check_run_id: job.id,
             per_page: 100,
         })
-        const failureMsgs = annotations.filter((a) => a.annotation_level === 'failure').map((a) => a.message)
-        const isTransient =
-            failureMsgs.length > 0 && failureMsgs.every((m) => TRANSIENT_PATTERNS.some((p) => p.test(m)))
-
-        if (isTransient) {
-            sawTransient = true
-            core.info(`Job "${job.name}" failed transiently (runner shutdown).`)
-        } else {
-            core.info(`Job "${job.name}" failed for a non-transient reason — will NOT auto-rerun.`)
-            return
-        }
+        jobs.push({
+            name: job.name,
+            conclusion: job.conclusion,
+            failureMessages: annotations.filter((a) => a.annotation_level === 'failure').map((a) => a.message),
+        })
     }
 
-    if (!sawTransient) {
+    if (!shouldRerun({ conclusion: run.conclusion, runAttempt: run.run_attempt, maxAttempts, jobs })) {
+        core.info(`Run ${run.id}: failure was not purely a transient runner shutdown — leaving it alone.`)
         return
     }
 
     core.info(`Re-running failed jobs of run ${run.id} (attempt ${run.run_attempt}) after transient runner shutdown.`)
     await github.rest.actions.reRunWorkflowFailedJobs({ owner, repo, run_id: run.id })
 }
+
+module.exports.shouldRerun = shouldRerun
+module.exports.isTransientFailure = isTransientFailure
