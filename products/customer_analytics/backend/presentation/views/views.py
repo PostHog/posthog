@@ -46,6 +46,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
@@ -480,6 +481,42 @@ class CustomPropertySourceViewSet(
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT})
+    @action(methods=["POST"], detail=True)
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        """Person sources only: trigger the underlying warehouse schema's sync now. This re-runs a
+        real (billable) warehouse sync; the incremental person-property update runs off it."""
+        if not api.trigger_person_property_sync(team_id=self.team_id, source_id=self.kwargs["pk"]):
+            raise ValidationError("This action is only available for enabled person-property sources.")
+        return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT})
+    @action(methods=["POST"], detail=True)
+    def backfill(self, request: Request, *args, **kwargs) -> Response:
+        """Person sources only: start a backfill that reads the whole warehouse table and populates
+        person properties for historical rows. Coalesces if one is already running for the table."""
+        started = api.trigger_person_property_backfill(
+            team_id=self.team_id, source_id=self.kwargs["pk"], trigger="manual"
+        )
+        if started is None:
+            raise ValidationError("This action is only available for enabled person-property sources.")
+        return Response(
+            {"status": "started" if started else "already_running", "already_running": not started},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(responses={200: CustomPropertySyncRunSerializer(many=True)})
+    @action(methods=["GET"], detail=True)
+    def runs(self, request: Request, *args, **kwargs) -> Response:
+        """Person sources only: the source's sync/backfill run history, newest first."""
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_custom_property_sync_runs(
+                self.team_id, self.kwargs["pk"], offset=offset, limit=limit
+            ),
+            CustomPropertySyncRunSerializer,
+        )
 
 
 class CustomerJourneyViewSet(

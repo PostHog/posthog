@@ -68,6 +68,7 @@ from products.customer_analytics.backend.models import (
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    CustomPropertySyncRun,
     DisplayType,
     TargetType,
 )
@@ -1110,7 +1111,56 @@ class CustomPropertySourceValidationError(Exception):
     already source-backed (→ 400)."""
 
 
+def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertySyncRunView:
+    return contracts.CustomPropertySyncRunView(
+        id=run.id,
+        trigger=run.trigger,
+        status=run.status,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        rows_read=run.rows_read,
+        changed=run.changed,
+        existing=run.existing,
+        produced=run.produced,
+        skipped_missing_person=run.skipped_missing_person,
+        error=run.error,
+        created_at=run.created_at,
+    )
+
+
+def _person_source_schedule(source: CustomPropertySource) -> tuple[float | None, datetime | None]:
+    """(sync_frequency_interval_seconds, next_sync_at) for a person source's underlying schema, both
+    None when unavailable. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
+    if source.external_data_schema_id is None:
+        return None, None
+    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+    schema = (
+        schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
+        .values("sync_frequency_interval", "last_synced_at")
+        .first()
+    )
+    if schema is None:
+        return None, None
+    interval = schema["sync_frequency_interval"]
+    if interval is None:
+        return None, None
+    last_synced_at = schema["last_synced_at"]
+    next_sync_at = last_synced_at + interval if last_synced_at is not None else None
+    return interval.total_seconds(), next_sync_at
+
+
 def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.CustomPropertySourceView:
+    # Schedule + latest-run enrichment applies only to person sources; account sources leave it None.
+    # A person source is exactly the one bound to a warehouse schema (the facade enforces one binding),
+    # so this discriminates without a definition fetch.
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    latest_run: contracts.CustomPropertySyncRunView | None = None
+    if source.external_data_schema_id is not None:
+        sync_frequency_interval_seconds, next_sync_at = _person_source_schedule(source)
+        latest = source.sync_runs.order_by("-created_at").first()
+        latest_run = _to_sync_run_view(latest) if latest is not None else None
+
     return contracts.CustomPropertySourceView(
         id=source.id,
         definition=source.definition_id,
@@ -1126,6 +1176,9 @@ def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.C
         created_at=source.created_at,
         created_by=source.created_by_id,
         updated_at=source.updated_at,
+        sync_frequency_interval_seconds=sync_frequency_interval_seconds,
+        next_sync_at=next_sync_at,
+        latest_run=latest_run,
     )
 
 
@@ -1173,6 +1226,64 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+
+
+def _start_backfill(team_id: int, schema_id: str, trigger: str) -> None:
+    """Start the person-property backfill workflow. Failure must not fail the originating write."""
+    try:
+        # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
+        from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
+
+        start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
+    except Exception as e:
+        capture_exception(e)
+
+
+def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
+    """Auto-start a backfill after a person source is created/enabled so historical rows populate
+    immediately rather than waiting for the next incremental sync. Person sources only (account
+    sources have no external_data_schema); deduped per table by the workflow id."""
+    if not source.is_enabled or source.external_data_schema_id is None:
+        return
+    team_id, schema_id = source.team_id, str(source.external_data_schema_id)
+    transaction.on_commit(lambda: _start_backfill(team_id, schema_id, "backfill"))
+
+
+def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
+    """The schema id to act on for a person-property trigger, or None when the source isn't a valid,
+    flag-enabled person source (→ the view returns 400)."""
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).select_related("definition").first()
+    if source is None or source.external_data_schema_id is None:
+        return None
+    if source.definition.target_type != TargetType.PERSON.value:
+        return None
+    if not person_properties_flag_enabled(team_id):
+        return None
+    return str(source.external_data_schema_id)
+
+
+def trigger_person_property_sync(*, team_id: int, source_id: str) -> bool:
+    """ "Sync now" for a person source: trigger the underlying warehouse schema's sync (a real,
+    billable sync; the incremental person-property child runs off it). Returns False for an invalid
+    source (→ 400)."""
+    schema_id = _triggerable_person_schema_id(team_id, source_id)
+    if schema_id is None:
+        return False
+    from products.warehouse_sources.backend.facade.temporal import trigger_schema_sync  # noqa: PLC0415
+
+    trigger_schema_sync(schema_id=schema_id)
+    return True
+
+
+def trigger_person_property_backfill(*, team_id: int, source_id: str, trigger: str = "manual") -> bool | None:
+    """Start a backfill for a person source's table. Returns True (started), False (already running →
+    coalesced), or None for an invalid source (→ 400)."""
+    schema_id = _triggerable_person_schema_id(team_id, source_id)
+    if schema_id is None:
+        return None
+    from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
+
+    return start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
 
 
 def list_custom_property_sources(
@@ -1250,6 +1361,7 @@ def create_custom_property_source(
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
     _enqueue_sync_if_enabled(source)
+    _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source)
 
 
@@ -1275,6 +1387,7 @@ def update_custom_property_source(
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_sync_if_enabled(source)
+        _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source)
 
 
@@ -1282,6 +1395,17 @@ def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
     """Delete a team-scoped source. Returns False when none matched (→ 404)."""
     deleted, _ = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).delete()
     return deleted > 0
+
+
+def list_custom_property_sync_runs(
+    team_id: int, source_id: str, offset: int, limit: int
+) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
+    """Person-property sync/backfill runs for a source, newest first. Returns ``(page, total_count)``.
+    Scoped by team and source, so a run of another team's/source's is never returned."""
+    queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_sync_run_view(run) for run in page], total_count
 
 
 # --- CustomerJourney ---

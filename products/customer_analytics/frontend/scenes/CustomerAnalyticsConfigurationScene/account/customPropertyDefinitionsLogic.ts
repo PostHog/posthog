@@ -17,15 +17,19 @@ import {
     customPropertyDefinitionsDestroy,
     customPropertyDefinitionsList,
     customPropertyDefinitionsPartialUpdate,
+    customPropertySourcesBackfill,
     customPropertySourcesCreate,
     customPropertySourcesDestroy,
     customPropertySourcesPartialUpdate,
+    customPropertySourcesRunsList,
+    customPropertySourcesSync,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
     CustomPropertyOptionApi,
     CustomPropertyReferenceApi,
+    CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
@@ -165,6 +169,8 @@ export interface customPropertyDefinitionsLogicValues {
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
+    runsBySourceIdLoading: boolean
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     selectedSourceColumns: string[]
@@ -173,6 +179,7 @@ export interface customPropertyDefinitionsLogicValues {
     selectedWarehouseSchemaId: string | null
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
+    triggeringSourceId: string | null
     warehouseTables: DataWarehouseTable[]
     warehouseTablesLoading: boolean
 }
@@ -246,6 +253,23 @@ export interface customPropertyDefinitionsLogicActions {
         payload?: any
     ) => {
         personPropertyDefinitions: PropertyDefinition[]
+        payload?: any
+    }
+    loadRuns: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    loadRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunsSuccess: (
+        runsBySourceId: Record<string, CustomPropertySyncRunApi[]>,
+        payload?: any
+    ) => {
+        runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
         payload?: any
     }
     loadSavedQueries: () => any
@@ -324,6 +348,15 @@ export interface customPropertyDefinitionsLogicActions {
     setEditingDefinition: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
     }
+    setTriggeringSourceId: (sourceId: string | null) => {
+        sourceId: string | null
+    }
+    triggerBackfill: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    triggerSync: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
     submitCustomPropertyForm: () => {
         value: boolean
     }
@@ -396,6 +429,11 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
+        // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
+        // starts a full-table backfill. setTriggeringSourceId drives the per-row double-submit guard.
+        triggerSync: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        triggerBackfill: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        setTriggeringSourceId: (sourceId: string | null) => ({ sourceId }),
     }),
     reducers({
         modalVisible: [
@@ -413,6 +451,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 openEditModal: (_, { definition }) => definition,
                 setEditingDefinition: (_, { definition }) => definition,
                 closeModal: () => null,
+            },
+        ],
+        // The source whose sync/backfill trigger is in flight, for the per-row loading/disabled guard.
+        triggeringSourceId: [
+            null as string | null,
+            {
+                setTriggeringSourceId: (_, { sourceId }) => sourceId,
             },
         ],
     }),
@@ -472,6 +517,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         limit: 1000,
                     })
                     return response.results
+                },
+            },
+        ],
+        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        runsBySourceId: [
+            {} as Record<string, CustomPropertySyncRunApi[]>,
+            {
+                loadRuns: async ({
+                    sourceId,
+                }: {
+                    sourceId: string
+                }): Promise<Record<string, CustomPropertySyncRunApi[]>> => {
+                    const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
+                    return { ...values.runsBySourceId, [sourceId]: response.results }
                 },
             },
         ],
@@ -781,6 +840,38 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         loadWarehouseTablesFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadWarehouseTables' })
             lemonToast.error('Failed to load data warehouse tables')
+        },
+        triggerSync: async ({ sourceId }) => {
+            actions.setTriggeringSourceId(sourceId)
+            try {
+                await customPropertySourcesSync(String(values.currentProjectId), sourceId)
+                lemonToast.success('Sync triggered — it may take a few minutes to run')
+                actions.loadDefinitions()
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerSync' })
+                lemonToast.error('Could not trigger a sync for this property')
+            } finally {
+                actions.setTriggeringSourceId(null)
+            }
+        },
+        triggerBackfill: async ({ sourceId }) => {
+            actions.setTriggeringSourceId(sourceId)
+            try {
+                const response = await customPropertySourcesBackfill(String(values.currentProjectId), sourceId)
+                const alreadyRunning = (response as { already_running?: boolean } | undefined)?.already_running
+                lemonToast.success(
+                    alreadyRunning
+                        ? 'A backfill is already running for this table'
+                        : 'Backfill started — it may take a few minutes to run'
+                )
+                actions.loadRuns({ sourceId })
+                actions.loadDefinitions()
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerBackfill' })
+                lemonToast.error('Could not start a backfill for this property')
+            } finally {
+                actions.setTriggeringSourceId(null)
+            }
         },
     })),
     afterMount(({ actions }) => {

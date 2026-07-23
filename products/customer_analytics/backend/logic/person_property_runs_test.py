@@ -1,0 +1,99 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from posthog.test.base import APIBaseTest
+
+from products.customer_analytics.backend.logic.person_property_runs import (
+    MAX_CONSECUTIVE_SYNC_FAILURES,
+    record_sync_run,
+)
+from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
+from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
+from products.customer_analytics.backend.test.factories import create_custom_property_definition
+from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+
+class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+        self.source = CustomPropertySource.objects.create(
+            team=self.team,
+            definition=definition,
+            key_column="distinct_id",
+            external_data_schema=schema,
+            column_property_map={"plan": "plan_tier"},
+            is_enabled=True,
+        )
+        self.schema_id = str(schema.id)
+
+    def _record(self, **overrides) -> PersonPropertySyncRunRecord:
+        kwargs: dict = {
+            "team_id": self.team.id,
+            "schema_id": self.schema_id,
+            "source_id": str(self.source.id),
+            "job_id": "job-1",
+            "trigger": "scheduled",
+            "status": "completed",
+            "started_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+            "finished_at": datetime(2026, 1, 1, 0, 1, tzinfo=UTC).isoformat(),
+            "rows_read": 10,
+            "changed": 4,
+            "existing": 3,
+            "produced": 3,
+            "skipped_missing_person": 1,
+            "error": None,
+        }
+        kwargs.update(overrides)
+        return PersonPropertySyncRunRecord(**kwargs)
+
+    def test_completed_run_persists_counts_and_clears_source_status(self):
+        # Regression: the person path never persisted a run or updated status; a silent no-op would
+        # leave the UI (and sourceSyncStatus) blank after a real sync.
+        record_sync_run(self._record())
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
+        assert run.status == "completed"
+        assert (run.rows_read, run.changed, run.existing, run.produced, run.skipped_missing_person) == (10, 4, 3, 3, 1)
+        assert run.trigger == "scheduled"
+
+        self.source.refresh_from_db()
+        assert self.source.last_synced_at is not None
+        assert self.source.last_sync_error is None
+        assert self.source.consecutive_failures == 0
+
+    def test_failed_run_increments_failures_and_records_error(self):
+        self.source.consecutive_failures = 2
+        self.source.save()
+
+        record_sync_run(self._record(status="failed", error="boom"))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
+        assert run.status == "failed" and run.error == "boom"
+        self.source.refresh_from_db()
+        assert self.source.consecutive_failures == 3
+        assert self.source.last_sync_error == "boom"
+        assert self.source.is_enabled is True
+
+    def test_auto_disables_at_failure_cap(self):
+        # Regression: a source failing forever should stop syncing, matching the account path's cap.
+        self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
+        self.source.save()
+
+        record_sync_run(self._record(status="failed", error="boom"))
+
+        self.source.refresh_from_db()
+        assert self.source.is_enabled is False
+
+    def test_unknown_source_is_a_noop(self):
+        # A run for a since-deleted source must not crash or orphan a row.
+        record_sync_run(self._record(source_id=str(uuid4())))
+        assert not CustomPropertySyncRun.objects.unscoped().filter(job_id="job-1").exists()
