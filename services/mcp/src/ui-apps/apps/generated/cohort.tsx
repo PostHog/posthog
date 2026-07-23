@@ -8,7 +8,11 @@ import { type CohortData, CohortView } from 'products/cohorts/mcp/apps'
 import { AppWrapper } from '../../components/AppWrapper'
 
 function CohortApp(): JSX.Element {
-    return <AppWrapper<CohortData> appName="PostHog Cohort">{({ data }) => <CohortView cohort={data!} />}</AppWrapper>
+    return (
+        <AppWrapper<CohortData> appName="PostHog Cohort">
+            {({ data }) => <CohortView cohort={data!} />}
+        </AppWrapper>
+    )
 }
 
 const container = document.getElementById('root')
