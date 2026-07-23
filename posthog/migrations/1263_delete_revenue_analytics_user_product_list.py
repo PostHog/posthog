@@ -23,6 +23,10 @@ def delete_revenue_analytics_user_product_list(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Each batch commits on its own so deleting a large backlog of pinned entries never runs
+    # as one long transaction (which would bloat WAL and hold locks on a big table).
+    atomic = False
+
     dependencies = [("posthog", "1262_organization_members_can_see_org_members")]
 
     operations = [

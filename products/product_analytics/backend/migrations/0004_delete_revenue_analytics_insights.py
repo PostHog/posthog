@@ -30,35 +30,19 @@ def soft_delete_revenue_insights(apps, schema_editor):
     for kind in REMOVED_REVENUE_QUERY_KINDS:
         kind_filter |= Q(query_text__icontains=kind)
 
-    revenue_insight_ids = (
-        Insight.objects.annotate(query_text=Cast("query", TextField())).filter(kind_filter).values("pk")
+    # The query column has no index that helps this match, so scan the table exactly once
+    # and drive every update off the materialized id list. Revenue insights are a tiny
+    # subset, so the list stays small even on a large insights table.
+    revenue_insight_ids = list(
+        Insight.objects.annotate(query_text=Cast("query", TextField())).filter(kind_filter).values_list("id", flat=True)
     )
 
-    # Detach these insights from dashboards first, so no tile is left pointing at a
-    # soft-deleted insight. Covers already-deleted insights too, in case a prior run
-    # deleted the insight but not its tiles.
-    while True:
-        tile_ids = list(
-            DashboardTile.objects.filter(insight_id__in=revenue_insight_ids)
-            .exclude(deleted=True)
-            .values_list("id", flat=True)[:BATCH_SIZE]
-        )
-        if not tile_ids:
-            break
-
-        DashboardTile.objects.filter(id__in=tile_ids).update(deleted=True)
-
-    while True:
-        ids = list(
-            Insight.objects.annotate(query_text=Cast("query", TextField()))
-            .filter(deleted=False)
-            .filter(kind_filter)
-            .values_list("id", flat=True)[:BATCH_SIZE]
-        )
-        if not ids:
-            break
-
-        Insight.objects.filter(id__in=ids).update(deleted=True)
+    for start in range(0, len(revenue_insight_ids), BATCH_SIZE):
+        batch = revenue_insight_ids[start : start + BATCH_SIZE]
+        # Detach from dashboards first so no tile is left pointing at a soft-deleted insight.
+        # `exclude(deleted=True)` also covers already-deleted insights whose tiles linger.
+        DashboardTile.objects.filter(insight_id__in=batch).exclude(deleted=True).update(deleted=True)
+        Insight.objects.filter(id__in=batch, deleted=False).update(deleted=True)
 
 
 class Migration(migrations.Migration):
