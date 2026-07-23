@@ -875,6 +875,10 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 # before DRF auth), so signal-driven activity logging would otherwise record
                 # bearer-token requests as system actions.
                 activity_storage.set_user(access_token.user)
+                # Tokens minted during staff impersonation must keep the impersonation
+                # marker in the audit trail.
+                if access_token.impersonated_by_id is not None:
+                    activity_storage.set_was_impersonated(True)
 
                 return access_token.user, None
 

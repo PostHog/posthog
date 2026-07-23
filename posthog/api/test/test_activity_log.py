@@ -455,7 +455,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert log.is_system is False
         assert log.user == self.user
 
-    def test_oauth_token_write_is_attributed_to_token_user(self) -> None:
+    def _create_oauth_token(self, impersonated_by: User | None = None) -> OAuthAccessToken:
         application = OAuthApplication.objects.create(
             name="Test OAuth App",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -465,15 +465,29 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
             organization=self.organization,
             user=self.user,
         )
-        token = OAuthAccessToken.objects.create(
+        return OAuthAccessToken.objects.create(
             user=self.user,
             application=application,
             token="pha_activity_attribution_token",
             expires=timezone.now() + timedelta(hours=1),
             scope="experiment:write feature_flag:write",
+            impersonated_by=impersonated_by,
         )
+
+    def test_oauth_token_write_is_attributed_to_token_user(self) -> None:
+        token = self._create_oauth_token()
 
         log = self._create_experiment_and_get_activity(f"Bearer {token.token}", "oauth-attribution-flag")
 
         assert log.is_system is False
         assert log.user == self.user
+        assert log.was_impersonated is False
+
+    def test_impersonation_minted_oauth_token_write_is_marked_impersonated(self) -> None:
+        staff_user = User.objects.create_and_join(self.organization, "staff@posthog.com", None)
+        token = self._create_oauth_token(impersonated_by=staff_user)
+
+        log = self._create_experiment_and_get_activity(f"Bearer {token.token}", "oauth-impersonation-flag")
+
+        assert log.user == self.user
+        assert log.was_impersonated is True
