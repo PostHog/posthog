@@ -19,6 +19,7 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS
 from posthog.utils import get_instance_realm
 
 if TYPE_CHECKING:
@@ -322,6 +323,15 @@ _WIZARD_SELF_DRIVING_PROGRAM_RE = re.compile(r"program:\s*self-driving")
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
+    # A token minted against the PostHog AI OAuth app is authoritative — the auth
+    # credential can't be spoofed the way UA tokens and X-PostHog-Client can, so it
+    # wins over every header-based branch below. Duck-typed via getattr so we don't
+    # import posthog.auth: only OAuthAccessTokenAuthentication sets `access_token`,
+    # already loaded with select_related("application").
+    authenticator = getattr(request, "successful_authenticator", None)
+    oauth_application = getattr(getattr(authenticator, "access_token", None), "application", None)
+    if getattr(oauth_application, "client_id", None) in POSTHOG_AI_OAUTH_APP_CLIENT_IDS:
+        return EventSource.POSTHOG_AI
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""

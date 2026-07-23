@@ -138,7 +138,7 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_name),
             user=self._user,
         )
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self._user)
         return [item.name for item in getattr(response, "results", []) or []]
 
 

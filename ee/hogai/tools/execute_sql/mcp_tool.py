@@ -84,6 +84,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             name="",
             description="",
             user=self._user,
+            event_source=self._event_source,
         )
         results = await insight_context.execute_and_format(
             prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False

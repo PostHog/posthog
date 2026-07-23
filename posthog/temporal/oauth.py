@@ -30,6 +30,17 @@ SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
+# The dedicated "PostHog AI" OAuth app. Tokens minted against it are only ever created
+# server-side for PostHog AI sandbox agents, so a request bearing one is authoritatively
+# attributable to PostHog AI regardless of spoofable user-agent or client headers.
+POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+    }
+)
+
 McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
 

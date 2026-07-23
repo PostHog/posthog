@@ -1,3 +1,4 @@
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -40,9 +41,11 @@ class InsightContext:
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         self.team = team
         self.user = user
+        self.event_source = event_source
         self.query = query
         self.name = name
         self.description = description
@@ -93,6 +96,7 @@ class InsightContext:
                 truncate_results=truncate_results,
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
+                event_source=self.event_source,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

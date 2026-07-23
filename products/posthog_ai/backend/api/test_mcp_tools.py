@@ -67,6 +67,37 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertIn("test_event", data["content"])
         mock_execute.assert_called_once()
 
+    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    def test_invoke_read_taxonomy_attributes_query_executed_to_user_and_mcp_source(self, mock_runner_cls):
+        from datetime import UTC, datetime
+
+        from posthog.schema import CachedTeamTaxonomyQueryResponse
+
+        from posthog.event_usage import EventSource
+
+        now = datetime.now(UTC)
+        mock_runner_cls.return_value.run.return_value = CachedTeamTaxonomyQueryResponse(
+            cache_key="cache_key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/read_taxonomy/",
+            {"args": {"query": {"kind": "events"}}},
+            format="json",
+            headers={"X-PostHog-Client": "mcp"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        run_kwargs = mock_runner_cls.return_value.run.call_args.kwargs
+        self.assertEqual(run_kwargs["user"], self.user)
+        self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
+
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_error_returns_error_response(self, mock_execute):
         from ee.hogai.tool_errors import MaxToolRetryableError

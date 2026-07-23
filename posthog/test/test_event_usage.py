@@ -16,6 +16,7 @@ from posthog.event_usage import (
     report_user_action,
     sanitize_header_value,
 )
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 
 class TestReportUserAction(BaseTest):
@@ -292,6 +293,28 @@ class TestGetEventSource(BaseTest):
     def test_x_posthog_client_mcp_header_returns_mcp_source(self):
         factory = APIRequestFactory()
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert get_event_source(request) == EventSource.MCP
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_app_beats_mcp_header", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
+            ("other_oauth_app_falls_through_to_mcp", ARRAY_APP_CLIENT_ID_DEV, EventSource.MCP),
+        ]
+    )
+    def test_posthog_ai_oauth_app_source(self, _name, client_id, expected):
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp"},
+            successful_authenticator=SimpleNamespace(
+                access_token=SimpleNamespace(application=SimpleNamespace(client_id=client_id))
+            ),
+        )
+        assert get_event_source(request) == expected
+
+    def test_authenticator_without_access_token_falls_through_to_mcp(self):
+        request = SimpleNamespace(
+            META={}, headers={"X-Posthog-Client": "mcp"}, successful_authenticator=SimpleNamespace()
+        )
         assert get_event_source(request) == EventSource.MCP
 
     @parameterized.expand(
