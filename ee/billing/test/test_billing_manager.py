@@ -27,6 +27,7 @@ from ee.billing.billing_manager import (
     BillingManager,
     _get_user_organization_role,
     build_billing_token,
+    compute_is_under_free_allowance,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -1444,3 +1445,29 @@ class TestDisputeSignalsPr(BaseTest):
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
                 )
         assert str(status_code) in str(context.exception)
+
+
+class TestComputeIsUnderFreeAllowance(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("free_and_under_allowance", False, None, [{"free_allocation": 10000, "current_usage": 0}], True),
+            ("no_products", False, None, [], True),
+            ("free_at_exactly_allowance", False, "free", [{"free_allocation": 10000, "current_usage": 10000}], True),
+            ("has_active_subscription", True, None, [{"free_allocation": 10000, "current_usage": 0}], False),
+            ("subscription_level_paid", False, "paid", [{"free_allocation": 10000, "current_usage": 0}], False),
+            ("over_free_allocation", False, None, [{"free_allocation": 10000, "current_usage": 10001}], False),
+            ("has_exceeded_limit", False, None, [{"free_allocation": 10000, "has_exceeded_limit": True}], False),
+        ]
+    )
+    def test_compute_is_under_free_allowance(
+        self,
+        _name: str,
+        has_active_subscription: bool,
+        subscription_level: str | None,
+        products: list[dict],
+        expected: bool,
+    ) -> None:
+        response: dict[str, Any] = {"has_active_subscription": has_active_subscription, "products": products}
+        if subscription_level is not None:
+            response["subscription_level"] = subscription_level
+        assert compute_is_under_free_allowance(response) is expected

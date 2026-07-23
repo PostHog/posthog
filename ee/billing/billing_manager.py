@@ -57,6 +57,30 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
+def compute_is_under_free_allowance(billing_response: dict[str, Any]) -> bool:
+    """Whether the org is currently on the free plan and every product with a free allocation is
+    within it. This is the current-period truth — the popup that consumes it additionally requires
+    the org to be old enough and rate-limits itself, so the two together approximate "under the free
+    allowance for the past six months". A precise trailing-window signal would have to come from the
+    billing service, which owns free-allocation history across plan changes.
+
+    Expects the assembled billing response (products already carry `current_usage`)."""
+    if billing_response.get("has_active_subscription"):
+        return False
+    subscription_level = billing_response.get("subscription_level")
+    if subscription_level is not None and subscription_level != "free":
+        return False
+
+    for product in billing_response.get("products") or []:
+        if product.get("has_exceeded_limit"):
+            return False
+        free_allocation = product.get("free_allocation")
+        if free_allocation is not None and (product.get("current_usage") or 0) > free_allocation:
+            return False
+
+    return True
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -230,6 +254,8 @@ class BillingManager:
 
             product["current_usage"] = current_usage
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
+
+        response["is_under_free_allowance"] = compute_is_under_free_allowance(response)
 
         return response
 
