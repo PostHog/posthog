@@ -18,6 +18,27 @@ use crate::{
 use super::ProcessedExceptionPropertiesWire;
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
+// Exception types are attacker-controlled and occasionally enormous (e.g. crash reporters that
+// embed a base64-encoded minidump as the exception type). A real type is a short class name, so
+// bound it tightly: an unbounded type bloats $exception_list / $exception_types and every
+// downstream Kafka payload past message.max.bytes.
+pub const MAX_EXCEPTION_TYPE_LENGTH: usize = 255;
+
+/// Truncate `value` in place to at most `max_bytes`, on a UTF-8 char boundary, appending an
+/// ellipsis when anything was dropped.
+fn truncate_with_ellipsis(value: &mut String, max_bytes: usize) {
+    if value.len() <= max_bytes {
+        return;
+    }
+    let truncate_at = value
+        .char_indices()
+        .take_while(|(index, _)| *index < max_bytes)
+        .last()
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(0);
+    value.truncate(truncate_at);
+    value.push_str("...");
+}
 
 pub type PipelineItem<S> = Result<ExceptionEvent<S>, EventError>;
 
@@ -523,17 +544,8 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         }
 
         for exception in raw.exception_list.iter_mut() {
-            if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
-                let truncate_at = exception
-                    .exception_message
-                    .char_indices()
-                    .take_while(|(index, _)| *index < MAX_EXCEPTION_VALUE_LENGTH)
-                    .last()
-                    .map(|(index, character)| index + character.len_utf8())
-                    .unwrap_or(0);
-                exception.exception_message.truncate(truncate_at);
-                exception.exception_message.push_str("...");
-            }
+            truncate_with_ellipsis(&mut exception.exception_message, MAX_EXCEPTION_VALUE_LENGTH);
+            truncate_with_ellipsis(&mut exception.exception_type, MAX_EXCEPTION_TYPE_LENGTH);
             exception.exception_id = Some(Uuid::now_v7().to_string());
         }
 
