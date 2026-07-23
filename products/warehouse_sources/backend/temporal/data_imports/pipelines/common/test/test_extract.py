@@ -292,6 +292,7 @@ class TestHandleCorruptedDeltaLog:
                 async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
 
         handle_mock.assert_awaited_once()
+        assert handle_mock.await_args is not None
         assert handle_mock.await_args.args[0] == schema.team_id
         assert handle_mock.await_args.args[1] == str(job.pipeline_id)
         assert handle_mock.await_args.args[2] == str(job.id)
