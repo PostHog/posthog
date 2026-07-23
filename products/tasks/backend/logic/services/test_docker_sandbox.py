@@ -141,6 +141,44 @@ class TestDockerSandboxUnit:
         result = DockerSandbox._transform_url_for_docker(input_url)
         assert result == expected_url
 
+    def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
+        for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
+            (tmp_path / file_name).touch()
+        (tmp_path / "patches").mkdir()
+        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            package_path = tmp_path / "packages" / package_name
+            package_path.mkdir(parents=True)
+            (package_path / "package.json").touch()
+        monkeypatch.setenv("LOCAL_POSTHOG_CODE_MONOREPO_ROOT", str(tmp_path))
+
+        assert DockerSandbox._get_local_posthog_code_root() == str(tmp_path)
+
+    def test_build_local_image_copies_minimal_workspace_into_docker_context(self, tmp_path):
+        monorepo_path = tmp_path / "code"
+        context_path = tmp_path / "context"
+        for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
+            monorepo_path.mkdir(exist_ok=True)
+            (monorepo_path / file_name).touch()
+        (monorepo_path / "patches").mkdir()
+        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            package_path = monorepo_path / "packages" / package_name
+            package_path.mkdir(parents=True)
+            (package_path / "package.json").touch()
+
+        with (
+            patch.object(DockerSandbox, "_run") as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.tempfile.TemporaryDirectory") as temporary,
+        ):
+            temporary.return_value.__enter__.return_value = str(context_path)
+            DockerSandbox._build_local_image(str(monorepo_path))
+
+        workspace_path = context_path / "local-workspace"
+        assert (workspace_path / "pnpm-workspace.yaml").is_file()
+        assert (workspace_path / "packages" / "harness" / "package.json").is_file()
+        command = run.call_args.args[0]
+        assert command[0:2] == ["docker", "build"]
+        assert command[-1] == str(context_path)
+
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     @patch("products.tasks.backend.logic.services.docker_sandbox.os.path.exists")
     def test_create_transforms_posthog_api_url(self, mock_exists, mock_run):
@@ -372,8 +410,39 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo_path) in command
                 assert shlex.quote(task_id) in command
                 assert shlex.quote(run_id) in command
+                assert "POSTHOG_SANDBOX_ID=abc123" in command
+                assert "--sandboxId" not in command
                 assert shlex.quote(mode) in command
                 assert "--createPr true" in command
+
+    def test_start_agent_server_preserves_pi_protocol_without_branch_retry(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "write_file"),
+            patch.object(sandbox, "agent_server_supports_auto_publish", return_value=True),
+            patch.object(sandbox, "execute") as mock_execute,
+            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
+            patch.object(
+                sandbox, "_build_agent_server_command", wraps=sandbox._build_agent_server_command
+            ) as mock_build,
+        ):
+            mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            sandbox.start_agent_server(
+                "posthog/posthog",
+                "task-123",
+                "run-456",
+                branch="main",
+                agent_runtime="pi",
+            )
+
+        assert mock_build.call_count == 2
+        assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -627,6 +696,7 @@ class TestDockerSandboxUnit:
                     "task-123",
                     "run-456",
                     "background",
+                    agent_runtime="pi",
                     runtime_adapter="codex",
                     provider="openai",
                     model="gpt-5.3-codex",
@@ -637,6 +707,8 @@ class TestDockerSandboxUnit:
                 )
 
         command = _agent_server_launch_command(mock_execute)
+        assert "POSTHOG_AGENT_RUNTIME=pi" in command
+        assert "POSTHOG_SANDBOX_ID=abc123" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command

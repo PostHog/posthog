@@ -301,12 +301,14 @@ class TestAttachLocalPackageMounts:
         (source_path / "package.json").write_text(
             json.dumps(
                 {
+                    "name": "@posthog/agent",
+                    "bin": {"agent-server": "./dist/server/bin.js"},
                     "dependencies": {
                         "@openai/codex": "0.140.0",
                         "custom-runtime": "github:example/custom-runtime#v1.2.3",
                         "@posthog/shared": "workspace:*",
                         "zod": "^4.2.0",
-                    }
+                    },
                 }
             )
         )
@@ -327,11 +329,13 @@ class TestAttachLocalPackageMounts:
         base_image = MagicMock()
         system_dependency_image = MagicMock()
         dependency_image = MagicMock()
+        linked_image = MagicMock()
         mounted_image = MagicMock()
         final_image = MagicMock()
         base_image.apt_install.return_value = system_dependency_image
         system_dependency_image.run_commands.return_value = dependency_image
-        dependency_image.add_local_dir.return_value = mounted_image
+        dependency_image.run_commands.return_value = linked_image
+        linked_image.add_local_dir.return_value = mounted_image
         mounted_image.add_local_dir.return_value = final_image
 
         with patch(
@@ -354,7 +358,10 @@ class TestAttachLocalPackageMounts:
         assert "@openai/codex@0.140.0" not in command
         assert "custom-runtime@github:" not in command
         assert "@posthog/shared" not in command
-        dependency_image.add_local_dir.assert_called_once_with(
+        dependency_image.run_commands.assert_called_once_with(
+            "ln -sfn ../@posthog/agent/dist/server/bin.js /scripts/node_modules/.bin/agent-server"
+        )
+        linked_image.add_local_dir.assert_called_once_with(
             str(build_output_path),
             "/scripts/node_modules/@posthog/agent/dist",
             copy=False,
@@ -444,6 +451,8 @@ class TestModalSandboxAgentServer:
         assert f"--repositoryPath {shlex.quote('/tmp/workspace/repos/posthog/posthog')}" in command
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
+        assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command
         assert "agentsh exec" not in command
@@ -569,6 +578,7 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
+            agent_runtime="pi",
             runtime_adapter="codex",
             provider="openai",
             model="gpt-5.3-codex",
@@ -579,6 +589,7 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "POSTHOG_AGENT_RUNTIME=pi" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command

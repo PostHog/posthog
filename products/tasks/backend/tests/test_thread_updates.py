@@ -166,6 +166,10 @@ def _chunk(text: str) -> dict:
     return _session_update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
 
 
+def _pi_event(event_type: str, **event: object) -> dict:
+    return {"type": "pi_event", "event": {"type": event_type, **event}}
+
+
 class TestTrackFinalMessage(SimpleTestCase):
     def test_holds_only_prose_after_last_tool_call(self) -> None:
         parts: list[str] = []
@@ -179,6 +183,17 @@ class TestTrackFinalMessage(SimpleTestCase):
             _track_final_message(event, parts)
 
         self.assertEqual("".join(parts), "Done. The canvas shows signups by week.")
+
+    def test_holds_only_pi_prose_after_last_tool_call(self) -> None:
+        parts: list[str] = []
+        for event in [
+            _pi_event("assistant_message_chunk", content={"type": "text", "text": "I will inspect it. "}),
+            _pi_event("tool_call_started", toolCallId="t1"),
+            _pi_event("assistant_message_chunk", content={"type": "text", "text": "The issue is fixed."}),
+        ]:
+            _track_final_message(event, parts)
+
+        self.assertEqual("".join(parts), "The issue is fixed.")
 
     @parameterized.expand([("user_message",), ("user_message_chunk",), ("tool_call",)])
     def test_resets_on(self, session_update: str) -> None:

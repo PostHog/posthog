@@ -66,6 +66,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_policy_yaml,
 )
 from products.tasks.backend.logic.services.local_packages import (
+    LocalPackage,
     get_local_package_runtime_dependencies,
     get_local_posthog_code_packages,
 )
@@ -298,6 +299,31 @@ def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) ->
     return f"{existing} {candidate}"
 
 
+def _local_package_bin_link_commands(packages: tuple[LocalPackage, ...]) -> list[str]:
+    commands: list[str] = []
+    bin_root = "/scripts/node_modules/.bin"
+
+    for package in packages:
+        manifest = json.loads((package.source_path / "package.json").read_text())
+        package_name = manifest.get("name")
+        package_bin = manifest.get("bin", {})
+        if not isinstance(package_name, str):
+            continue
+        if isinstance(package_bin, str):
+            package_bin = {package_name.rsplit("/", 1)[-1]: package_bin}
+        if not isinstance(package_bin, dict):
+            continue
+
+        for executable, target in package_bin.items():
+            if not isinstance(executable, str) or not isinstance(target, str):
+                continue
+            target_path = f"../{package_name}/{target.removeprefix('./')}"
+            executable_path = f"{bin_root}/{executable}"
+            commands.append(f"ln -sfn {shlex.quote(target_path)} {shlex.quote(executable_path)}")
+
+    return commands
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
@@ -341,6 +367,10 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
             "--omit=dev --no-audit --no-fund"
         )
         image = image.run_commands(install_command)
+
+    bin_link_commands = _local_package_bin_link_commands(packages)
+    if bin_link_commands:
+        image = image.run_commands(*bin_link_commands)
 
     for package in packages:
         image = image.add_local_dir(
@@ -939,6 +969,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -956,6 +987,8 @@ class ModalSandbox(SandboxBase):
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
+            agent_runtime=agent_runtime,
+            sandbox_id=self.id,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1066,6 +1099,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -1136,6 +1170,7 @@ class ModalSandbox(SandboxBase):
             auto_publish,
             interaction_origin,
             branch,
+            agent_runtime,
             runtime_adapter,
             provider,
             model,

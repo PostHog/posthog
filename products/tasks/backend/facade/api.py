@@ -16,6 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 import re
+import json
 import logging
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -40,6 +41,8 @@ from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    TASK_SESSION_MAX_SIZE_BYTES,
+    TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES,
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -60,6 +63,7 @@ from products.tasks.backend.models import (
     Task,
     TaskAutomation,
     TaskRun,
+    TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
@@ -103,6 +107,7 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
     "can_mint_readonly_github_token",
@@ -148,6 +153,8 @@ __all__ = [
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
+    "get_task_run_session",
+    "prepare_task_run_session_sync",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
     "get_task_run_living_artifact",
@@ -202,6 +209,7 @@ __all__ = [
     "update_task",
     "update_task_automation",
     "update_task_run",
+    "finalize_task_run_session_sync",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
     "validate_set_output",
@@ -2170,6 +2178,242 @@ def append_task_run_log(
     return _task_run_detail_to_dto(run)
 
 
+def ensure_task_run_session(run_id: str | UUID) -> UUID:
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update(of=("self",)).select_related("task__team").get(id=run_id)
+        if run.active_task_session_id is not None:
+            return run.active_task_session_id
+
+        task_session = TaskSession.create_for_task(run.task)
+        run.active_task_session = task_session
+        run.save(update_fields=["active_task_session", "updated_at"])
+        return task_session.id
+
+
+def get_task_run_session(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[UUID, str, int] | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.active_task_session_id is None:
+        return None
+    task_session = TaskSession.objects.get(id=run.active_task_session_id)
+    download_url = object_storage.get_presigned_url(task_session.object_storage_key, expiration=3600)
+    if not download_url:
+        raise RuntimeError("Unable to prepare task session download")
+    return task_session.id, download_url, task_session.revision
+
+
+def _task_session_sync_key(task_session: TaskSession, directory: str, revision: int, sync_id: UUID) -> str:
+    return (
+        f"task-sessions/{task_session.organization_id}/{task_session.task_id}/{task_session.id}/"
+        f"{directory}/{revision}-{sync_id}.jsonl"
+    )
+
+
+def prepare_task_run_session_sync(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    sandbox_id: str,
+    expected_revision: int,
+) -> tuple[UUID, UUID, dict] | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    visible_run = _get_visible_run(run_id, task_id, team_id)
+    if visible_run is None or visible_run.active_task_session_id is None:
+        return None
+
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update(of=("self",)).get(id=visible_run.id)
+        if (run.state or {}).get("sandbox_id") != sandbox_id:
+            raise ValueError("The task session writer is not the active sandbox")
+        task_session = TaskSession.objects.select_for_update().get(id=run.active_task_session_id)
+        if task_session.revision != expected_revision:
+            raise ValueError("The task session revision is stale")
+
+        sync_id = task_session.pending_sync_id
+        object_storage_key = task_session.pending_object_storage_key
+        if sync_id is None or object_storage_key is None:
+            sync_id = uuid4()
+            object_storage_key = _task_session_sync_key(task_session, "uploads", task_session.revision + 1, sync_id)
+            task_session.pending_sync_id = sync_id
+            task_session.pending_object_storage_key = object_storage_key
+            task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
+
+    upload = object_storage.get_presigned_post(
+        object_storage_key,
+        conditions=[["content-length-range", 1, TASK_SESSION_MAX_SIZE_BYTES + TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES]],
+    )
+    if not upload:
+        raise RuntimeError("Unable to prepare task session upload")
+    return task_session.id, sync_id, upload
+
+
+def _delete_task_session_objects(task_session_id: UUID, object_storage_keys: Sequence[str]) -> None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    for object_storage_key in object_storage_keys:
+        try:
+            object_storage.delete(object_storage_key)
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_delete_object",
+                extra={
+                    "task_session_id": str(task_session_id),
+                    "object_storage_key": object_storage_key,
+                    "error": str(error),
+                },
+            )
+
+
+def _reject_task_session_sync(
+    task_session_id: UUID,
+    sync_id: UUID,
+    pending_key: str,
+    promoted_key: str,
+) -> None:
+    with transaction.atomic():
+        task_session = TaskSession.objects.select_for_update().get(id=task_session_id)
+        if task_session.pending_sync_id != sync_id or task_session.pending_object_storage_key != pending_key:
+            return
+
+        task_session.pending_sync_id = None
+        task_session.pending_object_storage_key = None
+        task_session.save(update_fields=["pending_sync_id", "pending_object_storage_key", "updated_at"])
+        transaction.on_commit(lambda: _delete_task_session_objects(task_session_id, (pending_key, promoted_key)))
+
+
+class _TaskSessionUploadRejected(ValueError):
+    pass
+
+
+def finalize_task_run_session_sync(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    sandbox_id: str,
+    sync_id: UUID,
+    expected_revision: int,
+) -> tuple[UUID, int] | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    visible_run = _get_visible_run(run_id, task_id, team_id)
+    if visible_run is None or visible_run.active_task_session_id is None:
+        return None
+    task_session_id = visible_run.active_task_session_id
+    pending_key: str | None = None
+    promoted_key: str | None = None
+    stale_upload_key: str | None = None
+
+    try:
+        with transaction.atomic():
+            locked_run = TaskRun.objects.select_for_update(of=("self",)).get(id=visible_run.id)
+            if (locked_run.state or {}).get("sandbox_id") != sandbox_id:
+                raise ValueError("The task session writer is not the active sandbox")
+            if locked_run.active_task_session_id != task_session_id:
+                raise ValueError("The task session sync is stale")
+
+            locked_session = TaskSession.objects.select_for_update().get(id=task_session_id)
+            submitted_upload_key = _task_session_sync_key(locked_session, "uploads", expected_revision + 1, sync_id)
+            promoted_object_storage_key = _task_session_sync_key(
+                locked_session, "revisions", expected_revision + 1, sync_id
+            )
+            promoted_key = promoted_object_storage_key
+            if (
+                locked_session.revision == expected_revision + 1
+                and locked_session.object_storage_key == promoted_object_storage_key
+            ):
+                return locked_session.id, locked_session.revision
+            pending_object_storage_key = locked_session.pending_object_storage_key
+            if (
+                locked_session.revision != expected_revision
+                or locked_session.pending_sync_id != sync_id
+                or not pending_object_storage_key
+            ):
+                if locked_session.pending_sync_id != sync_id or pending_object_storage_key != submitted_upload_key:
+                    stale_upload_key = submitted_upload_key
+                raise ValueError("The task session sync is stale")
+
+            pending_key = pending_object_storage_key
+            pending_metadata = object_storage.head_object(pending_object_storage_key)
+            if pending_metadata is None:
+                raise ValueError("The uploaded task session is missing")
+            pending_size = pending_metadata.get("ContentLength")
+            if not isinstance(pending_size, int):
+                raise ValueError("Unable to determine the uploaded task session size")
+            if pending_size < 1:
+                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
+            if pending_size > TASK_SESSION_MAX_SIZE_BYTES:
+                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
+
+            object_storage.copy(pending_object_storage_key, promoted_object_storage_key)
+            promoted_metadata = object_storage.head_object(promoted_object_storage_key)
+            if promoted_metadata is None:
+                raise ValueError("The uploaded task session is missing")
+            promoted_size = promoted_metadata.get("ContentLength")
+            if not isinstance(promoted_size, int):
+                raise ValueError("Unable to determine the uploaded task session size")
+            if promoted_size < 1:
+                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
+            if promoted_size > TASK_SESSION_MAX_SIZE_BYTES:
+                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
+
+            try:
+                content = object_storage.read(promoted_object_storage_key, missing_ok=True)
+            except UnicodeDecodeError as error:
+                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL") from error
+            if not content:
+                raise ValueError("The uploaded task session is missing")
+            if len(content.encode("utf-8")) > TASK_SESSION_MAX_SIZE_BYTES:
+                raise _TaskSessionUploadRejected("The uploaded task session exceeds the maximum size")
+            try:
+                entries = [json.loads(line) for line in content.splitlines() if line.strip()]
+            except json.JSONDecodeError as error:
+                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL") from error
+            if not entries or any(not isinstance(entry, dict) for entry in entries):
+                raise _TaskSessionUploadRejected("The uploaded task session is not valid JSONL")
+            if entries[0].get("type") != "session":
+                raise _TaskSessionUploadRejected("The uploaded task session has no session header")
+
+            previous_key = locked_session.object_storage_key
+            locked_session.object_storage_key = promoted_object_storage_key
+            locked_session.revision += 1
+            locked_session.pending_sync_id = None
+            locked_session.pending_object_storage_key = None
+            locked_session.save(
+                update_fields=[
+                    "object_storage_key",
+                    "revision",
+                    "pending_sync_id",
+                    "pending_object_storage_key",
+                    "updated_at",
+                ]
+            )
+            transaction.on_commit(
+                lambda: _delete_task_session_objects(locked_session.id, (previous_key, pending_object_storage_key))
+            )
+            locked_session.mark_synced()
+            return locked_session.id, locked_session.revision
+    except _TaskSessionUploadRejected:
+        if pending_key is None or promoted_key is None:
+            raise
+        _reject_task_session_sync(task_session_id, sync_id, pending_key, promoted_key)
+        raise
+    except Exception:
+        if stale_upload_key is not None:
+            _delete_task_session_objects(task_session_id, (stale_upload_key,))
+        if promoted_key is not None:
+            finalized_session = TaskSession.objects.get(id=task_session_id)
+            if (
+                finalized_session.revision == expected_revision + 1
+                and finalized_session.object_storage_key == promoted_key
+            ):
+                return finalized_session.id, finalized_session.revision
+        raise
+
+
 def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
     """Whether a run is mapped to a Slack thread. ``None`` if the run isn't found."""
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
@@ -3215,8 +3459,6 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found"
-    if run.task.runtime == Task.Runtime.PI:
-        return "unsupported_runtime"
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud"
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
@@ -3296,9 +3538,6 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
-    if run.task.runtime == Task.Runtime.PI:
-        return "unsupported_runtime", None, None
-
     logger.info(
         "resume_in_cloud_called",
         extra={
@@ -4344,13 +4583,6 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
-    if task.runtime == Task.Runtime.PI:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(
-                kind="detail", detail="Pi tasks cannot be run through the ACP task workflow."
-            )
-        )
-
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")

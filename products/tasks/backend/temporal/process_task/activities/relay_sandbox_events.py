@@ -589,8 +589,24 @@ _GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
 )
 
 
+def _pi_conversation_event(event_data: dict) -> dict | None:
+    if event_data.get("type") != "pi_event":
+        return None
+    event = event_data.get("event")
+    return event if isinstance(event, dict) else None
+
+
 def _is_active_agent_update(event_data: dict) -> bool:
-    """True only for session/update events where the agent is actively generating."""
+    """True only for events where the agent is actively generating."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") in {
+            "assistant_message_chunk",
+            "assistant_thought_chunk",
+            "tool_call_started",
+            "tool_call_updated",
+            "user_message",
+        }
     if not _is_session_update(event_data):
         return False
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
@@ -678,6 +694,11 @@ def _track_final_message(event_data: dict, parts: list[str]) -> None:
     if text:
         parts.append(text)
         return
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        if pi_event.get("type") in ("tool_call_started", "user_message"):
+            parts.clear()
+        return
     if not _is_session_update(event_data):
         return
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
@@ -686,7 +707,15 @@ def _track_final_message(event_data: dict, parts: list[str]) -> None:
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:
-    """Text delta from an ACP agent_message_chunk session/update, else None."""
+    """Text delta from an agent message event, else None."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None and pi_event.get("type") == "assistant_message_chunk":
+        content = pi_event.get("content")
+        if isinstance(content, dict) and content.get("type") == "text":
+            text = content.get("text")
+            return text if isinstance(text, str) else None
+        return None
+
     notification = event_data.get("notification", {})
     if notification.get("method") != "session/update":
         return None
@@ -741,7 +770,11 @@ def _is_keepalive_event(event_data: dict) -> bool:
     return event_data.get("type") == "keepalive"
 
 
-_is_end_of_turn = is_turn_complete
+def _is_end_of_turn(event_data: dict) -> bool:
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") == "turn_completed"
+    return is_turn_complete(event_data)
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

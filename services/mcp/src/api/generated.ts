@@ -39508,6 +39508,7 @@ export namespace Schemas {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -39519,6 +39520,7 @@ export namespace Schemas {
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
     } as const;
 
     /**
@@ -67635,18 +67637,14 @@ export namespace Schemas {
        * * `close` - close
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
-       * * `mcp_response` - mcp_response */
+       * * `mcp_response` - mcp_response
+       * * `pi/rpc` - pi/rpc */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
       id?: unknown;
     }
-
-    /**
-     * Command result on success
-     */
-    export type TaskRunCommandResponseResult = { [key: string]: unknown };
 
     /**
      * Error details on failure
@@ -67662,7 +67660,7 @@ export namespace Schemas {
       /** Request ID echoed back (string or number) */
       id?: unknown;
       /** Command result on success */
-      result?: TaskRunCommandResponseResult;
+      result?: unknown;
       /** Error details on failure */
       error?: TaskRunCommandResponseError;
     }
@@ -67965,6 +67963,40 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    export interface TaskSessionResponse {
+      id: string;
+      download_url: string;
+      /** @minimum 0 */
+      revision: number;
+    }
+
+    export interface TaskSessionSync {
+      sandbox_id: string;
+      sync_id: string;
+      /** @minimum 0 */
+      expected_revision: number;
+    }
+
+    export interface TaskSessionSyncPrepare {
+      sandbox_id: string;
+      /** @minimum 0 */
+      expected_revision: number;
+    }
+
+    export type TaskSessionSyncPrepareResponseUpload = { [key: string]: unknown };
+
+    export interface TaskSessionSyncPrepareResponse {
+      id: string;
+      sync_id: string;
+      upload: TaskSessionSyncPrepareResponseUpload;
+    }
+
+    export interface TaskSessionSyncResponse {
+      id: string;
+      /** @minimum 1 */
+      revision: number;
     }
 
     export interface TaskStagedArtifactFinalizeUpload {

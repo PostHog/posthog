@@ -160,43 +160,35 @@ class DockerSandbox(SandboxBase):
         return result
 
     @staticmethod
-    def _get_local_posthog_code_packages() -> tuple[str, str, str, str] | None:
-        """
-        Get paths to local PostHog Code packages for development builds.
-
-        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
-        Returns tuple of (agent_path, shared_path, git_path, enricher_path) or None if not configured.
-        """
+    def _get_local_posthog_code_root() -> str | None:
         monorepo_root = os.environ.get(
             "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
         )
-        if not monorepo_root or not os.path.isdir(monorepo_root):
+        if not monorepo_root:
             return None
 
         monorepo_root = os.path.abspath(monorepo_root)
-        agent_path = os.path.join(monorepo_root, "packages", "agent")
-        shared_path = os.path.join(monorepo_root, "packages", "shared")
-        git_path = os.path.join(monorepo_root, "packages", "git")
-        enricher_path = os.path.join(monorepo_root, "packages", "enricher")
-
-        missing = []
-        if not os.path.isdir(agent_path):
-            missing.append(f"agent: {agent_path}")
-        if not os.path.isdir(shared_path):
-            missing.append(f"shared: {shared_path}")
-        if not os.path.isdir(git_path):
-            missing.append(f"git: {git_path}")
-        if not os.path.isdir(enricher_path):
-            missing.append(f"enricher: {enricher_path}")
-
+        required_paths = [
+            os.path.join(monorepo_root, ".npmrc"),
+            os.path.join(monorepo_root, "package.json"),
+            os.path.join(monorepo_root, "pnpm-workspace.yaml"),
+            os.path.join(monorepo_root, "pnpm-lock.yaml"),
+            os.path.join(monorepo_root, "patches"),
+            *[
+                os.path.join(monorepo_root, "packages", package_name, "package.json")
+                for package_name in ("agent", "harness", "shared", "git", "enricher")
+            ],
+        ]
+        missing = [path for path in required_paths if not os.path.exists(path)]
         if missing:
+            missing_paths = ", ".join(missing)
             raise SandboxProvisionError(
-                f"LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set but required packages not found: {', '.join(missing)}",
+                f"LOCAL_POSTHOG_CODE_MONOREPO_ROOT is invalid: {missing_paths}",
                 {"monorepo_root": monorepo_root, "missing": missing},
-                cause=RuntimeError(f"Missing packages: {', '.join(missing)}"),
+                cause=RuntimeError(f"Missing paths: {missing_paths}"),
             )
 
-        return agent_path, shared_path, git_path, enricher_path
+        return monorepo_root
 
     @staticmethod
     def _build_image_if_needed(
@@ -249,34 +241,27 @@ class DockerSandbox(SandboxBase):
         DockerSandbox._run(argv, check=True)
 
     @staticmethod
-    def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
-        """Build the local sandbox image with local PostHog Code packages."""
+    def _build_local_image(monorepo_root: str) -> None:
         logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            shutil.copytree(
-                agent_path,
-                os.path.join(tmpdir, "local-agent"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
-            shutil.copytree(
-                shared_path,
-                os.path.join(tmpdir, "local-shared"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
-            shutil.copytree(
-                git_path,
-                os.path.join(tmpdir, "local-git"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
-            shutil.copytree(
-                enricher_path,
-                os.path.join(tmpdir, "local-enricher"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
+            workspace_path = os.path.join(tmpdir, "local-workspace")
+            packages_path = os.path.join(workspace_path, "packages")
+            os.makedirs(packages_path)
+
+            for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
+                shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
+            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
+
+            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+                shutil.copytree(
+                    os.path.join(monorepo_root, "packages", package_name),
+                    os.path.join(packages_path, package_name),
+                    ignore=shutil.ignore_patterns("node_modules", ".turbo"),
+                )
 
             DockerSandbox._run(
                 [
@@ -334,10 +319,9 @@ class DockerSandbox(SandboxBase):
             )
             return PI_IMAGE_NAME
 
-        local_packages = DockerSandbox._get_local_posthog_code_packages()
-        if local_packages:
-            agent_path, shared_path, git_path, enricher_path = local_packages
-            DockerSandbox._build_local_image(agent_path, shared_path, git_path, enricher_path)
+        local_monorepo_root = DockerSandbox._get_local_posthog_code_root()
+        if local_monorepo_root:
+            DockerSandbox._build_local_image(local_monorepo_root)
             return "posthog-sandbox-base-local"
 
         return DEFAULT_IMAGE_NAME
@@ -790,6 +774,7 @@ class DockerSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -811,6 +796,8 @@ class DockerSandbox(SandboxBase):
             event_ingest_url = DockerSandbox._transform_url_for_docker(event_ingest_url)
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
+            agent_runtime=agent_runtime,
+            sandbox_id=self.id,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -886,6 +873,7 @@ class DockerSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -958,6 +946,7 @@ class DockerSandbox(SandboxBase):
             auto_publish,
             interaction_origin,
             branch,
+            agent_runtime,
             runtime_adapter,
             provider,
             model,
@@ -1009,6 +998,7 @@ class DockerSandbox(SandboxBase):
                 auto_publish,
                 interaction_origin,
                 branch=None,
+                agent_runtime=agent_runtime,
                 runtime_adapter=runtime_adapter,
                 provider=provider,
                 model=model,
