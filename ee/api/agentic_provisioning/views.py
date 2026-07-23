@@ -39,12 +39,7 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.github_callback.team_services import link_github_installation_for_user
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import (
-    GitHubInstallationAccessFetchError,
-    GitHubIntegration,
-    Integration,
-    StripeIntegration,
-)
+from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -63,13 +58,10 @@ from posthog.utils import get_instance_region
 
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.settings import BILLING_SERVICE_URL
-
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, github_grants
 from .authentication import ProvisioningAuthentication
 from .errors import error_response, typed_error_response
 from .region_proxy import region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -125,12 +117,6 @@ GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-# TODO(migration): Stripe-only - remove once Stripe traffic has fully moved to
-# /api/partners/stripe/ (watch path_namespace on agentic_provisioning events).
-# Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
-# app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
-# the default in `_exchange_authorization_code` when no per-code scopes are given).
-STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -140,180 +126,6 @@ PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH = 25
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
-
-
-# ---------------------------------------------------------------------------
-# Service catalog — three services:
-#   1. free (plan) — generous free tier, no credit card required
-#   2. pay_as_you_go (plan) — usage-based pricing, no minimum commitment
-#   3. analytics (deployable) — provisions a PostHog project, pricing varies
-#      by parent plan via component pricing
-# TODO(migration): only the Stripe orchestrator consumes this catalog today -
-# removable (along with provisioning_health/provisioning_services) once Stripe
-# traffic has fully moved to /api/partners/stripe/, unless another partner
-# starts using /provisioning/services.
-# ---------------------------------------------------------------------------
-
-ANALYTICS_SERVICE_ID = "analytics"
-FREE_PLAN_SERVICE_ID = "free"
-PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
-
-ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai", "observability"]
-
-SERVICES_CACHE_KEY = "agentic_provisioning:services"
-SERVICES_CACHE_TTL = 3600
-SERVICES_CACHE_RETRY_TTL = 300
-SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
-SERVICES_CACHE_STORE_TTL = 86400
-
-_EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
-
-_FALLBACK_DESCRIPTION = "PostHog — AI infrastructure for your product: product & web analytics, session replay, feature flags & experiments, error tracking, AI observability, logs & traces, and more."
-
-
-def _build_free_plan_service() -> dict[str, Any]:
-    return {
-        "id": FREE_PLAN_SERVICE_ID,
-        "description": "Free - generous free tier across all PostHog products, no credit card required.",
-        "categories": ALL_CATEGORIES,
-        "pricing": {"type": "free"},
-        "kind": "plan",
-        "allowed_updates": [PAY_AS_YOU_GO_SERVICE_ID],
-    }
-
-
-def _build_pay_as_you_go_service() -> dict[str, Any]:
-    return {
-        "id": PAY_AS_YOU_GO_SERVICE_ID,
-        "description": "Pay-as-you-go - usage-based pricing across all PostHog products with no minimum commitment.",
-        "categories": ALL_CATEGORIES,
-        "pricing": {
-            "type": "paid",
-            "paid": {
-                "type": "freeform",
-                "freeform": "$0/mo base, usage-based pricing, generous free tier. See https://posthog.com/pricing for rates.",
-            },
-        },
-        "kind": "plan",
-        "allowed_updates": [FREE_PLAN_SERVICE_ID],
-    }
-
-
-def _build_analytics_service(description: str) -> dict[str, Any]:
-    return {
-        "id": ANALYTICS_SERVICE_ID,
-        "description": description,
-        "categories": ALL_CATEGORIES,
-        "pricing": {
-            "type": "component",
-            "component": {
-                "options": [
-                    {"parent_service_ids": [FREE_PLAN_SERVICE_ID], "type": "free"},
-                    {
-                        "parent_service_ids": [PAY_AS_YOU_GO_SERVICE_ID],
-                        "type": "paid",
-                        "paid": {"type": "freeform", "freeform": "Usage-based pricing, pay only for what you use."},
-                    },
-                ]
-            },
-        },
-        "kind": "deployable",
-        # Stripe validates allowed_updates client-side before calling update_service.
-        # Without this, `stripe projects update` rejects plan changes.
-        "allowed_updates": ["service_ref"],
-    }
-
-
-def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
-    """Fetch product catalog from billing and build the service list."""
-    try:
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/products-v2",
-            params={"plan": "standard"},
-        )
-        res.raise_for_status()
-        products = res.json().get("products", [])
-    except Exception:
-        logger.exception("agentic_provisioning.services.billing_fetch_failed")
-        return None
-
-    product_names = [
-        p.get("name", "")
-        for p in products
-        if p.get("type", "") not in _EXCLUDED_PRODUCT_TYPES and not p.get("inclusion_only")
-    ]
-    description = f"PostHog — {', '.join(n for n in product_names if n).lower()}, and more."
-
-    return [_build_free_plan_service(), _build_pay_as_you_go_service(), _build_analytics_service(description)]
-
-
-def _get_services() -> list[dict[str, Any]]:
-    cached = cache.get(SERVICES_CACHE_KEY)
-    expires_at = cache.get(SERVICES_CACHE_EXPIRES_KEY)
-
-    now = time.time()
-    if cached is not None and expires_at is not None and now < expires_at:
-        return cached
-
-    services = _fetch_services_from_billing()
-    if services is not None:
-        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_STORE_TTL)
-        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
-        return services
-
-    if cached is not None:
-        logger.warning("agentic_provisioning.services.serving_stale_cache")
-        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
-        return cached
-
-    logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [
-        _build_free_plan_service(),
-        _build_pay_as_you_go_service(),
-        _build_analytics_service(_FALLBACK_DESCRIPTION),
-    ]
-    cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
-    cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
-    return fallback
-
-
-VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, ANALYTICS_SERVICE_ID}
-
-
-# ---------------------------------------------------------------------------
-# GET /provisioning/health — liveness probe, returns supported protocol versions
-# ---------------------------------------------------------------------------
-
-
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([])
-def provisioning_health(request: Request) -> Response:
-    error = verify_provisioning_signature(request)
-    if error:
-        return error
-    if error := verify_api_version(request):
-        return error
-
-    return Response({"supported_versions": SUPPORTED_VERSIONS, "status": "ok"})
-
-
-# ---------------------------------------------------------------------------
-# GET /provisioning/services — returns the catalog of provisionable services
-# ---------------------------------------------------------------------------
-
-
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([])
-def provisioning_services(request: Request) -> Response:
-    error = verify_provisioning_signature(request)
-    if error:
-        return error
-    if error := verify_api_version(request):
-        return error
-
-    return Response({"data": _get_services()})
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +139,6 @@ def provisioning_services(request: Request) -> Response:
 @permission_classes([])
 @region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
-    if error := verify_api_version(request):
-        return error
 
     if error := _enforce_cimd_registration_throttle(request):
         return error
@@ -350,6 +160,9 @@ def account_requests(request: Request) -> Response:
             status=202,
         )
 
+    if partner is None:
+        return typed_error_response("unauthorized", "Authentication required", status=401)
+
     # --- Parse request ---
     data = request.data
     request_id = data.get("id", "")
@@ -359,10 +172,8 @@ def account_requests(request: Request) -> Response:
         return typed_error_response("invalid_request", "email is required")
 
     scopes = data.get("scopes", [])
-    confirmation_secret = data.get("confirmation_secret", "")
     expires_at_str = data.get("expires_at", "")
     configuration = data.get("configuration") or {}
-    orchestrator = data.get("orchestrator") or {}
 
     if expires_at_str:
         from django.utils.dateparse import parse_datetime
@@ -372,36 +183,11 @@ def account_requests(request: Request) -> Response:
             _capture_provisioning_event("account_request", "error", error_code="expired")
             return typed_error_response("expired", "Account request has expired")
 
-    # Partner account ID: generic field, with Stripe backward compat
-    orchestrator_type = orchestrator.get("type", "")
-    if orchestrator_type == "stripe":
-        stripe_info = orchestrator.get("stripe") or {}
-        partner_account_id = stripe_info.get("account", "")
-    else:
-        partner_account_id = orchestrator.get("account", "")
-
-    # TODO(migration): the partner-less fallback below (global Stripe HMAC +
-    # orchestrator.stripe.account) is Stripe-only — remove once Stripe traffic
-    # has fully moved to /api/partners/stripe/.
-    # If no partner identified, require Stripe Projects HMAC auth
-    if not partner and not request.headers.get("stripe-signature"):
-        return typed_error_response("unauthorized", "Authentication required", status=401)
-
-    if not partner:
-        if error := _verify_hmac_if_present(request):
-            return error
-
-    # Stripe Projects: require stripe account if no provisioning partner identified
-    if not partner and not partner_account_id:
-        _capture_provisioning_event("account_request", "error", error_code="missing_stripe_account")
-        return typed_error_response("invalid_request", "orchestrator.stripe.account is required")
-
-    # Check permission
-    if partner and not partner.provisioning_can_create_accounts:
+    if not partner.provisioning_can_create_accounts:
         _capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
         return typed_error_response("forbidden", "Account creation is not enabled for this partner", status=403)
 
-    if partner and (error := _enforce_partner_rate_limit(partner, "account_requests")):
+    if error := _enforce_partner_rate_limit(partner, "account_requests"):
         return error
 
     # PKCE: capture code_challenge for later verification
@@ -433,9 +219,7 @@ def account_requests(request: Request) -> Response:
         return _handle_existing_user(
             request_id,
             existing_user,
-            confirmation_secret,
             scopes,
-            partner_account_id,
             region,
             requested_team_id,
             partner,
@@ -449,7 +233,6 @@ def account_requests(request: Request) -> Response:
         data,
         email,
         scopes,
-        partner_account_id,
         region,
         partner,
         code_challenge,
@@ -458,29 +241,12 @@ def account_requests(request: Request) -> Response:
     )
 
 
-def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplication) -> bool:
-    """True if the user has any live OAuth credential issued to this partner.
-
-    "Live" = unexpired access token or non-revoked refresh token. PersonalAPIKey has no
-    partner attribution today, so it's excluded from this check; in practice PATs are
-    minted alongside OAuth tokens at provisioning time, so the OAuth-only check matches.
-    """
-    now = timezone.now()
-    if OAuthAccessToken.objects.filter(user=user, application=partner, expires__gt=now).exists():
-        return True
-    if OAuthRefreshToken.objects.filter(user=user, application=partner, revoked__isnull=True).exists():
-        return True
-    return False
-
-
 def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
     """True only when the caller proved a prior trust relationship with this user.
 
     This is what lets a skip-consent partner re-mint silently for an existing user; without
     it the request falls through to browser consent. The proof differs by auth method:
 
-    - HMAC callers authenticate with a partner-level secret, so the partner already holding
-      a live OAuth credential for the user is sufficient proof of an existing relationship.
     - Bearer callers present a single user-scoped access token. That token proves a
       relationship only with its own user, so it qualifies only when it belongs to the user
       being re-linked — otherwise any user of the partner could ride another user's live
@@ -489,8 +255,6 @@ def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authent
       can send, so the request carries no proof the caller controls the partner. The "user
       already holds a live credential" signal proves nothing, so these never qualify.
     """
-    if partner.provisioning_auth_method == "hmac":
-        return _user_has_existing_credentials_from_partner(user, partner)
     if partner.provisioning_auth_method == "bearer":
         return authenticated_user is not None and authenticated_user.id == user.id
     return False
@@ -499,9 +263,7 @@ def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authent
 def _handle_existing_user(
     request_id: str,
     user: User,
-    confirmation_secret: str,
     scopes: list[str],
-    partner_account_id: str = "",
     region: str = "US",
     team_id: int | None = None,
     partner: OAuthApplication | None = None,
@@ -545,7 +307,6 @@ def _handle_existing_user(
             request_id,
             user,
             scopes,
-            partner_account_id,
             region,
             partner,
             code_challenge,
@@ -567,7 +328,6 @@ def _handle_existing_user(
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
-            "stripe_account_id": partner_account_id,
             "partner_id": str(partner.id) if partner else "",
             "scopes": scopes,
             "region": region,
@@ -586,7 +346,6 @@ def _require_user_consent(
     request_id: str,
     user: User,
     scopes: list[str],
-    partner_account_id: str,
     region: str,
     partner: OAuthApplication,
     code_challenge: str,
@@ -608,7 +367,6 @@ def _require_user_consent(
         {
             "email": user.email,
             "scopes": scopes,
-            "stripe_account_id": partner_account_id,
             "partner_id": str(partner.id),
             "partner_name": partner.name,
             "region": region,
@@ -670,7 +428,6 @@ def _handle_new_user(
     data: dict,
     email: str,
     scopes: list[str],
-    partner_account_id: str,
     region: str,
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
@@ -702,9 +459,7 @@ def _handle_new_user(
             return _handle_existing_user(
                 request_id,
                 existing,
-                data.get("confirmation_secret", ""),
                 scopes,
-                partner_account_id,
                 region,
                 None,
                 partner,
@@ -773,7 +528,6 @@ def _handle_new_user(
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
-            "stripe_account_id": partner_account_id,
             "partner_id": str(partner.id) if partner else "",
             "scopes": scopes,
             "region": region,
@@ -855,10 +609,10 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: st
 
 
 def _authenticate_provisioning_partner(request: Request) -> tuple[Response | None, OAuthApplication | None]:
-    """Identify a provisioning partner, requiring proof-bearing auth (unlike
-    account_requests' legacy Stripe fallback). Returns (error_response, partner).
+    """Identify a provisioning partner, requiring proof-bearing auth.
+    Returns (error_response, partner).
 
-    Only HMAC and Bearer partners carry proof that the caller controls the partner.
+    Only Bearer partners carry proof that the caller controls the partner.
     PKCE partners are identified solely by a public ``client_id`` anyone can send, so
     they never qualify for these endpoints — they exchange GitHub OAuth codes and read
     back GitHub account metadata, which must sit behind a real partner trust boundary.
@@ -874,7 +628,7 @@ def _authenticate_provisioning_partner(request: Request) -> tuple[Response | Non
             typed_error_response("unauthorized", "Authentication required", status=401),
             None,
         )
-    if partner.provisioning_auth_method not in ("hmac", "bearer"):
+    if partner.provisioning_auth_method != "bearer":
         return (
             typed_error_response("forbidden", "This endpoint requires a confidential partner", status=403),
             None,
@@ -886,8 +640,6 @@ def _authenticate_provisioning_partner(request: Request) -> tuple[Response | Non
 @authentication_classes([])
 @permission_classes([])
 def github_grants_create(request: Request) -> Response:
-    if error := verify_api_version(request):
-        return error
 
     auth_error, partner = _authenticate_provisioning_partner(request)
     if auth_error or partner is None:
@@ -965,8 +717,6 @@ def _enforce_grant_poll_rate_limit(grant_id: str) -> Response | None:
 @authentication_classes([])
 @permission_classes([])
 def github_grant_repositories(request: Request, grant_id: str) -> Response:
-    if error := verify_api_version(request):
-        return error
 
     auth_error, partner = _authenticate_provisioning_partner(request)
     if auth_error or partner is None:
@@ -1038,7 +788,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     # Re-check partner is still active (could have been deactivated since account_requests)
     partner_id = pending.get("partner_id", "")
-    is_trusted_partner = not partner_id
+    is_trusted_partner = False
     if partner_id:
         try:
             partner_app = OAuthApplication.objects.get(id=partner_id)
@@ -1058,6 +808,11 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         organization = memberships[0].organization
         team = non_demo_teams[0]
 
+        callback_url = _get_callback_url(pending.get("partner_id", ""))
+        if callback_url is None:
+            _capture_provisioning_event("authorize", "missing_callback")
+            return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_callback")
+
         code = secrets.token_urlsafe(32)
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
@@ -1066,7 +821,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 "user_id": user.id,
                 "org_id": str(organization.id),
                 "team_id": team.id,
-                "stripe_account_id": pending.get("stripe_account_id", ""),
                 "partner_id": pending.get("partner_id", ""),
                 "scopes": pending.get("scopes", []),
                 "region": pending.get("region", "US"),
@@ -1079,7 +833,6 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
-        callback_url = _get_callback_url(pending.get("partner_id", ""))
         sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
         params = urlencode({"code": code, "state": sanitized_state})
         return HttpResponseRedirect(f"{callback_url}?{params}")
@@ -1164,6 +917,11 @@ def agentic_authorize_confirm(request: Request) -> Response:
         except OAuthApplication.DoesNotExist:
             pass
 
+    callback_url = _get_callback_url(pending.get("partner_id", ""))
+    if callback_url is None:
+        _capture_provisioning_event("authorize_confirm", "missing_callback", partner=confirm_partner)
+        return Response({"error": "missing_callback"}, status=400)
+
     code = secrets.token_urlsafe(32)
     # Set auth code BEFORE deleting pending state so a cache hiccup
     # between the two doesn't leave the user with no recovery path.
@@ -1174,7 +932,6 @@ def agentic_authorize_confirm(request: Request) -> Response:
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
-            "stripe_account_id": pending.get("stripe_account_id", ""),
             "partner_id": pending.get("partner_id", ""),
             "scopes": pending.get("scopes", []),
             "region": pending.get("region", "US"),
@@ -1185,7 +942,6 @@ def agentic_authorize_confirm(request: Request) -> Response:
     )
     cache.delete(pending_key)
 
-    callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
@@ -1245,35 +1001,27 @@ def _exchange_authorization_code(request: Request) -> Response:
             {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
         )
 
-    # Auth check: PKCE codes require code_verifier, non-PKCE codes require HMAC.
-    # All verification happens BEFORE cache.delete so a failed attempt doesn't consume the code.
-    # TODO(migration): the HMAC arm is Stripe-only - remove once Stripe traffic
-    # has fully moved to /api/partners/stripe/ (PKCE remains for other partners).
+    # Auth check: every code requires PKCE verification. All verification happens
+    # BEFORE cache.delete so a failed attempt doesn't consume the code.
     stored_challenge = code_data.get("code_challenge", "")
-    has_hmac = bool(request.headers.get("stripe-signature"))
-    if stored_challenge:
-        code_verifier = request.data.get("code_verifier", "")
-        if not code_verifier:
-            _capture_provisioning_event("token_exchange", "missing_code_verifier", grant_type="authorization_code")
-            return Response(
-                {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=401
-            )
-        computed = (
-            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
-            .rstrip(b"=")
-            .decode("ascii")
-        )
-        if computed != stored_challenge:
-            _capture_provisioning_event("token_exchange", "pkce_mismatch", grant_type="authorization_code")
-            return Response(
-                {"error": "invalid_grant", "error_description": "PKCE code_verifier does not match"}, status=400
-            )
-    elif not has_hmac:
-        _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
+    if not stored_challenge:
+        _capture_provisioning_event("token_exchange", "missing_code_challenge", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
-    else:
-        if error := _verify_hmac_if_present(request):
-            return error
+
+    code_verifier = request.data.get("code_verifier", "")
+    if not code_verifier:
+        _capture_provisioning_event("token_exchange", "missing_code_verifier", grant_type="authorization_code")
+        return Response(
+            {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=401
+        )
+    computed = (
+        base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    )
+    if computed != stored_challenge:
+        _capture_provisioning_event("token_exchange", "pkce_mismatch", grant_type="authorization_code")
+        return Response(
+            {"error": "invalid_grant", "error_description": "PKCE code_verifier does not match"}, status=400
+        )
 
     # Consume the code before rate limiting so a leaked auth code can't be replayed
     # to burn the partner's bucket. Auth codes are single-use by spec, so the
@@ -1281,14 +1029,22 @@ def _exchange_authorization_code(request: Request) -> Response:
     # re-initiate the OAuth flow if rate-limited.
     cache.delete(cache_key)
 
+    oauth_app: OAuthApplication | None = None
     partner_id = code_data.get("partner_id", "")
     if partner_id:
         try:
-            partner = OAuthApplication.objects.get(id=partner_id)
-            if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
-                return error
+            oauth_app = OAuthApplication.objects.get(id=partner_id)
         except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
-            logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
+            logger.warning("token_exchange_app_missing", partner_id=partner_id)
+    if oauth_app is None:
+        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
+        return Response(
+            {"error": "invalid_grant", "error_description": "Unknown application for this authorization code"},
+            status=400,
+        )
+
+    if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+        return error
 
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
@@ -1300,15 +1056,6 @@ def _exchange_authorization_code(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "user_not_found", grant_type="authorization_code")
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
-    # Use partner's OAuth app if available, fall back to Stripe
-    try:
-        oauth_app = _get_oauth_app_for_code(code_data)
-    except LegacyStripeOAuthAppMissingError:
-        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
-        return Response(
-            {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
-        )
-
     # Lock the app row before reading the revoke stamp and minting, so this serializes
     # with revoke_application_sessions (see _lock_application). Provisioning auth codes
     # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them — the
@@ -1316,7 +1063,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     # before `issued_at` shipped lack the field; fail closed (they expire in
     # AUTH_CODE_TTL_SECONDS and the client can re-run the flow).
     with transaction.atomic():
-        locked_app = _lock_application(oauth_app.pk) if oauth_app else None
+        locked_app = _lock_application(oauth_app.pk)
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
         if sessions_revoked_at is not None:
             issued_at_raw = code_data.get("issued_at")
@@ -1330,8 +1077,9 @@ def _exchange_authorization_code(request: Request) -> Response:
 
         # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
         # ceiling has to be enforced here before the token is created by hand.
-        requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
         app_scopes = locked_app.ceiling_scopes if locked_app else []
+        # A request with no explicit scopes gets the app's full ceiling.
+        requested_scopes = scopes if scopes else app_scopes
         if not scopes_within_ceiling(requested_scopes, app_scopes):
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
             return Response(
@@ -1468,7 +1216,9 @@ def _exchange_refresh_token(request: Request) -> Response:
                 {"error": "invalid_grant", "error_description": "No accessible teams for this token; re-authorize."},
                 status=400,
             )
-        old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+        # A rotated-away access token leaves no scope to carry over; the refreshed
+        # token gets an empty scope rather than inheriting anything implicit.
+        old_scope = old_refresh.access_token.scope if old_refresh.access_token else ""
 
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
         if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
@@ -1553,94 +1303,6 @@ def _exchange_refresh_token(request: Request) -> Response:
             "expires_in": token_expiry,
         }
     )
-
-
-# TODO(migration): the SPT billing helpers below are Stripe-only - remove once
-# Stripe traffic has fully moved to /api/partners/stripe/.
-def _build_billing_token(team: Team, user: User) -> str | None:
-    from posthog.cloud_utils import get_cached_instance_license
-
-    from ee.billing.billing_manager import build_billing_token
-
-    license = get_cached_instance_license()
-    if not license:
-        return None
-    return build_billing_token(license, team.organization, user)
-
-
-def _team_has_active_billing(team: Team, user: User) -> bool:
-    """Check if the team's organization already has an active billing subscription."""
-    try:
-        billing_token = _build_billing_token(team, user)
-        if not billing_token:
-            return False
-
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing",
-            headers={"Authorization": f"Bearer {billing_token}"},
-            timeout=30,
-        )
-
-        if res.status_code != 200:
-            return False
-
-        customer = res.json().get("customer", {})
-        return bool(customer.get("has_active_subscription"))
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
-        return False
-
-
-def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
-    """Call the billing service to activate a subscription with a Stripe Shared Payment Token.
-
-    Returns True if activation succeeded, False otherwise.
-    """
-    try:
-        billing_token = _build_billing_token(team, user)
-        if not billing_token:
-            capture_exception(Exception("No license found for SPT billing activation"))
-            return False
-
-        res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/activate/authorize",
-            headers={"Authorization": f"Bearer {billing_token}"},
-            json={"shared_payment_token": spt_token},
-            timeout=30,
-        )
-
-        if res.status_code not in (200, 201):
-            capture_exception(
-                Exception(f"Billing SPT activation failed: {res.status_code}"),
-                {"team_id": team.id, "org_id": str(team.organization_id), "status": res.status_code},
-            )
-            return False
-
-        logger.info("provisioning.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
-        return True
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
-        return False
-
-
-def _extract_spt(request: Request) -> str | None:
-    payment_credentials = request.data.get("payment_credentials")
-    if isinstance(payment_credentials, dict) and payment_credentials.get("type") == "stripe_payment_token":
-        return payment_credentials.get("stripe_payment_token") or None
-    return None
-
-
-def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> bool | None:
-    """Activate billing if an SPT is present, skipping if billing is already active.
-
-    Returns True if succeeded or already active, False if failed, None if no SPT was present.
-    """
-    spt_token = _extract_spt(request)
-    if not spt_token:
-        return None
-    if _team_has_active_billing(team, user):
-        return True
-    return _activate_billing_with_spt(team, user, spt_token)
 
 
 class _InvalidLabelPrefixError(Exception):
@@ -1917,21 +1579,6 @@ def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> N
                 rt.save(update_fields=["scoped_teams"])
 
 
-def _get_provisioning_service_id(team: Team) -> str:
-    try:
-        config = TeamProvisioningConfig.objects.get(team=team)
-        return config.service_id
-    except TeamProvisioningConfig.DoesNotExist:
-        return ANALYTICS_SERVICE_ID
-
-
-def _set_provisioning_service_id(team: Team, service_id: str) -> None:
-    TeamProvisioningConfig.objects.update_or_create(
-        team=team,
-        defaults={"service_id": service_id},
-    )
-
-
 # ---------------------------------------------------------------------------
 # POST /provisioning/resources
 # ---------------------------------------------------------------------------
@@ -1946,11 +1593,6 @@ def provisioning_resources_create(request: Request) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
-
     app = access_token.application
     if app and app.provisioning_partner_type:
         if error := _enforce_partner_rate_limit(app, "resource_creates"):
@@ -1961,11 +1603,6 @@ def provisioning_resources_create(request: Request) -> Response:
             )
             response["Retry-After"] = retry_after
             return response
-
-    service_id = request.data.get("service_id", "")
-    if service_id and service_id not in VALID_SERVICE_IDS:
-        _capture_provisioning_event("resource_created", "error", partner=app, error_code="unknown_service")
-        return error_response("unknown_service", f"Unknown service_id: {service_id}")
 
     try:
         label_prefix = _extract_label_prefix(request)
@@ -2011,44 +1648,6 @@ def provisioning_resources_create(request: Request) -> Response:
             )
             return error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
-    resolved_service_id = service_id or ANALYTICS_SERVICE_ID
-    _set_provisioning_service_id(team, resolved_service_id)
-
-    billing_result = _try_activate_billing_with_spt(request, team, user)
-    has_spt = billing_result is not None
-    if billing_result is False:
-        _capture_provisioning_event(
-            "resource_created",
-            "error",
-            partner=app,
-            error_code="requires_payment_credentials",
-            service_id=resolved_service_id,
-            team_id=team.id,
-            has_spt=has_spt,
-        )
-        return Response(
-            {
-                "status": "error",
-                "id": str(team.id),
-                "error": {
-                    "code": "requires_payment_credentials",
-                    "message": "Billing activation failed",
-                },
-            },
-            status=400,
-        )
-
-    if resolved_service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
-        _capture_provisioning_event(
-            "resource_created",
-            "error",
-            partner=app,
-            error_code="requires_payment_credentials",
-            service_id=resolved_service_id,
-            team_id=team.id,
-        )
-        return error_response("requires_payment_credentials", "Payment credentials required for paid plan")
-
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -2056,10 +1655,7 @@ def provisioning_resources_create(request: Request) -> Response:
         "resource_created",
         "success",
         partner=app,
-        service_id=resolved_service_id,
         team_id=team.id,
-        has_spt=has_spt,
-        billing_result=str(billing_result),
     )
 
     access_configuration: dict[str, str] = {
@@ -2075,7 +1671,6 @@ def provisioning_resources_create(request: Request) -> Response:
         {
             "status": "complete",
             "id": str(team.id),
-            "service_id": resolved_service_id,
             "complete": {
                 "access_configuration": access_configuration,
             },
@@ -2109,11 +1704,6 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
 
     try:
         label_prefix = _extract_label_prefix(request)
@@ -2150,7 +1740,6 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
-    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -2167,7 +1756,6 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         {
             "status": "complete",
             "id": resource_id,
-            "service_id": service_id,
             "complete": {
                 "access_configuration": access_configuration,
             },
@@ -2303,11 +1891,6 @@ def provisioning_github_integration(request: Request, resource_id: str) -> Respo
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
 
     try:
         team_id = int(resource_id)
@@ -2473,11 +2056,6 @@ def provisioning_wizard_runs(request: Request, resource_id: str) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
-
     try:
         team_id = int(resource_id)
     except (ValueError, TypeError):
@@ -2511,118 +2089,6 @@ def provisioning_wizard_runs(request: Request, resource_id: str) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# POST /provisioning/resources/:id/update_service
-# TODO(migration): Stripe-only (hard global-HMAC requirement, SPT billing) -
-# remove once Stripe traffic has fully moved to /api/partners/stripe/.
-# ---------------------------------------------------------------------------
-
-
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([])
-@region_proxy(strategy="bearer_lookup")
-def provisioning_update_service(request: Request, resource_id: str) -> Response:
-    auth_error, user, access_token = _authenticate_bearer(request)
-    if auth_error:
-        return auth_error
-
-    error = verify_provisioning_signature(request)
-    if error:
-        return error
-    if error := verify_api_version(request):
-        return error
-
-    scoped_teams = access_token.scoped_teams or []
-
-    try:
-        team_id = int(resource_id)
-    except (ValueError, TypeError):
-        return error_response("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
-
-    if team_id not in scoped_teams:
-        return error_response(
-            "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
-        )
-
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        return error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
-
-    # A config with a non-null application belongs to the partner that provisioned
-    # it; a null application is unclaimed (every team gets one by default) and is
-    # mutable by any in-scope caller. Reject only a cross-partner mutation.
-    owning_application_id = (
-        TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
-    )
-    if owning_application_id is not None and owning_application_id != access_token.application_id:
-        return error_response(
-            "forbidden", "Resource owned by a different provisioning partner", resource_id=resource_id, status=403
-        )
-
-    service_id = request.data.get("service_id", "")
-    if not service_id:
-        return error_response("missing_service_id", "service_id is required", resource_id=resource_id)
-    if service_id not in VALID_SERVICE_IDS:
-        return error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
-
-    billing_result = _try_activate_billing_with_spt(request, team, user)
-    has_spt = billing_result is not None
-    if billing_result is False:
-        _capture_provisioning_event(
-            "update_service",
-            "error",
-            error_code="billing_activation_failed",
-            service_id=service_id,
-            team_id=team_id,
-            has_spt=has_spt,
-        )
-        return error_response(
-            "billing_activation_failed",
-            "Failed to activate billing with payment credentials",
-            resource_id=resource_id,
-        )
-
-    if service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
-        _capture_provisioning_event(
-            "update_service", "error", error_code="requires_payment_credentials", service_id=service_id, team_id=team_id
-        )
-        return error_response(
-            "requires_payment_credentials", "Payment credentials required for paid plan", resource_id=resource_id
-        )
-
-    _set_provisioning_service_id(team, service_id)
-
-    region = get_instance_region() or "US"
-    host = _region_to_host(region)
-
-    _capture_provisioning_event(
-        "update_service",
-        "success",
-        service_id=service_id,
-        team_id=team_id,
-        has_spt=has_spt,
-        billing_result=str(billing_result),
-    )
-
-    access_configuration: dict[str, str] = {
-        "api_key": team.api_token,
-        "host": host,
-    }
-
-    return Response(
-        {
-            "status": "complete",
-            "id": resource_id,
-            "service_id": service_id,
-            "complete": {
-                "access_configuration": access_configuration,
-            },
-        }
-    )
-
-
-# ---------------------------------------------------------------------------
 # POST /provisioning/resources/:id/remove
 # Detaches the resource from the orchestrator: removes it from the token's
 # scope and clears provisioning metadata. Preserves the underlying team and
@@ -2638,11 +2104,6 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
 
     try:
         team_id = int(resource_id)
@@ -2756,11 +2217,6 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
-        return error
-    if error := verify_api_version(request):
-        return error
-
     scoped_teams = access_token.scoped_teams or []
 
     try:
@@ -2793,7 +2249,6 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -2801,7 +2256,6 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
         {
             "status": "complete",
             "id": resource_id,
-            "service_id": service_id,
             "complete": {
                 "access_configuration": {
                     "api_key": team.api_token,
@@ -2825,25 +2279,6 @@ def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
-
-    # HMAC partners must include a valid signature on this endpoint - bearer alone
-    # is not sufficient to mint a full web session via the deep-link primitive.
-    # TODO(migration): HMAC support is Stripe-only - remove this branch once
-    # Stripe traffic has fully moved to /api/partners/stripe/.
-    if access_token.application.provisioning_auth_method == "hmac":
-        if not request.META.get("HTTP_STRIPE_SIGNATURE"):
-            return error_response(
-                "hmac_signature_required",
-                "HMAC signature required for this partner",
-                status=401,
-            )
-        if error := verify_provisioning_signature(request):
-            return error
-    elif error := _verify_hmac_if_present(request):
-        return error
-
-    if error := verify_api_version(request):
-        return error
 
     if not access_token.application.provisioning_can_issue_deep_links:
         _capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
@@ -2911,15 +2346,13 @@ def deep_links(request: Request) -> Response:
 
 
 def _partner_label(partner: OAuthApplication | None) -> str:
-    # TODO(migration): the "Stripe" fallbacks are for the partner-less legacy
-    # identity - remove once Stripe traffic has fully moved to /api/partners/stripe/.
-    if not partner:
-        return "Stripe"
+    if partner is None:
+        return "Partner"
     if partner.provisioning_partner_type:
         return partner.provisioning_partner_type.capitalize()
     if partner.name:
         return partner.name
-    return "Stripe"
+    return "Partner"
 
 
 def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Response | None:
@@ -3020,24 +2453,10 @@ def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
     return None
 
 
-def _verify_hmac_if_present(request: Request) -> Response | None:
-    # TODO(migration): Stripe-only - remove once Stripe traffic has fully moved
-    # to /api/partners/stripe/.
-    """Verify HMAC signature only if the Stripe-Signature header is present.
-
-    For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
-    For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
-    """
-    if request.headers.get("stripe-signature"):
-        return verify_provisioning_signature(request)
-    return None
-
-
 def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
-    """Authenticate via Bearer token. Returns (error_response, user, access_token).
+    """Authenticate via Bearer token issued to an active provisioning partner.
 
-    Tries generic ProvisioningAuthentication first (any partner's token),
-    then falls back to Stripe Projects HMAC auth.
+    Returns (error_response, user, access_token).
     """
 
     auth_header = request.headers.get("authorization", "")
@@ -3068,59 +2487,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
             )
         return None, access_token.user, access_token
 
-    # Legacy fallback: accept tokens from the Stripe Projects app by client_id
-    # TODO(migration): Stripe-only - remove once Stripe traffic has fully moved
-    # to /api/partners/stripe/.
-    if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-        return None, access_token.user, access_token
-
     return (error_response("unauthorized", "Authentication failed", status=401), None, None)
-
-
-# TODO(migration): the legacy Stripe app resolution below is Stripe-only -
-# remove once Stripe traffic has fully moved to /api/partners/stripe/.
-class LegacyStripeOAuthAppMissingError(Exception):
-    """The configured Stripe Projects OAuth app could not be resolved.
-
-    Raised instead of fabricating an app on demand: a missing app is an
-    operational misconfiguration, not something to paper over with a freshly
-    created application that carries no scope ceiling.
-    """
-
-
-def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
-    """Seed the Stripe Projects app's scope ceiling when it is unset.
-
-    Region-agnostic by design: US and EU each hold their own OAuthApplication
-    row, so this runs independently the first time the app is resolved in each
-    region. Pre-seeding via the ops step in the slice notes avoids the on-request
-    write, but this keeps the ceiling correct even if that step is missed.
-    """
-    if app.scopes:
-        return
-    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
-    app.save(update_fields=["scopes"])
-
-
-def _get_legacy_stripe_oauth_app() -> OAuthApplication:
-    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
-    if not client_id:
-        error = LegacyStripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
-        capture_exception(error)
-        raise error
-
-    try:
-        app = OAuthApplication.objects.get(client_id=client_id)
-    except OAuthApplication.DoesNotExist as exc:
-        error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
-        # Chain the DoesNotExist so the captured event keeps its traceback; the new
-        # error was never raised, so it carries no traceback of its own.
-        error.__cause__ = exc
-        capture_exception(error, additional_properties={"client_id": client_id})
-        raise error from None
-
-    _seed_stripe_app_scopes(app)
-    return app
 
 
 def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
@@ -3138,38 +2505,22 @@ def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
     ]
 
 
-def _get_callback_url(partner_id: str) -> str:
-    """Get the callback URL from the partner's redirect_uris, falling back to the Stripe setting."""
-    if partner_id:
-        try:
-            app = OAuthApplication.objects.get(id=partner_id)
-            redirect_uris = app.redirect_uris.strip()
-            if redirect_uris:
-                return redirect_uris.split()[0]
-        except OAuthApplication.DoesNotExist:
-            pass
+def _get_callback_url(partner_id: str) -> str | None:
+    """Get the callback URL from the partner's redirect_uris.
 
-    # TODO(migration): Stripe-only fallback - remove once Stripe traffic has
-    # fully moved to /api/partners/stripe/.
-    return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
-
-
-def _get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
-    """Resolve the OAuthApplication for a token exchange.
-
-    If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the legacy Stripe Projects app lookup, which
-    hard-fails (raising ``LegacyStripeOAuthAppMissingError``) if the configured
-    app is missing rather than fabricating one.
+    Returns None when the partner cannot be resolved or has no redirect URI
+    registered; callers must fail the flow rather than redirect blindly.
     """
-    partner_id = code_data.get("partner_id", "")
-    if partner_id:
-        try:
-            return OAuthApplication.objects.get(id=partner_id)
-        except OAuthApplication.DoesNotExist:
-            pass
-
-    return _get_legacy_stripe_oauth_app()
+    if not partner_id:
+        return None
+    try:
+        app = OAuthApplication.objects.get(id=partner_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+    redirect_uris = app.redirect_uris.strip()
+    if not redirect_uris:
+        return None
+    return redirect_uris.split()[0]
 
 
 def _region_to_host(region: str) -> str:

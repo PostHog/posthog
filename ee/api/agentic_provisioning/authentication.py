@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hmac
-import time
 import uuid
 import hashlib
 
@@ -26,13 +24,9 @@ from posthog.api.oauth.cimd import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
 
-from .signature import _compute_hmac, _get_raw_body, _parse_signature_header
-
 logger = structlog.get_logger(__name__)
 
 BEARER_PREFIX = "Bearer "
-STRIPE_SIGNATURE_HEADER = "HTTP_STRIPE_SIGNATURE"
-MAX_TIMESTAMP_DRIFT_SECONDS = 300
 
 
 class ProvisioningAuthentication(BaseAuthentication):
@@ -40,12 +34,12 @@ class ProvisioningAuthentication(BaseAuthentication):
 
     Partners are OAuthApplications with provisioning fields set (provisioning_auth_method
     is non-empty). The OAuthApplication handles standard OAuth (tokens, scopes, consent)
-    and also stores provisioning config: auth method, signing secret, feature flags
+    and also stores provisioning config: auth method, feature flags
     (provisioning_can_create_accounts, provisioning_can_provision_resources), and rate limits.
 
-    Partners are identified from request signals (HMAC header, Bearer token, or
-    client_id param) and dispatched to the matching auth strategy. Returns None
-    if no partner is identified, allowing legacy HMAC auth to handle the request.
+    Partners are identified from request signals (Bearer token or client_id param)
+    and dispatched to the matching auth strategy. Returns None if no partner is
+    identified.
     """
 
     cimd_registration_pending: bool = False
@@ -56,11 +50,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             return None
 
         try:
-            if app.provisioning_auth_method == "hmac":
-                user = self._verify_hmac(request, app)
-                _capture_auth_event(app, "success", endpoint=request.path)
-                return (user, app)
-            elif app.provisioning_auth_method == "bearer":
+            if app.provisioning_auth_method == "bearer":
                 user = self._verify_bearer(request, app)
                 _capture_auth_event(app, "success", endpoint=request.path)
                 return (user, app)
@@ -76,17 +66,12 @@ class ProvisioningAuthentication(BaseAuthentication):
     def _identify_partner(self, request: Request) -> OAuthApplication | None:
         app = None
 
-        # 1. Check for HMAC signature header -> look up by signing secret
-        if request.META.get(STRIPE_SIGNATURE_HEADER):
-            app = self._identify_hmac_partner(request)
+        # 1. Check for Bearer token -> look up OAuthApplication
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if auth_header.startswith(BEARER_PREFIX):
+            app = self._identify_bearer_partner(auth_header)
 
-        # 2. Check for Bearer token -> look up OAuthApplication
-        if app is None:
-            auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-            if auth_header.startswith(BEARER_PREFIX):
-                app = self._identify_bearer_partner(auth_header)
-
-        # 3. Check for client_id in request body (PKCE public clients)
+        # 2. Check for client_id in request body (PKCE public clients)
         if app is None:
             client_id = request.data.get("client_id") or request.query_params.get("client_id")
             if client_id:
@@ -96,32 +81,6 @@ class ProvisioningAuthentication(BaseAuthentication):
             return None
 
         return app
-
-    def _identify_hmac_partner(self, request: Request) -> OAuthApplication | None:
-        apps = OAuthApplication.objects.filter(
-            provisioning_auth_method="hmac",
-            provisioning_signing_secret__isnull=False,
-            provisioning_active=True,
-        )
-
-        sig_header = request.META.get(STRIPE_SIGNATURE_HEADER, "")
-        parsed = _parse_signature_header(sig_header)
-        if parsed is None:
-            return None
-
-        timestamp_str, signature_hex = parsed
-        body = _get_raw_body(request)
-        if body is None:
-            return None
-
-        for app in apps:
-            if not app.provisioning_signing_secret:
-                continue
-            expected = _compute_hmac(app.provisioning_signing_secret, timestamp_str, body)
-            if hmac.compare_digest(expected.lower(), signature_hex.lower()):
-                return app
-
-        return None
 
     def _identify_bearer_partner(self, auth_header: str) -> OAuthApplication | None:
         token_value = auth_header[len(BEARER_PREFIX) :].strip()
@@ -197,27 +156,6 @@ class ProvisioningAuthentication(BaseAuthentication):
             return app
         except OAuthApplication.DoesNotExist:
             return None
-
-    def _verify_hmac(self, request: Request, app: OAuthApplication):
-        sig_header = request.META.get(STRIPE_SIGNATURE_HEADER, "")
-        parsed = _parse_signature_header(sig_header)
-        if parsed is None:
-            raise AuthenticationFailed("Missing or malformed signature header")
-
-        timestamp_str, signature_hex = parsed
-        timestamp = int(timestamp_str)
-        if abs(int(time.time()) - timestamp) > MAX_TIMESTAMP_DRIFT_SECONDS:
-            raise AuthenticationFailed("Timestamp too old or too far in the future")
-
-        body = _get_raw_body(request)
-        if body is None:
-            raise AuthenticationFailed("Unable to read request body for signature verification")
-
-        expected = _compute_hmac(app.provisioning_signing_secret, timestamp_str, body)
-        if not hmac.compare_digest(expected.lower(), signature_hex.lower()):
-            raise AuthenticationFailed("Signature verification failed")
-
-        return None
 
     def _verify_bearer(self, request: Request, app: OAuthApplication):
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")

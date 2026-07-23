@@ -1,28 +1,56 @@
 from io import StringIO
 
 from django.core.management import call_command
-from django.test import override_settings
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from posthog.constants import AvailableFeature
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _compute_partner_scoped_teams
+from ee.models.rbac.access_control import AccessControl
+
+TOKEN_URL = "/api/agentic/oauth/token"
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPartnerTokenScopeHydration(ProvisioningTestBase):
-    def test_issuance_hydrates_with_previously_provisioned_teams(self):
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        previously_provisioned = Team.objects.create_with_data(
+    def _provision_team(
+        self, application: OAuthApplication, name: str, project_id: str, organization: Organization | None = None
+    ) -> Team:
+        team = Team.objects.create_with_data(
             initiating_user=self.user,
-            organization=self.organization,
-            name="Previously provisioned",
+            organization=organization or self.organization,
+            name=name,
         )
         TeamProvisioningConfig.objects.update_or_create(
-            team=previously_provisioned,
-            defaults={"stripe_project_id": "proj_existing", "application": stripe_app},
+            team=team,
+            defaults={"stripe_project_id": project_id, "application": application},
         )
+        return team
+
+    def _restrict_team_access(self, team: Team) -> None:
+        AccessControl.objects.create(
+            team=team,
+            access_level="none",
+            resource="project",
+            resource_id=str(team.id),
+        )
+
+    def _enable_access_control_as_member(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _refresh(self, refresh_token: str):
+        return self._post_api(TOKEN_URL, {"grant_type": "refresh_token", "refresh_token": refresh_token})
+
+    def test_issuance_hydrates_with_previously_provisioned_teams(self):
+        previously_provisioned = self._provision_team(self.partner, "Previously provisioned", "proj_existing")
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
@@ -30,10 +58,6 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert previously_provisioned.id in access_token.scoped_teams
 
     def test_other_partner_teams_excluded(self):
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
         other_partner = OAuthApplication.objects.create(
             name="Other Partner",
             client_id="other_partner_client_id",
@@ -44,15 +68,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
             algorithm="RS256",
             provisioning_partner_type="other_partner",
         )
-        other_partner_team = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=self.organization,
-            name="Other partner team",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=other_partner_team,
-            defaults={"stripe_project_id": "proj_other", "application": other_partner},
-        )
+        other_partner_team = self._provision_team(other_partner, "Other partner team", "proj_other")
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
@@ -62,27 +78,13 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # Same partner provisions teams in two orgs the user belongs to.
         # The token is granted under org A's authorization; org B's team must
         # not leak in just because the user can access it via org B membership.
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.organization import Organization, OrganizationMembership
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
         other_org = Organization.objects.create(name="Other org")
         OrganizationMembership.objects.create(
             organization=other_org,
             user=self.user,
             level=OrganizationMembership.Level.ADMIN,
         )
-        other_org_team = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=other_org,
-            name="Same partner, other org",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=other_org_team,
-            defaults={"stripe_project_id": "proj_other_org", "application": stripe_app},
-        )
+        other_org_team = self._provision_team(self.partner, "Same partner, other org", "proj_other_org", other_org)
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
@@ -90,59 +92,18 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert other_org_team.id not in access_token.scoped_teams
 
     def test_cross_org_teams_excluded(self):
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.organization import Organization
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
         other_org = Organization.objects.create(name="Other org")
-        foreign_team = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=other_org,
-            name="Foreign team",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=foreign_team,
-            defaults={"stripe_project_id": "proj_foreign", "application": stripe_app},
-        )
+        foreign_team = self._provision_team(self.partner, "Foreign team", "proj_foreign", other_org)
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
         assert foreign_team.id not in access_token.scoped_teams
 
     def test_team_with_revoked_access_excluded(self):
-        from posthog.constants import AvailableFeature
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.organization import OrganizationMembership
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+        self._enable_access_control_as_member()
 
-        from ee.models.rbac.access_control import AccessControl
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        restricted_team = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=self.organization,
-            name="Restricted team",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=restricted_team,
-            defaults={"stripe_project_id": "proj_restricted", "application": stripe_app},
-        )
-        AccessControl.objects.create(
-            team=restricted_team,
-            access_level="none",
-            resource="project",
-            resource_id=str(restricted_team.id),
-        )
+        restricted_team = self._provision_team(self.partner, "Restricted team", "proj_restricted")
+        self._restrict_team_access(restricted_team)
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
@@ -152,25 +113,8 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # When the base team is gone or the user lost access, _compute_partner_scoped_teams
         # returns []. An empty scoped_teams is unrestricted under the standard permission
         # check, so issuance must fail closed rather than mint a project-unrestricted token.
-        from posthog.constants import AvailableFeature
-        from posthog.models.oauth import OAuthAccessToken
-        from posthog.models.organization import OrganizationMembership
-
-        from ee.models.rbac.access_control import AccessControl
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        AccessControl.objects.create(
-            team=self.team,
-            access_level="none",
-            resource="project",
-            resource_id=str(self.team.id),
-        )
+        self._enable_access_control_as_member()
+        self._restrict_team_access(self.team)
 
         res = self._request_bearer_token()
         assert res.status_code == 400, res.content
@@ -178,31 +122,14 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert not OAuthAccessToken.objects.filter(user=self.user).exists()
 
     def test_refresh_rehydrates_with_new_teams(self):
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
         refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
         assert access_token.scoped_teams == [self.team.id]
 
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        newly_provisioned = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=self.organization,
-            name="Newly provisioned",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=newly_provisioned,
-            defaults={"stripe_project_id": "proj_new", "application": stripe_app},
-        )
+        newly_provisioned = self._provision_team(self.partner, "Newly provisioned", "proj_new")
 
-        res = self._post_signed(
-            "/api/agentic/oauth/token",
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token.token},
-            content_type="application/x-www-form-urlencoded",
-        )
+        res = self._refresh(refresh_token.token)
         assert res.status_code == 200, res.content
         new_access_token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert self.team.id in new_access_token.scoped_teams
@@ -212,33 +139,13 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # A refresh whose base team access was revoked recomputes to an empty scope.
         # It must fail closed (not rotate into an unrestricted token) and, because the
         # check runs before any token mutation, must leave the caller's refresh token intact.
-        from posthog.constants import AvailableFeature
-        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-        from posthog.models.organization import OrganizationMembership
-
-        from ee.models.rbac.access_control import AccessControl
-
         token = self._get_bearer_token()
         refresh_token = OAuthRefreshToken.objects.get(access_token__token=token)
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        AccessControl.objects.create(
-            team=self.team,
-            access_level="none",
-            resource="project",
-            resource_id=str(self.team.id),
-        )
+        self._enable_access_control_as_member()
+        self._restrict_team_access(self.team)
 
-        res = self._post_signed(
-            "/api/agentic/oauth/token",
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token.token},
-            content_type="application/x-www-form-urlencoded",
-        )
+        res = self._refresh(refresh_token.token)
         assert res.status_code == 400, res.content
         assert res.json()["error"] == "invalid_grant"
 
@@ -247,27 +154,12 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert OAuthAccessToken.objects.filter(token=token).exists()
 
     def test_backfill_rehydrates_stale_access_and_refresh_scope(self):
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
         refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
         assert access_token.scoped_teams == [self.team.id]
 
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        stripe_app.provisioning_partner_type = "stripe"
-        stripe_app.save()
-        newly_provisioned = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=self.organization,
-            name="Newly provisioned",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=newly_provisioned,
-            defaults={"stripe_project_id": "proj_new", "application": stripe_app},
-        )
+        newly_provisioned = self._provision_team(self.partner, "Newly provisioned", "proj_new")
 
         call_command("backfill_agentic_provisioning_scope", stdout=StringIO())
 
@@ -283,33 +175,13 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # An empty scoped_teams is unrestricted under the standard permission check, so the
         # backfill must NOT overwrite a restricted token with [] — it leaves the existing
         # restriction intact and reports the token for re-authorization.
-        from posthog.constants import AvailableFeature
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-        from posthog.models.organization import OrganizationMembership
-
-        from ee.models.rbac.access_control import AccessControl
-
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
         refresh_token = OAuthRefreshToken.objects.get(access_token=access_token)
         assert access_token.scoped_teams == [self.team.id]
 
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        stripe_app.provisioning_partner_type = "stripe"
-        stripe_app.save()
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        AccessControl.objects.create(
-            team=self.team,
-            access_level="none",
-            resource="project",
-            resource_id=str(self.team.id),
-        )
+        self._enable_access_control_as_member()
+        self._restrict_team_access(self.team)
 
         out = StringIO()
         call_command("backfill_agentic_provisioning_scope", stdout=out)
@@ -325,6 +197,4 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         # NOT NULL and issuance always resolves an app), so this pins the helper's
         # defensive branch: an unattributed token fails closed with no scope rather
         # than silently retaining the base team.
-        from ee.api.agentic_provisioning.views import _compute_partner_scoped_teams
-
         assert _compute_partner_scoped_teams(None, self.user, self.team.id) == []

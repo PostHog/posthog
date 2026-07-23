@@ -10,13 +10,12 @@ import requests
 from parameterized import parameterized
 
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, GitHubUserAuthorization, Integration
-from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason
 from posthog.models.user_integration import UserIntegration
 
 from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
-from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 INSTALLATION_ID = "777"
 
@@ -44,18 +43,17 @@ class TestWizardResourceActions(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         self.bearer = self._get_bearer_token()
-        self.partner = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
 
     def _grant(self) -> github_grants.GitHubGrant:
         return github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
 
     def _post_github_integration(self, team_id: int, body: dict):
-        return self._post_signed_with_bearer(
+        return self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{team_id}/github_integration", body, token=self.bearer
         )
 
     def _post_wizard_runs(self, team_id: int, body: dict):
-        return self._post_signed_with_bearer(
+        return self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{team_id}/wizard_runs", body, token=self.bearer
         )
 
