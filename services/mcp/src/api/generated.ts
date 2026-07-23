@@ -25069,10 +25069,10 @@ export namespace Schemas {
      * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type EvaluationTargetConfig = {
-      /** Wait a fixed window after the first generation, then evaluate. */
+      /** Wait a fixed window after the first matching generation, then evaluate. */
       strategy?: 'fixed_window';
       /**
-         * Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
@@ -25087,7 +25087,7 @@ export namespace Schemas {
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
          * @minimum 60
          * @maximum 7200
          */
@@ -47728,10 +47728,10 @@ export namespace Schemas {
      * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
      */
     export type PatchedEvaluationTargetConfig = {
-      /** Wait a fixed window after the first generation, then evaluate. */
+      /** Wait a fixed window after the first matching generation, then evaluate. */
       strategy?: 'fixed_window';
       /**
-         * Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+         * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
          * @minimum 10
          * @maximum 7200
          */
@@ -47746,7 +47746,7 @@ export namespace Schemas {
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.
+         * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
          * @minimum 60
          * @maximum 7200
          */

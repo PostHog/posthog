@@ -222,14 +222,14 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
                     .default(evaluationsCreateBodyTargetConfigOneStrategyDefault)
-                    .describe('Wait a fixed window after the first generation, then evaluate.'),
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
                     .default(evaluationsCreateBodyTargetConfigOneWindowSecondsDefault)
                     .describe(
-                        'Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
                     ),
             }),
             zod.object({
@@ -248,7 +248,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                     .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
                     .default(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault)
                     .describe(
-                        'Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
                     ),
             }),
         ])
@@ -414,14 +414,14 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
                     .default(evaluationsUpdateBodyTargetConfigOneStrategyDefault)
-                    .describe('Wait a fixed window after the first generation, then evaluate.'),
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsUpdateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsUpdateBodyTargetConfigOneWindowSecondsMax)
                     .default(evaluationsUpdateBodyTargetConfigOneWindowSecondsDefault)
                     .describe(
-                        'Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
                     ),
             }),
             zod.object({
@@ -440,7 +440,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                     .max(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
                     .default(evaluationsUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
                     .describe(
-                        'Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
                     ),
             }),
         ])
@@ -608,14 +608,14 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
                     .default(evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault)
-                    .describe('Wait a fixed window after the first generation, then evaluate.'),
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
                     .default(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault)
                     .describe(
-                        'Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
                     ),
             }),
             zod.object({
@@ -634,7 +634,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
                     .default(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
                     .describe(
-                        'Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
                     ),
             }),
         ])

@@ -67,7 +67,7 @@ class SentimentOutputConfig(BaseModel):
 
 
 # Settle-strategy bounds for trace-target evaluations. fixed_window: wait this long after the
-# first generation, then evaluate. inactivity: evaluate once the trace has had no new activity
+# first matching generation, then evaluate. inactivity: evaluate once the trace has had no new activity
 # for the quiet period, with max_age bounding the total wait from the first one.
 # Defaults are generous so heavy tool-using turns settle; floors keep local testing fast; the
 # 2h ceiling bounds how long a workflow sleeps. The workflow re-clamps as a safety net.
@@ -85,7 +85,7 @@ TRACE_EVAL_MAX_MAX_AGE_SECONDS = 2 * 60 * 60
 
 
 class FixedWindowSettleConfig(BaseModel):
-    """Wait a fixed window after the first generation, then evaluate."""
+    """Wait a fixed window after the first matching generation, then evaluate."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -94,7 +94,7 @@ class FixedWindowSettleConfig(BaseModel):
         default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         ge=TRACE_EVAL_MIN_WINDOW_SECONDS,
         le=TRACE_EVAL_MAX_WINDOW_SECONDS,
-        description="Seconds to wait after the first generation before evaluating.",
+        description="Seconds to wait after the first matching generation before evaluating.",
     )
 
 
@@ -114,7 +114,7 @@ class InactivitySettleConfig(BaseModel):
         default=TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
         ge=TRACE_EVAL_MIN_MAX_AGE_SECONDS,
         le=TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-        description="Hard cap on the total wait from the first generation.",
+        description="Hard cap on the total wait from the first matching generation.",
     )
 
     @model_validator(mode="after")

@@ -181,13 +181,13 @@
                     "properties": {
                         "strategy": {
                             "default": "fixed_window",
-                            "description": "Wait a fixed window after the first generation, then evaluate.",
+                            "description": "Wait a fixed window after the first matching generation, then evaluate.",
                             "enum": ["fixed_window"],
                             "type": "string"
                         },
                         "window_seconds": {
                             "default": 1800,
-                            "description": "Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.",
+                            "description": "Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.",
                             "maximum": 7200,
                             "minimum": 10,
                             "type": "number"
@@ -199,7 +199,7 @@
                     "properties": {
                         "max_age_seconds": {
                             "default": 7200,
-                            "description": "Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.",
+                            "description": "Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.",
                             "maximum": 7200,
                             "minimum": 60,
                             "type": "number"

@@ -537,10 +537,10 @@ export type EvaluationApiOutputConfig = {
  */
 export type EvaluationApiTargetConfig =
     | {
-          /** Wait a fixed window after the first generation, then evaluate. */
+          /** Wait a fixed window after the first matching generation, then evaluate. */
           strategy?: 'fixed_window'
           /**
-           * Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
            * @minimum 10
            * @maximum 7200
            */
@@ -556,7 +556,7 @@ export type EvaluationApiTargetConfig =
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
            * @minimum 60
            * @maximum 7200
            */
@@ -659,10 +659,10 @@ export type PatchedEvaluationApiOutputConfig = {
  */
 export type PatchedEvaluationApiTargetConfig =
     | {
-          /** Wait a fixed window after the first generation, then evaluate. */
+          /** Wait a fixed window after the first matching generation, then evaluate. */
           strategy?: 'fixed_window'
           /**
-           * Seconds to wait after the first generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
            * @minimum 10
            * @maximum 7200
            */
@@ -678,7 +678,7 @@ export type PatchedEvaluationApiTargetConfig =
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
            * @minimum 60
            * @maximum 7200
            */
