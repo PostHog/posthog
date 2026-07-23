@@ -15,10 +15,19 @@ from temporalio.worker import (
 )
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.temporal.common.errors import NonRetryableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _surface_cause_message(e: BaseException) -> None:
+    """A bare ``NonRetryableError()`` buries the real cause in ``__cause__``, so the failure
+    Temporal records reads as blank. Copy the cause's message onto the exception itself so
+    the kept failure is legible, without clobbering a message that's already set."""
+    if not str(e) and e.__cause__ is not None:
+        e.args = (str(e.__cause__) or type(e.__cause__).__name__,)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -71,6 +80,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # rate limiter already records via record_outbound_decision) are expected control flow,
             # not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+                raise
+            # NonRetryableError is a deliberate "give up, the user must fix their config" signal
+            # raised by data-import pipelines once retries are exhausted (bad credentials, a
+            # plan/scope gap, a dead host). It's expected, not a defect, so don't spawn an
+            # error-tracking issue — but surface its cause message first so the kept failure
+            # isn't blank.
+            if isinstance(e, NonRetryableError):
+                _surface_cause_message(e)
                 raise
             activity_info = activity.info()
             capture_kwargs = {

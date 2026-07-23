@@ -2,6 +2,22 @@ import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
 
+
+class NonRetryableError(Exception):
+    """Base for deliberate "give up — the user must fix their config" signals raised by
+    Temporal activities (bad credentials, a plan/scope gap, a dead host).
+
+    These are expected control flow, not defects: the pipeline has exhausted its retries and
+    wants the job marked failed with a helpful message. The PostHog interceptor treats them
+    like cancellations — it skips reporting them to error tracking — so they don't spawn a
+    fresh error-tracking issue for a failure nobody can act on."""
+
+    @property
+    def cause(self) -> BaseException | None:
+        """Cause of the exception. Same as ``Exception.__cause__``."""
+        return self.__cause__
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

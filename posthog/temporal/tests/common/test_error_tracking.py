@@ -15,7 +15,8 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.errors import NonRetryableError
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _surface_cause_message
 
 
 @dataclass
@@ -109,6 +110,27 @@ class EgressBackpressureActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             egress_backpressure_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def non_retryable_activity(inputs: OptionallyFailingInputs) -> None:
+    try:
+        raise ValueError("Squarespace 403 Forbidden on /commerce/store_pages")
+    except ValueError as cause:
+        raise NonRetryableError() from cause
+
+
+@workflow.defn
+class NonRetryableActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            non_retryable_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -252,6 +274,61 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_error_is_not_captured(temporal_client: Client):
+    """NonRetryableError is a deliberate "give up, the user must fix their config" signal raised
+    by data-import pipelines once retries are exhausted. It's expected control flow, not a defect,
+    so the interceptor must re-raise it without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[NonRetryableActivityWorkflow],
+            activities=[non_retryable_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "NonRetryableActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (NonRetryableError(), ""),  # no cause, no message → left blank
+        (NonRetryableError("already set"), "already set"),  # existing message is preserved
+    ],
+)
+def test_surface_cause_message_leaves_message_when_no_cause_or_already_set(exc: NonRetryableError, expected: str):
+    _surface_cause_message(exc)
+    assert str(exc) == expected
+
+
+def test_surface_cause_message_copies_cause_onto_blank_exception():
+    """A bare NonRetryableError() otherwise groups as a blank issue with the real reason buried
+    in __cause__; the interceptor copies the cause message onto it so the kept failure is legible."""
+    try:
+        raise ValueError("403 Forbidden on /commerce/store_pages")
+    except ValueError as cause:
+        exc = NonRetryableError()
+        exc.__cause__ = cause
+
+    _surface_cause_message(exc)
+
+    assert str(exc) == "403 Forbidden on /commerce/store_pages"
 
 
 @pytest.mark.asyncio
