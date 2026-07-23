@@ -477,6 +477,7 @@ class ExternalDataSourceType(models.TextChoices):
     PRESTASHOP = "PrestaShop", "PrestaShop"
     PRETIX = "Pretix", "Pretix"
     PRIMETRIC = "Primetric", "Primetric"
+    PRINTAVO = "Printavo", "Printavo"
     PRINTIFY = "Printify", "Printify"
     PRODUCTIVE = "Productive", "Productive"
     PYLON = "Pylon", "Pylon"

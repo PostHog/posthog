@@ -18632,6 +18632,7 @@ export namespace Schemas {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -19882,6 +19883,7 @@ export namespace Schemas {
       PrestaShop: 'PrestaShop',
       Pretix: 'Pretix',
       Primetric: 'Primetric',
+      Printavo: 'Printavo',
       Printify: 'Printify',
       Productive: 'Productive',
       Pylon: 'Pylon',
@@ -21146,6 +21148,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon
@@ -28547,6 +28550,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon
@@ -29824,6 +29828,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon
@@ -62490,6 +62495,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon
@@ -63780,6 +63786,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon
@@ -65062,6 +65069,7 @@ export namespace Schemas {
        * * `PrestaShop` - PrestaShop
        * * `Pretix` - Pretix
        * * `Primetric` - Primetric
+       * * `Printavo` - Printavo
        * * `Printify` - Printify
        * * `Productive` - Productive
        * * `Pylon` - Pylon

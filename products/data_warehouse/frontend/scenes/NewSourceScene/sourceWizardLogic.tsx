@@ -1430,6 +1430,7 @@ export interface sourceWizardLogicActions {
             | 'PrestaShop'
             | 'Pretix'
             | 'Primetric'
+            | 'Printavo'
             | 'Printify'
             | 'Procore'
             | 'Productboard'

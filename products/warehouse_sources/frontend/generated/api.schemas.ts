@@ -850,6 +850,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `PrestaShop` - PrestaShop
  * * `Pretix` - Pretix
  * * `Primetric` - Primetric
+ * * `Printavo` - Printavo
  * * `Printify` - Printify
  * * `Productive` - Productive
  * * `Pylon` - Pylon
@@ -2100,6 +2101,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PrestaShop: 'PrestaShop',
     Pretix: 'Pretix',
     Primetric: 'Primetric',
+    Printavo: 'Printavo',
     Printify: 'Printify',
     Productive: 'Productive',
     Pylon: 'Pylon',
@@ -3487,6 +3489,7 @@ export interface ExternalDataSourceCreateApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -4949,6 +4952,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -6221,6 +6225,7 @@ export interface DatabaseSchemaRequestApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -7553,6 +7558,7 @@ export interface SourcePreviewRequestApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -8842,6 +8848,7 @@ export interface SourceSetupApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon
@@ -10138,6 +10145,7 @@ export interface SourceCredentialCreateApi {
      * * `PrestaShop` - PrestaShop
      * * `Pretix` - Pretix
      * * `Primetric` - Primetric
+     * * `Printavo` - Printavo
      * * `Printify` - Printify
      * * `Productive` - Productive
      * * `Pylon` - Pylon

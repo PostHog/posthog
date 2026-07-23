@@ -1033,6 +1033,7 @@ export interface sourceCatalogLogicMeta {
                       | 'PrestaShop'
                       | 'Pretix'
                       | 'Primetric'
+                      | 'Printavo'
                       | 'Printify'
                       | 'Procore'
                       | 'Productboard'
