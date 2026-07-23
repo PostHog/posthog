@@ -26,6 +26,11 @@ export type BreakdownValueAndType = Pick<BreakdownColorConfig, 'breakdownValue' 
 /** Label of the synthetic baseline row funnel insights contribute to the colors table. */
 export const FUNNEL_BASELINE_BREAKDOWN_LABEL = 'Baseline'
 
+/** Joins the parts of a multi-breakdown value in normalized form. A control character scalar
+ * values can't realistically contain, so an array like ["a", "b"] never collides with a scalar
+ * value like "a::b" (the display separator, which does occur in real property values). */
+export const MULTI_BREAKDOWN_SEPARATOR = '\u001f'
+
 /** Breakdown values arrive as string | number | boolean | array depending on insight type and
  * persistence round-trips, while configs compare with strict equality. One canonical string form
  * keeps a value matching its config across tiles, insight types, and saves. */
@@ -33,7 +38,12 @@ export function normalizeBreakdownValue(value: unknown): string | null {
     if (value == null) {
         return null
     }
-    return Array.isArray(value) ? value.join('::') : String(value)
+    return Array.isArray(value) ? value.join(MULTI_BREAKDOWN_SEPARATOR) : String(value)
+}
+
+/** Restores the array form of a normalized multi-breakdown value so labels format each part. */
+export function denormalizeBreakdownValue(value: string): string | string[] {
+    return value.includes(MULTI_BREAKDOWN_SEPARATOR) ? value.split(MULTI_BREAKDOWN_SEPARATOR) : value
 }
 
 export function breakdownConfigMatches(

@@ -13,7 +13,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DashboardMode } from '~/types'
 
-import { BreakdownColorConfig, findBreakdownColorConfig } from './dashboardBreakdownColors'
+import { BreakdownColorConfig, denormalizeBreakdownValue, findBreakdownColorConfig } from './dashboardBreakdownColors'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
@@ -47,7 +47,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             render: (_, { breakdownValue, ...config }) => {
                 const breakdownFilter: BreakdownFilter = { breakdown_type: config.breakdownType }
                 const breakdownLabel = formatBreakdownLabel(
-                    breakdownValue,
+                    denormalizeBreakdownValue(breakdownValue),
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay

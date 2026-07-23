@@ -3,6 +3,7 @@ import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, Query
 
 import {
     BreakdownColorConfig,
+    MULTI_BREAKDOWN_SEPARATOR,
     computeAutoBreakdownColors,
     extractBreakdownValues,
     findBreakdownColorConfig,
@@ -241,6 +242,28 @@ describe('dashboardBreakdownColors', () => {
             ])
         })
 
+        it('sizes slots to the given palette instead of the default 15 colors', () => {
+            const existing: BreakdownColorConfig[] = [
+                { breakdownValue: 'Pinned', breakdownType: 'event', colorToken: 'preset-7', source: 'manual' },
+            ]
+
+            const assigned = computeAutoBreakdownColors(
+                [value('A'), value('B'), value('C'), value('D'), value('E')],
+                existing,
+                5
+            )
+
+            // preset-7 renders as the second color of a five-color theme, so that slot is taken,
+            // and the fifth value wraps at the palette size rather than taking preset-6
+            expect(assigned.map((c) => c.colorToken)).toEqual([
+                'preset-1',
+                'preset-3',
+                'preset-4',
+                'preset-5',
+                'preset-1',
+            ])
+        })
+
         it('wraps deterministically once the palette is exhausted', () => {
             const values = Array.from({ length: 17 }, (_, i) => value(`value-${String(i + 1).padStart(2, '0')}`))
 
@@ -283,11 +306,17 @@ describe('dashboardBreakdownColors', () => {
             { breakdownValue: '123', breakdownType: 'event', colorToken: 'preset-1' },
             { breakdownValue: 'a::b', breakdownType: 'event', colorToken: 'preset-2' },
             { breakdownValue: 'Chrome', breakdownType: 'person', colorToken: 'preset-3' },
+            {
+                breakdownValue: ['a', 'b'].join(MULTI_BREAKDOWN_SEPARATOR),
+                breakdownType: 'event',
+                colorToken: 'preset-4',
+            },
         ]
 
         it.each([
             ['numeric dataset value matches a stringified config', 123, 'event', 'preset-1'],
-            ['multi-breakdown array matches its joined form', ['a', 'b'], 'event', 'preset-2'],
+            ['multi-breakdown array matches its own entry, not a scalar containing "::"', ['a', 'b'], 'event', 'preset-4'],
+            ['scalar containing "::" matches its own entry, not a multi-breakdown array', 'a::b', 'event', 'preset-2'],
             ['breakdown type must match', 'Chrome', 'event', undefined],
             ['type defaults to event when not provided', '123', undefined, 'preset-1'],
         ] as const)('%s', (_name, breakdownValue, breakdownType, expectedToken) => {
