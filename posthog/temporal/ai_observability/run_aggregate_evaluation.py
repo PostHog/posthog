@@ -218,8 +218,11 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
         strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle)
         if strategy == "inactivity":
-            await asyncio.sleep(primary_seconds)
-            poll_budget_seconds = max_age_seconds - primary_seconds
+            # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
+            # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
+            initial_sleep_seconds = min(primary_seconds + INGESTION_LAG_MARGIN_SECONDS, max_age_seconds)
+            await asyncio.sleep(initial_sleep_seconds)
+            poll_budget_seconds = max_age_seconds - initial_sleep_seconds
             if poll_budget_seconds > 0:
                 poll_interval = max(primary_seconds // 4, 10)
                 try:

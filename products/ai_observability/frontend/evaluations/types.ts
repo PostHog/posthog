@@ -42,7 +42,7 @@ export interface EvaluationTargetConfig {
     strategy?: EvaluationSettleStrategy
     /** fixed_window: seconds to wait after the first matching generation before evaluating. */
     window_seconds?: number
-    /** inactivity: seconds without new matching activity before the trace counts as settled. */
+    /** inactivity: seconds without new trace activity before the trace counts as settled. */
     quiet_period_seconds?: number
     /** inactivity: hard cap in seconds on the total wait from the first matching generation. */
     max_age_seconds?: number

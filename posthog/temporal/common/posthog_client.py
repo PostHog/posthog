@@ -21,7 +21,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 # ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
-# probes), not defects — same reasoning as EgressBudgetExhausted above.
+# probes), not defects — same reasoning as the EgressBudgetExhausted exemption below.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled"})
 
 
