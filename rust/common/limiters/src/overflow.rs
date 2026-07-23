@@ -95,12 +95,14 @@ impl OverflowLimiter {
     }
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
-    /// needs to be spawned in a separate task.
-    pub async fn report_metrics(&self) {
+    /// needs to be spawned in a separate task. `lane` labels the series so
+    /// deployments running several limiter instances (e.g. capture's
+    /// analytics and AI lanes) don't overwrite each other's gauge.
+    pub async fn report_metrics(&self, lane: &'static str) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
-            gauge!("partition_limits_key_count").set(self.limiter.len() as f64);
+            gauge!("partition_limits_key_count", "lane" => lane).set(self.limiter.len() as f64);
         }
     }
 

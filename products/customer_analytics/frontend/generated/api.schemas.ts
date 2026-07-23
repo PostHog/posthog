@@ -438,6 +438,117 @@ export interface PatchedAccountApi {
 }
 
 /**
+ * * `pending` - Pending
+ * * `sending` - Sending
+ * * `sent` - Sent
+ * * `partially_failed` - Partially failed
+ * * `failed` - Failed
+ */
+export type AnnouncementStatusEnumApi = (typeof AnnouncementStatusEnumApi)[keyof typeof AnnouncementStatusEnumApi]
+
+export const AnnouncementStatusEnumApi = {
+    Pending: 'pending',
+    Sending: 'sending',
+    Sent: 'sent',
+    PartiallyFailed: 'partially_failed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `sent` - Sent
+ * * `failed` - Failed
+ */
+export type AnnouncementDeliveryStatusEnumApi =
+    (typeof AnnouncementDeliveryStatusEnumApi)[keyof typeof AnnouncementDeliveryStatusEnumApi]
+
+export const AnnouncementDeliveryStatusEnumApi = {
+    Pending: 'pending',
+    Sent: 'sent',
+    Failed: 'failed',
+} as const
+
+export interface AnnouncementDeliveryApi {
+    readonly id: string
+    /** Slack channel ID the message was sent to (e.g. C0123ABCD). */
+    readonly slack_channel_id: string
+    /** Slack channel display name at send time (without the leading #). */
+    readonly slack_channel_name: string
+    /** Per-channel delivery status: pending, sent, or failed.
+     *
+     * * `pending` - Pending
+     * * `sent` - Sent
+     * * `failed` - Failed */
+    readonly status: AnnouncementDeliveryStatusEnumApi
+    /** Slack error code when delivery to this channel failed; empty otherwise. */
+    readonly error: string
+    /** Timestamp ID of the posted Slack message, when delivery succeeded. */
+    readonly slack_message_ts: string
+    /**
+     * When the message was delivered to this channel. Null until sent.
+     * @nullable
+     */
+    readonly sent_at: string | null
+}
+
+export interface AnnouncementApi {
+    readonly id: string
+    /** Short human-friendly identifier for the announcement. */
+    readonly short_id: string
+    /** Message body to send, rendered as Slack mrkdwn. */
+    message: string
+    /** Overall status: pending, sending, sent, partially_failed, or failed.
+     *
+     * * `pending` - Pending
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `partially_failed` - Partially failed
+     * * `failed` - Failed */
+    readonly status: AnnouncementStatusEnumApi
+    /** Number of channels this announcement targets. */
+    readonly total_channels: number
+    /** Number of channels the message was successfully delivered to. */
+    readonly sent_count: number
+    /** Number of channels delivery failed for. */
+    readonly failed_count: number
+    /**
+     * When delivery finished (all channels resolved). Null while pending/sending.
+     * @nullable
+     */
+    readonly sent_at: string | null
+    /** When the announcement was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Per-channel delivery rows, one per selected Slack channel. */
+    readonly deliveries: readonly AnnouncementDeliveryApi[]
+    /** Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side. */
+    channels: string[]
+}
+
+export interface PaginatedAnnouncementListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AnnouncementApi[]
+}
+
+export interface AnnouncementChannelApi {
+    /** Slack channel ID (e.g. C0123ABCD). */
+    id: string
+    /** Slack channel display name (without the leading #). */
+    name: string
+    /** Whether the SupportHog bot is a member of this channel. */
+    is_member: boolean
+    /**
+     * Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.
+     * @nullable
+     */
+    customer_name: string | null
+}
+
+/**
  * * `text` - text
  * * `number` - number
  * * `currency` - currency
@@ -531,6 +642,45 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
+ * One person-property sync or backfill run. Read-only: runs are created by the sync/backfill
+ * pipeline, never through the API.
+ */
+export interface CustomPropertySyncRunApi {
+    readonly id: string
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    readonly trigger: string
+    /** Run status: 'running', 'completed', or 'failed'. */
+    readonly status: string
+    /**
+     * When the run began.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the run ended, or null while running.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /** Warehouse rows scanned this run. */
+    readonly rows_read: number
+    /** Rows whose mapped values changed since the last run. */
+    readonly changed: number
+    /** Person profiles updated (changed rows that matched an existing person). */
+    readonly existing: number
+    /** Property-update intents produced to the ingestion pipeline. */
+    readonly produced: number
+    /** Changed rows dropped because no existing person matched the distinct id. */
+    readonly skipped_missing_person: number
+    /**
+     * Error summary if the run failed, else null.
+     * @nullable
+     */
+    readonly error: string | null
+    /** When the run row was recorded. */
+    readonly created_at: string
+}
+
+/**
  * Binds a materialized data-warehouse view column to a custom property definition; the view's
  * values are synced onto matching accounts on each materialization.
  */
@@ -580,6 +730,18 @@ export interface CustomPropertySourceApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
+    /**
+     * Person sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly sync_frequency_interval_seconds: number | null
+    /**
+     * Person sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * @nullable
+     */
+    readonly next_sync_at: string | null
+    /** Person sources only: the most recent sync/backfill run, or null if none yet. */
+    readonly latest_run: CustomPropertySyncRunApi | null
 }
 
 /**
@@ -775,6 +937,43 @@ export interface PatchedCustomPropertySourceUpdateApi {
     key_column?: string
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
+}
+
+/**
+ * * `triggered` - triggered
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CustomPropertySyncTriggerResponseStatusEnumApi =
+    (typeof CustomPropertySyncTriggerResponseStatusEnumApi)[keyof typeof CustomPropertySyncTriggerResponseStatusEnumApi]
+
+export const CustomPropertySyncTriggerResponseStatusEnumApi = {
+    Triggered: 'triggered',
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the person-property sync/backfill trigger actions.
+ */
+export interface CustomPropertySyncTriggerResponseApi {
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+     *
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CustomPropertySyncTriggerResponseStatusEnumApi
+    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    already_running?: boolean
+}
+
+export interface PaginatedCustomPropertySyncRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertySyncRunApi[]
 }
 
 export interface CustomerJourneyApi {
@@ -1119,6 +1318,17 @@ export type AccountsRelationshipsListParams = {
     include_history?: boolean
 }
 
+export type AnnouncementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
@@ -1142,6 +1352,17 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 }
 
 export type CustomPropertySourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
      */

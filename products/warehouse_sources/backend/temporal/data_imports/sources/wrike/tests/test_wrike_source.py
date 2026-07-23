@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WrikeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.source import WrikeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import WrikeResumeConfig

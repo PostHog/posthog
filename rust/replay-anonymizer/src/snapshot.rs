@@ -38,6 +38,7 @@ use crate::json::{
     reject_if_too_deep,
 };
 use crate::scan::{self, Span};
+use crate::timings::PhaseTimings;
 
 /// Why a payload could not be anonymized; maps onto the TS pipeline's dlq/drop reasons so the fused
 /// step classifies failures exactly like the TS parse step does.
@@ -86,6 +87,21 @@ impl Failure {
 }
 
 type SResult<T> = Result<T, Failure>;
+
+/// Panic backstop for the byte-buffer entry points (see [`crate::unwind`]): a panic on untrusted
+/// input classifies as `anonymize_failed`, so the caller drops the message like any scrub error.
+///
+/// The panic message is deliberately dropped, not interpolated into the detail: this path runs on
+/// the ingestion hot path where the detail is logged into the DLQ at volume, and a std slice/`expect`
+/// panic embeds a chunk of the offending value — i.e. raw unscrubbed replay input. A static detail
+/// keeps that PII out of logs (matching what the Node addon's own outer `catch_unwind` did before
+/// this backstop existed). The offline `anyhow` entry points keep the message, where loud,
+/// input-bearing errors are acceptable and not logged at volume.
+fn contain_panics<T>(f: impl FnOnce() -> SResult<T>) -> SResult<T> {
+    crate::unwind::contain_unwind(f, |_msg| {
+        Failure::new(FailKind::AnonymizeFailed, "panic while anonymizing")
+    })
+}
 
 // Per-event flags, mirroring `rrweb-types.ts` / `segmentation.ts` predicates.
 pub const FLAG_ACTIVE: u8 = 1;
@@ -170,38 +186,20 @@ pub struct AnonymizedMessage {
     pub route: Route,
 }
 
-/// Decompressed payloads are capped (shared with the gzip codec's bomb cap) so a forged lz4 size
-/// prefix (a u32, so up to 4 GiB) cannot force the allocation; real replay payloads decompress to
-/// tens of MB at most.
-const MAX_DECOMPRESSED_LEN: usize = crate::gzip::MAX_DECOMPRESSED_BYTES;
-
 const GZIP_MAGIC: &[u8; 4] = &[0x1f, 0x8b, 0x08, 0x00];
 
 /// Decompress a raw Kafka message value the way capture wraps it (mirrors the TS
 /// `decompressMessageValue`): lz4 block with a 4-byte LE uncompressed-size prefix when the
 /// `content-encoding` header says lz4, gzip when the magic bytes say so, else pass through.
+/// Codec failures classify as `invalid_compressed_data`, matching the TS path.
 pub fn decompress_payload(raw: Vec<u8>, content_encoding: Option<&str>) -> SResult<Vec<u8>> {
-    let bad = |detail: &str| Failure::new(FailKind::InvalidCompressedData, detail);
+    let bad = |e: anyhow::Error| Failure::new(FailKind::InvalidCompressedData, format!("{e:#}"));
     if content_encoding == Some("lz4") {
-        let size_bytes: [u8; 4] = raw
-            .get(..4)
-            .and_then(|b| b.try_into().ok())
-            .ok_or_else(|| bad("lz4 payload too short for size prefix"))?;
-        let size = u32::from_le_bytes(size_bytes) as usize;
-        if size > MAX_DECOMPRESSED_LEN {
-            return Err(bad("lz4 uncompressed size exceeds limit"));
-        }
-        let out = lz4::block::decompress(&raw[4..], Some(size as i32))
-            .map_err(|e| bad(&format!("lz4 decompress failed: {e}")))?;
-        // Classify a lying size prefix as invalid_compressed_data (matching the TS path) rather
-        // than letting the short/long buffer surface later as invalid_json.
-        if out.len() != size {
-            return Err(bad("lz4 decoded length does not match the size prefix"));
-        }
-        return Ok(out);
+        return crate::compression::unlz4_block(&raw).map_err(bad);
     }
     if raw.starts_with(GZIP_MAGIC) {
-        return crate::gzip::gunzip(&raw).map_err(|e| bad(&format!("gzip decompress failed: {e}")));
+        return crate::compression::gunzip(&raw)
+            .map_err(|e| bad(e.context("gzip decompress failed")));
     }
     Ok(raw)
 }
@@ -218,19 +216,38 @@ pub fn anonymize_kafka_payload(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default(), Vec::new())
+    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default())
 }
 
 pub fn anonymize_kafka_payload_opts(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+) -> SResult<AnonymizedMessage> {
+    anonymize_kafka_payload_timed(allow, payload, opts, None)
+}
+
+/// [`anonymize_kafka_payload_opts`] with a phase-timing sink, which the caller should own outside
+/// any `catch_unwind` boundary so partial timings survive a contained panic.
+pub fn anonymize_kafka_payload_timed(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+) -> SResult<AnonymizedMessage> {
+    contain_panics(|| anonymize_kafka_payload_opts_impl(allow, payload, opts, timings))
+}
+
+fn anonymize_kafka_payload_opts_impl(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts);
+            return anonymize_kafka_payload_via_parse(allow, payload, opts, timings);
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -248,9 +265,9 @@ pub fn anonymize_kafka_payload_opts(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts, first_party_hosts);
+        return anonymize_snapshot_data_inner(allow, &distinct_id, inner, opts, timings);
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts)
+    anonymize_kafka_payload_via_parse(allow, payload, opts, timings)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -325,7 +342,7 @@ fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+    timings: Option<&PhaseTimings>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -351,7 +368,7 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts, first_party_hosts)
+    anonymize_snapshot_data_inner(allow, distinct_id, &mut data_bytes, opts, timings)
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -362,13 +379,7 @@ pub fn anonymize_snapshot_data(
     distinct_id: &str,
     inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_snapshot_data_opts(
-        allow,
-        distinct_id,
-        inner,
-        AnonymizeOpts::default(),
-        Vec::new(),
-    )
+    anonymize_snapshot_data_opts(allow, distinct_id, inner, AnonymizeOpts::default())
 }
 
 pub fn anonymize_snapshot_data_opts(
@@ -376,12 +387,21 @@ pub fn anonymize_snapshot_data_opts(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+) -> SResult<AnonymizedMessage> {
+    contain_panics(|| anonymize_snapshot_data_inner(allow, distinct_id, inner, opts, None))
+}
+
+fn anonymize_snapshot_data_inner(
+    allow: &AllowLists,
+    distinct_id: &str,
+    inner: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
 ) -> SResult<AnonymizedMessage> {
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::with_first_party_hosts(allow, first_party_hosts);
+    let ctx = Ctx::with_timings(allow, timings);
     match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => Ok(msg),
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
@@ -1285,8 +1305,10 @@ pub fn anonymize_via_tree(
     distinct_id: &str,
     inner: &[u8],
 ) -> SResult<AnonymizedMessage> {
-    let mut buf = inner.to_vec();
-    anonymize_via_tree_mut(ctx, distinct_id, &mut buf)
+    contain_panics(|| {
+        let mut buf = inner.to_vec();
+        anonymize_via_tree_mut(ctx, distinct_id, &mut buf)
+    })
 }
 
 /// [`anonymize_via_tree`] parsing the buffer in place (it is consumed).

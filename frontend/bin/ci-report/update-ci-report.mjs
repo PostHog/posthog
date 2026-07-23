@@ -16,6 +16,7 @@ export const MARKER = '<!-- posthog-ci-report -->'
 export const SECTIONS = [
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
+    { id: 'toolbar-size', title: 'Toolbar bundle' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
     { id: 'playwright', title: 'Playwright' },
@@ -31,6 +32,7 @@ export const SECTIONS = [
     { id: 'hogql-parser-py', title: 'hogql-parser version' },
     { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
+    { id: 'replay-anonymizer-crate', title: 'posthog-replay-anonymizer version' },
     { id: 'generated-docs', title: 'Generated docs' },
     { id: 'docs-preview', title: 'Docs preview' },
     { id: 'hobby-deploy', title: 'Hobby preview' },

@@ -10,7 +10,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GranolaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.granola import (
+    GranolaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.granola import GranolaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.granola.source import GranolaSource
@@ -144,7 +146,8 @@ class TestGranolaSource:
         mock_granola_source.assert_called_once_with(
             api_key="grn_test",
             endpoint="notes",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-id",
             resumable_source_manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value=last_value,

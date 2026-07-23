@@ -64,6 +64,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
     SandboxCustomImageSerializer,
+    SandboxCustomImageUpdateSerializer,
     SandboxCustomImageWriteSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
@@ -142,7 +143,7 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
-SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
@@ -1083,7 +1084,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pk is None:
             raise NotFound()
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.update_task_run(pk, task_id, self.team_id, validated_data=dict(request.validated_data))
+        # only_if_non_terminal: a run cancelled out of band (loop cancel_previous, owner deactivation)
+        # must not be resurrected to completed/failed by a stale in-flight agent PATCH. A terminal run
+        # is done, so a late PATCH is a no-op, not an overwrite.
+        run = tasks_facade.update_task_run(
+            pk, task_id, self.team_id, validated_data=dict(request.validated_data), only_if_non_terminal=True
+        )
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
@@ -2299,11 +2305,16 @@ class CodeInviteViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Access check result"),
         },
         summary="Check access",
-        description="Check whether the authenticated user has access to PostHog Code.",
+        description="Check whether the authenticated user has access to PostHog Code and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        return Response({"has_access": tasks_access.has_tasks_access(request.user)})
+        return Response(
+            {
+                "has_access": tasks_access.has_tasks_access(request.user),
+                "has_loops_access": tasks_access.has_loops_access(request.user),
+            }
+        )
 
 
 @extend_schema(tags=["sandbox-environments"])
@@ -2380,7 +2391,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    http_method_names = ["get", "post", "delete", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -2418,6 +2429,28 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         except ValueError as e:
             raise ValidationError(str(e))
         return Response(SandboxCustomImageSerializer(image).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=SandboxCustomImageUpdateSerializer,
+        responses={200: SandboxCustomImageSerializer},
+        description="Rename or update the description of a custom image. Only mutable metadata "
+        "(name, description) is editable; the build spec and status are managed by the build flow.",
+    )
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = SandboxCustomImageUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.update_sandbox_custom_image(
+                pk,
+                self.team_id,
+                request.user.id,
+                **serializer.validated_data,
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
 
     @extend_schema(
         request=None,

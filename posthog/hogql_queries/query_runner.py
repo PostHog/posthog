@@ -45,10 +45,15 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCategoriesQuery,
+    MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
     MCPToolNeighborsQuery,
+    MCPToolQualityDailyStatsQuery,
+    MCPToolQualityRowsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
@@ -352,8 +357,13 @@ RunnableQueryNode = Union[
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
+    MCPToolQualityRowsQuery,
+    MCPToolQualityDailyStatsQuery,
+    MCPToolCategoryCountsQuery,
+    MCPToolCategoriesQuery,
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
@@ -1030,6 +1040,17 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPToolFailureOccurrencesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailureOccurrencesQueryRunner
+
+        return MCPToolFailureOccurrencesQueryRunner(
+            query=cast(MCPToolFailureOccurrencesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "MCPToolStatsQuery":
         from products.mcp_analytics.backend.facade.queries import MCPToolStatsQueryRunner
 
@@ -1046,6 +1067,50 @@ def get_query_runner(
 
         return MCPToolDailyStatsQueryRunner(
             query=cast(MCPToolDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolQualityRowsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolQualityRowsQueryRunner
+
+        return MCPToolQualityRowsQueryRunner(
+            query=cast(MCPToolQualityRowsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolQualityDailyStatsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolQualityDailyStatsQueryRunner
+
+        return MCPToolQualityDailyStatsQueryRunner(
+            query=cast(MCPToolQualityDailyStatsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoryCountsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoryCountsQueryRunner
+
+        return MCPToolCategoryCountsQueryRunner(
+            query=cast(MCPToolCategoryCountsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCategoriesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCategoriesQueryRunner
+
+        return MCPToolCategoriesQueryRunner(
+            query=cast(MCPToolCategoriesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

@@ -7,11 +7,11 @@ import { logger } from '~/common/utils/logger'
 import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { recordAnonymizeTimingSpans } from '~/ingestion/pipelines/sessionreplay/anonymize-timing-spans'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
-import { TeamForReplay } from './shared/teams/types'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -44,9 +44,10 @@ const DLQ_REASONS = new Set([
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<
-    T extends ParseMessageStepInput & { team: TeamForReplay },
->(): ProcessingStep<T, T & ParseMessageStepOutput> {
+export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
+    T,
+    T & ParseMessageStepOutput
+> {
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -62,13 +63,10 @@ export function createParseAndAnonymizeMessageStep<
         )
 
         const t0 = performance.now()
+        const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(
-                message.value,
-                contentEncoding,
-                input.team.firstPartyHosts
-            )
+            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
@@ -76,6 +74,10 @@ export function createParseAndAnonymizeMessageStep<
             return drop('anonymize_failed')
         }
         SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
+        recordAnonymizeTimingSpans(callStartEpochMs, result.timings, {
+            route: result.route,
+            failureReason: result.failed ? (result.reason ?? 'anonymize_failed') : null,
+        })
 
         if (result.failed) {
             if (result.reason && DLQ_REASONS.has(result.reason)) {

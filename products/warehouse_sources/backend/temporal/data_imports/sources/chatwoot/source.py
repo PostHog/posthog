@@ -54,7 +54,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChatwootSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
+    ChatwootSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Webhook management calls run in the API request path where no job logger exists.
@@ -190,6 +192,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Chatwoot's list endpoints expose no server-side timestamp filter, so every schema is
         # full refresh; conversations and messages additionally support webhook-fed deltas.
@@ -210,7 +213,11 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         return schemas
 
     def validate_credentials(
-        self, config: ChatwootSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChatwootSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The user token grants access to the whole account, so one probe validates every schema.
         return validate_chatwoot_credentials(config.host, config.account_id, config.api_access_token, team_id)
@@ -221,7 +228,9 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: ChatwootSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: ChatwootSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return create_chatwoot_webhook(
             config.host, config.account_id, config.api_access_token, webhook_url, team_id, logger
         )
@@ -239,6 +248,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return update_chatwoot_webhook_events(
@@ -246,13 +256,15 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         )
 
     def get_external_webhook_info(
-        self, config: ChatwootSourceConfig, webhook_url: str, team_id: int
+        self, config: ChatwootSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         return get_chatwoot_webhook_info(
             config.host, config.account_id, config.api_access_token, webhook_url, team_id, logger
         )
 
-    def delete_webhook(self, config: ChatwootSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: ChatwootSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return delete_chatwoot_webhook(
             config.host, config.account_id, config.api_access_token, webhook_url, team_id, logger
         )
