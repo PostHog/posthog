@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from redis import exceptions as redis_exceptions
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -113,6 +114,35 @@ class EgressBackpressureActivityWorkflow:
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
             retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@dataclass
+class RedisTimeoutInputs:
+    persistent: bool
+
+
+@activity.defn
+async def redis_timeout_activity(inputs: RedisTimeoutInputs) -> None:
+    # Always fail on the first attempt; keep failing across every attempt only when persistent.
+    if inputs.persistent or activity.info().attempt == 1:
+        raise redis_exceptions.TimeoutError("Timeout reading from 10.0.0.1:6379")
+
+
+@workflow.defn
+class RedisTimeoutActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: RedisTimeoutInputs) -> None:
+        await workflow.execute_activity(
+            redis_timeout_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(milliseconds=100),
+                maximum_interval=dt.timedelta(milliseconds=100),
+                maximum_attempts=2,
+            ),
         )
 
 
@@ -252,6 +282,51 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "persistent,expected_captures",
+    [
+        (False, 0),  # transient blip recovers on retry — must not be reported
+        (True, 1),  # genuine outage exhausts retries — reported once, on the final attempt
+    ],
+)
+@pytest.mark.asyncio
+async def test_retryable_transport_error_only_captured_when_retries_exhausted(
+    persistent: bool, expected_captures: int, temporal_client: Client
+):
+    """A transient transport error (Redis read timeout / dropped connection) that Temporal retries
+    and recovers from is expected recoverable noise, so the interceptor must not report it while
+    retries remain. If it exhausts every attempt (a genuine outage), the final attempt is reported."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[RedisTimeoutActivityWorkflow],
+            activities=[redis_timeout_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            execute = temporal_client.execute_workflow(
+                "RedisTimeoutActivityWorkflow",
+                RedisTimeoutInputs(persistent=persistent),
+                id=workflow_id,
+                task_queue=task_queue,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if persistent:
+                with pytest.raises(WorkflowFailureError):
+                    await execute
+            else:
+                await execute
+
+        assert mock_ph_capture.call_count == expected_captures
+        if expected_captures:
+            captured_exc = mock_ph_capture.call_args_list[0][0][0]
+            assert isinstance(captured_exc, redis_exceptions.TimeoutError)
 
 
 @pytest.mark.asyncio
