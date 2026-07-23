@@ -37,15 +37,21 @@ class InboundMessage:
 
 and drive a provider-neutral routing pipeline with it. Don't introduce this type before that pipeline exists — it would be dead code.
 
-## Adding a provider (checklist)
+## Adding a provider (checklist, annotated with where Telegram landed)
 
-1. Implement `ChatProvider` in `providers/<name>.py`, delegating to provider-specific service modules; register it in `registry._PROVIDERS`.
-2. Add the webhook view (`/<name>/event-callback` in `posthog/urls.py`) doing signature validation via the provider class, plus the provider's secret to `region_auth.region_claims_secret` and its kinds to `region_claims._PROVIDER_CLAIM_KINDS` (instance settings follow the `SlackIntegration.slack_config` pattern).
-3. Identity linking: add the provider kind to `UserIntegration.IntegrationKind` and build a linking flow (Telegram: a `/start` deep link carrying a signed token from a logged-in PostHog session — no email exists, so linking is the only identity path). Reuse `_pick_accessible_linked_user` in `services/slack_user_oauth.py` for the org-scoped most-recent-wins resolution.
-4. Conversation binding: decide how a chat maps to an `Integration` row (central-bot providers bind chat id → integration via an explicit connect step by a linked user).
-5. Thread mapping: add a provider-specific mapping table (thread → task run); make the run-keyed lookups in the tasks product (`slack_relay`, `post_slack_update`, `living_artifacts`) fan out across provider mappings, and have the provider stamp `"provider": "<name>"` into its serialized thread contexts so `thread_handler_from_context` can dispatch.
-6. Temporal: new workflow + activities with provider-specific registered names (Slack's are pinned and Slack-shaped); reuse the workflow's structure, not its registrations.
+1. Implement `ChatProvider` in `providers/<name>.py`, delegating to provider-specific service modules; register it in `registry._PROVIDERS`. _Telegram: `providers/telegram.py`, delegating to `services/telegram_api.py` (hand-rolled Bot API client) and `services/telegram_link.py`._
+2. Add the webhook view (`/<name>/event-callback` in `posthog/urls.py`) doing signature validation via the provider class, plus the provider's secret to `region_auth.region_claims_secret` and its kinds to `region_claims._PROVIDER_CLAIM_KINDS`. _Telegram: `views/telegram_events.py`; secrets are the `TELEGRAM_APP_BOT_TOKEN` / `TELEGRAM_APP_WEBHOOK_SECRET` instance settings, and the webhook secret doubles as the region-claims secret._
+3. Identity linking: add the provider kind to `UserIntegration.IntegrationKind` and build a linking flow; reuse `_pick_accessible_linked_user` in `services/slack_user_oauth.py`. _Telegram: no email and a 64-char `/start` payload limit, so linking rides one-shot cache-backed codes (`services/telegram_link.py`) minted by the login-gated `views/telegram_link.py` views._
+4. Conversation binding: decide how a chat maps to an `Integration` row. _Telegram: every chat (DM or group) binds to exactly one team via `kind="telegram"`, `integration_id=chat_id`; DMs bind on `/start` redemption, groups on `/connect <code>` with a minter-match guard (the pasted command is visible to the whole group, so the code alone must not suffice)._
+5. Thread mapping: add a provider-specific mapping table (thread → task run); fan the run-keyed lookups in the tasks product out across provider mappings, and stamp `"provider": "<name>"` into serialized thread contexts so `thread_handler_from_context` can dispatch. _Telegram: `TelegramChatTaskMapping` (one row per originating message); fan-outs live in `slack_relay/activities.py`, `facade/api.py` (relay gate), and `living_artifacts.py` (artifacts refused — no delivery adapter)._
+6. Temporal: new workflow + activities with provider-specific registered names; reuse the workflow's structure, not its registrations. _Telegram: `posthog/temporal/ai/telegram_app/` (`telegram-app-mention-processing`), registered on `TASKS_TASK_QUEUE`._
 7. Cross-product access goes through `facade/api.py` — extend the facade, don't import product internals from outside.
+
+## Telegram v1 scope and setup
+
+Deliberate scope cuts, matching the minimal loop: no inline keyboards or interactivity (unresolvable repo cascades get an ask-for-explicit-repo reply instead of a picker), no untagged follow-ups (one task per originating message), terminal-updates-only output (progress and status-stream handler methods are no-ops), and plain-text relay (no MarkdownV2 escaping — a mis-escaped entity drops the whole message).
+
+Operational setup: create the bot with BotFather, provision `TELEGRAM_APP_BOT_TOKEN` and `TELEGRAM_APP_WEBHOOK_SECRET` identically in both Cloud regions (Telegram delivers all updates to one URL; the receiving region proxies to the owning one via the claims probe), then run `python manage.py setup_telegram_webhook` (use `--url` for an ngrok tunnel in dev). BotFather group privacy mode can stay ON — mentions and replies to the bot are still delivered, which is the entire group surface. The mention path is additionally gated by the `telegram-app` feature flag.
 
 ## Splitting / deploy sequencing
 
