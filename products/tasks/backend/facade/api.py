@@ -5368,12 +5368,18 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
     """
     try:
         if not _is_safe_pr_url(pr_url):
+            logger.info("pr_created thread update skipped", extra={"task_id": str(run.task_id), "reason": "unsafe_url"})
             return
+        # Unlike turn_complete's old channel guard, artifact rows post for
+        # channel-less tasks too: every task has a thread panel.
         task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
-        # Threads hang off a task's channel feed; a channel-less task has no audience.
-        if task is None or task.channel_id is None:
+        if task is None:
             return
         if task.created_by is None or not _agent_thread_updates_enabled(task.created_by):
+            logger.info(
+                "pr_created thread update skipped",
+                extra={"task_id": str(task.id), "reason": "no_creator" if task.created_by is None else "flag_off"},
+            )
             return
         # The agent-output path and the webhook backstop can race on the same PR;
         # locking the task row makes the dedupe check-and-create atomic across them.

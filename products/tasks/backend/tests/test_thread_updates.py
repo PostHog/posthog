@@ -13,6 +13,8 @@ from products.tasks.backend.facade.api import (
     list_thread_messages,
     post_canvas_created_thread_update,
     post_pr_created_thread_update,
+    set_task_run_output,
+    update_task_run,
 )
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TaskThreadMessageMention
 
@@ -106,13 +108,12 @@ class TestAgentThreadUpdates(TestCase):
 
     @parameterized.expand(
         [
-            ("flag_off", False, True, True),
-            ("no_channel", True, False, True),
-            ("no_creator", True, True, False),
+            ("flag_off", False, True),
+            ("no_creator", True, False),
         ]
     )
     @patch(_FLAG_TARGET)
-    def test_pr_created_skips(self, _name, flag_on, has_channel, has_creator, flag_mock) -> None:
+    def test_pr_created_skips(self, _name, flag_on, has_creator, flag_mock) -> None:
         flag_mock.return_value = flag_on
         task = Task.objects.create(
             team=self.team,
@@ -120,13 +121,63 @@ class TestAgentThreadUpdates(TestCase):
             description="",
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.user if has_creator else None,
-            channel=self.channel if has_channel else None,
+            channel=self.channel,
         )
         run = TaskRun.objects.create(task=task, team=self.team)
 
         post_pr_created_thread_update(run, "https://github.com/posthog/posthog/pull/123")
 
         self.assertEqual(self._messages(task), [])
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_pr_created_posts_when_run_patch_records_pr_url(self, _flag) -> None:
+        # The agent attaches a PR by PATCHing the run's output — the path the
+        # desktop/cloud agent actually uses (attachPullRequestToTask).
+        with team_scope(self.team.id):
+            update_task_run(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"output": {"pr_url": "https://github.com/posthog/posthog/pull/321"}},
+            )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["pr_created"])
+        self.assertEqual(messages[0].payload, {"pr_url": "https://github.com/posthog/posthog/pull/321"})
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_pr_created_posts_when_set_output_records_pr_url(self, _flag) -> None:
+        with team_scope(self.team.id):
+            set_task_run_output(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                output={"pr_url": "https://github.com/posthog/posthog/pull/654"},
+            )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["pr_created"])
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_pr_created_posts_for_channel_less_tasks(self, _flag) -> None:
+        # Threads exist per-task, not only per-channel: a task filed outside a
+        # channel still has a thread panel, and its PR artifact must land there
+        # (canvas_created behaves the same way).
+        task = Task.objects.create(
+            team=self.team,
+            title="Channel-less task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            channel=None,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+
+        post_pr_created_thread_update(run, "https://github.com/posthog/posthog/pull/123")
+
+        messages = self._messages(task)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].event, "pr_created")
 
     @parameterized.expand(
         [
