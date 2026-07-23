@@ -112,6 +112,14 @@ TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
     os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
 )
 
+# Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
+# execute for customer teams, but their mirrored logs must only ever land in (and bill)
+# PostHog's own internal logs project — so this is the internal project's API key, never
+# derived from the run's team. Point locally at the dev logs ingest to see mirrored runs
+# in /logs. Unset disables the direct leg (stdout emission for the collector remains).
+TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
+
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 

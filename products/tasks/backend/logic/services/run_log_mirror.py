@@ -8,12 +8,12 @@ into a trace id (see `argocd/otel-collector` in the charts repo). So in producti
 dogfooding scout-run logs needs no transport of its own: emitting one structured stdout
 line per persisted entry is enough.
 
-Local dev is the exception: `otel-collector-config.dev.yaml` only tails docker-compose
-container stdout, and `append_log` runs in the host Django process, so the stdout lines
-never reach Logs there. In DEBUG each batch is therefore also shipped straight to the
-logs OTLP endpoint the agent telemetry already uses (`SANDBOX_AGENT_OTEL_LOGS_URL` +
-`_TOKEN`) — DEBUG-only because in production those settings point at the customer-facing
-telemetry project and the collector already delivers pod stdout to the internal project.
+A direct OTLP leg (`TASK_RUN_LOGS_MIRROR_OTLP_URL` + `_TOKEN`) additionally ships each
+batch straight to a logs ingest endpoint. The token pins the destination to PostHog's own
+internal logs project: scout runs execute for customer teams, and their mirrored
+transcripts must never land in — or bill — a customer's project. It is also the only
+delivery path in local dev, where `append_log` runs in the host Django process whose
+stdout the dev collector (docker containers only) never tails.
 
 Each mirrored line carries the run's uuid as `request_id` (and as the OTLP trace id on
 the direct leg), so a whole run groups as one trace in the Logs UI and can be pulled up
@@ -106,18 +106,15 @@ def mirror_entries(
 
 
 def _post_otlp(records: list[tuple[str, dict[str, Any]]], *, run_id: str) -> None:
-    """Ship the batch straight to the local logs OTLP endpoint in dev.
+    """Ship the batch straight to the configured logs OTLP endpoint.
 
-    DEBUG-only: production delivery is the collector tailing pod stdout, and reusing
-    `SANDBOX_AGENT_OTEL_LOGS_*` there would double-deliver scout bodies into the
-    customer-facing telemetry project. Best-effort: a delivery failure is logged and
-    never raises into the run.
+    The token routes the records, so the destination is always the internal logs
+    project the settings point at — never the run's (customer) team. Best-effort:
+    a delivery failure is logged and never raises into the run.
     """
-    if not settings.DEBUG or not records:
-        return
-    url = settings.SANDBOX_AGENT_OTEL_LOGS_URL
-    token = settings.SANDBOX_AGENT_OTEL_LOGS_TOKEN
-    if not url or not token:
+    url = settings.TASK_RUN_LOGS_MIRROR_OTLP_URL
+    token = settings.TASK_RUN_LOGS_MIRROR_OTLP_TOKEN
+    if not url or not token or not records:
         return
 
     # The run uuid without dashes is a valid 16-byte hex trace id, matching the

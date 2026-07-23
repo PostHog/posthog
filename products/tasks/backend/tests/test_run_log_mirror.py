@@ -127,9 +127,8 @@ class TestMirrorEntries(SimpleTestCase):
 
 class TestMirrorOtlpDelivery(SimpleTestCase):
     @override_settings(
-        DEBUG=True,
-        SANDBOX_AGENT_OTEL_LOGS_URL="http://localhost:8000/i/v1/logs",
-        SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_logs",
+        TASK_RUN_LOGS_MIRROR_OTLP_URL="https://us.i.posthog.com/i/v1/logs",
+        TASK_RUN_LOGS_MIRROR_OTLP_TOKEN="phc_internal",
     )
     def test_posts_one_otlp_batch_with_severity_trace_and_attributes(self):
         entries = [
@@ -141,8 +140,10 @@ class TestMirrorOtlpDelivery(SimpleTestCase):
 
         mock_requests.post.assert_called_once()
         args, kwargs = mock_requests.post.call_args
-        assert args[0] == "http://localhost:8000/i/v1/logs"
-        assert kwargs["headers"] == {"Authorization": "Bearer phc_logs"}
+        assert args[0] == "https://us.i.posthog.com/i/v1/logs"
+        # The configured internal-project token routes the records — never a key
+        # derived from the run's (customer) team.
+        assert kwargs["headers"] == {"Authorization": "Bearer phc_internal"}
         records = kwargs["json"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
         assert [r["severityText"] for r in records] == ["INFO", "ERROR"]
         assert records[0]["body"]["stringValue"] == "[agent_message] hello"
@@ -156,17 +157,14 @@ class TestMirrorOtlpDelivery(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # Production: never deliver directly, even with the agent telemetry
-            # settings configured — the collector owns delivery there, and posting
-            # would put scout bodies in the customer-facing telemetry project.
-            ("prod_with_settings", False, "http://localhost:8000/i/v1/logs", "phc_logs"),
-            ("debug_without_url", True, None, "phc_logs"),
-            ("debug_without_token", True, "http://localhost:8000/i/v1/logs", None),
+            ("both_unset", None, None),
+            ("url_only", "https://us.i.posthog.com/i/v1/logs", None),
+            ("token_only", None, "phc_internal"),
         ]
     )
-    def test_no_http_delivery_outside_configured_debug(self, _name, debug, url, token):
+    def test_no_http_delivery_unless_fully_configured(self, _name, url, token):
         entry = _session_update_entry("agent_message", content={"type": "text", "text": "hello"})
-        with override_settings(DEBUG=debug, SANDBOX_AGENT_OTEL_LOGS_URL=url, SANDBOX_AGENT_OTEL_LOGS_TOKEN=token):
+        with override_settings(TASK_RUN_LOGS_MIRROR_OTLP_URL=url, TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=token):
             with patch("products.tasks.backend.logic.services.run_log_mirror.internal_requests") as mock_requests:
                 _mirror([entry])
 

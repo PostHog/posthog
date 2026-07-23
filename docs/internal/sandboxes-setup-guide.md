@@ -268,13 +268,20 @@ so one run groups as a trace and can be pulled up with an attribute filter on `t
 TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
 ```
 
-**Local dev delivery**: `append_log` runs in the host Django process,
-and the dev collector (`otel-collector-config.dev.yaml`) only tails docker-compose container stdout,
-so the mirrored stdout lines never reach your local Logs on their own — they just show up in the Django phrocs pane.
-In DEBUG the mirror therefore also ships each batch straight to the logs OTLP endpoint the agent telemetry already uses —
-if `SANDBOX_AGENT_OTEL_LOGS_URL` + `SANDBOX_AGENT_OTEL_LOGS_TOKEN` are set (see "Agent run telemetry" above), mirrored scout runs appear in `/logs` with no extra configuration.
+The mirror also has a **direct OTLP leg** that ships each batch straight to a logs ingest endpoint:
+
+```bash
+TASK_RUN_LOGS_MIRROR_OTLP_URL=http://localhost:8000/i/v1/logs  # prod: https://us.i.posthog.com/i/v1/logs
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=<project API key of the internal logs project>
+```
+
+The token pins the destination: scout runs execute for customer teams,
+but their mirrored transcripts must only ever land in — and bill — PostHog's own internal logs project, never the customer's.
 Records arrive under `service.name=task-run-log-mirror` with the run uuid as the trace id.
-This direct leg is DEBUG-only: in production those settings point at the customer-facing telemetry project, and the collector already delivers pod stdout to the internal project.
+
+Locally the direct leg is the only delivery path: `append_log` runs in the host Django process,
+and the dev collector (`otel-collector-config.dev.yaml`) only tails docker-compose container stdout,
+so without these settings the mirrored lines only show up in the Django phrocs pane.
 
 Mirroring failures are logged and never break the run's log write.
 
