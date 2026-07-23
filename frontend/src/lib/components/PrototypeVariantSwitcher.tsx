@@ -152,7 +152,12 @@ export function PrototypeVariantSwitcher({
                 tooltip="Previous variant (←)"
             />
             <span className="text-xs font-semibold whitespace-nowrap min-w-40 text-center select-none">{label}</span>
-            <LemonButton size="xsmall" icon={<IconChevronRight />} onClick={() => cycle(1)} tooltip="Next variant (→)" />
+            <LemonButton
+                size="xsmall"
+                icon={<IconChevronRight />}
+                onClick={() => cycle(1)}
+                tooltip="Next variant (→)"
+            />
         </div>
     )
 }

@@ -134,9 +134,7 @@ export function FacetSidebarVariant(): JSX.Element {
                             fullWidth
                             active={activeType === value}
                             icon={<Icon />}
-                            onClick={() =>
-                                setFilters({ insightType: activeType === value ? 'All types' : value })
-                            }
+                            onClick={() => setFilters({ insightType: activeType === value ? 'All types' : value })}
                         >
                             {label}
                         </LemonButton>

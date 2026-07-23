@@ -344,119 +344,119 @@ export function SavedInsights(): JSX.Element {
                     <LemonTabs
                         activeKey={tab}
                         onChange={(tab) => {
-                    if (tab === SavedInsightsTabs.Alerts) {
-                        push(urls.alerts())
-                        return
-                    }
-                    setSavedInsightsFilters({ tab })
-                }}
-                tabs={[
-                    { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
-                    { key: SavedInsightsTabs.History, label: 'History' },
-                ]}
-                sceneInset
-            />
-
-            {tab === SavedInsightsTabs.History ? (
-                <ActivityLog scope={ActivityScope.INSIGHT} />
-            ) : (
-                <>
-                    <SavedInsightsFilters
-                        filters={filters}
-                        setFilters={setSavedInsightsFilters}
-                        quickFilters={
-                            tab === SavedInsightsTabs.Yours
-                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
-                                : undefined
-                        }
-                    />
-                    <LemonTable
-                        loading={insightsLoading}
-                        columns={columns}
-                        dataSource={draftInsightRow ? [draftInsightRow, ...insights.results] : insights.results}
-                        rowClassName={(record) => (isDraftInsightRow(record) ? 'bg-warning-highlight' : null)}
-                        pagination={pagination}
-                        noSortingCancellation
-                        sorting={sorting}
-                        onSort={(newSorting) =>
-                            setSavedInsightsFilters({
-                                order: newSorting
-                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                    : undefined,
-                            })
-                        }
-                        rowKey="id"
-                        loadingSkeletonRows={15}
-                        nouns={['insight', 'insights']}
-                        hideSortingIndicatorWhenInactive
-                        emptyState={
-                            !insightsLoading && insights.count < 1 ? (
-                                <div className="py-8">
-                                    <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
-                                </div>
-                            ) : undefined
-                        }
-                        bulkSelection={{
-                            getKey: (insight: SavedInsightListItem): number => insight.id,
-                            isRowSelectable: (insight: SavedInsightListItem) =>
-                                isDraftInsightRow(insight)
-                                    ? { disabledReason: 'This draft only exists in your browser.' }
-                                    : accessLevelSatisfied(
-                                            AccessControlResourceType.Insight,
-                                            insight.user_access_level,
-                                            AccessControlLevel.Editor
-                                        )
-                                      ? true
-                                      : { disabledReason: "You don't have permission to edit this insight." },
-                            rowAriaLabel: (insight: SavedInsightListItem) =>
-                                `Select insight ${insight.name || 'Untitled'}`,
-                            headerAriaLabel: 'Select all insights on this page',
-                            renderActions: (ctx) => (
-                                <>
-                                    <BulkUpdateTagsButton
-                                        resource="insights"
-                                        selectedIds={ctx.selectedKeys}
-                                        onSuccess={() => {
-                                            ctx.clearSelection()
-                                            loadInsights()
-                                        }}
-                                    />
-                                    <LemonButton
-                                        type="primary"
-                                        status="danger"
-                                        size="small"
-                                        icon={<IconTrash />}
-                                        loading={bulkDeleteResponseLoading}
-                                        onClick={() => {
-                                            const count = ctx.selectedCount
-                                            const noun = count === 1 ? 'insight' : 'insights'
-                                            LemonDialog.open({
-                                                title: `Delete ${count} ${noun}?`,
-                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => {
-                                                        bulkDeleteInsights({ ids: [...ctx.selectedKeys] })
-                                                        ctx.clearSelection()
-                                                    },
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                            })
-                                        }}
-                                    >
-                                        Delete selected
-                                    </LemonButton>
-                                </>
-                            ),
+                            if (tab === SavedInsightsTabs.Alerts) {
+                                push(urls.alerts())
+                                return
+                            }
+                            setSavedInsightsFilters({ tab })
                         }}
+                        tabs={[
+                            { key: SavedInsightsTabs.All, label: 'All insights' },
+                            { key: SavedInsightsTabs.Yours, label: 'My insights' },
+                            { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
+                            { key: SavedInsightsTabs.History, label: 'History' },
+                        ]}
+                        sceneInset
                     />
-                </>
-            )}
+
+                    {tab === SavedInsightsTabs.History ? (
+                        <ActivityLog scope={ActivityScope.INSIGHT} />
+                    ) : (
+                        <>
+                            <SavedInsightsFilters
+                                filters={filters}
+                                setFilters={setSavedInsightsFilters}
+                                quickFilters={
+                                    tab === SavedInsightsTabs.Yours
+                                        ? ['insightType', 'tags', 'favorites', 'featureFlags']
+                                        : undefined
+                                }
+                            />
+                            <LemonTable
+                                loading={insightsLoading}
+                                columns={columns}
+                                dataSource={draftInsightRow ? [draftInsightRow, ...insights.results] : insights.results}
+                                rowClassName={(record) => (isDraftInsightRow(record) ? 'bg-warning-highlight' : null)}
+                                pagination={pagination}
+                                noSortingCancellation
+                                sorting={sorting}
+                                onSort={(newSorting) =>
+                                    setSavedInsightsFilters({
+                                        order: newSorting
+                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                            : undefined,
+                                    })
+                                }
+                                rowKey="id"
+                                loadingSkeletonRows={15}
+                                nouns={['insight', 'insights']}
+                                hideSortingIndicatorWhenInactive
+                                emptyState={
+                                    !insightsLoading && insights.count < 1 ? (
+                                        <div className="py-8">
+                                            <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
+                                        </div>
+                                    ) : undefined
+                                }
+                                bulkSelection={{
+                                    getKey: (insight: SavedInsightListItem): number => insight.id,
+                                    isRowSelectable: (insight: SavedInsightListItem) =>
+                                        isDraftInsightRow(insight)
+                                            ? { disabledReason: 'This draft only exists in your browser.' }
+                                            : accessLevelSatisfied(
+                                                    AccessControlResourceType.Insight,
+                                                    insight.user_access_level,
+                                                    AccessControlLevel.Editor
+                                                )
+                                              ? true
+                                              : { disabledReason: "You don't have permission to edit this insight." },
+                                    rowAriaLabel: (insight: SavedInsightListItem) =>
+                                        `Select insight ${insight.name || 'Untitled'}`,
+                                    headerAriaLabel: 'Select all insights on this page',
+                                    renderActions: (ctx) => (
+                                        <>
+                                            <BulkUpdateTagsButton
+                                                resource="insights"
+                                                selectedIds={ctx.selectedKeys}
+                                                onSuccess={() => {
+                                                    ctx.clearSelection()
+                                                    loadInsights()
+                                                }}
+                                            />
+                                            <LemonButton
+                                                type="primary"
+                                                status="danger"
+                                                size="small"
+                                                icon={<IconTrash />}
+                                                loading={bulkDeleteResponseLoading}
+                                                onClick={() => {
+                                                    const count = ctx.selectedCount
+                                                    const noun = count === 1 ? 'insight' : 'insights'
+                                                    LemonDialog.open({
+                                                        title: `Delete ${count} ${noun}?`,
+                                                        description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            status: 'danger',
+                                                            onClick: () => {
+                                                                bulkDeleteInsights({ ids: [...ctx.selectedKeys] })
+                                                                ctx.clearSelection()
+                                                            },
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }}
+                                            >
+                                                Delete selected
+                                            </LemonButton>
+                                        </>
+                                    ),
+                                }}
+                            />
+                        </>
+                    )}
                 </>
             )}
             <PrototypeVariantSwitcher

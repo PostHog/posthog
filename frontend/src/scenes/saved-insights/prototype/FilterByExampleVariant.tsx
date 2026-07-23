@@ -197,9 +197,7 @@ export function FilterByExampleVariant(): JSX.Element {
                 sorting={sorting}
                 onSort={(newSorting) =>
                     setFilters({
-                        order: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
+                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
                     })
                 }
                 rowKey="id"

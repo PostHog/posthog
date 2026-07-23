@@ -151,9 +151,7 @@ function InsightCard({
                 {insight.favorited && <IconHeartFilled className="text-danger ml-auto" />}
             </div>
             <div className="font-semibold leading-tight line-clamp-2">{insight.name || <i>{summary}</i>}</div>
-            {insight.description && (
-                <div className="text-xs text-secondary line-clamp-2">{insight.description}</div>
-            )}
+            {insight.description && <div className="text-xs text-secondary line-clamp-2">{insight.description}</div>}
             <div className="flex items-center gap-2 mt-auto pt-1">
                 {insight.created_by && <ProfilePicture user={insight.created_by} size="sm" />}
                 <span className="text-xs text-secondary">
