@@ -194,6 +194,7 @@ class TestRunAggregateEvaluationWorkflow:
                 # timeout can skew forward to that timeout even once the activity has already
                 # succeeded; the server-recorded execution window doesn't have that problem.
                 description = await handle.describe()
+                assert description.start_time is not None and description.close_time is not None
                 elapsed = description.close_time - description.start_time
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert elapsed >= timedelta(seconds=300)
@@ -230,6 +231,7 @@ class TestRunAggregateEvaluationWorkflow:
                 # env.get_current_time() after a retried activity leaves a stale schedule-to-close
                 # timer that skews a second read; the server-recorded execution window doesn't.
                 description = await handle.describe()
+                assert description.start_time is not None and description.close_time is not None
                 elapsed = description.close_time - description.start_time
         assert poll_attempts["n"] == 3
         assert calls == ["fetch", "execute", "emit", "telemetry"]
@@ -263,6 +265,7 @@ class TestRunAggregateEvaluationWorkflow:
                 )
                 result = await handle.result()
                 description = await handle.describe()
+                assert description.start_time is not None and description.close_time is not None
                 elapsed = description.close_time - description.start_time
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
