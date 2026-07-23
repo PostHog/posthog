@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonDivider, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
@@ -108,10 +109,25 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                                     data-attr="source-api-version"
                                     value={value ?? null}
                                     onChange={onChange}
-                                    options={(source.supported_api_versions ?? []).map((version) => ({
-                                        value: version,
-                                        label: version,
-                                    }))}
+                                    options={(source.supported_api_versions ?? []).map((version) => {
+                                        // Deprecated versions stay selectable so a source stuck on one can be
+                                        // moved off it, but they must never look like an equal choice.
+                                        const deprecation = source.deprecated_api_versions?.find(
+                                            (candidate) => candidate.version === version
+                                        )
+                                        return {
+                                            value: version,
+                                            label: deprecation
+                                                ? `${version} (deprecated${
+                                                      deprecation.sunset_at
+                                                          ? `, stops working ${dayjs(deprecation.sunset_at).format(
+                                                                'D MMM YYYY'
+                                                            )}`
+                                                          : ''
+                                                  })`
+                                                : version,
+                                        }
+                                    })}
                                 />
                             )}
                         </LemonField>

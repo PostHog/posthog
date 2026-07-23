@@ -4,6 +4,7 @@
         "api_version": {
             "anyOf": [
                 {
+                    "maxLength": 128,
                     "type": "string"
                 },
                 {

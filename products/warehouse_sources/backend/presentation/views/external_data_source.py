@@ -806,7 +806,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     api_version = serializers.CharField(
         required=False,
         allow_null=True,
-        allow_blank=True,
+        max_length=128,
         help_text=(
             "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe "
             "date version). Null resolves to the source type's default version at sync time. "
@@ -827,6 +827,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "Vendor API versions this source type supports. `api_version` can be moved to any of "
             "them. Empty for source types without vendor API versioning."
+        ),
+    )
+    deprecated_api_versions = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The subset of `supported_api_versions` the vendor has deprecated, each with the date "
+            "it stops being served (null if not announced). Still selectable, so a source stuck on "
+            "one can be moved off it, but they are flagged as a poor choice to move onto."
         ),
     )
 
@@ -859,6 +867,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "api_version",
             "api_version_deprecation",
             "supported_api_versions",
+            "deprecated_api_versions",
         ]
         read_only_fields = [
             "id",
@@ -877,6 +886,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version_deprecation",
             "supported_api_versions",
+            "deprecated_api_versions",
         ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -885,7 +895,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # Membership is enforced only when the pin actually changes: an existing pin is honored
         # verbatim even after the vendor retires that version from supported_versions, so a
         # full-payload PATCH (the sources list spreads the GET response straight back) never 400s
-        # on an unrelated edit. A blank value clears the pin back to the source's default.
+        # on an unrelated edit. `null` clears the pin back to the source type's default.
         if "api_version" in attrs and instance is not None and pinned and pinned != instance.api_version:
             try:
                 source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
@@ -966,6 +976,25 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except ValueError:
             return []
         return list(source_impl.supported_versions)
+
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"version": {"type": "string"}, "sunset_at": {"type": "string", "nullable": True}},
+            },
+        }
+    )
+    def get_deprecated_api_versions(self, instance: ExternalDataSource) -> list[dict[str, Any]]:
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except ValueError:
+            return []
+        return [
+            {"version": d.version, "sunset_at": d.sunset_at.isoformat() if d.sunset_at else None}
+            for d in source_impl.deprecated_versions
+        ]
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1210,7 +1239,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
-            effective_api_version = source.resolve_api_version(instance.api_version)
+            # Probe the version this request is saving, not the one it replaces: a repin arrives
+            # alongside job_inputs from the configuration form, and gating the credential check on
+            # the old version would approve a move the stored credentials can't actually reach.
+            # `validate()` has already rejected an unsupported label, so this is safe to send.
+            effective_api_version = source.resolve_api_version(validated_data.get("api_version", instance.api_version))
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config),
@@ -1274,19 +1307,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # table. Only schemas that follow the source pin are affected — a schema carrying its own
         # override resolves independently. The user decides when to sync again.
         if api_version_changed:
-            following_source_pin = [
-                schema_id
-                for schema_id, override in ExternalDataSchema.objects.filter(
-                    source_id=updated_source.pk, team_id=instance.team_id
-                ).values_list("id", "api_version")
-                if not override
-            ]
-            running_jobs = ExternalDataJob.objects.filter(
-                pipeline_id=updated_source.pk,
-                team_id=instance.team_id,
-                status="Running",
-                schema_id__in=following_source_pin,
-            ).exclude(workflow_id__isnull=True)
+            running_jobs = (
+                ExternalDataJob.objects.filter(
+                    pipeline_id=updated_source.pk,
+                    team_id=instance.team_id,
+                    status="Running",
+                )
+                # A schema carrying its own override resolves independently of the source pin.
+                .filter(Q(schema__api_version__isnull=True) | Q(schema__api_version=""))
+                .exclude(schema__deleted=True)
+                .exclude(workflow_id__isnull=True)
+                .exclude(workflow_id="")
+            )
             for running_job in running_jobs:
                 try:
                     cancel_external_data_workflow(running_job.workflow_id)

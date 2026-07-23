@@ -257,6 +257,22 @@ class TestExternalDataSource(APIBaseTest):
             source.refresh_from_db()
             assert source.api_version == "2024-09-30.acacia"
 
+    def test_clearing_the_pin_falls_back_to_the_source_default(self):
+        source = self._create_external_data_source()
+        source.api_version = "2024-09-30.acacia"
+        source.save(update_fields=["api_version"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": None},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        # NULL is the "unpinned" state the whole resolution chain keys off, so it must not land as "".
+        assert source.api_version is None
+        assert StripeSource().resolve_api_version(source.api_version) == StripeSource().default_version
+
     def test_api_version_pin_rejects_unsupported_version(self):
         source = self._create_external_data_source()
         original_pin = source.api_version
@@ -268,6 +284,26 @@ class TestExternalDataSource(APIBaseTest):
         assert "api_version" in str(response.json())
         source.refresh_from_db()
         assert source.api_version == original_pin
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_repin_probes_credentials_on_the_incoming_version(self, mock_validate):
+        # The configuration form always resubmits job_inputs, so a repin takes the credential-probe
+        # branch. Probing the version being replaced would approve a move the credentials can't reach.
+        source = self._create_external_data_source()
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={
+                    "api_version": "2026-02-25.clover",
+                    "job_inputs": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                },
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_validate.call_args.kwargs["api_version"] == "2026-02-25.clover"
 
     def test_unchanged_retired_pin_survives_a_full_payload_patch(self):
         # The sources list PATCHes the whole GET payload back. A pin the vendor has since retired
@@ -2656,6 +2692,7 @@ class TestExternalDataSource(APIBaseTest):
                 "api_version",
                 "api_version_deprecation",
                 "supported_api_versions",
+                "deprecated_api_versions",
             ],
         )
         self.assertIsNone(payload["engine"])
