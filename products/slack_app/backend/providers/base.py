@@ -13,7 +13,7 @@ lives with the existing code, this class only names the seam.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import Any, ClassVar, Protocol
 from uuid import UUID
 
 from django.http import HttpRequest
@@ -98,3 +98,63 @@ class ChatProvider(ABC):
         Each message dict carries ``user`` (display name), ``user_id``, ``text``, and
         ``ts`` — the wire shape the task-description builder consumes.
         """
+
+
+class ChatThreadHandler(Protocol):
+    """Structural interface for posting task-lifecycle updates back into the
+    conversation that spawned a task run.
+
+    ``SlackThreadHandler`` (products/slack_app/backend/slack_thread.py) is today's only
+    implementation; the signatures here are copied from it verbatim. A ``Protocol``
+    rather than an ABC keeps ``slack_thread`` free of any providers import (the registry
+    imports it, not the other way around), so the handler class itself is untouched by
+    the seam. Consumers obtain instances via the registry / facade factories and
+    annotate with this type.
+    """
+
+    def update_reaction(self, emoji: str) -> None: ...
+
+    def start_status_stream(
+        self,
+        first_task_id: str | None = ...,
+        first_task_title: str | None = ...,
+        first_task_details: str | None = ...,
+        first_markdown_text: str | None = ...,
+    ) -> str | None: ...
+
+    def append_status_chunks(
+        self,
+        ts: str,
+        task_updates: list[dict[str, Any]] | None = ...,
+        markdown_text: str | None = ...,
+    ) -> None: ...
+
+    def stop_status_stream(
+        self,
+        ts: str,
+        complete_task_id: str | None = ...,
+        complete_task_title: str | None = ...,
+        complete_task_details: str | None = ...,
+        final_markdown: str | None = ...,
+    ) -> None: ...
+
+    def post_or_update_progress(self, stage: str, task_url: str | None = ...) -> None: ...
+
+    def post_pr_opened(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = ...,
+    ) -> None: ...
+
+    def post_thread_message(self, text: str) -> None: ...
+
+    def post_completion(self, task_url: str | None) -> None: ...
+
+    def post_error(self, error: str, task_url: str | None, recovery_hint: str | None = ...) -> None: ...
+
+    def post_cancelled(self, task_url: str | None, recovery_hint: str | None = ...) -> None: ...
+
+    def post_note(self, text: str) -> None: ...
+
+    def delete_progress(self) -> None: ...

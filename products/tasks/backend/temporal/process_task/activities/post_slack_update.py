@@ -105,7 +105,7 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.facade.api import ChatThreadHandler, thread_handler_from_context
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -115,8 +115,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         return
 
     try:
-        context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context)
+        handler: ChatThreadHandler = thread_handler_from_context(input.slack_thread_context)
         creator_has_access = _viewer_has_posthog_code_access(task_run.task.created_by)
         task_url: str | None = (
             f"{settings.SITE_URL}/project/{task_run.task.team_id}/tasks/{task_run.task_id}?runId={task_run.id}"
