@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SurveyMonkeySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveymonkey import (
+    SurveyMonkeySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.settings import (
     DATA_CENTER_BASE_URLS,
     DEFAULT_DATA_CENTER,
@@ -118,6 +120,7 @@ Make sure to grant the following read scopes:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +137,11 @@ Make sure to grant the following read scopes:
         return schemas
 
     def validate_credentials(
-        self, config: SurveyMonkeySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SurveyMonkeySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_surveymonkey_credentials(config.access_token, _base_url_for(config))
 

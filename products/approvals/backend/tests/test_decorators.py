@@ -1,10 +1,13 @@
+from contextlib import suppress
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.api.utils import ServiceRequest
+
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -103,3 +106,52 @@ class TestApprovalGateFailsClosed(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is True
+
+    def test_gate_passes_through_for_declared_system_request(self, _mock_enabled):
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+
+        serializer = self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": ServiceRequest(None, is_system=True),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+        serializer.save()
+
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert ChangeRequest.objects.count() == 0
+
+    def test_userless_request_without_system_marker_still_engages_gate(self, _mock_enabled):
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        request.user = None
+        request.is_system = False
+
+        serializer = self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+        # A user-less request that doesn't declare itself a system write must not skip
+        # the gate — whatever the gate does with it, the write must not apply.
+        with suppress(Exception):
+            serializer.save()
+
+        flag.refresh_from_db()
+        assert flag.active is False

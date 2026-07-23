@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketStatus } from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList } from './MessageList'
 
@@ -24,6 +24,8 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Channel the ticket came from; drives the reply placeholder and send-button logo */
+    channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
     /** Number of team messages that haven't been read by the customer */
@@ -49,7 +51,7 @@ export interface ChatViewProps {
     /** Recipient description shown in the draft-mode send confirmation */
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
-    sendAndSetStatusOptions?: { value: TicketStatus; label: string }[]
+    sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
@@ -69,6 +71,7 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    channel,
     showPrivateOption = false,
     unreadCustomerCount,
     showDeliveryStatus = false,
@@ -114,6 +117,7 @@ export function ChatView({
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
+                    channel={channel}
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}

@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     MySQLImplementation,
@@ -281,6 +281,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_connect_with_transient_retry` already retries this exact drop in-process (see
+        # `_is_transient_connect_drop` in mysql.py) before re-raising once its attempt budget is
+        # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
+        # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
+        # failure is transient and self-recovering, so don't surface it as tracked exception noise.
+        return {"Lost connection to MySQL server during query"}
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",
@@ -299,7 +307,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -318,7 +326,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
             # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
@@ -365,5 +373,6 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         team_id: int,
         access_method: str,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name)
+        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)

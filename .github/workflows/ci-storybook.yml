@@ -6,8 +6,9 @@ on:
         # matrix as the merge gate. To force the full matrix on a draft, add the
         # `run-ci-frontend` label —
         # labeled/unlabeled re-trigger the run so it starts without needing a push.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes), until it is removed or the PR is marked ready.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    merge_group:
     push:
         branches:
             - master
@@ -25,8 +26,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
-        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             # Two positive filters compared by count exclude generated-only PRs.
@@ -163,8 +170,8 @@ jobs:
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
     build-storybook:
-        name: Build Storybook (depot-ubuntu-latest)
-        runs-on: depot-ubuntu-latest
+        name: Build Storybook (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
         # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
         # runner yields a slow-but-green build instead of a cancelled one that hard-fails
@@ -265,8 +272,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
-        # always() so vr-setup still runs when select-stories is skipped (ready PRs,
-        # master push, merge_group). Without it, GitHub treats a skipped need as a
+        # always() so vr-setup still runs when select-stories is skipped (ready PRs
+        # and master pushes). Without it, GitHub treats a skipped need as a
         # skip-cascade and vr-setup wouldn't run when we still want it to.
         if: |
             always()
@@ -342,14 +349,15 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         if: >-
             always()
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
-        timeout-minutes: 60
+        # Healthy shards finish well under 15 minutes; the cap exists so a wedged shard fails fast.
+        timeout-minutes: 30
         container:
             image: ghcr.io/posthog/playwright:v1.60.0
         strategy:
@@ -359,7 +367,6 @@ jobs:
             # Draft PRs may use chromium shards running only affected story files.
             # Ready PRs fall back to changes.outputs.matrix (full chromium), while
             # master pushes run chromium + webkit.
-            # Storybook CI is skipped entirely on merge_group (changes.if).
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -617,7 +624,7 @@ jobs:
                   # Change detection is the root of the graph: if it fails, build-storybook
                   # (and everything after) is skipped, which the checks below would read as
                   # a pass. Fail here so a broken paths-filter/checkout can't launder into a
-                  # green required check. A legitimate skip (e.g. merge_group) still passes.
+                  # green required check.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }}) — cannot certify visual regression."
                     exit 1
@@ -992,8 +999,7 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Storybook CI is skipped on merge_group, so visual-regression won't run there;
-        # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
+        # Avoid spinning a runner when visual-regression was skipped, while still
         # uploading failed-test results (the flake signal Trunk needs) on master push.
         # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
         # this job skips, so no results upload.

@@ -1,8 +1,10 @@
 import dataclasses
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
+from dateutil import parser
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -14,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -25,6 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settin
 MUX_BASE_URL = "https://api.mux.com"
 # Endpoint used to confirm a token is genuine when no specific schema is being validated.
 DEFAULT_VALIDATION_PATH = "/video/v1/assets"
+
+# On incremental syncs, re-query slightly before the last `view_end` watermark. Mux Data can finish
+# processing a view minutes after it ended, so a view can surface with a `view_end` we've already
+# passed; the overlap re-fetches that boundary and the merge on `id` dedupes the repeats.
+INCREMENTAL_OVERLAP = timedelta(hours=1)
 
 
 @dataclasses.dataclass
@@ -136,6 +144,36 @@ def _normalize_row(item: dict[str, Any], config: MuxEndpointConfig) -> dict[str,
     return item
 
 
+def _as_epoch(value: Any) -> int:
+    """Coerce a stored incremental watermark to Unix seconds for Mux's `timeframe[]` param.
+
+    The pipeline hands back the DateTime watermark as a `datetime` (or, defensively, an ISO string).
+    Naive values are treated as UTC, matching Mux's ISO 8601 UTC `view_end` timestamps.
+    """
+    dt = value if isinstance(value, datetime) else parser.parse(str(value))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return int(dt.timestamp())
+
+
+def _timeframe_params(
+    config: MuxEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> dict[str, Any]:
+    """Build the `timeframe[]=<start>&timeframe[]=<end>` window for a Mux Data endpoint.
+
+    Incremental video-view syncs start just before the last `view_end` watermark; every other case
+    (first sync, full refresh, aggregate endpoints) falls back to the default lookback window.
+    """
+    now = datetime.now(tz=UTC)
+    if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
+        start = _as_epoch(db_incremental_field_last_value) - int(INCREMENTAL_OVERLAP.total_seconds())
+    else:
+        start = int((now - config.lookback).timestamp())
+    return {"timeframe[]": [start, int(now.timestamp())]}
+
+
 def mux_source(
     access_token_id: str,
     secret_key: str,
@@ -143,16 +181,32 @@ def mux_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[MuxResumeConfig],
+    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = MUX_ENDPOINTS[endpoint]
+    is_incremental = config.supports_incremental and should_use_incremental_field
 
     paginator: BasePaginator
-    if config.use_cursor:
+    if not config.paginated:
+        # errors / metric comparison return the whole aggregate in one response.
+        paginator = SinglePagePaginator()
+    elif config.use_cursor:
         # List Assets returns `next_cursor` in the body; a null/absent value ends pagination.
         paginator = JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
     else:
         paginator = MuxPagePaginator(page_size=config.page_size)
+
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["limit"] = config.page_size
+    if config.use_timeframe:
+        params.update(_timeframe_params(config, should_use_incremental_field, db_incremental_field_last_value))
+        if is_incremental:
+            # Ask for oldest-first so the pipeline's `sort_mode="asc"` watermark advances monotonically.
+            # The server-side `timeframe[]` filter (applied to every page) bounds the sync regardless of
+            # order, and the merge on `id` dedupes the overlap re-fetch.
+            params["order_direction"] = "asc"
 
     def _map_row(item: dict[str, Any]) -> dict[str, Any]:
         # Strip credential-bearing fields, then coerce the partition timestamp — same order as before.
@@ -170,7 +224,7 @@ def mux_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": config.page_size},
+                    "params": params,
                     "data_selector": "data",
                 },
                 "data_map": _map_row,
@@ -206,7 +260,9 @@ def mux_source(
         rest_config,
         team_id,
         job_id,
-        db_incremental_field_last_value,
+        # We apply the incremental filter ourselves via `timeframe[]`, so the framework's own
+        # incremental-param injection stays off; the pipeline advances the watermark from `view_end`.
+        None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
@@ -220,5 +276,8 @@ def mux_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        # Oldest-first for incremental video views (see `order_direction` above); the default is fine
+        # for full-refresh endpoints, where the watermark isn't tracked.
+        sort_mode="asc",
         column_hints=resource.column_hints,
     )

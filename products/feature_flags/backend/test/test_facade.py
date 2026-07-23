@@ -7,15 +7,20 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.facade.api import (
     _roll_out_variant,
     archive_flag,
+    create_flag,
     flag_disable_requires_approval,
+    set_flag_active,
     ship_variant,
+    update_flag,
 )
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
@@ -114,6 +119,73 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.archived is False
+        assert flag.active is True
+
+    def test_system_create_logs_system_activity(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            flag = create_flag(
+                {
+                    "key": "system-created-flag",
+                    "name": "System created",
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                team=self.team,
+                user=None,
+            )
+
+        assert flag.created_by is None
+        assert flag.last_modified_by is None
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="created")
+        assert log.is_system is True
+        assert log.user is None
+
+    def test_system_update_logs_system_activity(self):
+        flag = self._create_flag(active=True)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_flag(
+                flag,
+                {"filters": {"groups": [{"properties": [], "rollout_percentage": 55}]}},
+                team=self.team,
+                user=None,
+            )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 55
+        assert flag.last_modified_by is None
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
+        assert log.is_system is True
+        assert log.user is None
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_system_write_never_raises_approval_required(self, _mock_enabled):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._create_flag(active=True)
+
+        set_flag_active(flag, False, team=self.team, user=None)
+
+        flag.refresh_from_db()
+        assert flag.active is False
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_system_write_rejects_user_bearing_request(self):
+        flag = self._create_flag(active=True)
+
+        with self.assertRaises(ValueError):
+            update_flag(flag, {"active": False}, team=self.team, user=None, request=ServiceRequest(self.user))
+
+        flag.refresh_from_db()
         assert flag.active is True
 
 

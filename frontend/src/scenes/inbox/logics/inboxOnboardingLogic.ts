@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
 import { signalSourcesLogic } from '../signalSourcesLogic'
-import type { SignalScoutConfig, SignalSourceConfig } from '../types'
+import type { SignalSourceConfig } from '../types'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -166,7 +168,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             (s) => [s.sourceConfigs, s.scoutConfigs],
             (
                 sourceConfigs: import('../types').SignalSourceConfig[] | null,
-                scoutConfigs: import('../types').SignalScoutConfig[] | null
+                scoutConfigs: SignalScoutConfig[] | null
             ): boolean => sourceConfigs !== null && scoutConfigs !== null,
         ],
         // Counts are "resolved" once both limit=1 requests have returned, OR once neither is still

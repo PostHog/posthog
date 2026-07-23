@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BeamerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -102,6 +102,7 @@ Notes:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         descriptions = {
             "users": "Requires a Beamer Scale plan. Full refresh only",
@@ -122,7 +123,11 @@ Notes:
         )
 
     def validate_credentials(
-        self, config: BeamerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BeamerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_beamer_credentials(config.api_key)
 

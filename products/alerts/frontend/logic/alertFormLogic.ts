@@ -154,6 +154,7 @@ export interface AlertFormLogicProps {
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
+    uiVersion?: 'legacy' | 'redesigned'
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -242,6 +243,9 @@ function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id
 function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | null): string {
     if (props.defaultToAnomalyDetection) {
         return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
+    }
+    if (props.uiVersion === 'redesigned' && props.insightName) {
+        return `${props.insightName} alert`
     }
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
 }
@@ -647,6 +651,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw error
                 }
 
+                if (isNewAlert) {
+                    posthog.capture('alert creation completed', {
+                        ui_version: props.uiVersion ?? 'legacy',
+                    })
+                }
+
                 // The alert is already persisted — any error from the local side-effects below is a
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
@@ -877,7 +887,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()

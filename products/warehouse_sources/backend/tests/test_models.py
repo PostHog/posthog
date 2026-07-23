@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    complete_schema_run,
     mark_initial_sync_complete,
     process_incremental_value,
     update_sync_type_config_keys,
@@ -460,6 +461,85 @@ class TestMarkInitialSyncComplete(BaseTest):
         assert schema.sync_type_config == expected_config
 
 
+class TestCompleteSchemaRun(BaseTest):
+    """The success repaint checks the broken marker under the row lock: the sweeper can mark the
+    source broken while a run is in flight, and an unlocked check on a stale instance would
+    overwrite the sweeper's FAILED with COMPLETED, hiding the breakage from the failure digest."""
+
+    def _schema(self, sync_type_config: dict) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="users",
+            sync_type="cdc",
+            sync_type_config=sync_type_config,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="boom",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                # The sweeper marked the source broken after this run's instance was loaded;
+                # the stale instance must not repaint FAILED away.
+                "broken_marker_blocks_repaint",
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+                False,
+                ExternalDataSchema.Status.FAILED,
+                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
+            ),
+            (
+                # A successful run proves extraction resumed: the pause marker is cleared in the
+                # same transaction as the repaint.
+                "paused_marker_cleared_on_repaint",
+                {"cdc_mode": "streaming", "cdc_extraction_paused": {"reason": "auth_failed"}},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+            (
+                "healthy_schema_repaints",
+                {"cdc_mode": "streaming"},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+        ]
+    )
+    def test_repaint_respects_markers(
+        self,
+        _name: str,
+        config: dict,
+        expected_repainted: bool,
+        expected_status: str,
+        expected_config: dict,
+    ) -> None:
+        schema = self._schema({"cdc_mode": "streaming"})
+        # The instance the activity holds predates the sweeper's marker write — a check against
+        # its in-memory config would see no marker and repaint every case below.
+        stale_instance = ExternalDataSchema.objects.get(id=schema.id)
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
+
+        now = timezone.now()
+        repainted = complete_schema_run(stale_instance, last_synced_at=now)
+
+        assert repainted is expected_repainted
+        schema.refresh_from_db()
+        assert schema.status == expected_status
+        assert schema.sync_type_config == expected_config
+        assert schema.latest_error == ("boom" if not expected_repainted else None)
+        # The passed instance mirrors the persisted outcome either way.
+        assert stale_instance.status == expected_status
+        assert stale_instance.sync_type_config == expected_config
+
+
 @pytest.mark.parametrize(
     "clickhouse_type,expected",
     [
@@ -626,6 +706,24 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
 
 
 @pytest.mark.parametrize(
+    "value,field_type,expected",
+    [
+        # Unix-epoch cursors (e.g. Stripe `created`) arrive as numbers on datetime-typed fields;
+        # dateutil raised "Parser must be a string or character stream, not int" before this passthrough.
+        (1718377611, IncrementalFieldType.DateTime, 1718377611),
+        (1718377611, IncrementalFieldType.Timestamp, 1718377611),
+        (1718377611, IncrementalFieldType.Date, 1718377611),
+        (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
+        (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
+    ],
+)
+def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:
+    assert process_incremental_value(value, field_type) == expected
+
+
+@pytest.mark.parametrize(
     "value,field_type,lookback_seconds,expected",
     [
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 3600, datetime(2026, 6, 14, 14, 33, 31)),
@@ -638,6 +736,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, -5, datetime(2026, 6, 14, 15, 33, 31)),
         (100, IncrementalFieldType.Integer, 3600, 100),
         (100, IncrementalFieldType.Numeric, 3600, 100),
+        # Epoch-second cursor on a datetime field shifts directly instead of crashing on int - timedelta.
+        (1718377611, IncrementalFieldType.DateTime, 3600, 1718374011),
         ("abc123", IncrementalFieldType.ObjectID, 3600, "abc123"),
         (None, IncrementalFieldType.Timestamp, 3600, None),
         (datetime(2026, 6, 14, 15, 33, 31), None, 3600, datetime(2026, 6, 14, 15, 33, 31)),
@@ -663,6 +763,19 @@ class TestStagedIncrementalCursor:
             schema.stage_incremental_field_value("run-1", 42)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "last_value": 42}
+
+    def test_stage_keeps_epoch_number_for_datetime_field(self) -> None:
+        # A datetime-typed epoch cursor must round-trip as a number, not "1718377611", so the next
+        # run's read-back doesn't feed a numeric string into dateutil and crash.
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", 1718377611)
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 1718377611
+
+    def test_update_incremental_field_value_keeps_epoch_number_for_datetime_field(self) -> None:
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        schema.update_incremental_field_value(1718377611, save=False)
+        assert schema.sync_type_config["incremental_field_last_value"] == 1718377611
 
     def test_stage_writes_earliest_value(self) -> None:
         schema = self._make_schema()

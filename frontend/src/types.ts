@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -78,6 +79,12 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type {
+    LLMPromptApi,
+    LLMPromptListApi,
+    LLMPromptResolveResponseApi,
+    LLMPromptVersionSummaryApi,
+} from 'products/ai_observability/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -285,8 +292,10 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -307,6 +316,8 @@ export enum AccessControlResourceType {
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
     Tracing = 'tracing',
+    ReplayScanner = 'replay_scanner',
+    Toolbar = 'toolbar',
 }
 
 interface UserBaseType {
@@ -476,7 +487,6 @@ export interface InAppNotification {
     body: string
     read: boolean
     read_at: string | null
-    archivable: boolean
     resource_type: string | null
     resource_id: string
     target_type: string
@@ -566,6 +576,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_invite?: boolean
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -5555,6 +5566,7 @@ export interface SharingConfigurationType {
     password_required: boolean
     settings?: SharingConfigurationSettings
     share_passwords?: SharePasswordType[]
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExporterFormat {
@@ -5734,11 +5746,13 @@ export const API_SCOPE_OBJECTS = [
     'link',
     'live_debugger',
     'llm_analytics',
+    'ai_observability_clusters',
     'llm_gateway',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
     'logs',
+    'loop',
     'marketing_analytics',
     'mcp_analytics',
     'metrics',
@@ -5769,6 +5783,7 @@ export const API_SCOPE_OBJECTS = [
     'tagger',
     'ticket',
     'task',
+    'toolbar',
     'tracing',
     'field_note',
     'uploaded_media',
@@ -5974,6 +5989,7 @@ export enum ActivityScope {
     ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
@@ -6011,6 +6027,10 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `stripe.charges`), as opposed to `name` (the storage identifier). */
+    hogql_name?: string
+    /** Serialized columns; omitted when the table was listed with `include_columns=false`. */
+    columns?: DatabaseSchemaField[]
     format: DataWarehouseTableTypes
     url_pattern: string
     /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
@@ -6173,6 +6193,14 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+}
+
+/** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
+export interface WarehouseTableFileUpload {
+    upload_id: string
+    filename: string
+    file_format: string
+    size_bytes: number
 }
 
 export interface ExternalDataSourceConnectionMetadata {
@@ -7538,6 +7566,12 @@ export interface ProductManifest {
     treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
+    /**
+     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * manifests into `productSetupProbes` and answered by one combined event-count
+     * query at app boot (see `productSetupPreloadLogic`).
+     */
+    setupProbe?: ProductSetupProbe
 }
 
 export interface ProjectTreeRef {
@@ -7766,6 +7800,10 @@ export interface LLMPrompt {
     latest_version: number
     version_count: number
     first_version_created_at: string
+    /** Key for this prompt's rows in the activity log (History tab). */
+    activity_item_id: LLMPromptApi['activity_item_id']
+    /** All labels on the prompt with the version each points to. Only present on list responses. */
+    all_labels?: LLMPromptListApi['all_labels']
 }
 
 export interface LLMPromptPublic {
@@ -7789,12 +7827,14 @@ export interface LLMPromptVersionSummary {
     created_by: UserBasicType
     created_at: string
     is_latest: boolean
+    labels?: LLMPromptVersionSummaryApi['labels']
 }
 
 export interface LLMPromptResolveResponse {
     prompt: LLMPrompt
     versions: LLMPromptVersionSummary[]
     has_more: boolean
+    labels: LLMPromptResolveResponseApi['labels']
 }
 
 // Managed viewset
