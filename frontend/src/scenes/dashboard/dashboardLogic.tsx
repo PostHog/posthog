@@ -50,6 +50,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import {
     calculateDuplicateLayout,
@@ -557,6 +558,9 @@ export interface dashboardLogicActions {
             toDashboard: number
             toDashboardName: string
         }
+    }
+    openAddInsightModal: () => {
+        value: true
     }
     overrideVariableValue: (
         variableId: string,
@@ -1105,7 +1109,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -1292,6 +1296,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
+        openAddInsightModal: true,
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
         /**
@@ -3737,6 +3742,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     forceRefresh: false,
                 })
             }
+        },
+        openAddInsightModal: () => {
+            if (values.dashboardMode === DashboardMode.Edit && values.hasUnsavedLayoutChanges) {
+                if (
+                    !window.confirm(
+                        'Discard unsaved layout changes?\nAdding an insight reloads the dashboard and discards them.'
+                    )
+                ) {
+                    return
+                }
+                actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }
+            addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
         },
         cancelEditMode: () => {
             const discard = (): void =>

@@ -15,6 +15,7 @@ T_EXPORTS_RECOVERED = "products/batch_exports/backend/tests/test_snowflake/TestS
 T_UNOWNED = "posthog/api/test/test_shared/TestShared::test_unowned"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_RESTAMPED = "products/moved/backend/tests/test_moved/TestMoved::test_restamped"
+T_PASS_ONLY = "products/quiet/backend/tests/test_quiet/TestQuiet::test_pass_only"
 
 
 class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
@@ -56,13 +57,22 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(6, T_REPLAY_RERUN, "rerun_passed", ts=cls.current_b, owner="team-replay", run="201", pr="201"),
             cls._span(7, T_REPLAY_RERUN, "rerun_passed", ts=prior, owner="team-replay", run="202", pr="202"),
             cls._span(8, T_REPLAY_RERUN, "rerun_passed", ts=prior, owner="team-replay", run="203", pr="203"),
-            # batch-exports: unrecovered PR failures in the prior window, then an in-job retry recovers
-            # it in the current one. The same test moves from regression to proven flake.
+            # batch-exports: unrecovered PR failures in the prior window, then a re-run attempt goes
+            # green on the same commit in the current one. The same test moves from regression to
+            # proven flake, through the same cross-attempt proof the queue reads.
             cls._span(9, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="301", pr="301"),
             cls._span(10, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="302", pr="302"),
             cls._span(11, T_EXPORTS_RECOVERED, "failed", ts=prior, owner="batch-exports", run="303", pr="303"),
+            cls._span(14, T_EXPORTS_RECOVERED, "failed", ts=cls.current_a, owner="batch-exports", run="304", pr="304"),
             cls._span(
-                14, T_EXPORTS_RECOVERED, "rerun_passed", ts=cls.current_a, owner="batch-exports", run="304", pr="304"
+                15,
+                T_EXPORTS_RECOVERED,
+                "passed",
+                ts=cls.current_b,
+                owner="batch-exports",
+                run="304",
+                attempt="2",
+                pr="304",
             ),
             # Ownership re-stamp: prior-window failure stamped team-old, current stamped team-new.
             # The latest stamp owns the whole test, in the roster and the drill-in alike.
@@ -70,6 +80,11 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
+            # A re-run pass with no same-run failure: a shard re-executed alongside the flaky one.
+            # It pairs with nothing, so its team must not appear in the roster at all.
+            cls._span(
+                17, T_PASS_ONLY, "passed", ts=cls.current_b, owner="team-quiet", run="701", attempt="2", pr="701"
+            ),
             # A non-CI service must never reach the roster (the scan is fenced by service_name).
             cls._span(
                 13,
@@ -106,6 +121,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         ts: datetime,
         owner: str,
         run: str,
+        attempt: str = "1",
         pr: str = "",
         service: str = "ci-backend",
     ) -> str:
@@ -115,6 +131,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         resource_pairs = [
             "'ci.repository', 'PostHog/posthog'",
             f"'ci.run_id', '{run}'",
+            f"'ci.run_attempt', '{attempt}'",
         ]
         if pr:
             resource_pairs.append(f"'ci.pr_number', '{pr}'")
@@ -142,20 +159,23 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         assert (replay["flaky_test_count"], replay["regression_test_count"]) == (1, 1)
         assert (replay["flaky_test_count_prior"], replay["regression_test_count_prior"]) == (1, 0)
         assert (replay["failed_run_count"], replay["failed_run_count_prior"]) == (3, 1)
-        assert (replay["rerun_passed_run_count"], replay["rerun_passed_run_count_prior"]) == (1, 2)
+        assert (replay["same_commit_recovery_run_count"], replay["same_commit_recovery_run_count_prior"]) == (1, 2)
         assert (replay["quarantined_failed_run_count"], replay["quarantined_failed_run_count_prior"]) == (1, 0)
 
-        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["rerun_passed_run_count"]) == (1, 1)
+        assert (rows["unowned"]["flaky_test_count"], rows["unowned"]["same_commit_recovery_run_count"]) == (1, 1)
 
-        # An in-job retry recovered it, so it is current-window flaky; the prior window's 3
-        # unrecovered PR failures are a regression, not a flake.
+        # A re-run attempt went green on the same commit, so it is current-window flaky; the prior
+        # window's 3 unrecovered PR failures are a regression, not a flake.
         exports = rows["batch-exports"]
         assert (exports["flaky_test_count"], exports["regression_test_count"]) == (1, 0)
         assert (exports["flaky_test_count_prior"], exports["regression_test_count_prior"]) == (0, 1)
-        assert (exports["failed_run_count"], exports["failed_run_count_prior"]) == (0, 3)
+        assert (exports["failed_run_count"], exports["failed_run_count_prior"]) == (1, 3)
+        assert (exports["same_commit_recovery_run_count"], exports["same_commit_recovery_run_count_prior"]) == (1, 0)
 
         # The foreign-service span's team must not appear at all.
         assert "ghost-team" not in rows
+        # A re-run pass that pairs with no failure is not evidence: no phantom all-zero team row.
+        assert "team-quiet" not in rows
 
     def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self):
         rows = self._roster()
