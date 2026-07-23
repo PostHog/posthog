@@ -23,6 +23,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -63,8 +64,10 @@ type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
-class BillingLimitsWillBeReachedException(Exception):
-    pass
+class BillingLimitsWillBeReachedException(NonReportableError):
+    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
+    and subclassing NonReportableError keeps it out of error tracking."""
 
 
 class DuplicatePrimaryKeysException(Exception):
