@@ -37,8 +37,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     DatabaseStatsCatalog,
     build_database_stats_schemas,
     database_stats_enabled,
-    is_database_stats_schema,
-    is_database_stats_schema_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -202,18 +200,11 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         # Toggle and name are cheap pre-filters; the schema row's metadata then settles
         # the collision case — a user's own table under a `system_tables` schema keeps
         # syncing as a table (see is_database_stats_schema_row).
-        if (
-            self.database_stats_catalogs
-            and database_stats_enabled(config)
-            # Name first: it costs nothing, and without it every ordinary table sync on a
-            # stats-enabled source would pay for the row lookup below.
-            and is_database_stats_schema(inputs.schema_name, self.database_stats_catalogs)
-        ):
-            schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
-            if is_database_stats_schema_row(
-                inputs.schema_name, schema_row.schema_metadata, self.database_stats_catalogs
-            ):
-                return self.database_stats_source(config, inputs)
+        # A statistics table is one this source declared and the user opted into. Nothing
+        # else to check: discovery refuses to inject a name a real table already uses, so
+        # the two can't both exist.
+        if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
+            return self.database_stats_source(config, inputs)
         return self.get_implementation.build_pipeline(config, inputs)
 
     def database_stats_source(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:

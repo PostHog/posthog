@@ -32,8 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     database_stats_enabled,
-    is_database_stats_schema,
-    is_database_stats_schema_row,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -739,17 +737,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables.
 
         Statistics tables are held back from that path: it resolves every row to a real
-        `(catalog, schema, table)` in the customer's database, and for a synthetic name
-        like `system_tables.pg_settings` it would dot-split one into existence. Persisting
-        a `source_table_name` there makes the row indistinguishable from a discovered
-        table, so the next sync reads `SELECT * FROM "system_tables"."pg_settings"` and
-        fails. They go through the generic hook instead, which records the column list for
-        the picker and leaves the source-location keys unset.
+        `(catalog, schema, table)` in the customer's database, which a synthetic table
+        doesn't have — left to it, the next sync would read a relation that doesn't exist.
+        They go through the generic hook instead, which records the column list for the
+        picker without inventing a source location.
         """
-        stats_schemas = [
-            schema for schema in source_schemas if is_database_stats_schema(schema.name, self.database_stats_catalogs)
-        ]
-        table_schemas = [schema for schema in source_schemas if schema not in stats_schemas]
+        stats_schemas = [schema for schema in source_schemas if schema.name in self.database_stats_catalogs]
+        table_schemas = [schema for schema in source_schemas if schema.name not in self.database_stats_catalogs]
 
         deleted = reconcile_postgres_schemas(source=source, source_schemas=table_schemas, team_id=team_id)
         if stats_schemas:
@@ -1208,12 +1202,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # Same gates as the SQLSource base (which this override replaces wholesale). The
-        # row's metadata settles the collision case: a user's own table under a
-        # `system_tables` schema keeps syncing as a table.
-        if database_stats_enabled(config) and is_database_stats_schema_row(
-            inputs.schema_name, schema_metadata, self.database_stats_catalogs
-        ):
+        # Same gate as the SQLSource base, which this override replaces wholesale.
+        if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
             return self.database_stats_source(config, inputs)
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here

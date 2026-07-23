@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db import connection as django_connection
 
@@ -16,11 +16,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
-    SNAPSHOT_COLUMNS,
-    is_database_stats_schema_row,
-    stats_table_name,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import SNAPSHOT_COLUMNS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresDatabaseStatsConfig,
@@ -70,7 +66,6 @@ class TestPostgresStatsCatalogs:
     def test_every_catalog_is_keyed_by_its_table_name(self):
         for table_name, catalog in POSTGRES_STATS_CATALOGS.items():
             assert catalog.table_name == table_name
-            assert catalog.catalog_relation or catalog.static_columns, table_name
 
     @pytest.mark.django_db
     def test_columns_come_from_the_server(self, autocommit_pg_connection):
@@ -214,7 +209,7 @@ class TestPostgresStatsCollectors:
             user=sd["USER"] or "",
             password=sd["PASSWORD"] or "",
             database=sd["NAME"],
-            schema_name=stats_table_name("pg_stat_user_tables"),
+            schema_name="pg_stat_user_tables",
             require_ssl=False,
             logger=logger,
             source_schema="   ",
@@ -434,9 +429,9 @@ class TestGetSchemasInjection:
 
         by_name = {s.name: s for s in schemas}
         assert "users" in by_name
-        assert stats_table_name("pg_stat_user_tables") in by_name
+        assert "pg_stat_user_tables" in by_name
 
-        declared = [c[0] for c in by_name[stats_table_name("pg_stat_user_tables")].columns]
+        declared = [c[0] for c in by_name["pg_stat_user_tables"].columns]
         assert declared[:2] == ["collected_at", "snapshot_id"]
         assert {"relname", "seq_scan", "n_dead_tup"} <= set(declared)
         assert declared[-1] == "total_size_bytes"
@@ -495,7 +490,7 @@ class TestStatsSourceRouting:
         sd = django_connection.settings_dict
         source = self._source(team, pre_ssl_cutoff=True)
         schema_row = ExternalDataSchema.objects.create(
-            name=stats_table_name("pg_stat_user_tables"),
+            name="pg_stat_user_tables",
             team_id=team.pk,
             source_id=source.pk,
             sync_type="append",
@@ -514,7 +509,7 @@ class TestStatsSourceRouting:
 
         # Storage name, normalized the same way any qualified table's is (dots become
         # underscores) so HogQL reads from where the pipeline wrote.
-        assert response.name == NamingConvention.normalize_identifier(stats_table_name("pg_stat_user_tables"))
+        assert response.name == NamingConvention.normalize_identifier("pg_stat_user_tables")
         rows = list(cast(Iterable[Any], response.items()))
         assert rows, "expected table statistics from the test database"
         assert {"relname", "seq_scan", "total_size_bytes"} <= set(rows[0].keys())
@@ -528,7 +523,7 @@ class TestStatsSourceRouting:
         # `SELECT * FROM "system_tables"."pg_replication_slots"` and failed with
         # UndefinedTable.
         source = self._source(team, pre_ssl_cutoff=True)
-        name = stats_table_name("pg_replication_slots")
+        name = "pg_replication_slots"
         schema_row = ExternalDataSchema.objects.create(
             name=name,
             team_id=team.pk,
@@ -550,7 +545,6 @@ class TestStatsSourceRouting:
         assert metadata.get("source_table_name") is None
         # The column list is still recorded, so the column picker works.
         assert [c["name"] for c in metadata["columns"]] == ["collected_at", "slot_name"]
-        assert is_database_stats_schema_row(name, metadata, POSTGRES_STATS_CATALOGS) is True
 
     @pytest.mark.django_db
     def test_reconcile_still_resolves_ordinary_tables(self, team):
@@ -575,36 +569,3 @@ class TestStatsSourceRouting:
 
         schema_row.refresh_from_db()
         assert (schema_row.schema_metadata or {}).get("source_table_name") == "users"
-
-    @pytest.mark.django_db
-    def test_colliding_real_table_syncs_as_a_table_despite_toggle(self, team):
-        # A user's own table in a schema called `system_tables` must keep the normal
-        # table-sync path. Its row carries source_table_name in the reconciled
-        # schema_metadata; injected statistics rows never do.
-        source = self._source(team)
-        schema_row = ExternalDataSchema.objects.create(
-            name=stats_table_name("pg_settings"),
-            team_id=team.pk,
-            source_id=source.pk,
-            sync_type="full_refresh",
-            sync_type_config={
-                "schema_metadata": {"source_schema": "system_tables", "source_table_name": "pg_settings"}
-            },
-        )
-        config = PostgresSourceConfig(
-            host="localhost",
-            database="db",
-            user="user",
-            password="password",
-            port=5432,
-            database_stats=PostgresDatabaseStatsConfig(enabled=True),
-        )
-        base = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
-        with (
-            patch(f"{base}.postgres_source", return_value=MagicMock(name="table_response")) as table_source,
-            patch(f"{base}.postgres_database_stats_source") as stats_source,
-        ):
-            PostgresSource().source_for_pipeline(config, self._inputs(team, source, schema_row))
-
-        table_source.assert_called_once()
-        stats_source.assert_not_called()

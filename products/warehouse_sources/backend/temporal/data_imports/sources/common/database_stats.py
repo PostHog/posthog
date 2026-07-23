@@ -1,13 +1,13 @@
 """Shared plumbing for the opt-in database-statistics schemas.
 
 SQL-family sources can offer a "Sync database statistics" toggle. When enabled, the
-source injects one synthetic schema per statistics catalog it knows how to read. They
-materialize as ordinary ``ExternalDataSchema`` rows, sync on the source's normal
-schedule, and land as queryable warehouse tables.
+source injects one synthetic schema per statistics catalog it knows how to read, named
+after the catalog itself (``pg_stat_user_tables``). They materialize as ordinary
+``ExternalDataSchema`` rows, sync on the source's normal schedule, and land as queryable
+warehouse tables.
 
-The synthetic schemas are presented as tables in a ``system_tables`` schema — e.g.
-``system_tables.pg_stat_user_tables`` — so they look and behave like any other
-multi-schema source table.
+The catalog name is the schema name is the warehouse table name — there is no mapping to
+keep in step, and routing a sync is a dict lookup against the source's catalogs.
 
 Each sync run appends one snapshot of the catalog **as the engine exposes it**: the
 engine's own column names, plus ``collected_at``/``snapshot_id`` to identify the
@@ -20,9 +20,9 @@ lossy and permanent.
 Counters stay raw and cumulative; deltas are derived downstream over consecutive
 snapshots.
 
-This module owns the engine-agnostic parts: the pseudo-schema name, the catalog
-descriptor, the ``SourceSchema`` builder, and the collection harness. Engine-specific
-catalog queries live with each source (e.g. ``sources/postgres/stats.py``).
+This module owns the engine-agnostic parts: the catalog descriptor, the ``SourceSchema``
+builder, and the collection harness. Engine-specific catalog queries live with each
+source (e.g. ``sources/postgres/stats.py``).
 """
 
 import uuid
@@ -38,10 +38,6 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
-
-# The pseudo-schema the statistics tables are presented under. Sources qualify their
-# table names with the owning schema already, so these slot into the same naming.
-DATABASE_STATS_SCHEMA = "system_tables"
 
 # Columns the harness stamps on every snapshot row, ahead of the catalog's own columns.
 SNAPSHOT_COLUMNS: list[tuple[str, str, bool]] = [
@@ -63,25 +59,19 @@ CatalogCollector = Callable[..., list[dict[str, Any]]]
 class DatabaseStatsCatalog:
     """One statistics catalog a source can snapshot.
 
-    ``table_name`` is the engine's own name for it (``pg_stat_user_tables``), which
-    becomes the synthetic table name. ``catalog_relation`` is the relation to read
-    column metadata from when the table mirrors a catalog one-for-one; leave it None for
-    a derived table and declare ``static_columns`` instead. ``computed_columns`` are the
-    extra columns the collector selects on top of the catalog's own (sizes and
-    definitions that the engine only exposes as functions).
+    ``table_name`` is the engine's own name for the catalog (``pg_stat_user_tables``),
+    and doubles as the schema name and the warehouse table name. Columns are read from
+    the server by that name, unless the table is derived rather than mirrored — then
+    declare ``static_columns``. ``computed_columns`` are the extras the collector selects
+    on top of the catalog's own (sizes and definitions the engine only exposes as
+    functions).
     """
 
     table_name: str
     description: str
     collector: CatalogCollector
-    catalog_relation: str | None = None
     computed_columns: tuple[tuple[str, str, bool], ...] = ()
     static_columns: tuple[tuple[str, str, bool], ...] = ()
-
-
-def stats_table_name(table_name: str) -> str:
-    """The schema name a statistics catalog is presented as."""
-    return f"{DATABASE_STATS_SCHEMA}.{table_name}"
 
 
 _COLLECTED_AT_FIELD: IncrementalField = {
@@ -106,26 +96,6 @@ def database_stats_enabled(config: Any) -> bool:
     return stats_config is not None and bool(stats_config.enabled)
 
 
-def is_database_stats_schema(schema_name: str, catalogs: Mapping[str, DatabaseStatsCatalog]) -> bool:
-    """Whether a schema name refers to one of this source's statistics catalogs."""
-    return schema_name in {stats_table_name(name) for name in catalogs}
-
-
-def is_database_stats_schema_row(
-    schema_name: str, schema_metadata: dict[str, Any] | None, catalogs: Mapping[str, DatabaseStatsCatalog]
-) -> bool:
-    """Whether a concrete schema row is an injected statistics table, not a user's own.
-
-    The name alone can't decide: a user could have a real schema called ``system_tables``
-    holding a table of the same name. Discovered tables get ``source_table_name``
-    persisted into their reconciled ``schema_metadata``; injected rows never do — so a
-    row that names a real source table always wins the normal table-sync path.
-    """
-    if not is_database_stats_schema(schema_name, catalogs):
-        return False
-    return not (schema_metadata or {}).get("source_table_name")
-
-
 def build_database_stats_schemas(
     catalogs: Mapping[str, DatabaseStatsCatalog],
     columns_by_table: Mapping[str, list[tuple[str, str, bool]]],
@@ -139,28 +109,24 @@ def build_database_stats_schemas(
     catalog the server doesn't expose (an extension that isn't installed) simply has no
     entry and is skipped.
 
-    Skips any catalog whose name collides with a real discovered table, comparing both
-    the qualified name and the unqualified tail to match
-    ``sync_old_schemas_with_new_schemas``'s bare↔qualified equivalence — a collision
-    would wrongly route the user's own table to the statistics collector.
+    Skips any catalog whose name a real discovered table already uses, so the user's own
+    table is never routed to the statistics collector.
     """
     discovered = set(discovered_names)
-    discovered_tails = {name.rpartition(".")[2] for name in discovered_names}
 
     schemas: list[SourceSchema] = []
-    for catalog in catalogs.values():
-        name = stats_table_name(catalog.table_name)
+    for name, catalog in catalogs.items():
         if names is not None and name not in names:
             continue
 
-        if name in discovered or catalog.table_name in discovered_tails:
+        if name in discovered:
             structlog.get_logger().warning(
                 "Skipping database stats table: name collides with a discovered table",
                 schema_name=name,
             )
             continue
 
-        catalog_columns = list(catalog.static_columns) or columns_by_table.get(catalog.table_name, [])
+        catalog_columns = list(catalog.static_columns) or columns_by_table.get(name, [])
         if not catalog_columns:
             continue
 
@@ -195,10 +161,9 @@ def build_database_stats_source_response(
     lifecycle, the collection-failure guard (a catalog the credentials can't read appends
     an empty snapshot, never a failed job), and the SourceResponse shape.
     """
-    table_name = schema_name.rpartition(".")[2]
-    if table_name not in catalogs:
+    if schema_name not in catalogs:
         raise ValueError(f"Unknown database stats table: {schema_name}")
-    collector = collectors[table_name]
+    collector = collectors[schema_name]
 
     def items() -> Iterator[dict[str, Any]]:
         collected_at = datetime.now(UTC)

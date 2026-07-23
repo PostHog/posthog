@@ -427,7 +427,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "statistics reset. Requires the pg_stat_statements extension."
             ),
             collector=_collect_statements,
-            catalog_relation="pg_stat_statements",
         ),
         DatabaseStatsCatalog(
             table_name="pg_stat_user_tables",
@@ -436,7 +435,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "rows, and vacuum/analyze timestamps, plus total_size_bytes."
             ),
             collector=_collect_tables,
-            catalog_relation="pg_stat_user_tables",
             computed_columns=(("total_size_bytes", "bigint", True),),
         ),
         DatabaseStatsCatalog(
@@ -445,7 +443,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "Snapshots of pg_stat_user_indexes: per-index scan counts, plus index_size_bytes and index_definition."
             ),
             collector=_collect_indexes,
-            catalog_relation="pg_stat_user_indexes",
             computed_columns=(
                 ("index_size_bytes", "bigint", True),
                 ("index_definition", "text", True),
@@ -455,7 +452,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
             table_name="pg_statio_user_tables",
             description="Snapshots of pg_statio_user_tables: per-table buffer cache hits and disk reads.",
             collector=_collect_statio_tables,
-            catalog_relation="pg_statio_user_tables",
         ),
         DatabaseStatsCatalog(
             table_name="pg_stat_database",
@@ -464,7 +460,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "deadlocks, temp files and conflicts."
             ),
             collector=_collect_database,
-            catalog_relation="pg_stat_database",
         ),
         DatabaseStatsCatalog(
             table_name="pg_settings",
@@ -485,7 +480,6 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "(NULL on a standby, where it can't be measured)."
             ),
             collector=_collect_replication_slots,
-            catalog_relation="pg_replication_slots",
             computed_columns=(("retained_wal_bytes", "bigint", True),),
         ),
         DatabaseStatsCatalog(
@@ -513,7 +507,7 @@ def fetch_postgres_stats_columns(conn: psycopg.Connection) -> dict[str, list[tup
     instead of a hardcoded guess, and so a catalog the server doesn't expose (an
     extension that isn't installed) is simply absent.
     """
-    relations = [c.catalog_relation for c in POSTGRES_STATS_CATALOGS.values() if c.catalog_relation]
+    relations = [c.table_name for c in POSTGRES_STATS_CATALOGS.values() if not c.static_columns]
     columns: dict[str, list[tuple[str, str, bool]]] = {}
     with conn.cursor() as cur:
         cur.execute(
