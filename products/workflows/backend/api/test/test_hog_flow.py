@@ -3712,9 +3712,18 @@ class TestHogFlowSecretInputs(APIBaseTest):
             edges=[{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
         )
 
+        # Retrieve (full serializer, includes actions).
         body = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").json()
         assert body["trigger"]["inputs"]["api_key"] == {"secret": True}
         assert "TRIGGER-SECRET" not in json.dumps(body)
+
+        # MCP list (summary serializer) omits actions but still returns trigger, so it can't re-derive
+        # the mask from actions - the trigger must be masked independently or the secret leaks here.
+        listing = self.client.get(f"/api/projects/{self.team.id}/hog_flows", HTTP_X_POSTHOG_CLIENT="mcp").json()
+        row = next(r for r in listing["results"] if r["id"] == str(flow.id))
+        assert "actions" not in row
+        assert row["trigger"]["inputs"]["api_key"] == {"secret": True}
+        assert "TRIGGER-SECRET" not in json.dumps(listing)
 
     @patch(_REVISIONS_FLAG_PATH, return_value=True)
     def test_legacy_plaintext_secret_stripped_from_revision_snapshot(self, _flag):

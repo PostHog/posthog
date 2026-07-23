@@ -262,6 +262,27 @@ def _mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache]
         content["trigger"] = trigger_action.get("config")
 
 
+def mask_trigger_config(
+    instance: "HogFlow", secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> Any:
+    # Mask the standalone `trigger` field. Both the minimal and (crucially) the summary serializer
+    # return `trigger` while the summary omits `actions`, so it can't be re-derived from masked actions
+    # there - a function-shaped trigger's secret would otherwise leak on the MCP list endpoint. Mask
+    # from the instance's own trigger action (or the stored trigger config as a fallback for legacy
+    # rows whose actions may be empty).
+    trigger_action = next(
+        (a for a in (instance.actions or []) if isinstance(a, dict) and a.get("type") == "trigger"),
+        None,
+    )
+    trigger_action = (
+        deepcopy(trigger_action)
+        if trigger_action is not None
+        else {"type": "trigger", "config": deepcopy(instance.trigger) if instance.trigger else {}}
+    )
+    masked = mask_secret_action_inputs([trigger_action], secrets_by_action, template_cache)
+    return masked[0].get("config")
+
+
 def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
     # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
@@ -1156,10 +1177,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         template_cache: TemplateCache = self.context.setdefault("_hogflow_template_cache", {})
         if isinstance(data.get("actions"), list):
             data["actions"] = mask_secret_action_inputs(deepcopy(data["actions"]), live_secrets, template_cache)
-            # `trigger` is a separately-serialized field derived from the trigger action, so masking
-            # `actions` alone leaves a function-shaped trigger's secret exposed on it (legacy rows).
-            # Re-derive it from the now-masked trigger action to keep the two consistent.
-            _mask_derived_trigger(data, template_cache)
+        # `trigger` is a separately-serialized field derived from the trigger action. Mask it from the
+        # instance directly (not from data["actions"]) so it's covered even by the summary serializer,
+        # which returns `trigger` but omits `actions` - otherwise a function-shaped trigger's secret
+        # would leak on the MCP list endpoint.
+        if "trigger" in data and isinstance(instance, HogFlow):
+            data["trigger"] = mask_trigger_config(instance, live_secrets, template_cache)
         draft = data.get("draft")
         if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
             draft = deepcopy(draft)
