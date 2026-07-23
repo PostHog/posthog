@@ -360,6 +360,74 @@ pub fn match_property(
                 ))
             }
         }
+        OperatorType::Between | OperatorType::NotBetween => {
+            if match_value.is_none() {
+                // When value doesn't exist:
+                // - for Between/NotBetween: it's not a match (false)
+                return Ok(false);
+            }
+
+            // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
+            // on both ends, not_between is its complement, and the filter value must be
+            // a two-element numeric array with min <= max.
+            let bounds = match value.as_array() {
+                Some(bounds) if bounds.len() == 2 => bounds,
+                _ => {
+                    tracing::debug!(
+                        "Invalid filter value '{}' for key '{}' for operator {:?}",
+                        value,
+                        key,
+                        operator
+                    );
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires a two-element array [min, max]"
+                            .to_string(),
+                    ));
+                }
+            };
+
+            let (low, high) = match (
+                to_f64_representation(&bounds[0]),
+                to_f64_representation(&bounds[1]),
+            ) {
+                (Some(low), Some(high)) if low <= high => (low, high),
+                (Some(_), Some(_)) => {
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires min value to be less than or equal to max value"
+                            .to_string(),
+                    ));
+                }
+                _ => {
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires numeric values".to_string(),
+                    ));
+                }
+            };
+
+            let parsed_value = match to_f64_representation(
+                match_value.unwrap_or(&serde_json::Value::Null),
+            ) {
+                Some(parsed_value) => parsed_value,
+                None => {
+                    tracing::debug!(
+                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
+                        match_value.unwrap_or(&serde_json::Value::Null),
+                        key,
+                        operator
+                    );
+                    return Err(FlagMatchingError::ValidationError(
+                        "value is not a number".to_string(),
+                    ));
+                }
+            };
+
+            let in_range = parsed_value >= low && parsed_value <= high;
+            if operator == OperatorType::Between {
+                Ok(in_range)
+            } else {
+                Ok(!in_range)
+            }
+        }
         OperatorType::SemverGt
         | OperatorType::SemverGte
         | OperatorType::SemverLt
@@ -1541,6 +1609,117 @@ mod test_match_properties {
         //     .expect("expected match to exist"),
         //     true
         // );
+    }
+
+    #[test_case(json!(70000), true; "at lower bound is inclusive")]
+    #[test_case(json!(80000), true; "at upper bound is inclusive")]
+    #[test_case(json!(75000), true; "inside range")]
+    #[test_case(json!("75000"), true; "string number property value coerces")]
+    #[test_case(json!(69999), false; "below range")]
+    #[test_case(json!(80001), false; "above range")]
+    fn test_match_properties_between_operator(property_value: Value, expected: bool) {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!([70000, 80000])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        let props = HashMap::from([("key".to_string(), property_value)]);
+
+        assert_eq!(
+            match_property(&between, &props, true).expect("expected match to exist"),
+            expected
+        );
+        // not_between is the exact complement
+        assert_eq!(
+            match_property(&not_between, &props, true).expect("expected match to exist"),
+            !expected
+        );
+    }
+
+    #[test]
+    fn test_match_properties_between_operator_edge_cases() {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            // String bounds coerce to numbers like the Gt/Lt operators do
+            value: Some(json!(["70000", "80000"])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &between,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Missing person property is not a match
+        assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
+
+        // Non-numeric person property value is a validation error (like Gt/Lt), which
+        // cohort evaluation resolves to a non-match
+        assert!(matches!(
+            match_property(
+                &between,
+                &HashMap::from([("key".to_string(), json!("abc"))]),
+                true
+            ),
+            Err(FlagMatchingError::ValidationError(_))
+        ));
+
+        // A filter with no value is not a match
+        let no_value = PropertyFilter {
+            value: None,
+            ..between.clone()
+        };
+        assert!(!match_property(
+            &no_value,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test_case(json!(75000); "not an array")]
+    #[test_case(json!([70000]); "one element")]
+    #[test_case(json!([70000, 75000, 80000]); "three elements")]
+    #[test_case(json!(["a", "b"]); "non-numeric bounds")]
+    #[test_case(json!([80000, 70000]); "min greater than max")]
+    fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
+        for operator in [OperatorType::Between, OperatorType::NotBetween] {
+            let property = PropertyFilter {
+                key: "key".to_string(),
+                value: Some(filter_value.clone()),
+                operator: Some(operator),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            };
+
+            assert!(matches!(
+                match_property(
+                    &property,
+                    &HashMap::from([("key".to_string(), json!(75000))]),
+                    true
+                ),
+                Err(FlagMatchingError::ValidationError(_))
+            ));
+        }
     }
 
     #[test]
