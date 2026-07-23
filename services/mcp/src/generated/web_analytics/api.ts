@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod';
@@ -214,25 +214,6 @@ export const webAnalyticsWeeklyDigestQueryDaysDefault = 7;
 export const WebAnalyticsWeeklyDigestQueryParams = /* @__PURE__ */ zod.object({
   "compare": zod.boolean().default(webAnalyticsWeeklyDigestQueryCompareDefault).describe('When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).'),
   "days": zod.number().default(webAnalyticsWeeklyDigestQueryDaysDefault).describe('Lookback window in days (1–90). Defaults to 7.')
-})
-
-
-/**
- * Merges the suggestion's rules into the team's path_cleaning_filters (never overwrites existing rules) and resolves the underlying health issue. Requires project admin, matching the team API's gate on path_cleaning_filters.
- * @summary Apply a path-cleaning suggestion
- */
-export const WebAnalyticsPathCleaningSuggestionsApplyParams = /* @__PURE__ */ zod.object({
-  "id": zod.string(),
-  "project_id": zod.string().describe('Project ID of the project you\'re trying to access. To find the ID of the project, make a call to \/api\/projects\/.')
-})
-
-
-/**
- * Samples the team's recent paths, asks the LLM for cleaning rules, validates them against the real paths, and stores the result as a `path_cleaning_suggestions` health issue (replacing any previous active one). Runs even if the team already has rules. Returns the suggestion (or a skip status when there aren't enough paths to suggest from).
- * @summary Generate path-cleaning suggestions on demand
- */
-export const WebAnalyticsPathCleaningSuggestionsGenerateParams = /* @__PURE__ */ zod.object({
-  "project_id": zod.string().describe('Project ID of the project you\'re trying to access. To find the ID of the project, make a call to \/api\/projects\/.')
 })
 
 
