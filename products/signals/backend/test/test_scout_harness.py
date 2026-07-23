@@ -795,6 +795,19 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
+    # `{}` on the default path) — the native API-side record of which model served the run.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    expected_metadata = {
+        key: value
+        for key, value in (
+            ("model", expected_model),
+            ("runtime_adapter", expected_runtime_adapter),
+            ("reasoning_effort", expected_reasoning_effort),
+        )
+        if value is not None
+    }
+    assert bridge.metadata == expected_metadata
     events = {c.kwargs["event"] for c in capture.call_args_list}
     assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
     for call in capture.call_args_list:

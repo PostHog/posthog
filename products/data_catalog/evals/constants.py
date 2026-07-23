@@ -10,6 +10,64 @@ from __future__ import annotations
 # The catalog table every scorer greps agent SQL for.
 METRICS_CATALOG_MARKER = "information_schema.metrics"
 
+TOP_CUSTOMERS_METRIC_NAME = "top_customers_mrr_by_business_model"
+TOP_CUSTOMERS_METRIC_DISPLAY_NAME = "Top B2C customers by revenue"
+TOP_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Ranks B2C customers by recurring revenue for the last full calendar month. B2C means "
+    "extended_properties.account_kind = 'personal'; revenue is the sum of paid_bills.amount_usd; "
+    "the result grain is one Hedgebox customer, ordered highest revenue first and limited to 10."
+)
+TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    e.hedgebox_user_id AS customer_id,\n"
+        "    any(e.company_name) AS customer_name,\n"
+        "    sum(p.amount_usd) AS revenue_usd\n"
+        "FROM paid_bills AS p\n"
+        "INNER JOIN extended_properties AS e ON p.distinct_id = e.hedgebox_user_id\n"
+        "WHERE e.account_kind = 'personal'\n"
+        "  AND p.timestamp >= toStartOfMonth(now() - INTERVAL 1 MONTH)\n"
+        "  AND p.timestamp < toStartOfMonth(now())\n"
+        "GROUP BY e.hedgebox_user_id\n"
+        "ORDER BY revenue_usd DESC\n"
+        "LIMIT 10"
+    ),
+}
+
+CURRENT_TOP_CUSTOMERS_METRIC_NAME = "top_customers_current_mrr_by_business_model"
+CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME = "Top B2C customers by current MRR"
+CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Ranks B2C customers by the current monthly billing snapshot. B2C means "
+    "extended_properties.account_kind = 'personal'; revenue uses monthly_bill_usd at the current snapshot, "
+    "not paid bills from the last full calendar month; the result is limited to 10 customers."
+)
+CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    e.hedgebox_user_id AS customer_id,\n"
+        "    any(e.company_name) AS customer_name,\n"
+        "    any(e.monthly_bill_usd) AS revenue_usd\n"
+        "FROM extended_properties AS e\n"
+        "WHERE e.account_kind = 'personal'\n"
+        "GROUP BY e.hedgebox_user_id\n"
+        "ORDER BY revenue_usd DESC\n"
+        "LIMIT 10"
+    ),
+}
+
+FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": TOP_CUSTOMERS_METRIC_DEFINITION["query"].replace(
+        "sum(p.amount_usd) AS revenue_usd",
+        "sum(p.amount_usd) + toFloat64('catalog runner failure') AS revenue_usd",
+    ),
+}
+# A silent no-op replace would turn the "failing" metric into a working one and break the
+# runner-failure case at eval runtime instead of at import.
+assert "catalog runner failure" in FAILING_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
+
 # Approved arm: named so a lazy `name ILIKE '%mrr%'` misses it — the prompt says "MRR",
 # forcing the name+description search the steering asks for. The personal/free exclusion
 # is the needle: a naive re-derivation would sum every paid_bill instead.

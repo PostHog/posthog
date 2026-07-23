@@ -1304,17 +1304,28 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     async def _maybe_record_terminal_status(self) -> None:
-        # TaskRun stays in_progress on successful completion *and* on
-        # inactivity timeout — the run is always followable, so neither
-        # path is terminal. Only an explicit failure or cancellation
-        # propagated through complete_task transitions out of in_progress;
-        # the except blocks in run() cover the other terminal paths.
+        # An interactive run stays in_progress on successful completion *and* on
+        # inactivity timeout — it is always followable, so neither path is
+        # terminal. Only an explicit failure or cancellation propagated through
+        # complete_task transitions it out; the except blocks in run() cover the
+        # other terminal paths.
         if self._task_completed and self._completion_status in {"failed", "cancelled"}:
             await self._update_task_run_status(
                 self._completion_status,
                 error_message=self._completion_error,
                 error_type=self._completion_error_type,
             )
+            return
+
+        # A background run (loop / automated) is one-shot and unattended: nothing
+        # sends a follow-up, so its natural end (agent idle timeout or a
+        # successful complete_task) is terminal. Mark it completed so it doesn't
+        # sit in_progress forever after the sandbox is reclaimed. Adding this
+        # activity is replay-safe without a patch gate: it runs only on the
+        # terminal path, which no in-flight execution has passed (reaching it
+        # completes the workflow).
+        if self._context and self._context.mode != "interactive":
+            await self._update_task_run_status("completed")
 
     async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
         exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)

@@ -25,6 +25,20 @@ INACTIVITY_TIMEOUT_TEST_SECONDS = 2 * 60  # 2 minutes
 # keep a sandbox alive far past the intended idle window.
 MAX_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
 
+# Loop runs are one-shot and unattended: once the agent goes idle there's no human to
+# send a follow-up, so they reclaim the sandbox promptly instead of waiting out the
+# 30-minute background idle window. CI-watching loops opt out (they keep the longer
+# window so the sandbox survives the follow-up cadence).
+LOOP_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
+
+# When a loop run's workflow dies without terminalizing (sandbox killed, worker crash),
+# the run row is stuck non-terminal and would block every future fire under SKIP forever.
+# A live run keeps bumping `updated_at` within its inactivity window, so a non-terminal
+# run untouched for longer than the longest window (plus buffer) is provably dead and the
+# fire path reaps it. Kept clear of `MAX_INACTIVITY_TIMEOUT_SECONDS` so a run right at the
+# cap is never mistaken for a zombie.
+LOOP_RUN_STALE_SECONDS = MAX_INACTIVITY_TIMEOUT_SECONDS + 30 * 60  # 2.5 hours
+
 
 def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | None = None) -> timedelta:
     """Effective inactivity timeout for a task run, in priority order.

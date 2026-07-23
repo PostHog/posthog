@@ -346,31 +346,9 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
 
-            describe('when the recipient is on the suppression list (enforce enabled)', () => {
-                // EmailSuppressionService reads EMAIL_SUPPRESSION_ENFORCE_ENABLED once in its
-                // constructor, so we flip the env then rebuild both services so the fresh instance
-                // reads it. Suppression is a deliverability signal that must apply even to
-                // transactional messages — the parameterized case guards that ordering.
-                let originalEnforceEnv: string | undefined
-
-                beforeEach(() => {
-                    originalEnforceEnv = process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
-                    process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = 'true'
-                    mockEmailSuppressionService = new EmailSuppressionService(
-                        hub.postgres,
-                        emailSuppressionConfigFromEnv()
-                    )
-                    service = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService)
-                })
-
-                afterEach(() => {
-                    if (originalEnforceEnv === undefined) {
-                        delete process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED
-                    } else {
-                        process.env.EMAIL_SUPPRESSION_ENFORCE_ENABLED = originalEnforceEnv
-                    }
-                })
-
+            describe('when the recipient is on the suppression list', () => {
+                // Suppression is a deliverability signal that must apply even to transactional
+                // messages — the parameterized case guards that ordering.
                 const insertSuppressionRow = async (email: string): Promise<void> => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,

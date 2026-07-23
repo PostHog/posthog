@@ -136,6 +136,8 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
+    from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
+    from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
@@ -199,6 +201,9 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.APPFIGURES, "reviews", APPFIGURES_CONFIG)
     register_signal_source(ExternalDataSourceType.APPFOLLOW, "reviews", APPFOLLOW_CONFIG)
     register_signal_source(ExternalDataSourceType.JUDGEMEREVIEWS, "reviews", JUDGEME_REVIEWS_CONFIG)
+    # OAuth-connected support sources (record kind: ticket)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "conversations", INTERCOM_CONFIG)
+    register_signal_source(ExternalDataSourceType.HUBSPOT, "tickets", HUBSPOT_CONFIG)
 
 
 _register_all_emitters()

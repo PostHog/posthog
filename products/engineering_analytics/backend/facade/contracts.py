@@ -498,21 +498,43 @@ class CIFailureLogs:
     truncated: bool
 
 
-# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
-    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
-    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+    "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
+    "enough to clear the emitter's duration threshold, so there is no execution denominator. "
+    "'suspected_regression' means no recovery was recorded in this data, not that the test never flakes."
 )
+
+
+class FlakyTestClassification(StrEnum):
+    # An in-job retry recovered the test in the same run.
+    CONFIRMED_FLAKE = "confirmed_flake"
+    # Only failures recorded, which is absence of proof, not proof of a regression.
+    SUSPECTED_REGRESSION = "suspected_regression"
+    # Failing while masked as xfail.
+    QUARANTINED = "quarantined"
+
+    @classmethod
+    def from_run_evidence(
+        cls, *, quarantined_failed_run_count: int, rerun_passed_run_count: int
+    ) -> "FlakyTestClassification":
+        # Quarantine wins over a recovery proof: an xfail is already masked, so surface that first.
+        if quarantined_failed_run_count > 0:
+            return cls.QUARANTINED
+        if rerun_passed_run_count > 0:
+            return cls.CONFIRMED_FLAKE
+        return cls.SUSPECTED_REGRESSION
 
 
 @dataclass(frozen=True)
 class FlakyTestItem:
-    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
+    """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
-    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
-    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
+    Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only sees
+    Backend CI. Evidence is counted per CI run, never per span: one run fans a test across matrix
+    legs, so only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why
+    every figure is an absolute count.
     """
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
@@ -520,29 +542,26 @@ class FlakyTestItem:
     # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
-    # Spans where the test failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
-    failed_count: int
-    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
+    classification: FlakyTestClassification
+    # Runs where an in-job pytest retry recovered the test after it failed. Only tests hand-marked
+    # @pytest.mark.flaky(reruns=N) can reach this: Backend CI runs without --reruns so failures
+    # stay visible instead of being retried away.
+    rerun_passed_run_count: int
+    failed_run_count: int
+    # Master/branch failures carry no PR number and don't count here.
     failed_pr_count: int
-    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
-    # the default branch); the "matters right now" signal.
-    master_failed_count: int
-    # Distinct git branches across all of the test's signal spans in the window.
-    branch_count: int
-    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
-    xfailed_count: int
-    # Most recent signal span for this test in the window.
-    last_seen_at: datetime
+    # master/main approximation: the source doesn't record the default branch.
+    master_failed_run_count: int
+    quarantined_failed_run_count: int
+    last_signal_at: datetime
 
 
 @dataclass(frozen=True)
 class FlakyTestList:
-    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
-    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
-    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
-    at least ``min_failed_prs`` distinct PRs in the window.
+    """The active test-health queue for a window: tests with a live failure signal, ranked by blast
+    radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
+    (same shape as ``PullRequestList``). A test qualifies on any in-run recovery, any
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
     """
 
     items: list[FlakyTestItem]
@@ -563,19 +582,22 @@ class TeamCIHealthItem:
 
     # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
     owner_team: str
-    # Owned tests meeting the flaky-leaderboard bar in the window (rerun passes OR distinct failed PRs).
+    # Owned tests an in-job retry recovered in the window: the same proof, and the same word,
+    # the test-health queue's `confirmed_flake` uses.
     flaky_test_count: int
     flaky_test_count_prior: int
-    # Signal spans on owned tests with outcome 'failed' or 'error' in the window.
-    failed_count: int
-    failed_count_prior: int
-    # Spans on owned tests that failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    rerun_passed_count_prior: int
-    # Spans on owned tests that failed while quarantined (xfail): already masked, still flaky.
-    xfailed_count: int
-    xfailed_count_prior: int
-    # Most recent signal span across the team's owned tests, either window.
+    # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.
+    regression_test_count: int
+    regression_test_count_prior: int
+    # Runs (not spans) where an owned test's recorded outcome was failed or error.
+    failed_run_count: int
+    failed_run_count_prior: int
+    rerun_passed_run_count: int
+    rerun_passed_run_count_prior: int
+    # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
+    quarantined_failed_run_count: int
+    quarantined_failed_run_count_prior: int
+    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
     last_seen_at: datetime
 
 
@@ -594,8 +616,8 @@ class TeamCIHealthList:
 @dataclass(frozen=True)
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
-    window, the pair behind a before-vs-after slope reading. Signal = failed + error +
-    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    window, the pair behind a before-vs-after slope reading. Signal = runs where the test
+    failed, errored, or a retry recovered it (xfail excluded: already-quarantined noise).
     """
 
     nodeid: str

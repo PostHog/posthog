@@ -439,6 +439,25 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
+        it('restores a stored access token that has no refresh token (impersonation)', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                refreshToken: null,
+                isAuthenticated: true,
+            })
+        })
+
         it('discards stored OAuth tokens when uiHost does not match', () => {
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
@@ -908,6 +927,29 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.isAuthenticated).toBe(false)
         })
 
+        it('calls tokenExpired on 401 when there is no refresh token, without attempting a refresh', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'imp-access',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let refreshAttempted = false
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    refreshAttempted = true
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(refreshAttempted).toBe(false)
+            expect(logic.values.accessToken).toBeNull()
+            expect(logic.values.isAuthenticated).toBe(false)
+        })
+
         it('does not retry when response is not 401', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',
@@ -1025,6 +1067,32 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(tokenExchangeCall[0]).toBe('https://us.posthog.com/oauth/token/')
             const body = new URLSearchParams(tokenExchangeCall[1].body)
             expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
+        })
+
+        it('authenticates when the token response has no refresh token (impersonation)', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: true, status: 200 })
+                }
+                // Impersonation-minted tokens are refresh-less by design.
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ access_token: 'imp-access', expires_in: 1800 }),
+                })
+            })
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'imp-access',
+                refreshToken: null,
+                isAuthenticated: true,
+            })
         })
 
         it('does not trigger temporaryToken migration during code exchange', async () => {
@@ -1323,6 +1391,18 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
         })
 
+        it('resolves a relative reverse-proxy api_host against the current origin', () => {
+            // posthog-js commonly points api_host at a relative reverse-proxy path
+            // like /ingest (Next.js/Vercel rewrites). The toolbar must keep that
+            // prefix rather than reject it and fall back to the bare origin.
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: '/ingest' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(`${window.location.origin}/ingest`)
+            expect(logic.values.apiHostResolution.source).toBe('posthog_api_host')
+        })
+
         it.each([
             ['apiURL', { apiURL: '' }],
             ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
@@ -1375,13 +1455,23 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
             ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
             ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // relative reverse-proxy configs resolve against the current origin
+            ['/ingest', `${window.location.origin}/ingest`],
+            ['/ingest/', `${window.location.origin}/ingest`],
             // rejected
             ['javascript:alert(1)', null],
             ['https://user:pass@host/path', null],
             ['https://host@evil.com/path', null],
+            ['//evil.com', null], // protocol-relative would hijack the origin
+            ['/\\evil.com', null], // backslash protocol-relative
+            // tab/newline/CR are stripped by the URL parser, turning these into
+            // protocol-relative refs that would otherwise hijack the origin
+            ['/\t/evil.com', null],
+            ['/\n/evil.com', null],
+            ['/\r/evil.com', null],
             ['', null],
             [undefined, null],
-            ['not a url', null],
+            ['not a url', null], // non-path garbage is not treated as relative
         ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeApiHost(input as any)).toBe(expected)
         })

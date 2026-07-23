@@ -1,9 +1,12 @@
 use async_trait::async_trait;
+use std::str::from_utf8;
+
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
-use tracing::{error, warn};
+use tracing::error;
+use uuid::Uuid;
 
 use crate::error::{WriteError, WriteErrorKind};
 use crate::store::PersonDb;
@@ -22,18 +25,12 @@ pub struct PgStore {
 #[async_trait]
 impl PersonDb for PgStore {
     async fn execute_chunk(&self, chunk: &[Person]) -> Result<(), WriteError> {
-        let arrays = prepare_chunk(chunk);
+        let arrays = prepare_chunk(chunk)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "chunk").await
     }
 
-    async fn execute_row(
-        &self,
-        person: &Person,
-        properties_override: Option<&str>,
-    ) -> Result<(), WriteError> {
-        let Some(arrays) = prepare_single(person, properties_override) else {
-            return Ok(()); // Invalid input, already logged
-        };
+    async fn execute_row(&self, person: &Person) -> Result<(), WriteError> {
+        let arrays = prepare_single(person)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "row").await
     }
 }
@@ -81,109 +78,74 @@ impl PgStore {
 /// Build bind arrays from a slice of persons. Borrows string data directly
 /// from each Person's byte buffers; `PreparedArrays` is tied to the slice's
 /// lifetime and must not outlive `persons`.
-fn prepare_chunk(persons: &[Person]) -> PreparedArrays<'_> {
+///
+/// Any field that cannot be bound losslessly (malformed uuid, team_id
+/// beyond the column's `integer` range, non-UTF-8 JSON bytes, timestamp
+/// outside chrono's range) is a `Data` error: the record is unapplyable
+/// as produced, which post-admission is an invariant violation the caller
+/// must halt on. Nothing is ever dropped or substituted here — a silent
+/// repair would diverge PG from the cache and changelog.
+fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
     let cap = persons.len();
     let mut arrays = PreparedArrays::with_capacity(cap);
-
-    for p in persons {
-        let uuid = match uuid::Uuid::parse_str(&p.uuid) {
-            Ok(u) => u,
-            Err(e) => {
-                counter!("personhog_writer_invalid_uuid_total").increment(1);
-                warn!(
-                    team_id = p.team_id,
-                    person_id = p.id,
-                    uuid = %p.uuid,
-                    error = %e,
-                    "skipping person with invalid UUID"
-                );
-                continue;
-            }
-        };
-
-        let team_id = match i32::try_from(p.team_id) {
-            Ok(t) => t,
-            Err(_) => {
-                counter!("personhog_writer_invalid_team_id_total").increment(1);
-                warn!(
-                    team_id = p.team_id,
-                    person_id = p.id,
-                    "skipping person with out-of-range team_id (exceeds i32)"
-                );
-                continue;
-            }
-        };
-
-        arrays.push(
-            p.id,
-            team_id,
-            uuid,
-            bytes_to_json_str(&p.properties, "{}"),
-            bytes_to_optional_json_str(&p.properties_last_updated_at),
-            bytes_to_optional_json_str(&p.properties_last_operation),
-            epoch_secs_to_datetime(p.created_at),
-            Some(p.version),
-            p.is_identified,
-            p.last_seen_at.map(epoch_secs_to_datetime),
-        );
+    for person in persons {
+        push_person(&mut arrays, person)?;
     }
-
-    arrays
+    Ok(arrays)
 }
 
-/// Build a single-row PreparedArrays for the per-row path. Returns None if
-/// the person has an invalid UUID (already logged).
-fn prepare_single<'a>(
-    person: &'a Person,
-    properties_override: Option<&'a str>,
-) -> Option<PreparedArrays<'a>> {
-    let uuid = match uuid::Uuid::parse_str(&person.uuid) {
-        Ok(u) => u,
-        Err(e) => {
-            counter!("personhog_writer_invalid_uuid_total").increment(1);
-            warn!(
-                team_id = person.team_id,
-                person_id = person.id,
-                uuid = %person.uuid,
-                error = %e,
-                "skipping person with invalid UUID"
-            );
-            return None;
-        }
-    };
-
-    let team_id = match i32::try_from(person.team_id) {
-        Ok(t) => t,
-        Err(_) => {
-            counter!("personhog_writer_invalid_team_id_total").increment(1);
-            warn!(
-                team_id = person.team_id,
-                person_id = person.id,
-                "skipping person with out-of-range team_id (exceeds i32)"
-            );
-            return None;
-        }
-    };
-
-    let properties = match properties_override {
-        Some(s) => s,
-        None => bytes_to_json_str(&person.properties, "{}"),
-    };
-
+/// Build a single-row `PreparedArrays` for the per-row path.
+fn prepare_single(person: &Person) -> Result<PreparedArrays<'_>, WriteError> {
     let mut arrays = PreparedArrays::with_capacity(1);
+    push_person(&mut arrays, person)?;
+    Ok(arrays)
+}
+
+fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(), WriteError> {
+    let unbindable = |field: &str, detail: String| {
+        counter!("personhog_writer_unbindable_field_total", "field" => field.to_string())
+            .increment(1);
+        WriteError {
+            message: format!(
+                "unbindable {field} for team_id={} person_id={}: {detail}",
+                p.team_id, p.id
+            ),
+            kind: WriteErrorKind::Data,
+        }
+    };
+
+    let uuid = Uuid::parse_str(&p.uuid).map_err(|e| unbindable("uuid", e.to_string()))?;
+    let team_id = i32::try_from(p.team_id)
+        .map_err(|_| unbindable("team_id", "exceeds the column's integer range".to_string()))?;
+    let properties =
+        bytes_to_json_str(&p.properties, "{}").map_err(|e| unbindable("properties", e))?;
+    let properties_last_updated_at = bytes_to_optional_json_str(&p.properties_last_updated_at)
+        .map_err(|e| unbindable("properties_last_updated_at", e))?;
+    let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
+        .map_err(|e| unbindable("properties_last_operation", e))?;
+    let created_at = epoch_secs_to_datetime(p.created_at)
+        .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
+    let last_seen_at = match p.last_seen_at {
+        None => None,
+        Some(secs) => Some(
+            epoch_secs_to_datetime(secs)
+                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {secs} out of range")))?,
+        ),
+    };
+
     arrays.push(
-        person.id,
+        p.id,
         team_id,
         uuid,
         properties,
-        bytes_to_optional_json_str(&person.properties_last_updated_at),
-        bytes_to_optional_json_str(&person.properties_last_operation),
-        epoch_secs_to_datetime(person.created_at),
-        Some(person.version),
-        person.is_identified,
-        person.last_seen_at.map(epoch_secs_to_datetime),
+        properties_last_updated_at,
+        properties_last_operation,
+        created_at,
+        Some(p.version),
+        p.is_identified,
+        last_seen_at,
     );
-    Some(arrays)
+    Ok(())
 }
 
 async fn run_upsert(
@@ -270,10 +232,11 @@ fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
 /// Column-oriented bind arrays for the upsert statement. String fields
 /// borrow from each Person's byte buffer to avoid per-row allocations; the
 /// struct's lifetime is tied to the source slice.
+#[derive(Debug)]
 struct PreparedArrays<'a> {
     ids: Vec<i64>,
     team_ids: Vec<i32>,
-    uuids: Vec<uuid::Uuid>,
+    uuids: Vec<Uuid>,
     properties: Vec<&'a str>,
     properties_last_updated_at: Vec<Option<&'a str>>,
     properties_last_operation: Vec<Option<&'a str>>,
@@ -304,7 +267,7 @@ impl<'a> PreparedArrays<'a> {
         &mut self,
         id: i64,
         team_id: i32,
-        uuid: uuid::Uuid,
+        uuid: Uuid,
         properties: &'a str,
         properties_last_updated_at: Option<&'a str>,
         properties_last_operation: Option<&'a str>,
@@ -328,43 +291,29 @@ impl<'a> PreparedArrays<'a> {
     }
 }
 
-/// Interpret proto bytes as a JSON string. The leader serializes via
-/// serde_json::RawValue, so these are already valid JSON UTF-8. We pass
-/// them through to PG as text and let the `::jsonb` cast validate. Returns
-/// a borrow into `bytes`; on invalid UTF-8 or empty input, the static
-/// default (coerces to any lifetime).
-fn bytes_to_json_str<'a>(bytes: &'a [u8], default: &'static str) -> &'a str {
+/// Interpret proto bytes as a JSON string. The leader serializes a parsed
+/// `serde_json::Value`, so these are valid JSON UTF-8 by construction; the
+/// `::jsonb` cast in the statement re-validates at PG. Empty bytes are the
+/// proto default and decode to `default`. Invalid UTF-8 is an error, never
+/// a substitution.
+fn bytes_to_json_str<'a>(bytes: &'a [u8], default: &'static str) -> Result<&'a str, String> {
     if bytes.is_empty() {
-        return default;
+        return Ok(default);
     }
-    match std::str::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(e) => {
-            counter!("personhog_writer_invalid_json_total").increment(1);
-            warn!(error = %e, "non-UTF8 in JSON field, using default");
-            default
-        }
-    }
+    from_utf8(bytes).map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn bytes_to_optional_json_str(bytes: &[u8]) -> Option<&str> {
+fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
     if bytes.is_empty() {
-        return None;
+        return Ok(None);
     }
-    match std::str::from_utf8(bytes) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            counter!("personhog_writer_invalid_json_total").increment(1);
-            warn!(error = %e, "non-UTF8 in optional JSON field, treating as null");
-            None
-        }
-    }
+    from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(epoch_secs, 0)
-        .single()
-        .unwrap_or_default()
+fn epoch_secs_to_datetime(epoch_secs: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_opt(epoch_secs, 0).single()
 }
 
 #[cfg(test)]
@@ -390,31 +339,36 @@ mod tests {
 
     #[test]
     fn bytes_to_json_str_valid() {
-        let s = bytes_to_json_str(b"{\"email\":\"test@example.com\"}", "{}");
+        let s = bytes_to_json_str(b"{\"email\":\"test@example.com\"}", "{}").unwrap();
         assert_eq!(s, "{\"email\":\"test@example.com\"}");
     }
 
     #[test]
     fn bytes_to_json_str_empty_returns_default() {
-        let s = bytes_to_json_str(b"", "{}");
-        assert_eq!(s, "{}");
+        assert_eq!(bytes_to_json_str(b"", "{}").unwrap(), "{}");
+    }
+
+    #[test]
+    fn bytes_to_json_str_rejects_invalid_utf8() {
+        assert!(bytes_to_json_str(&[0xff, 0xfe], "{}").is_err());
     }
 
     #[test]
     fn bytes_to_optional_json_str_empty_returns_none() {
-        assert!(bytes_to_optional_json_str(b"").is_none());
+        assert!(bytes_to_optional_json_str(b"").unwrap().is_none());
     }
 
     #[test]
     fn bytes_to_optional_json_str_valid() {
-        let s = bytes_to_optional_json_str(b"{\"key\":\"val\"}");
+        let s = bytes_to_optional_json_str(b"{\"key\":\"val\"}").unwrap();
         assert_eq!(s.unwrap(), "{\"key\":\"val\"}");
     }
 
     #[test]
     fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000);
+        let dt = epoch_secs_to_datetime(1700000000).unwrap();
         assert_eq!(dt.timestamp(), 1700000000);
+        assert!(epoch_secs_to_datetime(i64::MAX).is_none());
     }
 
     #[tokio::test]
@@ -435,27 +389,31 @@ mod tests {
         Person {
             id,
             team_id,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: Uuid::new_v4().to_string(),
             version: 1,
             ..Default::default()
         }
     }
 
     #[test]
-    fn prepare_chunk_skips_out_of_range_team_id() {
+    fn prepare_chunk_errors_on_out_of_range_team_id() {
+        // One unbindable row fails the whole chunk: silently dropping it
+        // would permanently diverge PG from the cache and changelog.
         let good = person_with(1, 42);
         let bad = person_with(2, (i32::MAX as i64) + 1);
 
         let persons = [good, bad];
-        let arrays = prepare_chunk(&persons);
-        // Only the in-range person made it into the bind arrays.
-        assert_eq!(arrays.ids, vec![1]);
-        assert_eq!(arrays.team_ids, vec![42]);
+        let err = prepare_chunk(&persons).expect_err("unbindable row must error");
+        assert!(matches!(err.kind, WriteErrorKind::Data));
+        assert!(err.message.contains("team_id"));
     }
 
     #[test]
-    fn prepare_single_rejects_out_of_range_team_id() {
-        let bad = person_with(1, (i32::MAX as i64) + 1);
-        assert!(prepare_single(&bad, None).is_none());
+    fn prepare_single_errors_on_malformed_uuid() {
+        let mut bad = person_with(1, 42);
+        bad.uuid = "not-a-uuid".to_string();
+        let err = prepare_single(&bad).expect_err("malformed uuid must error");
+        assert!(matches!(err.kind, WriteErrorKind::Data));
+        assert!(err.message.contains("uuid"));
     }
 }

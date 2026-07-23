@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -1080,6 +1081,9 @@ class TestGitHubWebhookFanout(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        # The dispatcher's per-handler delivery dedup lives in the default cache, which is not
+        # rolled back between tests — without this, tests reusing a delivery id poison each other.
+        cache.clear()
 
     def _make_request(
         self, payload: dict, event_type: str = "issues", delivery_id: str = "del-1", url: str = "/webhooks/github/pr/"
@@ -1199,6 +1203,33 @@ class TestGitHubWebhookFanout(TestCase):
         response = self._make_request(payload, event_type="push", url="/webhooks/github/")
 
         self.assertEqual(response.status_code, 200)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_failed_handler_releases_dedup_so_redelivery_is_processed(self, mock_secret):
+        # The dedup mark is set before the handler runs; a handler failure must release it so
+        # GitHub's redelivery of the same GUID gets processed instead of silently skipped for
+        # 24h. A successful handler keeps the mark, so a duplicate delivery stays deduped.
+        mock_secret.return_value = self.webhook_secret
+        payload = {
+            "action": "created",
+            "ref": "refs/heads/main",
+            "installation": {"id": 77777},
+            "repository": {"full_name": "myorg/myrepo"},
+        }
+        loops_handler = "products.tasks.backend.facade.webhooks.handle_github_event_for_loops"
+
+        with patch(loops_handler, side_effect=RuntimeError("boom")):
+            first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+        self.assertEqual(first.status_code, 200)
+
+        with patch(loops_handler) as mock_loops:
+            second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+            self.assertEqual(second.status_code, 200)
+            mock_loops.assert_called_once()
+
+            third = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
+            self.assertEqual(third.status_code, 200)
+            mock_loops.assert_called_once()
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):

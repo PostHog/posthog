@@ -30,6 +30,9 @@ tools:
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
         enabled: false
+    vision-observations-create-task-create:
+        operation: vision_observations_create_task_create
+        enabled: false
     vision-observations-label-create:
         operation: vision_observations_label_create
         enabled: true
@@ -142,6 +145,9 @@ tools:
             creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
             experiment exclusion. Fails when the window has no users or none resolve to a person profile.
         feature_flag: replay-vision
+    vision-scanners-bulk-observe-create:
+        operation: vision_scanners_bulk_observe_create
+        enabled: false
     vision-scanners-create:
         operation: vision_scanners_create
         enabled: true
@@ -263,6 +269,9 @@ tools:
             rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each
             scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
         feature_flag: replay-vision
+    vision-scanners-observations-create-task-create:
+        operation: vision_scanners_observations_create_task_create
+        enabled: false
     vision-scanners-observations-get:
         operation: vision_scanners_observations_retrieve
         enabled: true

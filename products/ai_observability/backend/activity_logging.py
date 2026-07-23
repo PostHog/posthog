@@ -1,11 +1,38 @@
 import copy
+import hashlib
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    ChangeAction,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
+
+ACTIVITY_LOG_ITEM_ID_MAX_LENGTH: int = ActivityLog._meta.get_field("item_id").max_length or 72
+
+
+def prompt_activity_item_id(prompt_name: str) -> str:
+    """Deterministic activity-log key for a prompt, at most 72 chars (item_id is varchar(72)).
+
+    Short names are used as-is. Longer names become a readable prefix plus a sha256 digest
+    of the full name (128 bits kept), so a user cannot craft a second prompt name whose key
+    collides with another prompt's. '#' cannot appear in a prompt name, so hashed keys can't
+    collide with literal ones. The frontend does not mirror this: the History tab reads the
+    key from the API (activity_item_id on the prompt serializer).
+    """
+    if len(prompt_name) <= ACTIVITY_LOG_ITEM_ID_MAX_LENGTH:
+        return prompt_name
+    digest = hashlib.sha256(prompt_name.encode("utf-8")).hexdigest()[:32]
+    prefix = prompt_name[: ACTIVITY_LOG_ITEM_ID_MAX_LENGTH - 33]
+    return f"{prefix}#{digest}"
+
 
 # Lives here, not in api/evaluations.py, so it can wire at AppConfig.ready() without dragging the
 # evaluations viewset (which pulls scipy / google.genai / the ai_observability Temporal worker) onto
@@ -86,7 +113,9 @@ def handle_llm_prompt_label_change(
         team_id=instance.team_id,
         user=user,
         was_impersonated=was_impersonated,
-        item_id=instance.id,
+        # The prompt name, not the label row id: the History tab lists all label activity
+        # for one prompt, and label rows are recreated on delete + re-add.
+        item_id=prompt_activity_item_id(instance.prompt_name),
         scope="LLMPromptLabel",
         activity=activity,
         detail=Detail(

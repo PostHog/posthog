@@ -3,6 +3,8 @@
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.apps import apps
+
 if TYPE_CHECKING:
     from posthog.management.migration_analysis.models import OperationRisk
 
@@ -171,7 +173,7 @@ def check_drop_properly_staged(
     # posthog_namedquery -> NamedQuery
     # llm_analytics_evaluation (app=llm_analytics) -> Evaluation
     app_label = getattr(migration, "app_label", None)
-    model_name = _extract_model_name_from_table(table_name, app_label)
+    model_name = _model_name_for_table(app_label, table_name) or _extract_model_name_from_table(table_name, app_label)
     if not model_name:
         return False
 
@@ -205,6 +207,23 @@ def check_drop_properly_staged(
             to_check.extend(parent_migration.dependencies)
 
     return False
+
+
+def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional[str]:
+    """Resolve the model whose db_table matches via the app registry. Handles custom db_table
+    names the string heuristic can't (e.g. legacy llm_analytics_* tables owned by the
+    ai_observability app). Returns None for models no longer in the registry (deleted models);
+    callers fall back to the string heuristic."""
+    if not app_label:
+        return None
+    try:
+        app_config = apps.get_app_config(app_label)
+    except LookupError:
+        return None
+    for model in app_config.get_models():
+        if model._meta.db_table == table_name:
+            return model.__name__
+    return None
 
 
 def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = None) -> Optional[str]:

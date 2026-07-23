@@ -47,6 +47,7 @@ from products.dashboards.backend.api.dashboard import (
     serialize_tile_with_context,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.api.insight import InsightSerializer
 from products.product_analytics.backend.models.insight import Insight
@@ -594,7 +595,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_record_outcome.assert_not_called()
 
-    def test_cannot_update_dashboard_with_invalid_filters(self):
+    def test_cannot_update_dashboard_with_invalid_filters(self) -> None:
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="private dashboard",
@@ -615,7 +616,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
@@ -1660,8 +1660,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
-        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
         if owner == "self":
             template_team: Team | None = self.team
         elif owner == "sibling":

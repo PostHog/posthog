@@ -82,6 +82,20 @@ class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
         )
         assert listing.results == [("system.information_schema.metrics",)]
 
+    def test_metrics_table_description_routes_implicit_analysis_through_runner(self) -> None:
+        listing = execute_hogql_query(
+            "SELECT description FROM system.information_schema.tables "
+            "WHERE table_name = 'system.information_schema.metrics'",
+            team=self.team,
+            context=self._context(),
+        )
+
+        assert listing.results
+        description = listing.results[0][0]
+        assert "rankings" in description
+        assert "data-catalog-metric-run" in description
+        assert "instead of copying" in description
+
     def test_metrics_table_absent_when_flag_off(self) -> None:
         upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
         with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):

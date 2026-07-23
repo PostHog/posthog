@@ -28,7 +28,7 @@ from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import Channel, OrganizationIdSource
 
 from ee.models.rbac.role import Role
 
@@ -186,8 +186,8 @@ def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict |
     return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
 
 
-def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
-    """Resolve the customer organization's ``$groups`` for a ticket.
+def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
+    """Resolve the customer organization's ``$groups`` from the requester's identity.
 
     Returns ``(process_person, groups)``. ``groups`` is ``None`` when the
     customer can't be tied to a PostHog organization.
@@ -262,6 +262,61 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
                 return True, groups
 
     return False, None
+
+
+def _resolve_groups_from_slack_channel(team: Team, slack_channel_id: str) -> dict | None:
+    """Attribute the ticket to the customer analytics account bound to its Slack channel.
+
+    Last-resort fallback when the requester can't be tied to an organization: a
+    dedicated support channel maps to one account, and that account's ``external_id``
+    is the group key at the team's configured account group type. Channel-level
+    evidence only — it says which account the ticket belongs to, not who sent it.
+    """
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+
+    group_type_name = next(
+        (
+            gtm["group_type"]
+            for gtm in get_group_types_for_project(team.project_id)
+            if gtm["group_type_index"] == group_type_index
+        ),
+        None,
+    )
+    if group_type_name is None:
+        return None
+
+    # The facade pulls the workflows/notebooks facades with it; keep that off the
+    # django.setup() path this module loads on via the conversations signal wiring.
+    from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
+
+    account = customer_analytics.get_account_ref_by_slack_channel_id(team.id, slack_channel_id)
+    if account is None or not account.external_id:
+        return None
+
+    return {"instance": SITE_URL, "project": str(team.uuid), group_type_name: account.external_id}
+
+
+def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, str | None]:
+    """Resolve a ticket's ``$groups``, preferring the requester's identity.
+
+    Returns ``(process_person, groups, source)`` where ``source`` is an
+    ``OrganizationIdSource`` value recording how ``groups`` was resolved, or
+    ``None`` when nothing resolved. Slack tickets that can't be attributed
+    through the person fall back to the customer analytics account associated
+    with the ticket's Slack channel.
+    """
+    process_person, groups = _resolve_person_org_groups(ticket, team)
+    if groups is not None:
+        return process_person, groups, OrganizationIdSource.PERSON
+
+    if ticket.channel_source == Channel.SLACK.value and ticket.slack_channel_id:
+        groups = _resolve_groups_from_slack_channel(team, ticket.slack_channel_id)
+        if groups is not None:
+            return process_person, groups, OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+
+    return process_person, None, None
 
 
 def _groups_from_org_id(team: Team, organization_id: str) -> dict:
@@ -349,13 +404,14 @@ def capture_ticket_created(ticket: Ticket) -> None:
     team_id = team.id
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
+        process_person, groups, groups_source = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
             org_id = groups.get("organization")
             if org_id and not ticket.organization_id:
-                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id)
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id, organization_id_source=groups_source)
                 ticket.organization_id = org_id
+                ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
@@ -480,9 +536,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     try:
         if ticket.organization_id:
             properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
-            process_person = True
+            # A channel-inferred org says nothing about the sender, so don't create a
+            # person profile for it (legacy rows without a source were person-resolved).
+            process_person = ticket.organization_id_source != OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
         else:
-            process_person, groups = _resolve_org_groups(ticket, team)
+            process_person, groups, groups_source = _resolve_org_groups(ticket, team)
             if groups is not None:
                 properties["$groups"] = groups
                 org_id = groups.get("organization")
@@ -492,10 +550,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
                     # wins: only mirror to the in-memory ticket when this update landed,
                     # so a concurrent handler's value isn't shadowed.
                     rows_updated = Ticket.objects.filter(id=ticket.id, organization_id__isnull=True).update(
-                        organization_id=org_id
+                        organization_id=org_id, organization_id_source=groups_source
                     )
                     if rows_updated:
                         ticket.organization_id = org_id
+                        ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 
