@@ -119,9 +119,10 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertTrue(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-30d")
 
     @parameterized.expand(
@@ -148,9 +149,10 @@ class TestBuildReplayRunner(BaseTest):
             **extra,
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
     def test_outside_warming_context_gate_fails_closed(self) -> None:
@@ -162,9 +164,10 @@ class TestBuildReplayRunner(BaseTest):
             "dateRange": {"date_from": "-7d"},
         }
 
-        runner, used_json = build_replay_runner(self.team, query)
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query)
 
         self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
 
@@ -219,6 +222,44 @@ class TestFleetQuerySelection(BaseTest):
 
 
 class TestWarmQueriesOp(BaseTest):
+    @parameterized.expand(
+        [
+            # A raw-path (not lazy-eligible) shape below the pre-widening demand
+            # bar must not replay: with the min-2 selection floor, two runs of an
+            # expensive ineligible shape would otherwise become hourly background
+            # scans outside the tenant's request throttles.
+            ("raw_low_demand_skipped", False, 2, 0),
+            ("raw_high_demand_warms", False, 10, 1),
+            ("lazy_low_demand_warms", True, 2, 1),
+        ]
+    )
+    def test_raw_replays_keep_higher_demand_bar(
+        self, _name: str, lazy_eligible: bool, query_count: int, expected_runs: int
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.return_value = f"key-{_name}"
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, lazy_eligible),
+            ),
+            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+        ):
+            mock_cm.return_value.get_cache_data.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": query_count,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+
     def test_duplicate_cache_keys_warm_once(self) -> None:
         # Selection groups by raw JSON text, so two encodings of one query can
         # both be selected; replaying both wastes ClickHouse capacity and
@@ -226,7 +267,7 @@ class TestWarmQueriesOp(BaseTest):
         runner = MagicMock()
         runner.get_cache_key.return_value = "same-key"
         with (
-            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {})),
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
         ):
             mock_cm.return_value.get_cache_data.return_value = None

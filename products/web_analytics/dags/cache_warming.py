@@ -58,7 +58,7 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | failed | unsupported
+    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand | failed | unsupported
 )
 
 logger = structlog.get_logger(__name__)
@@ -183,9 +183,15 @@ _LAZY_FAMILY_CHECKS: dict[str, tuple] = {
 }
 
 
-def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict]:
+def _is_lazy_eligible(runner: "QueryRunner", query_json: dict) -> bool:
+    family_checks = _LAZY_FAMILY_CHECKS.get(query_json.get("kind", ""), ())
+    return any(check(runner) for check in family_checks)
+
+
+def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict, bool]:
     """Build the runner for a warming replay, widening the date range only for
-    shapes the lazy path will actually serve.
+    shapes the lazy path will actually serve. Returns (runner, replay json,
+    lazy-eligible) — the caller holds raw-path replays to a higher demand bar.
 
     The per-query opt-in does not guarantee the lazy path: shapes the gates
     reject (conversion goals, sampling, unsupported breakdowns/metrics like
@@ -200,15 +206,21 @@ def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRu
     """
     expanded_json = maybe_expand_warming_date_range(query_json)
     if expanded_json is query_json:
-        return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
+        runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+        if runner is None:
+            return None, query_json, False
+        return runner, query_json, _is_lazy_eligible(runner, query_json)
 
     runner = get_query_runner_or_none(query=expanded_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
     if runner is None:
-        return None, expanded_json
-    family_checks = _LAZY_FAMILY_CHECKS.get(expanded_json.get("kind", ""), ())
-    if any(check(runner) for check in family_checks):
-        return runner, expanded_json
-    return get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC), query_json
+        return None, expanded_json, False
+    if _is_lazy_eligible(runner, expanded_json):
+        return runner, expanded_json, True
+    return (
+        get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
+        query_json,
+        False,
+    )
 
 
 def queries_to_keep_fresh(
@@ -329,6 +341,11 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     return queries
 
 
+# Demand bar for shapes that replay on the raw path (not lazy-eligible). The
+# min-2 selection floor is safe for bucket-backed shapes but would let raw
+# replays amplify a tenant's two runs into hourly background scans.
+RAW_REPLAY_MIN_QUERY_COUNT = 10
+
 # Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
 # reads/inserts), so a small pool cuts wall time ~8x at the widened selection
 # size; kept well under the OFFLINE per-user query-slot budget so a build wave
@@ -372,10 +389,20 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
             # None only for kinds without a get_query_runner branch — the backstop
             # for runnerless kinds the selection doesn't know to exclude yet.
             # Validation errors on supported kinds still raise into the failure path.
-            runner, query_json = build_replay_runner(team, query_json)
+            runner, query_json, lazy_eligible = build_replay_runner(team, query_json)
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
                 return "unsupported"
+
+            # Raw-path replays keep the pre-widening demand bar: a lazy-eligible
+            # shape amortizes into shared immutable buckets (steady-state cost is
+            # one cheap today-bucket refresh), but an ineligible shape replays as
+            # a full live query every stale hour — with the min-2 floor a tenant
+            # could mint MAX_SHAPES_PER_TEAM such shapes from two runs each and
+            # have the warmer amplify them outside request throttles.
+            if not lazy_eligible and query_info.get("query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_raw_low_demand").inc()
+                return "skipped_raw_low_demand"
 
             cache_key = runner.get_cache_key()
             with seen_lock:
