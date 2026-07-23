@@ -52,14 +52,12 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is the union of `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` and
-`WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` (each defaults to the
-Cloud dogfooding team on Cloud, empty elsewhere). The runtime read-path gate
-(`is_precompute_enabled_for_team`) treats membership in *either* list as
-enrollment, so warmer and reader read the same sources and cannot drift —
-a team enrolled solely as unrestricted still gets its baseline warmed.
-Enrolling or removing a team is a deploy-time change to the env vars
-(Django + Dagster pods), not runtime-overridable.
+The static audience is `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (defaults to the
+Cloud dogfooding team on Cloud, empty elsewhere) — the same list the runtime
+read-path gate (`is_precompute_enabled_for_team`) treats as enrollment, so
+warmer and reader read the same source and cannot drift. Enrolling or removing
+a team is a deploy-time change to the env var (Django + Dagster pods), not
+runtime-overridable.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
@@ -248,24 +246,19 @@ def _resolve_eager_audience(active_teams_pct: int = 0, active_lookback_hours: in
     if not is_cloud():
         return [], "not_cloud", {}
 
-    # Union both enrollment lists: unrestricted teams are implicitly enrolled
-    # (see `is_precompute_enabled_for_team`), so a team enrolled solely via
-    # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
-    # baseline warmed — otherwise its reads land on cold on-demand inserts.
-    # dict.fromkeys preserves order and dedupes teams in both lists.
     active_team_ids: list[int] = []
     if active_teams_pct > 0:
         all_active = _fetch_active_wa_team_ids(ACTIVE_AUDIENCE_MAX_TEAMS, lookback_hours=active_lookback_hours)
         take = max(1, len(all_active) * min(active_teams_pct, 100) // 100) if all_active else 0
         active_team_ids = all_active[:take]
 
-    # Static lists first so the always-enrolled teams warm before the ramp
-    # audience when a run is truncated by the job's max_runtime.
+    # Static enrollment list first so the always-enrolled teams warm before the
+    # ramp audience when a run is truncated by the job's max_runtime.
+    # dict.fromkeys preserves order and dedupes.
     team_ids = list(
         dict.fromkeys(
             [
                 *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
-                *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
                 *active_team_ids,
             ]
         )
@@ -462,10 +455,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext, config: EagerWar
     )
     # Captured before the ramp enrollment below mutates the setting — this set is
     # what "statically enrolled" means for the priority sort further down.
-    static_ids = {
-        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
-        *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
-    }
+    static_ids = {*settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS}
     original_enrollment = settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS
     if config.active_teams_pct > 0:
         # Enroll the ramp audience for the duration of this run: the warm queries
