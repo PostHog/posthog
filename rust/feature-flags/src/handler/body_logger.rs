@@ -23,6 +23,7 @@ use rand::Rng;
 use regex::Regex;
 use serde::Serialize;
 use sqlx::PgPool;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -233,7 +234,11 @@ impl BodyLogger {
 
         let (truncated, request_truncated, request_original_size_bytes) =
             truncate_body(&decoded, self.request_max_bytes);
-        let request_body = String::from_utf8_lossy(truncated);
+        // `/flags` accepts a `phs_` secret token as `api_key`, so the decoded
+        // body can carry one. Redact it before logging — a body-log reader must
+        // never be able to recover a secret token.
+        let decoded_body = String::from_utf8_lossy(truncated);
+        let request_body = redact_secret_tokens(&decoded_body);
         let (response_flags_body, total, logged) = serialize_filtered_response(response, &patterns);
 
         // Override the default target (module path) with a stable, semantic
@@ -270,6 +275,19 @@ async fn fetch_from_db(pool: &PgPool) -> Result<Option<BodyLogTeams>, String> {
         None => return Ok(None),
     };
     raw.parse::<BodyLogTeams>().map(Some)
+}
+
+/// Matches `phs_`-prefixed secret API tokens. The body after the prefix is
+/// base57 (see `generate_random_token_secret`), so ASCII alphanumerics suffice.
+static SECRET_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"phs_[A-Za-z0-9]+").expect("secret-token regex is valid"));
+
+/// Redact secret API tokens (`phs_`) from a request body before it is logged.
+/// `/flags` accepts a secret token as `api_key`, so the decoded body can carry
+/// one and a body-log reader must never be able to recover it. Public project
+/// tokens (`phc_`) are world-readable by design and are left intact.
+fn redact_secret_tokens(body: &str) -> Cow<'_, str> {
+    SECRET_TOKEN_RE.replace_all(body, "phs_<redacted>")
 }
 
 /// Truncate a body to `max_bytes`, returning the prefix slice, whether it was
@@ -509,6 +527,33 @@ mod tests {
         let (out, truncated, _) = truncate_body(body, 2);
         assert_eq!(out, b"h");
         assert!(truncated);
+    }
+
+    #[test]
+    fn redact_secret_tokens_replaces_phs_in_body() {
+        let body = r#"{"api_key":"phs_abc123XYZ","distinct_id":"u1"}"#;
+        let redacted = redact_secret_tokens(body);
+        assert_eq!(
+            redacted,
+            r#"{"api_key":"phs_<redacted>","distinct_id":"u1"}"#
+        );
+        assert!(!redacted.contains("phs_abc123XYZ"));
+    }
+
+    #[test]
+    fn redact_secret_tokens_leaves_public_tokens_intact() {
+        let body = r#"{"token":"phc_publicworldreadable","distinct_id":"u1"}"#;
+        // No phs_ present, so the input is returned borrowed and unchanged.
+        let redacted = redact_secret_tokens(body);
+        assert!(matches!(redacted, Cow::Borrowed(_)));
+        assert_eq!(redacted, body);
+    }
+
+    #[test]
+    fn redact_secret_tokens_replaces_multiple_occurrences() {
+        let body = r#"{"api_key":"phs_one","backup":"phs_two"}"#;
+        let redacted = redact_secret_tokens(body);
+        assert_eq!(redacted, r#"{"api_key":"phs_<redacted>","backup":"phs_<redacted>"}"#);
     }
 
     #[test]
