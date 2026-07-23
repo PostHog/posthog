@@ -238,10 +238,6 @@ export class CdpApi {
             asyncHandler(this.postHogflowScheduledInvocation)
         )
         router.post(
-            '/api/projects/:team_id/hog_flows/:id/manual_invocations',
-            asyncHandler(this.postHogflowManualInvocation)
-        )
-        router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
         )
@@ -740,74 +736,6 @@ export class CdpApi {
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
-            res.status(500).json({ error: [e.message] })
-        }
-    }
-
-    // On-demand "run this workflow now" against a caller-synthesized event (e.g. a support agent
-    // running a workflow against a ticket). Unlike the scheduled/webhook paths this is not gated on
-    // trigger type — any active workflow can be run — but it still queues the full graph through the
-    // same cyclotron queue, so waits/delays/branches all work. Django gates auth/team-scoping.
-    private postHogflowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-        try {
-            const { id, team_id } = req.params
-            const { variables } = req.body
-
-            logger.info('⚡️', 'Received hogflow manual invocation', { id, team_id })
-
-            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
-            if (!team) {
-                return res.status(404).json({ error: 'Team not found' })
-            }
-
-            const hogFlow = await this.hogFlowManager.getHogFlow(id)
-            if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Workflow not found' })
-            }
-
-            if (hogFlow.status !== 'active') {
-                return res.status(400).json({ error: 'Workflow must be active' })
-            }
-
-            const globals: HogFunctionInvocationGlobals | undefined = req.body.globals
-            if (!globals || !globals.event) {
-                return res.status(400).json({ error: 'Missing event' })
-            }
-
-            // Resolve groups server-side from the event's $groups when the caller didn't supply them,
-            // so group-property conditionals branch correctly (mirrors postHogflowInvocation).
-            if (!globals.groups || Object.keys(globals.groups).length === 0) {
-                globals.groups = await this.groupsManager.getGroupsForEvent(
-                    team.id,
-                    globals.event.properties,
-                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
-                )
-            }
-
-            const triggerGlobals: HogFunctionInvocationGlobals = {
-                ...globals,
-                project: {
-                    id: team.id,
-                    name: team.name,
-                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
-                },
-                variables: variables ?? globals.variables ?? {},
-            }
-
-            const filterGlobals = convertToHogFunctionFilterGlobal({
-                event: globals.event,
-                person: globals.person,
-                groups: globals.groups,
-                variables: triggerGlobals.variables || {},
-            })
-
-            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-
-            await this.hogflowQueue.queueInvocations([invocation])
-
-            res.json({ status: 'queued', invocation_id: invocation.id })
-        } catch (e) {
-            logger.error('Error handling hogflow manual invocation', { error: e })
             res.status(500).json({ error: [e.message] })
         }
     }
