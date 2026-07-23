@@ -8343,6 +8343,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-metadata-get": {
+        "description": "Return this project's scout metadata: whether it is enrolled to run scouts, the current announcement banner (e.g. an early-access run-limit notice, or null when unset), and the enforced run limits with current usage — `max_runs_per_tick`, `max_runs_per_day` (null = unbounded), `runs_today`, and `runs_remaining_today`. Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect free.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get scout enrollment, banner, and run limits",
+        "title": "Get scout enrollment, banner, and run limits",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scout-project-profile-get": {
         "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
