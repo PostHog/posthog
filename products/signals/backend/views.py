@@ -2082,8 +2082,15 @@ def append_suggested_reviewers(
     write for a report with none simply creates the first row. Shared by the app-only reviewers PUT
     on both the report and artefact viewsets. Returns the new artefact and the set of canonical logins
     written (for read-time enrichment). Raises `ReviewerWriteError` on unresolvable entries."""
-    # Resolved before the locked transaction below — header validation must not hold the lock.
-    attribution = resolve_request_attribution(request, team.id)
+    # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
+    # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
+    # no created_by_id, which makes auto-start treat the list as agent-authored and run the
+    # implementation task as a named colleague instead of the editor — the reviewer-impersonation
+    # path the `triggering_user_id` guard in `auto_start` exists to close.
+    user_id = request.user.id
+    if user_id is None:  # unreachable behind authentication, but keeps attribution honest
+        raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
+    attribution = ArtefactAttribution.from_user(user_id)
 
     # Resolve any user_uuid → canonical github_login via team org membership.
     uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]

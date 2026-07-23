@@ -512,7 +512,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
-    def test_put_task_attributed_reviewer_change_writes_no_activity_log(self):
+    def test_put_reviewers_ignores_task_header_and_attributes_to_requesting_user(self):
+        # The reviewers write is app/user-only, so a supplied X-PostHog-Task-Id must be ignored and
+        # the row attributed to the requesting user. A task-attributed row (created_by_id=None) would
+        # flip auto-start into the agent path and run the implementation task as the named colleague
+        # rather than the editor — reviewer impersonation the triggering_user_id guard exists to stop.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -529,7 +533,17 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert latest is not None
+        assert latest.created_by_id == self.user.id
+        assert latest.task_id is None
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
