@@ -21,15 +21,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     ConvexResumeConfig,
     convex_source,
     get_json_schemas,
+    iter_component_tables,
+    qualified_table_name,
     validate_credentials as validate_convex_credentials,
     validate_deploy_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConvexSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convex import ConvexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
+    api_docs_url = "https://docs.convex.dev/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CONVEX
@@ -78,13 +82,15 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         clean_url = validate_deploy_url(config.deploy_url)
         schemas_response = get_json_schemas(clean_url, config.deploy_key)
 
-        tables: list[str] = []
-        if isinstance(schemas_response, dict):
-            tables = list(schemas_response.keys())
+        tables: list[str] = [
+            qualified_table_name(component_path, table_name)
+            for component_path, table_name in iter_component_tables(schemas_response)
+        ]
 
         incremental_field: list[IncrementalField] = [
             IncrementalField(
@@ -121,7 +127,11 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         }
 
     def validate_credentials(
-        self, config: ConvexSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConvexSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_convex_credentials(config.deploy_url, config.deploy_key)
 

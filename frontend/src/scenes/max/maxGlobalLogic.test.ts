@@ -1,9 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -72,6 +74,27 @@ describe('maxGlobalLogic', () => {
         )
     })
 
+    // The conversation detail endpoint can return an empty body; letting that null into
+    // conversationHistory crashes every consumer that dereferences entries (e.g. the AI chat nav tab).
+    describe('loadConversation', () => {
+        it.each([
+            { case: 'a conversation already in history', conversationId: MOCK_CONVERSATION_ID },
+            { case: 'a conversation not in history', conversationId: 'unknown-conversation-id' },
+        ])('keeps history intact when the API returns a null body for $case', async ({ conversationId }) => {
+            // Let the mount-time loadConversationHistory settle so it can't overwrite the seeded history
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(null as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversation(conversationId)
+            }).toFinishAllListeners()
+
+            expect(logic.values.conversationHistory).toHaveLength(1)
+            expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
+    })
+
     describe('isMaxAvailable selector', () => {
         it.each([
             { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
@@ -90,6 +113,29 @@ describe('maxGlobalLogic', () => {
             preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
             await expectLogic(logic).toMatchValues({ isMaxAvailable: expected })
+        })
+    })
+
+    // Consent state (accept/dismiss/request-access) now lives in aiConsentLogic (see aiConsentLogic.test.ts)
+    // and is only forwarded here via `connect` so the ~15 existing consumers keep reading it off
+    // maxGlobalLogic unchanged. This guards the forwarding wiring itself — a mistake here (e.g. connecting
+    // to the wrong source, or a stale value) wouldn't be caught by typechecking, since the shape stays the
+    // same either way.
+    describe('consent forwarding from aiConsentLogic', () => {
+        it('dismissing via maxGlobalLogic updates aiConsentLogic and is reflected back', () => {
+            const consent = aiConsentLogic()
+            consent.mount()
+
+            // Same underlying state, not two independent copies.
+            expect(logic.values.dataProcessingAccepted).toBe(consent.values.dataProcessingAccepted)
+            expect(logic.values.dataProcessingDismissed).toBe(false)
+
+            logic.actions.dismissDataProcessing()
+
+            expect(consent.values.dataProcessingDismissed).toBe(true)
+            expect(logic.values.dataProcessingDismissed).toBe(true)
+
+            consent.unmount()
         })
     })
 

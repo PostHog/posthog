@@ -1,27 +1,25 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import SVIX_ENDPOINTS
 
 SVIX_BASE_URL = "https://api.svix.com/api/v1"
 # The list endpoints accept a `limit` of up to 250; the largest page minimises round trips.
 PAGE_SIZE = 250
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/event-type"
-
-
-class SvixRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -32,98 +30,126 @@ class SvixResumeConfig:
     iterator: Optional[str] = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+def _headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs
+    # and raised error messages; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
-@retry(
-    retry=retry_if_exception_type((SvixRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    iterator: Optional[str],
-    limit: int,
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": limit}
-    # Omit `iterator` on the first request; Svix rejects an empty cursor value.
-    if iterator is not None:
-        params["iterator"] = iterator
+class SvixCursorPaginator(BasePaginator):
+    """Svix list endpoints paginate with an opaque ``iterator`` cursor and flag the last page with a
+    ``done`` boolean, returning ``{"data": [...], "iterator": "...", "done": bool}``. The cursor is
+    echoed even on the final page, so termination keys off ``done`` (a missing ``done`` is treated as
+    terminal, matching ``data.get("done", True)``) plus a missing/null next cursor. A plain cursor
+    paginator that stops only on a falsy cursor would loop forever here."""
 
-    response = session.get(
-        f"{SVIX_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    def __init__(self, cursor_param: str = "iterator") -> None:
+        super().__init__()
+        self.cursor_param = cursor_param
+        self._cursor_value: Optional[str] = None
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SvixRetryableError(f"Svix API error (retryable): status={response.status_code}, path={path}")
+    def init_request(self, request: Request) -> None:
+        # Omit the cursor on the first request — Svix rejects an empty cursor value. Only inject when
+        # a resume cursor was seeded.
+        if self._cursor_value is not None:
+            self._inject(request)
 
-    if not response.ok:
-        logger.error(f"Svix API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict) or body.get("done", True):
+            self._has_next_page = False
+            return
+        cursor = body.get("iterator")
+        if cursor is None:
+            self._has_next_page = False
+            return
+        self._cursor_value = cursor
+        self._has_next_page = True
 
-    data = response.json()
-    # Svix list endpoints return a `{"data": [...], "iterator": "...", "done": bool}` envelope.
-    if not isinstance(data, dict) or "data" not in data:
-        raise SvixRetryableError(f"Svix returned an unexpected payload for {path}: {type(data).__name__}")
-    return data
+    def update_request(self, request: Request) -> None:
+        if self._cursor_value is not None:
+            self._inject(request)
 
+    def _inject(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.cursor_param] = self._cursor_value
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SvixResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = SVIX_ENDPOINTS[endpoint]
-    # `redact_values` masks the API key in logged URLs and captured samples.
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"iterator": self._cursor_value} if self._has_next_page and self._cursor_value is not None else None
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    iterator = resume.iterator if resume else None
-    if resume and resume.iterator is not None:
-        logger.debug(f"Svix: resuming {endpoint} from saved cursor")
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("iterator")
+        if cursor is not None:
+            self._cursor_value = cursor
+            self._has_next_page = True
 
-    while True:
-        data = _fetch_page(session, config.path, iterator, PAGE_SIZE, logger)
-
-        items = data["data"]
-        if items:
-            yield items
-
-        # `done` signals the last page; a missing/absent cursor is treated as terminal too.
-        if data.get("done", True):
-            break
-        iterator = data.get("iterator")
-        if iterator is None:
-            break
-
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(SvixResumeConfig(iterator=iterator))
+    def __str__(self) -> str:
+        return f"SvixCursorPaginator(cursor_param={self.cursor_param})"
 
 
 def svix_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SvixResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SVIX_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": SVIX_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "bearer", "token": api_key},
+            "paginator": SvixCursorPaginator(),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    "data_selector": "data",
+                    # A 200 whose body isn't the expected `{"data": [...]}` envelope is treated as a
+                    # transient bad shape and retried — matching the old SvixRetryableError raised on
+                    # a non-dict body or a missing `data` key.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.iterator is not None:
+            initial_paginator_state = {"iterator": resume.iterator}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; the checkpoint lands AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("iterator") is not None:
+            resumable_source_manager.save_state(SvixResumeConfig(iterator=state["iterator"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -136,18 +162,18 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{SVIX_BASE_URL}{path}", params={"limit": 1}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Svix: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Svix returned HTTP {response.status_code}"
-
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{SVIX_BASE_URL}{path}?limit=1",
+        headers={"Authorization": f"Bearer {api_key}", **_headers()},
+        timeout=15,
+    )
+    if status is None:
+        return 0, "Could not connect to Svix"
+    if status in (401, 403):
+        return status, None
+    if status != 200:
+        return status, f"Svix returned HTTP {status}"
     return 200, None
 
 

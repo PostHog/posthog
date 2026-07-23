@@ -23,7 +23,7 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, license, sentry_stats, subscription
+from .api import authentication, billing, conversation, core_memory, license, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
@@ -31,7 +31,7 @@ from .api.scim import views as scim_views
 def extend_api_router() -> None:
     from posthog.api import (
         organizations_router,
-        register_legacy_dual_route_team_nested_viewset,
+        projects_router,
         router as root_router,
     )
 
@@ -52,10 +52,10 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
-    project_subscriptions_router, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
-        r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    project_subscriptions_router = projects_router.register(
+        r"subscriptions", subscription.SubscriptionViewSet, "project_subscriptions", ["team_id"]
     )
     project_subscriptions_router.register(
         r"deliveries",
@@ -63,31 +63,17 @@ def extend_api_router() -> None:
         "project_subscription_deliveries",
         ["team_id", "subscription_id"],
     )
-    env_subscriptions_router.register(
-        r"deliveries",
-        subscription.SubscriptionDeliveryViewSet,
-        "environment_subscription_deliveries",
-        ["team_id", "subscription_id"],
-    )
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
-    )
+    projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
-    )
+    projects_router.register(r"core_memory", core_memory.MaxCoreMemoryViewSet, "project_core_memory", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"]
-    )
+    projects_router.register(r"max_tools", max_tools.MaxToolsViewSet, "project_max_tools", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"max_hands_free", hands_free.MaxHandsFreeViewSet, "environment_max_hands_free", ["team_id"]
-    )
+    projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
-    register_legacy_dual_route_team_nested_viewset(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
+    projects_router.register(
+        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
     )
 
 
@@ -250,7 +236,6 @@ else:
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
@@ -290,7 +275,14 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Agentic Provisioning Protocol (APP 0.1d)
+    # Stripe Projects provisioning (APP 0.1d) — the namespace the Stripe app
+    # manifest points at (provisioning.base_url = .../api/partners/stripe/)
+    path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
+    # Account Provisioning
+    # TODO(migration): the Stripe-only routes below (health, services,
+    # update_service) and Stripe's use of the rest are served by
+    # /api/partners/stripe/ - remove the Stripe-only ones once Stripe traffic
+    # has fully moved (watch path_namespace on agentic_provisioning events).
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),
@@ -382,6 +374,9 @@ urlpatterns: list[Any] = [
         name="agentic_login",
     ),
     # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
+    # TODO(migration): health, services, and update_service in this block are
+    # Stripe-only — remove them once Stripe traffic has fully moved to
+    # /api/partners/stripe/, unless another partner adopts them.
     path(
         "api/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),

@@ -89,6 +89,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "enabled",
         "emit",
         "run_interval_minutes",
+        "run_cron_schedule",
         "last_run_at",
         "updated_at",
     )
@@ -195,6 +196,7 @@ class SignalTeamConfigAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team_link",
+        "autostart_enabled",
         "default_autostart_priority",
         "default_slack_notification_channel",
         "updated_at",

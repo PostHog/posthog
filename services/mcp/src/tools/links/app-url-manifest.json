@@ -185,12 +185,12 @@
         "scope": "project"
     },
     "alert": {
-        "template": "/insights",
+        "template": "/alerts",
         "params": [],
         "scope": "project"
     },
     "alerts": {
-        "template": "/insights",
+        "template": "/alerts",
         "params": [],
         "scope": "project"
     },
@@ -507,6 +507,11 @@
     "errorTrackingConfiguration": {
         "template": "/error_tracking",
         "params": [],
+        "scope": "project"
+    },
+    "errorTrackingFingerprint": {
+        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "params": ["fingerprint"],
         "scope": "project"
     },
     "errorTrackingIssue": {

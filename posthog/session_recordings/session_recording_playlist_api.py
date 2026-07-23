@@ -1,6 +1,7 @@
 import json
 import builtins
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -67,6 +68,20 @@ CURRENT_USER_VIEWED_CHUNK_SIZE = 5000
 # building the cross-playlist watched lookup. Prevents a single oversized cached
 # entry from dominating memory.
 MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST = 1000
+
+
+@dataclass(frozen=True)
+class PlaylistPageSplit:
+    """One list page split into its synthetic playlists and the aligned DB slice."""
+
+    synthetics: builtins.list[SessionRecordingPlaylist]
+    db_items: builtins.list[SessionRecordingPlaylist]
+
+
+@dataclass(frozen=True)
+class PaginationLinks:
+    next_link: Optional[str]
+    previous_link: Optional[str]
 
 
 class SessionRecordingPlaylistPagination(LimitOffsetPagination):
@@ -679,10 +694,10 @@ class SessionRecordingPlaylistViewSet(
             ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
         with tracer.start_as_current_span("split_page"):
-            synth_for_page, db_items = self._split_page(offset, limit, ranked_synthetics, queryset)
+            page_split = self._split_page(offset, limit, ranked_synthetics, queryset)
 
         with tracer.start_as_current_span("order_combined_page"):
-            combined = self._order_playlists(request, synth_for_page + db_items)
+            combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
 
         span.set_attribute("page_size", len(combined))
 
@@ -706,12 +721,12 @@ class SessionRecordingPlaylistViewSet(
         with tracer.start_as_current_span("serialize"):
             results = self.get_serializer(combined, many=True).data
 
-        next_link, previous_link = self._pagination_links(request, total_count, limit, offset)
+        links = self._pagination_links(request, total_count, limit, offset)
         return response.Response(
             {
                 "count": total_count,
-                "next": next_link,
-                "previous": previous_link,
+                "next": links.next_link,
+                "previous": links.previous_link,
                 "results": results,
             }
         )
@@ -722,7 +737,7 @@ class SessionRecordingPlaylistViewSet(
         limit: int,
         ranked_synthetics: builtins.list[tuple[int, SessionRecordingPlaylist]],
         queryset: QuerySet,
-    ) -> tuple[builtins.list[SessionRecordingPlaylist], builtins.list[SessionRecordingPlaylist]]:
+    ) -> "PlaylistPageSplit":
         """Split one page into its in-window synthetics and the aligned DB slice.
 
         Synthetics whose global rank falls in [offset, offset+limit) belong on this
@@ -736,18 +751,18 @@ class SessionRecordingPlaylistViewSet(
         db_offset = max(0, offset - synths_before_page)
         db_take = max(0, limit - len(synth_for_page))
         db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
-        return synth_for_page, db_items
+        return PlaylistPageSplit(synthetics=synth_for_page, db_items=db_items)
 
     def _pagination_links(
         self, request: request.Request, total_count: int, limit: int, offset: int
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> "PaginationLinks":
         """next/previous links over the merged total via a directly-seeded paginator."""
         paginator = SessionRecordingPlaylistPagination()
         paginator.count = total_count
         paginator.limit = limit
         paginator.offset = offset
         paginator.request = request
-        return paginator.get_next_link(), paginator.get_previous_link()
+        return PaginationLinks(next_link=paginator.get_next_link(), previous_link=paginator.get_previous_link())
 
     def _synthetic_global_ranks(
         self,

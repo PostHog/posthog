@@ -9,6 +9,7 @@ export type QuotaResource =
     | 'events'
     | 'cdp_trigger_events'
     | 'workflow_emails'
+    | 'workflow_push'
     | 'workflow_destinations_dispatched'
     | 'logs_mb_ingested'
     | 'metrics_mb_ingested'

@@ -47,7 +47,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const { insightProps, insight } = useValues(insightLogic)
 
     const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -213,9 +212,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series are listed (dimmed) and excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
@@ -226,9 +225,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             incompletenessOffsetFromEnd,
             isStickiness,
             getTrendsColor,
-            getTrendsHidden,
             getLabel,
-            quillLegendEnabled,
         ]
     )
 

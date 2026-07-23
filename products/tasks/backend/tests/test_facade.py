@@ -115,6 +115,96 @@ class TestFacadeReadsAndMappers(TestCase):
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
+    def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
+        # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:
+        # a cloud environment and the (caller-unsettable) wizard_config state key.
+        kwargs.setdefault("environment", TaskRun.Environment.CLOUD)
+        kwargs.setdefault("state", {"wizard_config": {}})
+        return TaskRun.objects.create(
+            task=task,
+            team=task.team,
+            status=status,
+            **kwargs,
+        )
+
+    def test_get_active_wizard_cloud_run_returns_latest_onboarding_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.QUEUED)
+        latest = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertIsInstance(run, contracts.WizardCloudRunDTO)
+        self.assertEqual(run.task_id, task.id)
+        self.assertEqual(run.run_id, latest.id)
+        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS.value)
+
+    def test_get_active_wizard_cloud_run_ignores_non_onboarding_tasks(self):
+        task = self._make_task(origin_product=Task.OriginProduct.USER_CREATED)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_ignores_user_created_run_without_wizard_markers(self):
+        # A project member could create an onboarding task and bootstrap a cloud run through the
+        # normal task APIs, but they can't set the protected wizard_config marker — so such a
+        # planted run must never be surfaced to a provisioned teammate as the active wizard run.
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+        genuine = self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        run = facade.get_active_wizard_cloud_run(self.team.id)
+        assert run is not None
+        self.assertEqual(run.run_id, genuine.id)
+
+    def test_get_active_wizard_cloud_run_ignores_local_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.LOCAL)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_surfaces_recently_completed_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.run_id, run.id)
+
+    def test_get_active_wizard_cloud_run_drops_stale_completed_run(self):
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        run = self._make_wizard_run(task, TaskRun.Status.COMPLETED)
+        # auto_now fields can't be set on create — force them past the freshness window.
+        stale = django_timezone.now() - timedelta(days=2)
+        TaskRun.objects.filter(id=run.id).update(created_at=stale, updated_at=stale)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(self.team.id))
+
+    def test_get_active_wizard_cloud_run_is_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        self._make_wizard_run(task, TaskRun.Status.IN_PROGRESS)
+        self.assertIsNone(facade.get_active_wizard_cloud_run(other_team.id))
+
+    def test_get_active_wizard_cloud_run_surfaces_older_active_run_behind_newer_stale_task(self):
+        # The newest onboarding task's run is stale, but an older task still has a live run:
+        # keying off task-recency alone would return nothing and hide the active run.
+        older_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        active = self._make_wizard_run(older_task, TaskRun.Status.IN_PROGRESS)
+        newer_task = self._make_task(origin_product=Task.OriginProduct.ONBOARDING)
+        stale_run = self._make_wizard_run(newer_task, TaskRun.Status.COMPLETED)
+        now = django_timezone.now()
+        TaskRun.objects.filter(id=active.id).update(
+            created_at=now - timedelta(days=3), updated_at=now - timedelta(days=3)
+        )
+        TaskRun.objects.filter(id=stale_run.id).update(
+            created_at=now - timedelta(days=2), updated_at=now - timedelta(days=2)
+        )
+
+        handle = facade.get_active_wizard_cloud_run(self.team.id)
+        assert handle is not None
+        self.assertEqual(handle.task_id, older_task.id)
+        self.assertEqual(handle.run_id, active.id)
+
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
@@ -495,3 +585,80 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+
+class TestRecentWizardCloudRunTimes(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    other_team: ClassVar[Team]
+    user: ClassVar[User]
+    other_user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Quota Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Quota Team")
+        cls.other_team = Team.objects.create(organization=cls.organization, name="Other Quota Team")
+        cls.user = User.objects.create(email="quota@test.com", distinct_id="quota-distinct")
+        cls.other_user = User.objects.create(email="quota-other@test.com", distinct_id="quota-other-distinct")
+
+    def _make_run(
+        self,
+        *,
+        status=TaskRun.Status.IN_PROGRESS,
+        origin_product=Task.OriginProduct.ONBOARDING,
+        environment=TaskRun.Environment.CLOUD,
+        state=None,
+        team=None,
+        created_by=None,
+    ) -> TaskRun:
+        task = Task.objects.create(
+            team=team or self.team,
+            title="Set up PostHog",
+            description="wizard",
+            origin_product=origin_product,
+            created_by=created_by or self.user,
+            repository="acme/app",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=team or self.team,
+            status=status,
+            environment=environment,
+            state={"wizard_config": {}} if state is None else state,
+        )
+
+    @parameterized.expand(
+        [
+            # Failed and cancelled runs must not consume quota: users retry exactly when a run broke.
+            ("failed_run", {"status": TaskRun.Status.FAILED}, 0),
+            ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, 0),
+            ("in_progress_run", {"status": TaskRun.Status.IN_PROGRESS}, 1),
+            ("queued_run", {"status": TaskRun.Status.QUEUED}, 1),
+            ("completed_run", {"status": TaskRun.Status.COMPLETED}, 1),
+            # Only the PATCH-immutable wizard_config marker decides membership. Mutable fields
+            # (environment, origin_product) must NOT be filtered, or a user could PATCH a run
+            # to local and launder sandbox boots out of the quota.
+            ("run_patched_to_local", {"environment": TaskRun.Environment.LOCAL}, 1),
+            ("non_onboarding_task_with_marker", {"origin_product": Task.OriginProduct.USER_CREATED}, 1),
+            ("run_without_wizard_config", {"state": {}}, 0),
+        ]
+    )
+    def test_counts_only_quota_consuming_runs(self, _name, run_kwargs, expected_count):
+        self._make_run(**run_kwargs)
+        since = django_timezone.now() - timedelta(hours=1)
+        self.assertEqual(len(facade.recent_wizard_cloud_run_times(self.user.id, since)), expected_count)
+
+    def test_scopes_by_user_across_teams_and_respects_window(self):
+        self._make_run()
+        # Same user, different team: the throttle is per user, so this counts too.
+        self._make_run(team=self.other_team)
+        # Another user's run must never consume this user's quota.
+        self._make_run(created_by=self.other_user)
+        old_run = self._make_run()
+        TaskRun.objects.filter(id=old_run.id).update(created_at=django_timezone.now() - timedelta(hours=3))
+
+        since = django_timezone.now() - timedelta(hours=1)
+        times = facade.recent_wizard_cloud_run_times(self.user.id, since)
+        self.assertEqual(len(times), 2)
+        self.assertEqual(times, sorted(times))

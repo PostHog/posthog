@@ -20,12 +20,14 @@ export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
 export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
+export const featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
     from_project: zod.number().describe('Source project ID to copy the flag from'),
     target_project_ids: zod
         .array(zod.number())
+        .min(1)
         .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
         .describe('List of target project IDs to copy the flag to'),
     copy_schedule: zod
@@ -38,6 +40,10 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
         ),
+    copy_dependencies: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
+        .describe('Whether to also copy missing feature flags that this flag depends on'),
 })
 
 /**
@@ -65,6 +71,12 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
         ),
+    eligible_for_experiment: zod
+        .enum(['true'])
+        .optional()
+        .describe(
+            "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored."
+        ),
     evaluation_runtime: zod
         .enum(['all', 'client', 'server'])
         .optional()
@@ -83,6 +95,7 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
+    key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Search by feature flag key or name. Case insensitive.'),
@@ -1055,6 +1068,12 @@ export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
 
 export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().min(1).describe('User distinct ID'),
+    flag_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).'
+        ),
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)

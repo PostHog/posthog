@@ -24,7 +24,7 @@ import {
     isSavedInsightNode,
     isActorsQuery,
 } from '~/queries/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
@@ -36,7 +36,6 @@ import {
 } from './components/NotebookSQLEditor'
 import { useRequiredNotebookNode } from './NotebookNodeContext'
 import { UnsupportedNodePlaceholder } from './sharedNodeSupport'
-import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 type NotebookSqlOutputToolbarVisibilityProps = {
     componentPanelState: ReturnType<typeof useComponentPanelState>
@@ -414,18 +413,6 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               : undefined,
     Settings,
     settingsPlacement: 'inline',
-    pasteOptions: {
-        find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
-        getAttributes: async (match) => {
-            return {
-                query: {
-                    kind: NodeKind.SavedInsightNode,
-                    shortId: match[1] as InsightShortId,
-                },
-                isDefaultFilterApplied: false,
-            }
-        },
-    },
     serializedText: (attrs) => {
         let text = ''
         const q = attrs.query

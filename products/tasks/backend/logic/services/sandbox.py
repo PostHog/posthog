@@ -28,6 +28,7 @@ import structlog
 from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, bundled_skills_disabled
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -59,6 +60,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):
@@ -239,6 +244,15 @@ class SandboxBase(ABC):
             timeout_seconds=45,
         )
 
+    def clear_bundled_skills_if_disabled(self) -> None:
+        if not bundled_skills_disabled(self.config.environment_variables):
+            return
+
+        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+        result = self.execute(f"rm -rf {paths} && mkdir -p {paths}", timeout_seconds=30)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -246,7 +260,22 @@ class SandboxBase(ABC):
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         return result.exit_code == 0
 
-    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+    def agent_server_supports_exec_permission_regex(self) -> bool:
+        """Same probe as --autoPublish: check the installed binary before passing
+        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
+        exec sub-tools instead of crashing at launch."""
+        result = self.execute(
+            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
+        )
+        return result.exit_code == 0
+
+    def clone_repository(
+        self,
+        repository: str,
+        github_token: str | None = "",
+        shallow: bool = True,
+        branch: str | None = None,
+    ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -261,6 +290,7 @@ class SandboxBase(ABC):
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
         # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
         # files get fetched on demand. Shallow clones are already small enough.
         blob_filter = "" if shallow else " --filter=blob:limit=128k"
@@ -268,7 +298,8 @@ class SandboxBase(ABC):
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag}{branch_flag} "
+            f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
@@ -314,6 +345,7 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -479,6 +511,19 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     return ModalDockerSandbox
 
 
+def _get_modal_evals_sandbox_class() -> SandboxClass:
+    """Modal sandbox isolated from both production and local development apps."""
+    if not (settings.DEBUG or settings.TEST):
+        raise RuntimeError("MODAL_EVALS sandbox is for evals only and requires DEBUG=1 or TEST=1.")
+    from .modal_sandbox import ModalSandbox
+
+    class ModalEvalsSandbox(ModalSandbox):
+        DEFAULT_APP_NAME = "posthog-sandbox-evals"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+
+    return ModalEvalsSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
@@ -487,6 +532,9 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_DOCKER":
         return _get_modal_docker_sandbox_class()
+
+    if provider and provider.upper() == "MODAL_EVALS":
+        return _get_modal_evals_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -501,6 +549,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return ModalSandbox
     if backend in ("modal_docker", "MODAL_DOCKER"):
         return _get_modal_docker_sandbox_class()
+    if backend in ("modal_evals", "MODAL_EVALS"):
+        return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
@@ -513,7 +563,7 @@ else:
 
     def __getattr__(name: str) -> object:
         # Resolve `Sandbox` lazily. Computing it at import time calls get_sandbox_class(),
-        # which for the docker / modal_docker providers imports a sibling module
+        # which for the docker / local Modal providers imports a sibling module
         # (docker_sandbox / modal_sandbox). When that sibling is the first of the pair to be
         # imported (e.g. test_docker_sandbox.py imports docker_sandbox, which imports this
         # module), the eager call reaches back into the still-initializing sibling and fails

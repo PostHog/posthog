@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.culture_am
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.source import CultureAmpSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CultureAmpSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cultureamp import (
+    CultureAmpSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

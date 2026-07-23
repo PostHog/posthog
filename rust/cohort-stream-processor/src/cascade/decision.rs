@@ -37,6 +37,8 @@ pub fn should_emit(
                 person_id: incoming.change.person_id.clone(),
                 last_updated: new_last_updated.to_string(),
                 status: new_status,
+                origin: None,
+                run_id: None,
             },
             // Carried forward so the chain keeps one stable replay identity across hops.
             source_offset: incoming.source_offset,
@@ -75,6 +77,8 @@ mod tests {
             person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
             last_updated: TS_IN.to_string(),
             status,
+            origin: None,
+            run_id: None,
         }
     }
 

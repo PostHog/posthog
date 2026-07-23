@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PaystackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paystack import (
+    PaystackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.paystack import (
     PaystackResumeConfig,
     paystack_source,
@@ -35,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]):
+    api_docs_url = "https://paystack.com/docs/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PAYSTACK
@@ -86,6 +90,7 @@ You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **S
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -104,7 +109,11 @@ You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **S
         return schemas
 
     def validate_credentials(
-        self, config: PaystackSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PaystackSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_paystack_credentials(config.secret_api_key):
             return True, None

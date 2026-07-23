@@ -27,21 +27,9 @@ import {
  */
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const {
-        reportReviewers,
-        displayReviewers,
-        addReviewerOptions,
-        availableReviewersLoading,
-        isUpdatingReviewers,
-        reportArtefacts,
-    } = useValues(logic)
+    const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers, reportArtefacts } =
+        useValues(logic)
     const { updateReviewers, searchAvailableReviewers } = useActions(logic)
-
-    // The writable artefact id; without it there's nothing to PUT against, so the section can't render.
-    const artefactId = useMemo(
-        () => reportArtefacts?.find((a) => a.type === 'suggested_reviewers')?.id ?? null,
-        [reportArtefacts]
-    )
 
     const [addOpen, setAddOpen] = useState(false)
     const [query, setQuery] = useState('')
@@ -57,9 +45,10 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     )
     const meUuid = addReviewerOptions[0]?.user_uuid
 
-    // Render nothing only when there is no artefact at all (no reviewers ever computed). An empty list with
-    // an artefact still renders so the user can add reviewers.
-    if (!artefactId || reportReviewers === null) {
+    // Wait for the artefact log to load before rendering, so we don't flash an empty state that then
+    // fills in. Once loaded, always render — a report with zero reviewers still shows the "Add" affordance
+    // so a reviewer can be assigned from scratch.
+    if (reportArtefacts === null) {
         return null
     }
 
@@ -78,7 +67,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     const removeReviewer = (target: EnrichedReviewer): void => {
         const next = baseReviewers.filter((r) => r !== target)
         fireAction('remove_suggested_reviewer', target.github_login)
-        updateReviewers(artefactId, reviewersToWriteContent(next), next)
+        updateReviewers(reviewersToWriteContent(next), next)
     }
 
     const toggleOption = (option: AvailableReviewerOption): void => {
@@ -101,7 +90,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         }
         const next = [...baseReviewers, optimisticEntry]
         fireAction('add_suggested_reviewer', option.user_uuid)
-        updateReviewers(artefactId, [...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
+        updateReviewers([...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
     }
 
     return (
@@ -237,7 +226,7 @@ function ReviewerRow({
     onRemove: () => void
 }): JSX.Element {
     const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
-    const reason = reviewer.relevant_commits[0]?.reason ?? null
+    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
     const person = (

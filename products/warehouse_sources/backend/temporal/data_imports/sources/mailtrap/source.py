@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailtrapSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailtrap import (
+    MailtrapSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.mailtrap import (
     MailtrapResumeConfig,
     mailtrap_source,
@@ -36,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]):
+    api_docs_url = "https://docs.mailtrap.io/developers"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -90,26 +97,18 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            # Only email_logs (filters[sent_after]) and suppressions (start_time) expose a
-            # server-side timestamp bound; the other endpoints are unpaginated full-refresh lists.
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=len(incremental_fields) > 0,
-                supports_append=len(incremental_fields) > 0,
-                incremental_fields=incremental_fields,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only email_logs (filters[sent_after]) and suppressions (start_time) expose a server-side
+        # timestamp bound; the other endpoints are unpaginated full-refresh lists.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: MailtrapSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailtrapSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # One cheap probe (/api/accounts) confirms the token is genuine; every token can list the
         # accounts it has access to.
@@ -130,7 +129,8 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
         return mailtrap_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

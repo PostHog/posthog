@@ -62,14 +62,16 @@ const SKILL: LLMSkillApi = {
     name: SKILL_NAME,
     description: 'Extract text from PDFs, fill forms, and merge files. Use when handling PDFs.',
     body: SKILL_BODY,
+    body_total_length: SKILL_BODY.length,
+    body_next_offset: null,
     license: 'Apache-2.0',
     compatibility: 'Requires poppler-utils on the host',
     allowed_tools: ['read', 'shell'],
     metadata: {},
     category: '',
     files: [
-        { path: 'scripts/extract.sh', content_type: 'text/x-shellscript' },
-        { path: 'references/pdf-spec.md', content_type: 'text/markdown' },
+        { path: 'scripts/extract.sh', content_type: 'text/x-shellscript', line_count: 24, char_count: 512 },
+        { path: 'references/pdf-spec.md', content_type: 'text/markdown', line_count: 120, char_count: 4096 },
     ],
     outline: [
         { level: 1, text: 'PDF extractor' },

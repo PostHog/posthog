@@ -1,5 +1,11 @@
 import { Optional } from 'lib/utils/types'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
+export function isPiTaskRuntime(runtime: RuntimeEnumApi | undefined): boolean {
+    return runtime === RuntimeEnumApi.Pi
+}
+
 export interface RepositoryConfig {
     integrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
@@ -77,6 +83,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
+    runtime: RuntimeEnumApi
     repository: string | null
     github_integration: number | null
     /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */

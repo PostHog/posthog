@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -35,6 +36,10 @@ class TestResolvePrimaryKeys:
             ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
             # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
             ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
         ]
     )
     def test_precedence(
@@ -162,6 +167,38 @@ class TestRunPreWriteDefensiveCompact:
         mock_capture.assert_called_once()
         logger.aexception.assert_awaited_once()
 
+    @parameterized.expand(
+        [
+            (
+                "credentials_loading",
+                "Operation not supported: an error occurred while loading credentials: dispatch failure: timeout",
+            ),
+            (
+                "credential_provider_not_enabled",
+                "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials",
+            ),
+            (
+                "generic_s3_error",
+                "Generic S3 error: Error getting list response body: operation timed out",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_logs_transient_object_store_error_without_capturing(self, _name: str, error_message: str):
+        # A transient blip talking to our own delta S3 bucket (credential-provider or connectivity
+        # errors from delta-rs) isn't a bug in this function — it shouldn't flood error tracking the
+        # way an actual maintenance bug does (see test_swallows_maintenance_failure above).
+        helper = MagicMock(run_maintenance=AsyncMock(side_effect=OSError(error_message)))
+        logger = MagicMock(aexception=AsyncMock(), awarning=AsyncMock())
+
+        schema = MagicMock(partition_count=5, sync_type_config={})
+        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
+            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
+
+        mock_capture.assert_not_called()
+        logger.awarning.assert_awaited_once()
+        logger.aexception.assert_not_awaited()
+
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
     def _schema(self) -> ExternalDataSchema:
@@ -265,6 +302,38 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
 
+    def test_reset_failure_routes_through_non_retryable_handler(self, team):
+        # A reset that can't even complete (e.g. the storage backend rejects the delete) must not
+        # propagate unguarded — the revive markers would stay set, so every subsequent sync would
+        # repeat the exact same failing reset forever. It must go through the same give-up-after-
+        # N-attempts policy as any other import error, rather than looping and flooding error tracking.
+        schema, job = self._schema_and_job(team)
+        reset_error = RuntimeError("An error occurred (InvalidAccessKeyId) when calling ListObjectsV2")
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock(side_effect=reset_error)
+        )
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(
+                f"{_EXTRACT_MODULE}.handle_non_retryable_error",
+                new=AsyncMock(side_effect=NonRetryableException()),
+            ) as handle_mock,
+        ):
+            with pytest.raises(NonRetryableException):
+                async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        handle_mock.assert_awaited_once()
+        assert handle_mock.await_args is not None
+        assert handle_mock.await_args.args[0] == schema.team_id
+        assert handle_mock.await_args.args[1] == str(job.pipeline_id)
+        assert handle_mock.await_args.args[2] == str(job.id)
+        assert handle_mock.await_args.args[-1] is reset_error
+        # The reset itself failed, so the non-billable flip (which only happens after a successful
+        # reset) must never be reached.
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
@@ -283,6 +352,11 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        # The in-memory copy must be refreshed too: the pipeline keeps saving this same schema
+        # object for the rest of the run (incremental staging, partition bookkeeping), and a stale
+        # copy writes the marker back — re-arming a non-billable full rebuild on every sync.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
         schema.refresh_from_db()
         assert "delta_revive_required" not in schema.sync_type_config
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
@@ -292,8 +366,11 @@ class TestHandleCorruptedDeltaLog:
         # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs
         # and the job stays billable. Guards the salvage-from-temp branch against regressing to a reset.
         schema, job = self._schema_and_job(team)
+        # A hollow-table marker can coexist with the interrupted swap (the repartition scan set it
+        # before the swap crashed) — the salvage must clear it in memory as well as in the DB.
         schema.sync_type_config = {
-            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"}
+            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"},
+            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
         }
         schema.save(update_fields=["sync_type_config"])
         helper = MagicMock(
@@ -319,6 +396,12 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        # Same stale-copy guard as the reset path: a later full-config save off this schema object
+        # must not write the cleared marker back.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
         # A salvage must be observable too, tagged as recovered-from-temp with the rebuild left billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"

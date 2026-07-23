@@ -38,7 +38,7 @@ class _VisionQuotaTestCase(APIBaseTest):
             name="quota-test-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def tearDown(self) -> None:
@@ -109,13 +109,12 @@ class _VisionQuotaTestCase(APIBaseTest):
 class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
     @parameterized.expand(
         [
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_2_5_FLASH, 2),
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_FLASH, 5),
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_5_FLASH, 15),
-            (ObservationStatus.PENDING, ScannerModel.GEMINI_3_5_FLASH, 15),
-            (ObservationStatus.RUNNING, ScannerModel.GEMINI_3_FLASH, 5),
-            (ObservationStatus.FAILED, ScannerModel.GEMINI_3_FLASH, 0),
-            (ObservationStatus.INELIGIBLE, ScannerModel.GEMINI_3_FLASH, 0),
+            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
+            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_6_FLASH, 15),
+            (ObservationStatus.PENDING, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
+            (ObservationStatus.RUNNING, ScannerModel.GEMINI_3_6_FLASH, 15),
+            (ObservationStatus.FAILED, ScannerModel.GEMINI_3_6_FLASH, 0),
+            (ObservationStatus.INELIGIBLE, ScannerModel.GEMINI_3_6_FLASH, 0),
         ]
     )
     def test_credits_priced_by_model_for_succeeded_and_in_flight(
@@ -160,7 +159,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         self._make_observation(
             status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), created_at=snapshot.period_end
         )
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 5
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
     def test_other_orgs_observations_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-org")
@@ -170,7 +169,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         other_obs = ReplayObservation.objects.create(
             scanner=other_scanner,
@@ -203,13 +202,13 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == expected
 
     def test_exhausted_when_usage_meets_quota(self) -> None:
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 10):
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 30):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
 
             snapshot = compute_quota_snapshot(organization_id=self.organization.id)
 
-            assert snapshot.credits_used == 10
+            assert snapshot.credits_used == 30
             assert snapshot.exhausted is True
             assert snapshot.remaining == 0
 
@@ -217,31 +216,31 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         # Deleting a scanner cascade-deletes its observations, but the usage they spent must not be refunded.
         for _ in range(3):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 45
 
         self.scanner.delete()
 
         assert ReplayObservation.objects.filter(team=self.team).count() == 0  # observations cascade-deleted
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15  # receipts survive
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 45  # receipts survive
 
     def test_deleting_observation_does_not_refund_spent_usage(self) -> None:
         observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 5
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
         observation.delete()  # e.g. the admin recording-delete flow
 
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 5
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
     def test_no_double_count_across_pending_to_succeeded(self) -> None:
         observation = self._make_observation(status=ObservationStatus.PENDING)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 5  # reserved in-flight
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15  # reserved in-flight
 
-        # The success transition flips status and writes the receipt, so the total stays 5.
+        # The success transition flips status and writes the receipt, so the total stays 15.
         ReplayObservation.objects.filter(pk=observation.pk).update(
             status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
         )
         self._make_receipt(observation)
-        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 5
+        assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
@@ -337,7 +336,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         name: str,
         enabled: bool = True,
         estimate: int | None = None,
-        model: ScannerModel = ScannerModel.GEMINI_3_FLASH,
+        model: ScannerModel = ScannerModel.GEMINI_3_6_FLASH,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -355,9 +354,9 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
     def test_sums_credit_weighted_estimates_across_org_teams(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="second-team")
         self._make_scanner(team=self.team, name="a", estimate=100)  # 100 × 5 credits
-        self._make_scanner(team=other_team, name="b", estimate=250, model=ScannerModel.GEMINI_3_5_FLASH)  # 250 × 15
+        self._make_scanner(team=other_team, name="b", estimate=250, model=ScannerModel.GEMINI_3_5_FLASH_LITE)  # 250 × 2
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
-        assert snapshot.projected_monthly_credits == 100 * 5 + 250 * 15
+        assert snapshot.projected_monthly_credits == 100 * 15 + 250 * 2
 
     def test_disabled_and_unestimated_scanners_contribute_zero(self) -> None:
         self._make_scanner(team=self.team, name="disabled", enabled=False, estimate=500)
@@ -432,7 +431,7 @@ class TestQuotaGrants(_VisionQuotaTestCase):
         assert expected_field in cm.exception.message_dict
 
     def test_grant_pushes_exhaustion_back(self) -> None:
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 10):
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 30):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
             assert compute_quota_snapshot(organization_id=self.organization.id).exhausted is True
@@ -495,15 +494,15 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
             estimated_monthly_observations=120, estimated_at=timezone.now()
         )
         resp = self.client.get(self.quota_url)
-        assert resp.json()["projected_monthly_credits"] == 120 * 5
+        assert resp.json()["projected_monthly_credits"] == 120 * 15
 
     def test_reflects_recent_succeeded_observations(self) -> None:
         for _ in range(3):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
 
         resp = self.client.get(self.quota_url)
-        assert resp.json()["credits_used"] == 15
-        assert resp.json()["remaining"] == MONTHLY_CREDIT_QUOTA - 15
+        assert resp.json()["credits_used"] == 45
+        assert resp.json()["remaining"] == MONTHLY_CREDIT_QUOTA - 45
 
     def test_requires_feature_flag(self) -> None:
         with patch(
@@ -539,9 +538,9 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
     def test_returns_402_when_observation_would_exceed_remaining(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # Not exhausted (5 of 8 used), but the next 5-credit observation would land at 10 > 8. The precheck
+        # Not exhausted (15 of 25 used), but the next 15-credit observation would land at 30 > 25. The precheck
         # must reject it rather than only blocking once fully exhausted.
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 8):
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 25):
             self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
             assert not compute_quota_snapshot(organization_id=self.organization.id).exhausted
 

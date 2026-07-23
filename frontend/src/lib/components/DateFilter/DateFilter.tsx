@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useRef, useState } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -60,6 +60,8 @@ export interface DateFilterProps {
      * `showCustomRelativeRange` are ignored when this is set.
      */
     allowSingleAndRange?: boolean
+    /** Called when the dropdown opens (true) or closes (false). Used for interaction analytics. */
+    onOpenChange?: (open: boolean) => void
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -111,6 +113,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showJumpToTimestamp = false,
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
+        onOpenChange,
     },
     ref
 ) {
@@ -159,6 +162,20 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         dateFromHasTimePrecision,
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
+
+    // Hold the callback in a ref so the visibility effect below depends only on `isVisible` —
+    // callers pass an inline function, which would otherwise re-run the effect every render.
+    const onOpenChangeRef = useRef(onOpenChange)
+    useEffect(() => {
+        onOpenChangeRef.current = onOpenChange
+    })
+    const wasVisibleRef = useRef(isVisible)
+    useEffect(() => {
+        if (isVisible !== wasVisibleRef.current) {
+            wasVisibleRef.current = isVisible
+            onOpenChangeRef.current?.(isVisible)
+        }
+    }, [isVisible])
 
     const { weekStartDay } = useValues(teamLogic)
     const optionsRef = useRef<HTMLDivElement | null>(null)

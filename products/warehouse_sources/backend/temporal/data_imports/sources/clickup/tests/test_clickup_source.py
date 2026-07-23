@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.source import ClickUpSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClickUpSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
+    ClickUpSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

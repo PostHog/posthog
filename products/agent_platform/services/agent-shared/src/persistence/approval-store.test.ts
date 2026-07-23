@@ -4,7 +4,14 @@ import { Pool } from 'pg'
 import { reset } from '@posthog/agent-shared/testing'
 
 import { AssistantMessageRecord } from '../spec/spec'
-import { ApprovalStore, effectiveApprovalType, hashCanonicalArgs, UpsertApprovalRequestInput } from './approval-store'
+import {
+    ApprovalRequest,
+    ApprovalStore,
+    effectiveApprovalType,
+    hashCanonicalArgs,
+    serializeApprovalRequest,
+    UpsertApprovalRequestInput,
+} from './approval-store'
 import { PgApprovalStore } from './pg-approval-store'
 
 describe('effectiveApprovalType', () => {
@@ -16,6 +23,39 @@ describe('effectiveApprovalType', () => {
         ['empty / unknown → principal', {}, 'principal'],
     ])('%s', (_label, scope, expected) => {
         expect(effectiveApprovalType(scope as never)).toBe(expected)
+    })
+})
+
+describe('serializeApprovalRequest wire shape', () => {
+    const rowWithScope = (approver_scope: unknown): ApprovalRequest => ({
+        id: 'a',
+        session_id: 's',
+        application_id: 'app',
+        team_id: 1,
+        revision_id: 'r',
+        turn: 0,
+        tool_call_id: 'tc',
+        tool_name: 'tool',
+        proposed_args: {},
+        args_hash: Buffer.alloc(0),
+        assistant_message: { role: 'assistant', content: [], timestamp: 0 } as AssistantMessageRecord,
+        approver_scope: approver_scope as ApprovalRequest['approver_scope'],
+        state: 'queued',
+        decision_by: null,
+        decision_at: null,
+        decision_reason: null,
+        decided_args: null,
+        dispatch_outcome: null,
+        created_at: 't',
+        expires_at: 't',
+    })
+
+    // The serializer must resolve the type, not pass the scope raw: a raw legacy
+    // scope reaches the console with an undefined type and the decide gate 404s a
+    // decidable owner approval.
+    it('resolves a legacy approvers[] scope to a concrete type and drops the raw approvers', () => {
+        const out = serializeApprovalRequest(rowWithScope({ approvers: ['team_admins'], allow_edit: false }))
+        expect(out.approver_scope).toEqual({ type: 'agent', allow_edit: false })
     })
 })
 

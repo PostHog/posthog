@@ -41,9 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
+    maxButtonLabel,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
+    maxButtonLabel?: string
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -66,7 +68,7 @@ export function SceneTitlePanelButton({
         <>
             {!sceneMenuBarEnabled && (
                 <ButtonPrimitive
-                    className={buttonClassName}
+                    className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -92,7 +94,7 @@ export function SceneTitlePanelButton({
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
-                    iconOnly
+                    iconOnly={!maxButtonLabel}
                     data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
@@ -101,6 +103,7 @@ export function SceneTitlePanelButton({
                             <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
                         )}
                     </div>
+                    {maxButtonLabel}
                 </ButtonPrimitive>
             )}
             {/* Size to mimic lemon button small */}
@@ -216,6 +219,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Optional label for the PostHog AI button. */
+    maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -241,6 +246,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
+    maxButtonLabel,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -390,7 +396,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                         </div>
                     )}
                 </div>

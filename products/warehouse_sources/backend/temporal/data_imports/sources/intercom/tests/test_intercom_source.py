@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntercomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
+    IntercomSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -19,6 +21,31 @@ class TestIntercomSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.INTERCOM
+
+    def test_default_version_is_latest(self):
+        # New sources are stamped with the default; keep it on the newest supported version.
+        assert self.source.default_version == "2.15"
+        assert self.source.default_version in self.source.supported_versions
+
+    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("", "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_source_for_pipeline_resolves_version(self, mock_get_integration, mock_intercom_source, pinned, expected):
+        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = "job-1"
+        inputs.schema_name = "contacts"
+        inputs.api_version = pinned
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, inputs)
+
+        _, kwargs = mock_intercom_source.call_args
+        assert kwargs["api_version"] == expected
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -60,6 +87,21 @@ class TestIntercomSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll?scroll_param=c77e46e6-6344-4ada-a0c7-fba26d6af725",
+            "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_expiry_is_retryable(self, error_msg):
+        # A companies scroll cursor expiring mid-walk (idle timeout, or a concurrent sync
+        # stealing the workspace's single scroll slot) 404s on continuation. `companies` is
+        # full-refresh, so a fresh Temporal attempt restarts cleanly — this should stay out
+        # of error tracking as noise rather than be flagged as a real failure.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -93,7 +135,25 @@ class TestIntercomSource:
         assert is_valid is True
         assert error is None
         mock_get_integration.assert_called_once_with(self.config.intercom_integration_id, self.team_id)
-        mock_validate.assert_called_once_with("token", schema_name=None)
+        # No pin passed (pre-creation), so the probe runs on default_version.
+        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.15")
+
+    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), (None, "2.15")])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_validate_credentials_probes_under_resolved_pin(self, mock_get_integration, mock_validate, pin, expected):
+        # The probe must run on the source's pin, not a hardcoded version — otherwise a
+        # 2.13-pinned source validates against 2.15 and can report a scope it doesn't have.
+        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+        mock_validate.return_value = (True, None)
+
+        self.source.validate_credentials(self.config, self.team_id, api_version=pin)
+
+        assert mock_validate.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
@@ -130,6 +190,7 @@ class TestIntercomSource:
         inputs.team_id = self.team_id
         inputs.job_id = "job-1"
         inputs.schema_name = "contacts"
+        inputs.api_version = "2.13"
         inputs.should_use_incremental_field = True
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
@@ -142,6 +203,7 @@ class TestIntercomSource:
             endpoint="contacts",
             team_id=self.team_id,
             job_id="job-1",
+            api_version="2.13",
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",

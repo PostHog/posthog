@@ -251,6 +251,23 @@ class TestValidateCredentials:
             else:
                 assert expected_msg_substr in (msg or "")
 
+    def test_403_maps_to_scope_guidance_without_echoing_raw_body(self):
+        # GitLab answers an under-scoped token with a raw OAuth JSON body that has no "message" field;
+        # it must be replaced with actionable scope guidance, never echoed back verbatim.
+        body = {"error": "insufficient_scope", "error_description": "requires higher privileges"}
+        with self._patch_session(_response(status_code=403, json_data=body, text=str(body))):
+            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
+            assert valid is False
+            assert "read_api" in (msg or "")
+            assert "insufficient_scope" not in (msg or "")
+
+    def test_unmapped_error_does_not_echo_raw_response_body(self):
+        with self._patch_session(_response(status_code=500, json_data={}, text="<html>internal details</html>")):
+            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
+            assert valid is False
+            assert "internal details" not in (msg or "")
+            assert "HTTP 500" in (msg or "")
+
     @pytest.mark.parametrize(
         "host, token, project, expected_msg",
         [

@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -64,6 +67,8 @@ class TestExperimentCleanupPr(APIBaseTest):
         _mock_report,
     ):
         mock_feature_enabled.return_value = flag_enabled
+        task_id = uuid4()
+        mock_create_task.return_value = SimpleNamespace(task_id=task_id)
         experiment = self._running_experiment()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -74,11 +79,14 @@ class TestExperimentCleanupPr(APIBaseTest):
                 request=self._make_request(),
             )
 
+        experiment.refresh_from_db()
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
             self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
             self.assertEqual(kwargs["repository"], "PostHog/posthog")
             self.assertTrue(kwargs["create_pr"])
+            self.assertEqual(experiment.flag_cleanup_task_id, task_id)
         else:
             mock_create_task.assert_not_called()
+            self.assertIsNone(experiment.flag_cleanup_task_id)

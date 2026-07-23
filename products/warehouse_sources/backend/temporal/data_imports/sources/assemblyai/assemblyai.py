@@ -1,16 +1,25 @@
 import dataclasses
 from collections.abc import Iterator
-from typing import Any
-from urllib.parse import urlencode, urljoin, urlsplit
+from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.settings import ASSEMBLYAI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # AssemblyAI offers a US base URL and an EU data-residency variant. The Authorization header is the
 # raw API key (no "Bearer" prefix).
@@ -23,12 +32,6 @@ DEFAULT_REGION = "us"
 # List endpoint max page size is 200.
 PAGE_SIZE = 200
 
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class AssemblyAIRetryableError(Exception):
-    pass
-
 
 @dataclasses.dataclass
 class AssemblyAIResumeConfig:
@@ -39,13 +42,6 @@ class AssemblyAIResumeConfig:
 
 def base_url_for_region(region: str | None) -> str:
     return BASE_URLS.get((region or DEFAULT_REGION).lower(), BASE_URLS[DEFAULT_REGION])
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": api_key,
-        "Accept": "application/json",
-    }
 
 
 def _pinned_url(base_url: str, url: str) -> str:
@@ -62,120 +58,127 @@ def _pinned_url(base_url: str, url: str) -> str:
     return resolved
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (AssemblyAIRetryableError, requests.ReadTimeout, requests.ConnectionError),
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+class AssemblyAINextUrlPaginator(JSONResponsePaginator):
+    """Follows page_details.next_url, pinned to the selected regional host.
 
-    if response.status_code == 429 or response.status_code >= 500:
-        raise AssemblyAIRetryableError(f"AssemblyAI API error (retryable): status={response.status_code}, url={url}")
+    Also stops as soon as a page carries no items — the transcript list is finite and
+    newest-first, so an empty page means the walk is done regardless of any next_url.
+    """
 
-    if not response.ok:
-        logger.error(f"AssemblyAI API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+    def __init__(self, base_url: str) -> None:
+        super().__init__(next_url_path="page_details.next_url")
+        self._base_url = base_url
 
-    return response.json()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None:
+            self._next_url = _pinned_url(self._base_url, self._next_url)
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        if self._next_url is not None:
+            # Persisted state is still untrusted input — pin it to the selected host before fetching.
+            self._next_url = _pinned_url(self._base_url, self._next_url)
 
 
 def validate_credentials(api_key: str, region: str | None) -> bool:
     # Cheapest probe that exercises the token: list a single transcript.
     base_url = base_url_for_region(region)
-    url = f"{base_url}/v2/transcript?{urlencode({'limit': 1})}"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{base_url}/v2/transcript?limit=1",
+        headers={"Authorization": api_key, "Accept": "application/json"},
+    )
+    return ok
 
 
-def _hydrate_transcript(
-    session: requests.Session,
-    base_url: str,
-    transcript_id: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    """Fetch the full transcript object for a single id."""
-    url = f"{base_url}/v2/transcript/{transcript_id}"
-    return _fetch(session, url, headers, logger)
-
-
-def get_rows(
-    api_key: str,
-    region: str | None,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AssemblyAIResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ASSEMBLYAI_ENDPOINTS[endpoint]
-    base_url = base_url_for_region(region)
-    headers = _get_headers(api_key)
-    # One session reused across every list page and hydration request so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        # Persisted state is still untrusted input — pin it to the selected host before fetching.
-        url = _pinned_url(base_url, resume.next_url)
-        logger.debug(f"AssemblyAI: resuming from URL: {url}")
-    else:
-        url = f"{base_url}{config.path}?{urlencode({'limit': PAGE_SIZE})}"
-
-    while True:
-        data = _fetch(session, url, headers, logger)
-
-        items = data.get(endpoint, [])
-        if not items:
-            break
-
-        if config.hydrate:
-            rows = [_hydrate_transcript(session, base_url, item["id"], headers, logger) for item in items]
-        else:
-            rows = items
-
-        yield rows
-
-        next_url = data.get("page_details", {}).get("next_url")
-        if not next_url:
-            break
-
-        # Save AFTER yielding the page so a crash re-yields the just-finished page rather than
-        # skipping it — merge dedupes on the primary key. Resume picks up at the next page.
-        url = _pinned_url(base_url, next_url)
-        resumable_source_manager.save_state(AssemblyAIResumeConfig(next_url=url))
+def _hydrate_transcript(client: RESTClient, transcript_id: str) -> dict[str, Any]:
+    """Fetch the full transcript object for a single id (the list rows are summaries)."""
+    for page in client.paginate(path=f"/v2/transcript/{transcript_id}", paginator=SinglePagePaginator()):
+        if page:
+            return page[0]
+    raise ValueError(f"AssemblyAI returned an empty body for transcript {transcript_id}")
 
 
 def assemblyai_source(
     api_key: str,
     region: str | None,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AssemblyAIResumeConfig],
 ) -> SourceResponse:
-    endpoint_config = ASSEMBLYAI_ENDPOINTS[endpoint]
+    config = ASSEMBLYAI_ENDPOINTS[endpoint]
+    base_url = base_url_for_region(region)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            "headers": {"Accept": "application/json"},
+            # AssemblyAI expects the raw API key in Authorization (no "Bearer" prefix).
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+            "paginator": AssemblyAINextUrlPaginator(base_url),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    "data_selector": endpoint,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
+        # re-yields the just-finished page (merge dedupes) rather than skipping it. Resume picks up
+        # at the saved next page — earlier list pages are never re-fetched.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(AssemblyAIResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # full refresh only — no server-side watermark filter exists (see settings.py)
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        if not config.hydrate:
+            yield from resource
+            return
+        # One client (and session) reused for every hydration request so urllib3 keeps the
+        # connection alive instead of re-handshaking per transcript.
+        hydration_client = RESTClient(
+            base_url=base_url,
+            headers={"Accept": "application/json"},
+            auth=APIKeyAuth(api_key=api_key, name="Authorization", location="header"),
+        )
+        for page in resource:
+            yield [_hydrate_transcript(hydration_client, item["id"]) for item in page]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            region=region,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=endpoint_config.primary_keys,
+        items=items,
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
         # The list endpoint returns transcripts newest-first and exposes no ascending sort, so rows
         # arrive in descending creation order. Full refresh only, so this never drives a watermark.
         sort_mode="desc",

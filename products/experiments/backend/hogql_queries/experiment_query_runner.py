@@ -1,10 +1,13 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
-from typing import Optional
+from typing import Any, Optional
+
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -34,6 +37,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -42,7 +46,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -146,6 +151,53 @@ def experiment_has_min_runtime_for_precomputation(
     return (effective_end - start_date).total_seconds() >= MIN_PRECOMPUTATION_DURATION_SECONDS
 
 
+def _collect_cohort_ids(obj: Any) -> set[int]:
+    """Cohort IDs referenced anywhere in a filter/criteria/metric JSON structure."""
+    ids: set[int] = set()
+    if isinstance(obj, dict):
+        if obj.get("type") in ("cohort", "static-cohort", "precalculated-cohort"):
+            value = obj.get("value")
+            if isinstance(value, int | str):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+        for nested in obj.values():
+            ids |= _collect_cohort_ids(nested)
+    elif isinstance(obj, list):
+        for item in obj:
+            ids |= _collect_cohort_ids(item)
+    return ids
+
+
+def has_uncalculated_cohorts(team: Team, *filter_sources: Any) -> bool:
+    """True when any cohort referenced in the given filter structures hasn't finished its
+    first materialization (dynamic: no completed version; static: initial population running).
+
+    Queries against such a cohort read its partially-inserted membership — they load fine
+    but undercount, and with a skew determined by insertion order. A precompute build in
+    that window freezes the torn snapshot for the frozen-band TTL (60 days), so precompute
+    must be skipped until the first calculation lands. Cohorts with a completed version are
+    safe even mid-recalculation: reads pin the last complete version, and cohorts recalculate
+    every ~15 minutes, so gating on is_calculating would disable precompute permanently.
+    """
+    ids: set[int] = set()
+    for source in filter_sources:
+        if source is None:
+            continue
+        if isinstance(source, BaseModel):
+            source = source.model_dump()
+        ids |= _collect_cohort_ids(source)
+    if not ids:
+        return False
+    return Cohort.objects.filter(
+        Q(is_static=False, version__isnull=True) | Q(is_static=True, is_calculating=True),
+        team__project_id=team.project_id,
+        pk__in=ids,
+        deleted=False,
+    ).exists()
+
+
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
@@ -186,7 +238,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
-        self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
+        self.group_type_index = self.feature_flag.aggregation_group_type_index
         self.entity_key = get_entity_key(self.group_type_index)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -199,7 +251,7 @@ class ExperimentQueryRunner(QueryRunner):
         ]
 
         stats_config = self.experiment.stats_config or {}
-        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
+        self.baseline_variant_key = get_baseline_variant_key(stats_config, self.variants)
 
         self.date_range = experiment_window(self.experiment, self.team, self.as_of)
         self.date_range_query = QueryDateRange(
@@ -341,10 +393,13 @@ class ExperimentQueryRunner(QueryRunner):
         if not self._team_experiments_config.experiment_precomputation_enabled:
             return False
 
-        return experiment_has_min_runtime_for_precomputation(
+        if not experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
-        )
+        ):
+            return False
+
+        return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
@@ -359,6 +414,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
+            return "cohort_not_calculated"
         if self.is_data_warehouse_query:
             return "data_warehouse"
         if self.group_type_index is not None:

@@ -1,3 +1,4 @@
+import contextlib
 from collections.abc import Collection, Iterable
 from typing import Any, cast
 
@@ -25,8 +26,10 @@ from posthog.temporal.data_modeling.activities import (
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
+    LOGGER,
     InvalidNodeTypeException,
     _get_aws_storage_options,
+    hogql_table,
 )
 
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
@@ -798,10 +801,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=3,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -841,10 +840,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=5,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -854,7 +849,7 @@ class TestMaterializeViewActivity:
             )
             result = await activity_environment.run(materialize_view_activity, inputs)
             await database_sync_to_async(ajob.refresh_from_db)()
-            assert ajob.rows_expected == 5
+            assert ajob.rows_expected is None
             assert ajob.rows_materialized == 5
             assert result.row_count == 5
 
@@ -897,10 +892,6 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
-            ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=6,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -957,10 +948,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=6,
-            ),
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
@@ -1008,10 +995,6 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
-            ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=0,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1062,10 +1045,6 @@ class TestMaterializeViewActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
             ),
-            unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
-                return_value=16,
-            ),
             unittest.mock.patch("deltalake.write_deltalake", side_effect=raising_write),
         ):
             inputs = MaterializeViewInputs(
@@ -1076,3 +1055,57 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+
+class _EmptyArrowClient:
+    def __init__(self, schema: pa.Schema):
+        self.schema = schema
+        self.arrow_query_calls = 0
+        self.schema_query_calls = 0
+
+    async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
+        self.arrow_query_calls += 1
+        if on_schema is not None:
+            on_schema(self.schema)
+        return
+        yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
+
+    @contextlib.asynccontextmanager
+    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+        if query.startswith("DESCRIBE TABLE"):
+            body = b"id\tInt64\n"
+        else:
+            self.schema_query_calls += 1
+            buffer = pa.BufferOutputStream()
+            with pa.ipc.new_stream(buffer, self.schema):
+                pass
+            body = buffer.getvalue().to_pybytes()
+
+        class _Response:
+            def __init__(self, response_body: bytes):
+                self.content = self
+                self.body = response_body
+
+            async def read(self) -> bytes:
+                return self.body
+
+        yield _Response(body)
+
+
+class TestHogqlTableEmptyResults:
+    async def test_zero_row_query_uses_the_initial_stream_schema(self, ateam):
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            batches = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert len(batches) == 1
+        assert batches[0][0].num_rows == 0
+        assert client.arrow_query_calls == 1
+        assert client.schema_query_calls == 0

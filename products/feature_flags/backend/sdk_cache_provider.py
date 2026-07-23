@@ -24,24 +24,28 @@ class HyperCacheFlagProvider:
     by reading directly from the same Redis cache.
     """
 
-    def __init__(self, team_id_resolver: Callable[[], Optional[int]]):
+    def __init__(self, team_id_resolver: Callable[[], Optional[int | str]]):
         self._team_id_resolver = team_id_resolver
-        self._team_id: Optional[int] = None  # memoized first non-None resolution
+        self._team_id: Optional[int | str] = None  # memoized first non-None resolution
         self._hypercache: Optional[HyperCache] = None
         self._logged_resolved_team = False
         self._logged_zero_flags = False
 
     @classmethod
-    def for_static_team(cls, team_id: int) -> HyperCacheFlagProvider:
-        """Cloud / E2E / explicit operator override: a fixed, known team id."""
+    def for_static_team(cls, team_id: int | str) -> HyperCacheFlagProvider:
+        """Cloud / E2E / explicit operator override: a fixed, known cache key.
+
+        Usually a real team id; on EU it's EU_CROSS_REGION_MIRROR_CACHE_KEY, the
+        string sentinel the cross-region sync writes US team 2's definitions under.
+        """
         return cls(team_id_resolver=lambda: team_id)
 
     @classmethod
-    def for_dynamic_resolution(cls, team_id_resolver: Callable[[], Optional[int]]) -> HyperCacheFlagProvider:
+    def for_dynamic_resolution(cls, team_id_resolver: Callable[[], Optional[int | str]]) -> HyperCacheFlagProvider:
         """Local/self-hosted: resolve the team id lazily, retrying while it returns None."""
         return cls(team_id_resolver=team_id_resolver)
 
-    def _resolve_team_id(self) -> Optional[int]:
+    def _resolve_team_id(self) -> Optional[int | str]:
         # Resolve once and memoize; a None result is NOT cached, so we retry next poll
         # (resolution may run before the first team exists / before migrations).
         if self._team_id is None:

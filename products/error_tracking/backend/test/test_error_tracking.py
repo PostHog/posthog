@@ -11,7 +11,9 @@ from unittest.mock import patch
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 
-from posthog.models import Team
+from parameterized import parameterized
+
+from posthog.models import Team, User
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -258,6 +260,43 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         with pytest.raises(IntegrityError):
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+
+    @parameterized.expand(
+        [
+            # (source assignees, target assignee, expected target assignee after merge)
+            ("single_source_assignee_adopted", ["a"], None, "a"),
+            ("repeated_same_source_assignee_adopted", ["a", "a"], None, "a"),
+            ("single_assignee_with_unassigned_sources_adopted", ["a", None, None], None, "a"),
+            ("ambiguous_distinct_assignees_left_unassigned", ["a", "b"], None, None),
+            ("ambiguous_distinct_assignees_with_unassigned_left_unassigned", ["a", "b", None], None, None),
+            ("no_source_assignees_left_unassigned", [None, None], None, None),
+            ("target_assignee_takes_precedence", ["a"], "b", "b"),
+        ]
+    )
+    def test_merge_adopts_single_source_assignee(self, _name, source_keys, target_key, expected_key):
+        users = {"a": self.user, "b": User.objects.create(email="merge_assignee_b@posthog.com")}
+
+        def assign(issue: ErrorTrackingIssue, key: str | None) -> None:
+            if key is not None:
+                ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=users[key])
+
+        target = self.create_issue(["target_fingerprint"])
+        assign(target, target_key)
+
+        source_ids = []
+        for index, key in enumerate(source_keys):
+            source = self.create_issue([f"source_fingerprint_{index}"])
+            assign(source, key)
+            source_ids.append(source.id)
+
+        target.merge(issue_ids=source_ids)
+
+        assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=target.id).first()
+        if expected_key is None:
+            assert assignment is None
+        else:
+            assert assignment is not None
+            assert assignment.user_id == users[expected_key].id
 
     @freeze_time("2025-01-01")
     def test_error_tracking_issue_first_seen_earliest_fingerprint(self):

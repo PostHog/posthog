@@ -105,7 +105,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     7_200.0,
     21_600.0,
 ]
-# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top buckets
+# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top buckets
 # show how close real runs get to the trim threshold.
 STREAM_LENGTH_BUCKETS = [10.0, 50.0, 100.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
 
@@ -163,6 +163,30 @@ PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
     labelnames=["kind", "reason"],
+)
+
+# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
+# (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
+LOOP_FIRE_TOTAL = Counter(
+    "posthog_tasks_loop_fire_total",
+    "Loop trigger fire outcomes",
+    labelnames=["reason"],
+)
+
+LOOP_AUTO_PAUSED_TOTAL = Counter(
+    "posthog_tasks_loop_auto_paused_total",
+    "Loops auto-paused after exceeding the consecutive-failure threshold",
+)
+
+CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+
+# outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
+# fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
+# a degraded gateway must not silently remove the only cost backstop).
+CODE_USAGE_GATE_CHECK_TOTAL = Counter(
+    "posthog_tasks_code_usage_gate_check_total",
+    "Cloud usage-gate check outcomes for PostHog Code runs",
+    labelnames=["outcome"],
 )
 
 
@@ -326,3 +350,15 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_loop_fire(*, reason: str) -> None:
+    LOOP_FIRE_TOTAL.labels(reason=reason).inc()
+
+
+def observe_loop_auto_paused() -> None:
+    LOOP_AUTO_PAUSED_TOTAL.inc()
+
+
+def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
+    CODE_USAGE_GATE_CHECK_TOTAL.labels(outcome=outcome).inc()

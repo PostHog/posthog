@@ -550,6 +550,36 @@ class TestTable(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["id"] == str(table.id)
 
+    def test_list_tables_exposes_hogql_name_and_honors_include_columns(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_type="GoogleAnalytics",
+            prefix="",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        DataWarehouseTable.objects.create(
+            name="googleanalytics_devices",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/devices.parquet",
+            external_data_source_id=source.pk,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+
+        default = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/").json()["results"][0]
+        # The picker labels by the dotted HogQL name, not the raw storage identifier.
+        assert default["hogql_name"] == "googleanalytics.devices"
+        assert "id" in [column["name"] for column in default["columns"]]
+
+        # A picker that only needs names opts out of the expensive per-table column serialization.
+        skipped = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/?include_columns=false").json()[
+            "results"
+        ][0]
+        assert skipped["hogql_name"] == "googleanalytics.devices"
+        assert skipped["columns"] == []
+
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
             response = self.client.post(

@@ -711,7 +711,10 @@ export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
  * Merges into the dashboard row's `meta` (never replaces it), so existing
  * keys like `channelId`/`templateId` survive. Appends a full-file version
  * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform.
+ * the app's dashboardsService.saveFreeform, including the linear-discard of
+ * any redo tail left behind by an undo. When the publisher passes
+ * `expected_current_version_id`, a publish based on a stale version is
+ * rejected with 409 `version_conflict` instead of overwriting the newer head.
  */
 export const DesktopFileSystemCanvasPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this file system.'),
@@ -724,9 +727,21 @@ export const DesktopFileSystemCanvasPartialUpdateParams = /* @__PURE__ */ zod.ob
 
 export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        code: zod.string().optional(),
-        prompt: zod.string().optional(),
-        name: zod.string().optional(),
+        code: zod.string().optional().describe('The complete single-file React source for the canvas.'),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        name: zod
+            .string()
+            .optional()
+            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
+        expected_current_version_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+            ),
     })
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
