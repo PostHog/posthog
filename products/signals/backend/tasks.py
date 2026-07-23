@@ -20,6 +20,7 @@ from products.signals.backend.models import SignalReportRefund, SignalRepository
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
+    repository_activity_needs_rebuild,
 )
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -232,14 +233,24 @@ _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
     name="products.signals.backend.tasks.rebuild_signal_repository_activity",
     ignore_result=True,
     max_retries=0,
+    # Sandbox clone (10m cap) + git log (3m cap) + attribution listing; the hard limit
+    # backstops a hung sandbox call.
+    soft_time_limit=20 * 60,
+    time_limit=22 * 60,
 )
 @with_team_scope()
-def rebuild_signal_repository_activity(team_id: int, repository: str) -> None:
+def rebuild_signal_repository_activity(team_id: int, repository: str, force: bool = False) -> None:
     """Rebuild one repository's area-activity map from its git history (sandbox clone + git log).
 
-    Enqueued on cache miss by reviewer resolution and weekly by the sweeper. A failed
-    rebuild leaves the cached rows untouched; the next enqueue retries.
+    Enqueued on cache miss by reviewer resolution and weekly by the sweeper (which passes
+    ``force`` — its rows sit exactly at the staleness boundary). A failed rebuild leaves
+    the cached rows untouched; the next enqueue retries.
     """
+    # Concurrent enqueues for the same (team, repository) are common — several reports can
+    # hit the same stale map before the first rebuild lands. Re-checking staleness at start
+    # collapses them to one sandbox clone; the freshness window also debounces re-triggers.
+    if not force and not repository_activity_needs_rebuild(team_id, repository):
+        return
     try:
         rebuild_repository_activity(team_id, repository)
     except (RepositoryCommitActivityError, GitHubRateLimitError, GitHubEgressBudgetExhausted) as exc:
@@ -276,6 +287,6 @@ def refresh_signal_repository_activity() -> None:
         .order_by("team_id", "repository")
     )
     for team_id, repository in repositories:
-        rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository)
+        rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository, force=True)
     if repositories:
         logger.info("signals repository activity refresh enqueued rebuilds", count=len(repositories))

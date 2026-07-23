@@ -47,7 +47,7 @@ class RepositoryCommitActivity:
     sha: str
     author_name: str
     author_email: str
-    committed_at: str  # ISO 8601 author date
+    committed_at: str  # ISO 8601 committer date — same axis the --since filter selects on
     paths: list[str]
 
 
@@ -72,7 +72,8 @@ def collect_repository_commit_activity(
     sandbox = get_sandbox_class().create(
         SandboxConfig(
             name=f"repo-activity-{team_id}",
-            template=SandboxTemplate.DEFAULT_BASE,
+            # Git-only job, no agent server — the slim image boots faster (stamphog precedent).
+            template=SandboxTemplate.SLIM_BASE,
             environment_variables={},
             snapshot_id=None,
             metadata={"purpose": "repo_commit_activity"},
@@ -111,7 +112,8 @@ def _read_log(
     sandbox: SandboxBase, repository: str, since_days: int, max_commits: int
 ) -> list[RepositoryCommitActivity]:
     target_path = sandbox_repo_path(repository)
-    pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%an{_FIELD_SEP}%ae{_FIELD_SEP}%ad"
+    # %cd (committer date): the same axis --since filters on, and when the change landed.
+    pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%an{_FIELD_SEP}%ae{_FIELD_SEP}%cd"
     command = (
         f"git -C {shlex.quote(target_path)} log "
         f"--since={shlex.quote(f'{since_days} days')} --no-merges --max-count={max_commits} "

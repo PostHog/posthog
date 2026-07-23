@@ -24,7 +24,10 @@ from posthog.models.github_integration_base import GitHubCommitAttribution
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping import team_scope
 
-from products.tasks.backend.facade.repo_activity import collect_repository_commit_activity
+from products.tasks.backend.facade.repo_activity import (
+    RepositoryCommitActivityError,
+    collect_repository_commit_activity,
+)
 
 from ..models import SignalRepositoryAreaActivity
 
@@ -101,13 +104,28 @@ def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[s
     result: dict[str, list[ContributorActivity]] = {}
 
     with team_scope(team_id):
-        for area in areas:
-            row, _created = SignalRepositoryAreaActivity.objects.get_or_create(
-                team_id=team_id,
-                repository=repository,
-                area=area,
+        rows = {
+            row.area: row
+            for row in SignalRepositoryAreaActivity.objects.filter(
+                team_id=team_id, repository=repository, area__in=areas
             )
-            SignalRepositoryAreaActivity.objects.filter(id=row.id).update(last_used_at=now)
+        }
+        missing = [area for area in areas if area not in rows]
+        if missing:
+            # Placeholder rows so rebuilds know these areas are wanted; ignore_conflicts
+            # covers a concurrent resolution creating the same row.
+            SignalRepositoryAreaActivity.objects.bulk_create(
+                [
+                    SignalRepositoryAreaActivity(team_id=team_id, repository=repository, area=area, last_used_at=now)
+                    for area in missing
+                ],
+                ignore_conflicts=True,
+            )
+        if rows:
+            SignalRepositoryAreaActivity.objects.filter(id__in=[row.id for row in rows.values()]).update(
+                last_used_at=now
+            )
+        for area, row in rows.items():
             if row.refreshed_at is not None:
                 result[area] = _parse_contributors(row.contributors)
 
@@ -143,7 +161,7 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
     """
     repository = repository.strip().lower()
     commits = collect_repository_commit_activity(team_id, repository, since_days=ACTIVITY_WINDOW_DAYS)
-    attribution_by_sha = _commit_attributions_by_sha(team_id, repository)
+    attribution_by_sha = _commit_attributions_by_sha(team_id, repository) if commits else {}
 
     per_area: dict[str, dict[str, dict]] = {}
     for commit in commits:  # newest-first, so the first commit seen per login is their latest
@@ -168,23 +186,38 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
             else:
                 entry["commit_count"] += 1
 
+    def contributors_for(area: str) -> list[dict]:
+        by_login = per_area.get(area, {})
+        return sorted(by_login.values(), key=lambda c: -c["commit_count"])[:MAX_CONTRIBUTORS_PER_AREA]
+
     now = timezone.now()
     with team_scope(team_id), transaction.atomic():
-        for area, by_login in per_area.items():
-            SignalRepositoryAreaActivity.objects.update_or_create(
+        existing = {
+            row.area: row for row in SignalRepositoryAreaActivity.objects.filter(team_id=team_id, repository=repository)
+        }
+        to_update = []
+        for area, row in existing.items():
+            row.contributors = contributors_for(area)
+            row.refreshed_at = now
+            to_update.append(row)
+        if to_update:
+            SignalRepositoryAreaActivity.objects.bulk_update(to_update, ["contributors", "refreshed_at"])
+        to_create = [
+            SignalRepositoryAreaActivity(
                 team_id=team_id,
                 repository=repository,
                 area=area,
-                defaults={
-                    "contributors": sorted(by_login.values(), key=lambda c: -c["commit_count"])[
-                        :MAX_CONTRIBUTORS_PER_AREA
-                    ],
-                    "refreshed_at": now,
-                },
+                contributors=contributors_for(area),
+                refreshed_at=now,
+                last_used_at=now,
             )
-        SignalRepositoryAreaActivity.objects.filter(team_id=team_id, repository=repository).exclude(
-            area__in=per_area.keys()
-        ).update(contributors=[], refreshed_at=now)
+            for area in per_area
+            if area not in existing
+        ]
+        if to_create:
+            # ignore_conflicts: the live read path may create a placeholder for the same
+            # area concurrently — that row is then refreshed by the next rebuild.
+            SignalRepositoryAreaActivity.objects.bulk_create(to_create, ignore_conflicts=True)
 
     logger.info(
         "rebuilt signal repository activity for team %d %s: %d commits, %d areas",
@@ -200,7 +233,9 @@ def _commit_attributions_by_sha(team_id: int, repository: str) -> dict[str, GitH
     """GitHub's sha→login attribution for the activity window, keyed for the sha join."""
     github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
     if github is None:
-        raise RuntimeError(f"No GitHub integration for team {team_id} can access {repository}")
+        # Same expected-deferral type the collector raises — the rebuild task logs it
+        # instead of capturing an exception.
+        raise RepositoryCommitActivityError(f"No GitHub integration for team {team_id} can access {repository}")
     # Sheddable: rebuilds are deferrable background work — the egress limiter drops BATCH
     # calls first when the installation's shared budget runs hot, and a denied listing
     # aborts the rebuild rather than writing a half-attributed map.

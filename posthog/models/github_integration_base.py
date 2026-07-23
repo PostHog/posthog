@@ -732,12 +732,19 @@ class GitHubIntegrationBase:
                 break
             try:
                 body = response.json()
-            except Exception:
+                if not isinstance(body, list):
+                    raise ValueError(f"expected a list, got {type(body).__name__}")
+            except Exception as exc:
+                # Page 1 must raise like the non-200 branch — an empty result here would
+                # let callers write an empty attribution map as if it were real data.
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: malformed commit listing for {repository}",
+                        status_code=response.status_code,
+                    ) from exc
                 logger.warning(
-                    "GitHubIntegration: failed to parse commit listing JSON", repository=repository, exc_info=True
+                    "GitHubIntegration: malformed commit listing page", repository=repository, page=page, exc_info=True
                 )
-                break
-            if not isinstance(body, list):
                 break
             for entry in body:
                 if not isinstance(entry, dict):
