@@ -80,6 +80,42 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         # Snapshot the query
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
 
+    def test_roas_column_is_excluded_from_the_generic_sum_wrapper(self):
+        # ROAS is a per-row ratio; if it leaks into the aggregated mapping the generic SUM() wrapper
+        # produces sum-of-ratios, which is not total revenue / total cost.
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                "kind": NodeKind.EVENTS_NODE,
+                "event": "purchase",
+                "conversion_goal_id": "revenue_goal",
+                "conversion_goal_name": "Revenue",
+                "name": "purchase",
+                "math": "sum",
+                "math_property": "revenue",
+                "counts_as_revenue": True,
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            }
+        ]
+        self.team.marketing_analytics_config.save()
+
+        runner = self._create_query_runner()
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "'Campaign' as match_key"
+        )
+
+        with patch.object(runner, "_get_marketing_source_adapters", return_value=[mock_adapter]):
+            query = runner.to_query()
+
+        hogql = query.to_hogql()
+
+        assert "AS ROAS" not in hogql, f"ROAS must not be emitted (and summed) by the aggregated runner. Got: {hogql}"
+        assert "AS Revenue" in hogql, f"the revenue goal column itself should still be summed. Got: {hogql}"
+
     def test_compare_shares_database_across_periods(self):
         query = MarketingAnalyticsAggregatedQuery(
             dateRange=self.default_date_range,
