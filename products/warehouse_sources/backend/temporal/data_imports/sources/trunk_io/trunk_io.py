@@ -90,7 +90,15 @@ class TrunkPageQueryPaginator(BasePaginator):
 
 
 def _client(api_token: str) -> RESTClient:
-    return RESTClient(base_url=BASE_URL, auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"))
+    # Pin to the API origin and never follow redirects: the token rides a nonstandard
+    # `x-api-token` header that `requests` won't strip on an off-origin redirect, so a 30x
+    # from the API host would otherwise replay the credential to the redirect target.
+    return RESTClient(
+        base_url=BASE_URL,
+        auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"),
+        allowed_hosts=[],
+        allow_redirects=False,
+    )
 
 
 def _coerce_datetime(value: Any) -> datetime:
@@ -240,7 +248,7 @@ def failing_tests(
 
 
 def validate_credentials(api_token: str, org_url_slug: str, repo: TrunkRepo) -> tuple[bool, str | None]:
-    session = make_tracked_session(redact_values=(api_token,))
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     try:
         response = session.post(
             f"{BASE_URL}/flaky-tests/list-quarantined-tests",

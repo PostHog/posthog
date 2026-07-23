@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +33,14 @@ def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Respons
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
     resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+def _make_redirect_response(location: str, status_code: int = 302) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.headers["Location"] = location
+    resp._content = b""
     return resp
 
 
@@ -381,7 +390,50 @@ class TestFailingTests:
         manager.clear_state.assert_called_once()
 
 
+class TestClientRedirectHandling:
+    def test_redirect_is_refused_without_replaying_token(self) -> None:
+        # A 30x from the API host must not be followed — `x-api-token` is a nonstandard header
+        # `requests` wouldn't strip off-origin, so following the redirect would replay the token.
+        sent_bodies: list[dict[str, Any]] = []
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            sent_bodies.append(json.loads(json.dumps(request.json)))
+            # The client must not ask the transport to follow redirects itself.
+            assert kwargs.get("allow_redirects") is False
+            return _make_redirect_response("https://evil.example.com/steal")
+
+        patcher = patch(MAKE_SESSION_TARGET)
+        mock_make_session = patcher.start()
+        mock_session = mock_make_session.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+        try:
+            manager = MagicMock(spec=ResumableSourceManager)
+            manager.can_resume.return_value = False
+
+            with pytest.raises(ValueError, match="[Rr]edirect"):
+                list(quarantined_tests("token", REPO, "my-org", manager))
+        finally:
+            patcher.stop()
+
+        # Exactly one request went out (to the API host); the redirect target was never called.
+        assert len(sent_bodies) == 1
+
+
 class TestValidateCredentials:
+    def test_credential_check_disables_redirects(self) -> None:
+        # Redirects off keeps the token from leaking to a redirect target during validation.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io.make_tracked_session"
+        ) as mock_make_session:
+            mock_session = mock_make_session.return_value
+            mock_session.post.return_value = _make_http_response({}, status_code=200)
+
+            validate_credentials("token", "my-org", REPO)
+
+        assert mock_make_session.call_args.kwargs["allow_redirects"] is False
+
     @parameterized.expand(
         [
             (200, True, None),
