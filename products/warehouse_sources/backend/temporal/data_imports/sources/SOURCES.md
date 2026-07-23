@@ -566,6 +566,7 @@ the row lists both.
 | trello                           | HTTP                        | requests                                                        | ✅                          |
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
+| trunk_io                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
@@ -1333,7 +1334,6 @@ doesn't conflict with concurrent PRs.
 - track_pms
 - transistor
 - tremendous
-- trunk_io
 - trustpilot
 - trustradius
 - turso
