@@ -33,7 +33,10 @@ _CLONE_TIMEOUT_SECONDS = 10 * 60
 _LOG_TIMEOUT_SECONDS = 3 * 60
 
 DEFAULT_SINCE_DAYS = 90
-DEFAULT_MAX_COMMITS = 5000
+# Runaway backstop only — sized well above a very active monorepo's 90-day non-merge count
+# (posthog/posthog ≈ 8k). Truncating newest-first would silently drop the window's older
+# half, making its contributors look fully stale instead of decayed.
+DEFAULT_MAX_COMMITS = 20_000
 
 
 class RepositoryCommitActivityError(Exception):
@@ -103,8 +106,11 @@ def _clone_history(sandbox: SandboxBase, repository: str, github_token: str, sin
     )
     result = sandbox.execute(command, timeout_seconds=_CLONE_TIMEOUT_SECONDS)
     if result.exit_code != 0:
+        # Git fatal messages echo the remote URL including the embedded token; this message
+        # flows into logs and exception capture.
+        stderr = result.stderr.replace(github_token, "<redacted>") if github_token else result.stderr
         raise RepositoryCommitActivityError(
-            f"History clone of {repository} failed with exit code {result.exit_code}: {result.stderr[:300]}"
+            f"History clone of {repository} failed with exit code {result.exit_code}: {stderr[:300]}"
         )
 
 
@@ -116,7 +122,10 @@ def _read_log(
     pretty = f"{_RECORD_SEP}%H{_FIELD_SEP}%an{_FIELD_SEP}%ae{_FIELD_SEP}%cd"
     command = (
         f"git -C {shlex.quote(target_path)} log "
-        f"--since={shlex.quote(f'{since_days} days')} --no-merges --max-count={max_commits} "
+        # --no-renames: inexact rename detection compares blob contents, which a blobless
+        # clone fetches over the network per candidate pair; a rename crediting both the
+        # old and new path's areas is also better data for activity mapping.
+        f"--since={shlex.quote(f'{since_days} days')} --no-merges --no-renames --max-count={max_commits} "
         f"--date=iso-strict --pretty=format:{shlex.quote(pretty)} --name-only"
     )
     result = sandbox.execute(command, timeout_seconds=_LOG_TIMEOUT_SECONDS)

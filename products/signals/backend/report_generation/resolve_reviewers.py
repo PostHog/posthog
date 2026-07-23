@@ -182,7 +182,8 @@ def resolve_suggested_reviewers(
     for i, (sha, reason) in enumerate(items):
         author_info = author_results.get(i)
         if author_info:
-            login = author_info.login
+            # Lowercased to match the activity map's keys (and the persisted artefact shape).
+            login = author_info.login.lower()
             weight = total - i
             login_weights[login] += weight
             login_commits.setdefault(login, []).append(
@@ -374,9 +375,12 @@ def _score_candidates(
     """Blend blame weights with area recency; add capped activity-only fallbacks.
 
     Invariants: a freshly-active area contributor always outranks a blame author who is
-    gone from the area (their base starts above the stale floor), and never outranks a
-    blame author still active within the window (the cap sits below the decay floor).
-    With no activity data at all, blame weights pass through unchanged (legacy behavior).
+    gone from the area (their base starts above the stale floor), and never outranks the
+    *top-weighted* blame author while that author is active in the window (the cap sits
+    below the decay floor). Lower-weighted active blame authors can still be outranked by
+    a very active area owner — deliberate: weight-1 blame is one marginal commit, not a
+    stronger claim than sustained area ownership. With no activity data at all, blame
+    weights pass through unchanged (legacy behavior).
     """
     if not activity_by_login:
         return {login: float(weight) for login, weight in login_weights.items()}
