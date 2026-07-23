@@ -123,6 +123,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.review_hog",
     "products.signals",
+    "products.skills",
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
