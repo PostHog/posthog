@@ -1,0 +1,26 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Feature Flags Secure API key has been exposed{% endblock %}
+{% block section %}
+<p>
+    The <strong>{{ project_name }}</strong> project's Feature Flags Secure API key <strong>{{ mask_value }}</strong> was publicly exposed.
+    {% if more_info %}{{ more_info }}{% endif %}
+</p>
+<p>
+    To protect your project, we recommend taking the following steps:
+</p>
+<ol>
+    <li><strong>Rotate the key</strong> to generate a new Feature Flags Secure API key</li>
+    <li><strong>Update your systems</strong> to use the new key</li>
+    <li><strong>Delete the backup key</strong> once all systems are updated</li>
+</ol>
+<div class="mb mt text-center">
+    <a class="button" href="{{ url }}">Go to project settings</a>
+</div>
+
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ url }}">{{ url }}</a>
+    </p>
+</div>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}

@@ -204,6 +204,13 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
+  API-native record of run context that isn't worth a dedicated column. Known keys today:
+  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
+  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
+  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
+  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
+  as ad-hoc columns.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit

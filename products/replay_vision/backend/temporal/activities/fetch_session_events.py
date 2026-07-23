@@ -129,22 +129,22 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []
-    for page in itertools.count():
-        page_columns, page_rows, has_more = events_obj.get_events(
+    for page_number in itertools.count():
+        page = events_obj.get_events(
             session_id=session_id,
             team=team,
             metadata=metadata,
             events_to_ignore=_EVENTS_TO_IGNORE,
             extra_fields=_EXTRA_FIELDS,
             limit=_EVENTS_PER_PAGE,
-            page=page,
+            page=page_number,
         )
-        if page_columns and columns is None:
-            columns = list(page_columns)
-        if not page_rows:
+        if page.columns and columns is None:
+            columns = list(page.columns)
+        if not page.rows:
             break
-        all_rows.extend(list(row) for row in page_rows)
-        if not has_more:
+        all_rows.extend(list(row) for row in page.rows)
+        if not page.has_more:
             break
 
     if columns is None or not all_rows:
