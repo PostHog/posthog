@@ -16,7 +16,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse_24h_window"
 
