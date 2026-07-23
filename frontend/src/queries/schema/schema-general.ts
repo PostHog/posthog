@@ -4321,8 +4321,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
-    /** Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row */
-    pinnedByDefault?: boolean
 }
 
 export interface FileSystemViewLogEntry {
