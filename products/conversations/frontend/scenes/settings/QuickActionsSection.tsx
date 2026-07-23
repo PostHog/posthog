@@ -13,7 +13,7 @@ import { workflowsLogic } from 'products/workflows/frontend/Workflows/workflowsL
 
 import { SupportEditor, serializeToMarkdown } from '../../components/Editor'
 import { TEMPLATE_VARIABLES } from '../../components/Editor/templateVariables'
-import { quickActionToDoc } from '../../components/QuickActions/applyQuickAction'
+import { quickActionHasReply, quickActionToDoc } from '../../components/QuickActions/applyQuickAction'
 import { quickActionsLogic } from '../../components/QuickActions/quickActionsLogic'
 import { TicketTags } from '../../components/TicketTags'
 import type { QuickActionApi } from '../../generated/api.schemas'
@@ -23,7 +23,7 @@ import { priorityOptions, statusOptionsWithoutAll } from '../../types'
 /** Short human summary of what a quick action does, for the table. */
 function summary(quickAction: QuickActionApi): string {
     const parts: string[] = []
-    if (quickAction.content || (quickAction.rich_content && Object.keys(quickAction.rich_content).length)) {
+    if (quickActionHasReply(quickAction)) {
         parts.push('reply')
     }
     if (quickAction.actions?.status) {
