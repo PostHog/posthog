@@ -10,7 +10,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade import api as tasks_facade
 
 
 @pytest.fixture
@@ -353,7 +353,7 @@ async def test_select_repository_requests_reconnect_for_unavailable_owner_integr
         team_id=team.id,
         user_id=owner.id,
         context="Investigate this signal",
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     )
 
     assert result.repository is None
