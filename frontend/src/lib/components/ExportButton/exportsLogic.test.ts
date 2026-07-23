@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
 import { downloadExportedAsset } from './exporter'
-import { exportsLogic, pickPollDelayMs } from './exportsLogic'
+import { EXPORT_STARTED_MESSAGE, exportsLogic, pickPollDelayMs } from './exportsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     // promise() passes the underlying promise straight through so the loader's side effects still run.
@@ -115,15 +115,15 @@ describe('exportsLogic', () => {
             response?: ExportedAssetType
             rejectWith?: Error
             format: ExporterFormat
-            settles: { resolved: string } | { rejected: string }
+            settles: { resolved: string | JSX.Element } | { rejected: string }
             expectsDownload: boolean
             freshIds: number[]
         }[] = [
             {
-                label: 'async export resolves to "Export started" and is tracked as undownloaded',
+                label: 'async export resolves to the "Export started" message and is tracked as undownloaded',
                 response: asset({ id: 11, export_format: ExporterFormat.MP4, has_content: false }),
                 format: ExporterFormat.MP4,
-                settles: { resolved: 'Export started' },
+                settles: { resolved: EXPORT_STARTED_MESSAGE },
                 expectsDownload: false,
                 freshIds: [11],
             },
