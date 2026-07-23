@@ -98,8 +98,9 @@ This branch also carries the scout-run log mirror by Andrew Maguire ([#71094](ht
 The privacy postures are compatible because the scopes differ: scout runs are PostHog-authored agents whose transcripts we already own end to end, so full bodies into the internal project are fine there, while the OTLP path covers customer-driven runs and therefore stays metadata-only.
 Mirroring is fire-and-forget — a mirror failure is logged and never breaks the run's S3 log write.
 
-The mirror additionally has a **direct OTLP leg** for hosts whose stdout no collector tails (added on this branch, on top of #71094): in local dev `append_log` runs in the host Django process, and `otel-collector-config.dev.yaml` only tails docker-compose container stdout, so the mirrored lines never reached local Logs — verified during local testing where `/logs` showed only the OTLP metadata records.
-Setting `TASK_RUN_LOGS_MIRROR_OTLP_URL` + `TASK_RUN_LOGS_MIRROR_OTLP_TOKEN` ships each batch straight to a logs OTLP endpoint (`service.name=task-run-log-mirror`, run uuid as the trace id, same fields as attributes); both stay unset in production, where the collector daemonset delivers pod stdout.
+The mirror additionally has a **direct OTLP leg for local dev** (added on this branch, on top of #71094): `append_log` runs in the host Django process, and `otel-collector-config.dev.yaml` only tails docker-compose container stdout, so the mirrored lines never reached local Logs — verified during local testing where `/logs` showed only the OTLP metadata records.
+In DEBUG each batch is also shipped straight to the logs OTLP endpoint the agent telemetry already uses (`SANDBOX_AGENT_OTEL_LOGS_URL` + `_TOKEN` — no new settings), arriving as `service.name=task-run-log-mirror` with the run uuid as the trace id and the structlog fields as attributes.
+DEBUG-only by design: in production those settings point at the customer-facing telemetry project, and the collector daemonset already delivers pod stdout to the internal project — reusing them there would double-deliver scout bodies into the wrong project.
 
 ## Changes in PostHog/code (companion branch)
 
@@ -130,7 +131,7 @@ Incorporated from [#71094](https://github.com/PostHog/posthog/pull/71094) (scout
 
 - `products/tasks/backend/logic/services/run_log_mirror.py` (new): translates each ACP JSONL entry into a `task_run_log` structlog stdout line — readable bodies for agent messages / tool calls / sandbox output / turn ends (8k char cap, entry-count cap per call), severity mapping (`_posthog/error` → error, console level passthrough), run-identity fields (`task_run_id`/`task_id`/`team_id`/`origin_product`/`acp_method`) as log attributes, and `request_id` = run uuid as the trace id.
 - `products/tasks/backend/models.py`: `TaskRun.append_log` calls `_mirror_logs_to_posthog_logs` after the S3 write, gated on the origin-product allowlist and wrapped so any failure is logged and never breaks the write.
-- `posthog/settings/temporal.py`: `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS` (default `signals_scout`; empty disables), plus `TASK_RUN_LOGS_MIRROR_OTLP_URL`/`_TOKEN` for the direct dev delivery leg (default unset).
+- `posthog/settings/temporal.py`: `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS` (default `signals_scout`; empty disables). The dev delivery leg reuses `SANDBOX_AGENT_OTEL_LOGS_URL`/`_TOKEN` under DEBUG — no mirror-specific OTLP settings.
 - `products/tasks/backend/tests/test_run_log_mirror.py` (new): severity/body mapping matrix, run-identity fields, truncation/batch caps, and `append_log` gating (allowlist, disabled, mirror-failure isolation).
 - `docs/internal/sandboxes-setup-guide.md`: mirroring section.
 
@@ -171,4 +172,4 @@ Incorporated from [#71094](https://github.com/PostHog/posthog/pull/71094) (scout
 | Django settings        | `SANDBOX_AGENT_OTEL_TRACES_URL`                                            | Full OTLP traces ingest URL; unset = spans off, logs unaffected        |
 | Sandbox env (injected) | `POSTHOG_AGENT_OTEL_LOGS_URL` / `_TOKEN` / `POSTHOG_AGENT_OTEL_TRACES_URL` | Read by `agent-server` (`bin.ts`); reserved keys, not user-overridable |
 | Django settings        | `TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS`                                     | Task origins whose run logs mirror to the internal project's Logs (default `signals_scout`; empty disables) |
-| Django settings        | `TASK_RUN_LOGS_MIRROR_OTLP_URL` / `_TOKEN`                                 | Direct OTLP delivery for the mirror on hosts no collector tails (local dev); unset in production |
+| Django settings (DEBUG) | `SANDBOX_AGENT_OTEL_LOGS_URL` / `_TOKEN` (reused)                          | Also serve as the mirror's direct dev delivery leg; ignored by the mirror in production |
