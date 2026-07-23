@@ -1467,8 +1467,27 @@ export const ScoutOriginEnumApi = {
     Custom: 'custom',
 } as const
 
+export interface SignalScoutSlackDestinationApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+}
+
+export interface SignalScoutOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+}
+
 /**
- * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+ * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
  * when it discovers a scout skill; this serializer lets agents tune the row.
@@ -1496,6 +1515,8 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly run_cron_schedule: string | null
+    /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
+    readonly output_destinations: SignalScoutOutputDestinationsApi
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -1526,6 +1547,8 @@ export interface SignalScoutConfigCreateApi {
      * @maximum 43200
      */
     run_interval_minutes?: number
+    /** Destinations that receive each finding or report this scout emits. Empty by default. */
+    output_destinations?: SignalScoutOutputDestinationsApi
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1554,6 +1577,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @nullable
      */
     run_cron_schedule?: string | null
+    /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
+    output_destinations?: SignalScoutOutputDestinationsApi
 }
 
 /**
@@ -1630,6 +1655,54 @@ export interface ScoutMetadataApi {
     banner_message: string | null
     /** The team's enforced scout run caps and current usage. */
     limits: ScoutLimitsApi
+}
+
+/**
+ * `SignalScoutNote` projection used by `notes-list` and `notes-create`.
+ */
+export interface ScoutNoteApi {
+    /** Note UUID. Pass to `scout-notes-delete` to retire the note. */
+    id: string
+    /** Target scout skill (`signals-scout-*`), or blank for a general note addressed to every scout on the fleet. */
+    skill_name: string
+    /** The note's prose, read verbatim by scout runs. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 expiry, or null for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Display name of the user who left the note, or null when unavailable.
+     * @nullable
+     */
+    created_by_name: string | null
+}
+
+/**
+ * Request body for `notes-create`.
+ */
+export interface ScoutNoteCreateRequestApi {
+    /**
+     * The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim.
+     * @maxLength 10000
+     */
+    content: string
+    /**
+     * Address the note to one scout by its skill name (`signals-scout-*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.
+     * @maxLength 200
+     */
+    skill_name?: string
+    /**
+     * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted.
+     * @nullable
+     */
+    expires_at?: string | null
 }
 
 /**
@@ -2252,6 +2325,25 @@ export interface ProjectProfileApi {
 export type SignalScoutRunSummaryApiMetadata = { [key: string]: string }
 
 /**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
+
+export const RunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
  *
  * Status and timestamps flow from the linked `tasks.TaskRun`.
@@ -2263,8 +2355,15 @@ export interface SignalScoutRunSummaryApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
@@ -2330,8 +2429,15 @@ export interface SignalScoutRunDetailApi {
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number
-    /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
-    status: string
+    /** Status from the linked TaskRun.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    status: RunStatusEnumApi
     /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
     created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
@@ -3138,6 +3244,41 @@ export type SignalsScoutMembersListParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type SignalsScoutNotesListParams = {
+    /**
+     * Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.
+     * @minimum 0
+     */
+    content_max_chars?: number
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.
+     */
+    date_to?: string
+    /**
+     * Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.
+     */
+    include_expired?: boolean
+    /**
+     * Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.
+     */
+    include_general?: boolean
+    /**
+     * Max rows to return (default 20, hard cap 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.
+     * @minLength 1
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutProjectProfileGetParams = {

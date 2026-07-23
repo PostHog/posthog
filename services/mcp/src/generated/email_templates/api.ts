@@ -12,7 +12,7 @@ export const MessagingTemplatesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -25,7 +25,7 @@ export const MessagingTemplatesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -44,10 +44,10 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .object({
             templating: zod
                 .enum(['liquid'])
-                .describe('* `liquid` - liquid')
+                .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesCreateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid"
+                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -74,7 +74,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                     .looseObject({})
                                     .optional()
                                     .describe(
-                                        'Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.'
+                                        'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
                                 body: zod.object({
@@ -123,7 +123,7 @@ export const MessagingTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -132,7 +132,7 @@ export const MessagingTemplatesPartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -152,10 +152,10 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             templating: zod
                 .enum(['liquid'])
-                .describe('* `liquid` - liquid')
+                .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid"
+                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -182,7 +182,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     .looseObject({})
                                     .optional()
                                     .describe(
-                                        'Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.'
+                                        'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
                                 body: zod.object({
@@ -231,7 +231,7 @@ export const MessagingTemplatesDesignPartialUpdateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -252,16 +252,16 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
                         'remove_row',
                     ])
                     .describe(
-                        '* `update_content` - update_content\n* `update_column` - update_column\n* `update_row` - update_row\n* `update_body` - update_body\n* `add_content` - add_content\n* `remove_content` - remove_content\n* `move_content` - move_content\n* `add_row` - add_row\n* `remove_row` - remove_row'
+                        '\* `update_content` - update_content\n\* `update_column` - update_column\n\* `update_row` - update_row\n\* `update_body` - update_body\n\* `add_content` - add_content\n\* `remove_content` - remove_content\n\* `move_content` - move_content\n\* `add_row` - add_row\n\* `remove_row` - remove_row'
                     )
                     .describe(
-                        "Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.\n\n* `update_content` - update_content\n* `update_column` - update_column\n* `update_row` - update_row\n* `update_body` - update_body\n* `add_content` - add_content\n* `remove_content` - remove_content\n* `move_content` - move_content\n* `add_row` - add_row\n* `remove_row` - remove_row"
+                        "Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row \/ update_column {id, patch} and update_body {patch}: same deep-merge for row\/column\/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} \/ move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} \/ remove_row {id}: add or delete a row.\n\n\* `update_content` - update_content\n\* `update_column` - update_column\n\* `update_row` - update_row\n\* `update_body` - update_body\n\* `add_content` - add_content\n\* `remove_content` - remove_content\n\* `move_content` - move_content\n\* `add_row` - add_row\n\* `remove_row` - remove_row"
                     ),
                 id: zod
                     .string()
                     .optional()
                     .describe(
-                        'Target node id. Required for update_content/column/row, remove_content, remove_row, move_content.'
+                        'Target node id. Required for update_content\/column\/row, remove_content, remove_row, move_content.'
                     ),
                 column_id: zod
                     .string()
@@ -271,7 +271,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
                     .unknown()
                     .optional()
                     .describe(
-                        "update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+                        "update_\* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi<\/p>'}} changes only the block's text."
                     ),
                 content: zod
                     .unknown()
@@ -288,7 +288,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
                 index: zod
                     .number()
                     .optional()
-                    .describe('add_*/move_content only. 0-based insert position; omit to append to the end.'),
+                    .describe('add_\*\/move_content only. 0-based insert position; omit to append to the end.'),
             })
         )
         .optional()

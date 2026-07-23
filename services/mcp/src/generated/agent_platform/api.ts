@@ -27,7 +27,7 @@ export const AgentApplicationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -55,7 +55,7 @@ export const AgentApplicationsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -111,7 +111,7 @@ export const AgentApplicationsRevisionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -152,7 +152,7 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -164,7 +164,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:\/\/my-agent\/`. Optional — leave blank and the server fills `fs:\/\/<application-slug>\/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -202,7 +202,7 @@ export const AgentApplicationsRevisionsRetrieveParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -239,7 +239,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -249,7 +249,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs:\/\/my-agent\/`. Optional — leave blank and the server fills `fs:\/\/<application-slug>\/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -287,7 +287,7 @@ export const AgentApplicationsRevisionsAgentMdUpdateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -295,7 +295,7 @@ export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
     .object({
         content: zod.string(),
     })
-    .describe('Body shape for PUT /revisions/<id>/agent_md/.')
+    .describe('Body shape for PUT \/revisions\/<id>\/agent_md\/.')
 
 /**
  * Mark a revision archived. If it was the live one, clear the
@@ -308,7 +308,7 @@ export const AgentApplicationsRevisionsArchiveCreateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -321,7 +321,7 @@ export const AgentApplicationsRevisionsBundleRetrieveParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -336,7 +336,7 @@ export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -351,13 +351,13 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
                         args_schema: zod.record(zod.string(), zod.unknown()),
                         source: zod.string(),
                     })
-                    .describe('Body shape for PUT /revisions/<id>/tools/<tool_id>/.')
+                    .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
             )
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
+        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
     )
 
 /**
@@ -369,7 +369,7 @@ export const AgentApplicationsRevisionsCloneFromCreateParams = /* @__PURE__ */ z
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -378,7 +378,7 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
         source_revision_id: zod.string(),
     })
     .describe(
-        'Body shape for POST /revisions/<id>/clone_from/ — copy every file\nfrom `source_revision_id` into this (draft) revision.'
+        'Body shape for POST \/revisions\/<id>\/clone_from\/ — copy every file\nfrom `source_revision_id` into this (draft) revision.'
     )
 
 /**
@@ -397,7 +397,7 @@ export const AgentApplicationsRevisionsCronFireCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -424,7 +424,7 @@ export const AgentRevisionsEnvKeysListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -448,7 +448,7 @@ export const AgentRevisionsEnvKeysGetParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -472,7 +472,7 @@ export const AgentRevisionsEnvKeysClearParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -496,7 +496,7 @@ export const AgentApplicationsRevisionsFreezeCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -509,7 +509,7 @@ export const AgentApplicationsRevisionsManifestRetrieveParams = /* @__PURE__ */ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -522,7 +522,7 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -537,7 +537,7 @@ export const AgentApplicationsRevisionsSkillRefsUpdateParams = /* @__PURE__ */ z
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -546,7 +546,7 @@ export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTempl
 export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
 
 export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
-    '^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$'
+    '^[a-z0-9](?:[a-z0-9_-]\*[a-z0-9])?$'
 )
 
 export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
@@ -566,7 +566,7 @@ export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
                             .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
                             .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
                             .describe(
-                                'Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
+                                'Folder the resolved skill is materialized under in the bundle (`skills\/<alias>\/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
                             ),
                         version: zod
                             .number()
@@ -582,7 +582,7 @@ export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
             )
             .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
     })
-    .describe("Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.")
+    .describe("Body for PUT \/revisions\/<id>\/skill_refs\/ — full-replace the draft's references.")
 
 /**
  * Build a Slack app manifest for this revision's slack trigger.
@@ -599,7 +599,7 @@ export const AgentApplicationsRevisionsSlackManifestParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -636,7 +636,7 @@ export const AgentApplicationsRevisionsSpecUpdateParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -645,7 +645,7 @@ export const AgentApplicationsRevisionsSpecUpdateBody = /* @__PURE__ */ zod
         spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        "Body shape for PUT /revisions/<id>/spec/. The body's `spec` object\nis the author-facing slice (skills/tools are server-derived at freeze)."
+        "Body shape for PUT \/revisions\/<id>\/spec\/. The body's `spec` object\nis the author-facing slice (skills\/tools are server-derived at freeze)."
     )
 
 /**
@@ -663,7 +663,7 @@ export const AgentApplicationsRevisionsSystemPromptParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -694,7 +694,7 @@ export const AgentApplicationsRevisionsSystemPromptParams = /* @__PURE__ */ zod.
  *         GET    .../revisions/<id>/bundle/          bulk pull all files
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
-export const agentApplicationsRevisionsToolsUpdatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+export const agentApplicationsRevisionsToolsUpdatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]\*$')
 
 export const AgentApplicationsRevisionsToolsUpdateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -702,7 +702,7 @@ export const AgentApplicationsRevisionsToolsUpdateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     tool_id: zod.string().regex(agentApplicationsRevisionsToolsUpdatePathToolIdRegExp),
 })
@@ -713,7 +713,7 @@ export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
         args_schema: zod.record(zod.string(), zod.unknown()),
         source: zod.string(),
     })
-    .describe('Body shape for PUT /revisions/<id>/tools/<tool_id>/.')
+    .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
@@ -742,7 +742,7 @@ export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
  *         GET    .../revisions/<id>/bundle/          bulk pull all files
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
-export const agentApplicationsRevisionsToolsDestroyPathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+export const agentApplicationsRevisionsToolsDestroyPathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]\*$')
 
 export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -750,7 +750,7 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     tool_id: zod.string().regex(agentApplicationsRevisionsToolsDestroyPathToolIdRegExp),
 })
@@ -763,7 +763,7 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
  * with the caller-supplied args and a stubbed ctx. No real secrets
  * leave Django — `mock_secrets` is a `{name → placeholder}` map.
  */
-export const agentApplicationsRevisionsToolsDryRunCreatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+export const agentApplicationsRevisionsToolsDryRunCreatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]\*$')
 
 export const AgentApplicationsRevisionsToolsDryRunCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -771,7 +771,7 @@ export const AgentApplicationsRevisionsToolsDryRunCreateParams = /* @__PURE__ */
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     tool_id: zod.string().regex(agentApplicationsRevisionsToolsDryRunCreatePathToolIdRegExp),
 })
@@ -791,7 +791,7 @@ export const AgentApplicationsRevisionsToolsDryRunCreateBody = /* @__PURE__ */ z
             ),
     })
     .describe(
-        "Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.\n\nExecutes the persisted compiled.js once in the janitor's single-shot\nsandbox with caller-supplied args + a stubbed ctx. No real secrets\nleave Django — `mock_secrets` is a `{name → opaque nonce}` map the\nsandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns\nsomething deterministic to the author."
+        "Body shape for POST \/revisions\/<id>\/tools\/<tool_id>\/dry_run\/.\n\nExecutes the persisted compiled.js once in the janitor's single-shot\nsandbox with caller-supplied args + a stubbed ctx. No real secrets\nleave Django — `mock_secrets` is a `{name → opaque nonce}` map the\nsandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns\nsomething deterministic to the author."
     )
 
 /**
@@ -807,7 +807,7 @@ export const AgentApplicationsRevisionsValidateCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -821,7 +821,7 @@ export const AgentApplicationsRevisionsNewDraftCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -831,7 +831,7 @@ export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
         source_revision_id: zod.string(),
     })
     .describe(
-        'Body shape for POST /revisions/clone_from/ — atomically create a new\ndraft revision under `application_id` and clone its initial bundle from\n`source_revision_id`. Convenience for the "edit live" flow so the MCP\ndoesn\'t have to do create-then-clone-from in two calls.'
+        'Body shape for POST \/revisions\/clone_from\/ — atomically create a new\ndraft revision under `application_id` and clone its initial bundle from\n`source_revision_id`. Convenience for the \"edit live\" flow so the MCP\ndoesn\'t have to do create-then-clone-from in two calls.'
     )
 
 /**
@@ -854,7 +854,7 @@ export const AgentApplicationsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -878,7 +878,7 @@ export const AgentApplicationsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -922,7 +922,7 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -939,7 +939,7 @@ export const AgentApplicationsInvokeParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -950,7 +950,7 @@ export const AgentApplicationsInvokeBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.'
+                'Optional idempotency \/ threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.'
             ),
     })
     .describe("Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.")
@@ -967,7 +967,7 @@ export const AgentApplicationsListenParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1003,7 +1003,7 @@ export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     rest: zod.string().describe('Ingress sub-path under the agent slug. One of: `run`, `send`, `cancel`, `listen`.'),
 })
@@ -1019,7 +1019,7 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` \/ `listen`.'
             ),
         session_id: zod
             .string()
@@ -1029,7 +1029,7 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
+        'Body forwarded verbatim to the agent ingress for a \*preview\* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` \/ `listen` — no body.\n\nDocuments `message` \/ `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
     )
 
 /**
@@ -1048,7 +1048,7 @@ export const AgentApplicationsSendParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1073,7 +1073,7 @@ export const AgentApplicationsSessionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1108,7 +1108,7 @@ export const AgentApplicationsSessionsRetrieveParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     session_id: zod.string().describe('UUID of the session to fetch (must belong to this application).'),
 })
@@ -1133,7 +1133,7 @@ export const AgentApplicationsSessionLogsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     session_id: zod.string().describe('UUID of the session whose logs to fetch.'),
 })
@@ -1171,7 +1171,7 @@ export const AgentApplicationsModelsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1182,7 +1182,7 @@ export const AgentApplicationsSpecSchemaParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1202,6 +1202,6 @@ export const AgentNativeToolsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

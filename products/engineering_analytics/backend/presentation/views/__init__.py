@@ -11,6 +11,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     ENGINEERING_ANALYTICS_TAG,
     EngineeringAnalyticsViewSetBase,
 )
+from products.engineering_analytics.backend.presentation.views.ci_signals import CISignalsConfigMixin
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
 from products.engineering_analytics.backend.presentation.views.suite_health import SuiteHealthActionsMixin
@@ -21,6 +22,7 @@ from products.engineering_analytics.backend.presentation.views.workflows import 
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(
     SourcesMixin,
+    CISignalsConfigMixin,
     PullRequestActionsMixin,
     WorkflowActionsMixin,
     SuiteHealthActionsMixin,
@@ -33,9 +35,13 @@ class EngineeringAnalyticsViewSet(
     # actions; TestScopeEnrollment asserts the composition stays in lockstep with the @actions.
     scope_object_read_actions = [
         *SourcesMixin.READ_ACTIONS,
+        *CISignalsConfigMixin.READ_ACTIONS,
         *PullRequestActionsMixin.READ_ACTIONS,
         *WorkflowActionsMixin.READ_ACTIONS,
         *SuiteHealthActionsMixin.READ_ACTIONS,
         *TeamActionsMixin.READ_ACTIONS,
     ]
-    scope_object_write_actions: list[str] = [*SuiteHealthActionsMixin.WRITE_ACTIONS]
+    scope_object_write_actions: list[str] = [
+        *CISignalsConfigMixin.WRITE_ACTIONS,
+        *SuiteHealthActionsMixin.WRITE_ACTIONS,
+    ]

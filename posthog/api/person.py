@@ -26,14 +26,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import (
-    ActorsQuery,
-    HogQLQueryModifiers,
-    InlineCohortCalculation,
-    InsightActorsQuery,
-    LifecycleQuery,
-    ProductKey,
-)
+from posthog.schema import ActorsQuery, ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -41,19 +34,17 @@ from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url
+from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
@@ -70,7 +61,7 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import get_groups, get_serialized_people
+from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -1247,67 +1238,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
         return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
-    @action(methods=["GET"], detail=False)
-    def lifecycle(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-
-        target_date = request.GET.get("target_date", None)
-        if target_date is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include specified date",
-                },
-                status=400,
-            )
-        lifecycle_type = request.GET.get("lifecycle_type", None)
-        if lifecycle_type is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include lifecycle type",
-                },
-                status=400,
-            )
-
-        from posthog.hogql_queries.actors_query_runner import (  # noqa: PLC0415 — breaks import cycle (actors_query_runner imports from this module)
-            ActorsQueryRunner,
-        )
-
-        filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        lifecycle_query = cast(LifecycleQuery, filter_to_query({**filter.to_dict(), "insight": "LIFECYCLE"}))
-        source = InsightActorsQuery(source=lifecycle_query, day=target_date, status=lifecycle_type)
-
-        # Select actor ids only and hydrate them ourselves to keep the legacy response shape.
-        actors_query = ActorsQuery(source=source, select=["actor_id"], limit=filter.limit, offset=filter.offset)
-        # Expand cohorts inline so cohort filters work without a precomputed cohort. The modifier
-        # goes on the inner query because ActorsQueryRunner inherits modifiers from its source.
-        source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
-            update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
-        )
-        with personhog_caller_tag("persons/lifecycle"):
-            results = list(ActorsQueryRunner(team=self.team, query=actors_query).calculate().results)
-            actor_ids = [str(row[0]) for row in results]
-
-            people: list[Any]
-            if lifecycle_query.aggregation_group_type_index is not None:
-                _, people = get_groups(self.team.pk, lifecycle_query.aggregation_group_type_index, actor_ids, None)
-            else:
-                people = get_serialized_people(self.team, actor_ids, None)
-
-        next_url = format_paginated_url(request, filter.offset, filter.limit) if len(results) >= filter.limit else None
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all recordings associated with this person.",
@@ -1576,51 +1506,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
                 status=500,
             )
-
-
-def prepare_actor_query_filter(filter: LifecycleFilter) -> LifecycleFilter:
-    if not filter.limit:
-        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
-
-    search = getattr(filter, "search", None)
-    if not search:
-        return filter
-
-    group_properties_filter_group: list[dict[str, object]] = []
-    if hasattr(filter, "aggregation_group_type_index"):
-        group_properties_filter_group += [
-            {
-                "key": "name",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-            {
-                "key": "slug",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-        ]
-
-    new_group = {
-        "type": "OR",
-        "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-            *group_properties_filter_group,
-        ],
-    }
-    prop_group = (
-        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
-        if filter.property_groups.to_dict()
-        else new_group
-    )
-
-    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):
