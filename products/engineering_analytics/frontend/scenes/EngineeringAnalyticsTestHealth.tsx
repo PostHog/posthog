@@ -347,7 +347,7 @@ const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; typ
         label: 'Confirmed flake',
         type: 'warning',
         tooltip:
-            'A retry recovered this test in the same run, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
+            'One commit both failed and passed this test, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
     },
     suspected_regression: {
         label: 'Suspected regression',
@@ -407,8 +407,8 @@ function ActiveTestHealthQueue(): JSX.Element {
                     {/* An xfail row has no recovery question to answer: it is masked, not racing. */}
                     {row.classification !== 'quarantined' && (
                         <span className="text-secondary">
-                            {row.rerunPassedRunCount > 0
-                                ? `A retry recovered it in ${pluralize(row.rerunPassedRunCount, 'run')}`
+                            {row.sameCommitRecoveryRunCount > 0
+                                ? `Recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
                                 : 'No recovery recorded'}
                         </span>
                     )}

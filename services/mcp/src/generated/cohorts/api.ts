@@ -12,7 +12,7 @@ export const CohortsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -21,7 +21,7 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.'
+            'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id\/name\/count.'
         ),
     hide_behavioral_cohorts: zod
         .boolean()
@@ -43,7 +43,7 @@ export const CohortsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -158,7 +158,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                         ),
                     })
                     .describe(
-                        'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
+                        'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
             }),
             zod.null(),
@@ -171,14 +171,14 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['static', 'person_property', 'behavioral', 'realtime', 'analytical'])
                 .describe(
-                    '* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
+                    '\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
                 ),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
+            'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
     _create_static_person_ids: zod.array(zod.string()).default(cohortsCreateBodyCreateStaticPersonIdsDefault),
@@ -189,7 +189,7 @@ export const CohortsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -198,7 +198,7 @@ export const CohortsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -319,7 +319,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         ),
                     })
                     .describe(
-                        'AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
+                        'AND\/OR group containing cohort filters. Named to avoid collision with analytics Group model.'
                     ),
             }),
             zod.null(),
@@ -332,14 +332,14 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['static', 'person_property', 'behavioral', 'realtime', 'analytical'])
                 .describe(
-                    '* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
+                    '\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
                 ),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Type of cohort based on filter complexity\n\n* `static` - static\n* `person_property` - person_property\n* `behavioral` - behavioral\n* `realtime` - realtime\n* `analytical` - analytical'
+            'Type of cohort based on filter complexity\n\n\* `static` - static\n\* `person_property` - person_property\n\* `behavioral` - behavioral\n\* `realtime` - realtime\n\* `analytical` - analytical'
         ),
     _create_in_folder: zod.string().optional(),
     _create_static_person_ids: zod.array(zod.string()).optional(),
@@ -350,7 +350,7 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -363,7 +363,7 @@ export const CohortsRemovePersonFromStaticCohortPartialUpdateParams = /* @__PURE
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

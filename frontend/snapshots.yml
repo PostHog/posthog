@@ -6666,10 +6666,6 @@ snapshots:
         hash: v1.k794b7964.543e6b89c21b4a0de9fca38a2a7b585c4e467382f5ce5772d50424b866ec9f31.ya9rrl_NUzwRgesGT5CjUr6YpnBH7zRoH2U6TQnyZ5U
     scenes-app-persons-modal--with-results--light:
         hash: v1.k794b7964.892edabd980ca7b6b06f80ed8879ef4b9100ae8ff6a6c03fc77d9a9574a4f553.YVtPZaAGoU1C4_4htQ_YK_xO1AxKBVtTuEEYW-n0eUM
-    scenes-app-posthog-ai--changelog-only--dark:
-        hash: v1.k794b7964.6f71afdcf8b816921b315ba6964354fb3c2c4813cc3da31d95496eda50c2cbce.RLpLJJq9NWsVV904CDaZ4mkmdMJJabCxExOsOt_1Elg
-    scenes-app-posthog-ai--changelog-only--light:
-        hash: v1.k794b7964.d7f981ceb7b248894070e0ce8e34d81b9c05b60232f6dac1cd6d306556bfd5fc.Yuk8YxbEj9aSEcU4DGAhmk1yQf6ri_YGGvT1tZ_a4FA
     scenes-app-posthog-ai--chat-history--dark:
         hash: v1.k794b7964.eee0d73adae1a95b8020e415795b22d598502020aca651bbf0e9d6efc874570d.bRIMlhqBUQzGifiT0EX3if9HvBrvwa0aLAzSQMEAu-w
     scenes-app-posthog-ai--chat-history--light:
@@ -6686,14 +6682,6 @@ snapshots:
         hash: v1.k794b7964.db1c384476d42e14a5c4d62fde07d310981ba20ca223778432583163a4ca808e.snfaPwZJ2bnCdiVBleY0OssExxUlpb-M2qSjsehdoNA
     scenes-app-posthog-ai--chat-with-ui-context--light:
         hash: v1.k794b7964.7da5b403f49dc509926f2529168284df4dc7d7c842aa4bf08ddbcea4fa15ea5e.26kMq0Dv1hT1YkUwJPYO0KbgKxp8p1m-ONUbE0oVX-M
-    scenes-app-posthog-ai--dangerous-operation-pending-approval--dark:
-        hash: v1.k794b7964.2141940ba91659177f2736b3fd6b35c0313e81485bc56250b018175614038989.fDc8I7nf92HM5ODUXcO-AQL9QpJCkBn3n4-_okXNOFA
-    scenes-app-posthog-ai--dangerous-operation-pending-approval--light:
-        hash: v1.k794b7964.d9d6a9a720e1c07992988d8fc619ae630ee6cb35d8f53404edeccb1b959f10a7.r-SGUmyhqR7dvP70seGok3DqlNtrxare66bKUKTCLEk
-    scenes-app-posthog-ai--dangerous-operation-pending-approval-long-content--dark:
-        hash: v1.k794b7964.ec0e9ddc79e7ceae2cade567957518e5727d584616ad842e4eb81f4f2e107e92.kCvfh-njkZZDWpKZk_erowJbwTvcnJDEBGhqbrFOSv4
-    scenes-app-posthog-ai--dangerous-operation-pending-approval-long-content--light:
-        hash: v1.k794b7964.450300909ba556aab8c09a6b251295866468feed23160ee4fcf9061279d03b06.VNhD8dc1UbdIxcIhlVUPatKHWf08Xcn2GekzGduCwKM
     scenes-app-posthog-ai--empty-thread-loading--dark:
         hash: v1.k794b7964.4f058f5fc0873361bbf11633bdd48a8d2cb97d1c3a0f47f6002f354e81900122.0ZzEY05ZJ05P_S6-JT742BBmXq11N6zmQnPCfX-No5I
     scenes-app-posthog-ai--empty-thread-loading--light:
@@ -6702,62 +6690,10 @@ snapshots:
         hash: v1.k794b7964.075ec56307f12f7d72b40d7d5cd3b7c9731ee2d2264fb93123a5dd85a51b8189.dqB1qogZZbp34xVDHeBHJSNh-E4dwqCYscvkt0nq-FQ
     scenes-app-posthog-ai--generation-failure-thread--light:
         hash: v1.k794b7964.e734d9625bcb1a5c70efd96036ac25a0791bcc53a5f082aff2f9d0d3445f76e3.DXKQyMMq_l-MJjyU3PcfUf00nLa01virt2w3fbhOTIc
-    scenes-app-posthog-ai--multi-visualization-in-thread--dark:
-        hash: v1.k794b7964.b54d9441533bfac516cad724dc590c86140d142d6885d6b320602fbe6bf9c339.B5rDa5ZX7FtS3XFByF2Zjsi8P3Ndu7sGouAz7U7uMHc
-    scenes-app-posthog-ai--multi-visualization-in-thread--light:
-        hash: v1.k794b7964.daa016cc2ddbef2112ae102357d99c004e035ec2549d1d99ad84675807cc8014.rYnKrAHUv94je2Ire7_QHkjyMOx7U9skPBNh9o6dcw4
-    scenes-app-posthog-ai--notebook-artifact-markdown-only--dark:
-        hash: v1.k794b7964.cba03de7f224cf1973ba89deb11c33cf700865a266e5155021180e38ead61231.dPHqjpk6afTYPuPA91VuuElr5YcsqWzqi9yfPp8s_u0
-    scenes-app-posthog-ai--notebook-artifact-markdown-only--light:
-        hash: v1.k794b7964.a5f0b6c113ecf128b46d5313406291206f15a412a48fc43d9ede571fe16b5ed9.FR46ZLzo_9wzcRTsrux6_VtOgv4uxDvbThvo5ZfbYQ4
-    scenes-app-posthog-ai--notebook-artifact-mixed-content--dark:
-        hash: v1.k794b7964.d1d57b096e2e623bbe768694165d938ccfdf1fdaf46b0818d7ff443bb0e7485a.IfcXIz9U2GbElWuHjLeiA1cHM_JrQHj0KsESBxQgowU
-    scenes-app-posthog-ai--notebook-artifact-mixed-content--light:
-        hash: v1.k794b7964.3b26984cd77946381385b600e0e445bcba9dbc61ce9e6641c57b7385db791490.GdDns2xEPc0c0HQ9my6bef0prB9eQaqDYGZpS7yjY-U
-    scenes-app-posthog-ai--notebook-artifact-with-loading-and-errors--dark:
-        hash: v1.k794b7964.2ba953308e9348054f0bf96b7fa796d13b27333520f4e736fdc1aa0ad17b8c05.HWpTdJbSospoPHeoj0XRWTcAk8Pxd1YRiO60cVVlYtw
-    scenes-app-posthog-ai--notebook-artifact-with-loading-and-errors--light:
-        hash: v1.k794b7964.fdfe54ceaa2a3a86cbe976d692ba9b4d28290ae906e3a5d0d4cfae5f9b82762f.dfWR-pfLSOtBvqUxT8nn9Jnr3wAsSL6eW4MDy9VJqRg
-    scenes-app-posthog-ai--notebook-artifact-with-visualizations--dark:
-        hash: v1.k794b7964.02bf2487017eee1e383d9eca2159af0578065a5045b991ddb85505b2a50b9241.YVMOw0fFn9ou__POpuoLKVQDFtQpvCeKjdN9XQ4squw
-    scenes-app-posthog-ai--notebook-artifact-with-visualizations--light:
-        hash: v1.k794b7964.e48853a80e01c386baab1a0067fc238cb3beb0da904df1dbd105d6d6d11ae510.y176fLzd3JAeiGbmZA-DQw9jOSMN6oAktKi33NUhSRI
-    scenes-app-posthog-ai--planning-component--dark:
-        hash: v1.k794b7964.fb2adbd0cb4ef7a07faebb6db9ccb737ba2a6b3f9a279d616709c13cc3cc51eb.Y5VuMQRAStzPqFrs3XIrt201-TrXdl5VSvnEnXTIvlk
-    scenes-app-posthog-ai--planning-component--light:
-        hash: v1.k794b7964.1a7c2e93f836c7c06c0001506fefb70a63ee7298d763139a5f6debaaa0958e4d.qhkwBr32nKngSRLiHwICEuqfljt2vtBTCdixsrfGzwU
-    scenes-app-posthog-ai--reasoning-component--dark:
-        hash: v1.k794b7964.8384646aaa0b078f73982fb1a97fe9d4140062ae8b0881fd24e80f01d9e14e94.Dp7qUS-SHGhLZLxlb2wO-Aw6yPWsk-gMeR1XmKKe6XU
-    scenes-app-posthog-ai--reasoning-component--light:
-        hash: v1.k794b7964.dca7da4af36ceebc27cd91f2284cd25cb946bb57519baf051a9f64d2935c4928.hXFXdEFbaCNzuSFSgutKAxDVkaVQi5uOwy8vppppdvw
-    scenes-app-posthog-ai--search-error-tracking-issues-empty--dark:
-        hash: v1.k794b7964.f387f7e970dfc8bc047b38f8a9cad3471516a6d9236d9e448c222598ab30890b.sBgjJifBYOwaxA0Z0TQxamTee7b79r0-YXN_Na5rRUg
-    scenes-app-posthog-ai--search-error-tracking-issues-empty--light:
-        hash: v1.k794b7964.0c3d7feb8bf30aa249a102ba242e0a0617c1cab9fb795f1283bf6fb89383e7da.NTN4zZCxMqe-7uizRpZklNUovmVypaEzWeXAp3j7I5E
-    scenes-app-posthog-ai--search-error-tracking-issues-with-results--dark:
-        hash: v1.k794b7964.ba149cf4ea0acea82f03ade9031e676bfdde78ec8f3b505a984af2002943da79.W7O1Bp_Zu7D3R6OuSR1yuJ8eL0y9rWmWgURQ9KvBFvY
-    scenes-app-posthog-ai--search-error-tracking-issues-with-results--light:
-        hash: v1.k794b7964.0ff6f5db9ea2f16ebd54f1fa91475b7f843e3d3a45939ba0f351f1c42c06256c.WhbeS1iEfsvdY10Vbgu3KsP4OjNR4yR9NEJgavCL0mM
-    scenes-app-posthog-ai--search-session-recordings-empty--dark:
-        hash: v1.k794b7964.968f20ac07facfb73c3b27aadb7ebf656067416075ac3a09c75352b023de8cdc.82IzIDz_nA_w5MC-00X8_bGpWxr7kahf6jml2hvN82Q
-    scenes-app-posthog-ai--search-session-recordings-empty--light:
-        hash: v1.k794b7964.d1a1c1393524197dde68725361c79e196f3956af8dc86281b555eefbb654af60.WTVzTQz-oquO3AN-i8lixN31zqojPuVanF_x1NgQwD4
-    scenes-app-posthog-ai--search-session-recordings-with-results--dark:
-        hash: v1.k794b7964.ca9a67d7eb41ec83b2c6309f28f654e1bab8d8e34aebe28b10aaa05b755322e9.9DCdP7E_pT3jjNNM8eLpR4smUHxbGsqJGkvkGv2EK_0
-    scenes-app-posthog-ai--search-session-recordings-with-results--light:
-        hash: v1.k794b7964.2c92332dc41c99ababe144e6578dc74acd0103ed1492d342102c05e9a08d5b4b.LrRczXAfxv77f6OaxQ2XOpqqPky_oFbewzUIdEcTHCU
     scenes-app-posthog-ai--shared-thread--dark:
         hash: v1.k794b7964.9074189133d246197dee46e92ec82e803cb1522a0e419471886be25b4c877ff7.dpstXH3XWrjmOGP0hxf568CR3zlgOHLBX-Ak27vdE2A
     scenes-app-posthog-ai--shared-thread--light:
         hash: v1.k794b7964.08f4d570bad30aeabec4558d538fb3f87ad127f5ad28c37d60805c6f306615ba.Y9cV3pW4s0aPCq6v1FZ3z13bqJaRbABUQIbnJQDCCXI
-    scenes-app-posthog-ai--task-execution-component--dark:
-        hash: v1.k794b7964.f4c374922f27f4c548e1d68ed9a7912751dc4bb8c848d45f35425bedce6a9636.8r35cgCpALfK9pj_uW0yLqPMTZJdsOz8v0mhKAfNu88
-    scenes-app-posthog-ai--task-execution-component--light:
-        hash: v1.k794b7964.ac224a12a9e5b9841675df00d1ccbf969a3073672a8a254c8a51a703af7253ef.LrUwzNQAaErOJS1Bdt0PgSkP-YQxaZbe36UKE_5Ut40
-    scenes-app-posthog-ai--task-execution-with-failure--dark:
-        hash: v1.k794b7964.525103227de962fa9d3f95ae3322317270e9144aa24ea10061092292e9b8167a.z73l3Q5KFoa2J_XSJkYbuMlfbvMhjm3AWdNBSE5u1OM
-    scenes-app-posthog-ai--task-execution-with-failure--light:
-        hash: v1.k794b7964.78576dffb9b8dd26795cfd400711bc6622a591349b92780906b7a32794f61576.TbttZ70uFJq4_h3nZHGW79ceNqFzxNEYDMQcQgvvXaE
     scenes-app-posthog-ai--thread--dark:
         hash: v1.k794b7964.e8beb6bd9da0bd16dfc3b5b2db1cc3d869f2cd938bea753255d54c6fc0b5a8ed.a3ffEB8_YFnO3mggktU7mxg1tCCrukSty165R7rhG4Y
     scenes-app-posthog-ai--thread--light:
@@ -6786,26 +6722,6 @@ snapshots:
         hash: v1.k794b7964.75871426b5230228dbb66635ca5bd2a3687c8f95e32e37b4c4143e5d15bc522c.WrklAQualDzv_t38nN-5G71qmgZ1_1fCsb21Ql_upxM
     scenes-app-posthog-ai--thread-with-in-progress-conversation--light:
         hash: v1.k794b7964.4f9d88e076e9aa81e8aaac264f0a6fe900efcb0f726a73c5fcdc52a7e6459c88.JiPtjsbZcioinx0lKmJUIV_xtBpjI1oRJuqF8Pi6kFE
-    scenes-app-posthog-ai--thread-with-mixed-field-type-form--dark:
-        hash: v1.k794b7964.3facf0ffbe7b26ac2956bb2e38c6732caff15a642216f5d4ef00a9aaaa2f636b.wK9AAoXclO-a2shp3wfNk9S-F0HAIp81PpvOhyjWZvE
-    scenes-app-posthog-ai--thread-with-mixed-field-type-form--light:
-        hash: v1.k794b7964.4a1b09fe530a856bbd1e5b0a61a45f0b931344f393f066a7c3a76197a464507f.0HLLX3NfmJb_Xe6beEPFDjGD9BbmOvZjcyWaYA1Ubv8
-    scenes-app-posthog-ai--thread-with-multi-field-question--dark:
-        hash: v1.k794b7964.5a0de1aa2345af578dd6bdcc7e8561655b8a5500a8c8379ddd837e954c3f9fe4.aoEsbWHLNx1D6gjtQEQcrbXrpMg8tBQna1ORA6QrlfQ
-    scenes-app-posthog-ai--thread-with-multi-field-question--light:
-        hash: v1.k794b7964.dcde5099a8649602849dd6a19c0256d4cd8cd827ef848b9f6d9f57e66012761e.xI1sMn1eKdqYSs5oUKg66iOOCs4tksF0dNBYAO9r4R4
-    scenes-app-posthog-ai--thread-with-multi-question-form--dark:
-        hash: v1.k794b7964.d2b269239fa87066e28d6323e6a56b58c16eb53872f41c4fc933aec331731d6d.LAzD9XrcWaxd6Ju727ESD0Foen3BqGyJT68LuqNyl5I
-    scenes-app-posthog-ai--thread-with-multi-question-form--light:
-        hash: v1.k794b7964.ef06ab9118e77b5ef7f5dbe8aa9c485d3fc65d708af291e60fb0d5970e5e8a9d.w37IptGOzioR8sTcqExGogArqWYv2Nfo2QE6mUL6ymQ
-    scenes-app-posthog-ai--thread-with-multi-question-form-long-content--dark:
-        hash: v1.k794b7964.a8b4544942d0dedee736fa34213f22087ca8fe967753522172c5edb3805a8d32.wumtQ3MdtZCFnvf3-6KtPlsuddBXOEYivj_tM-Ne81o
-    scenes-app-posthog-ai--thread-with-multi-question-form-long-content--light:
-        hash: v1.k794b7964.4afcbaa8a00bc1478d1fe90f0d47fcd2b02cd8ac19d58834f76ce212c16f1f05.y89EjknVhEuHV9MdJryTnoDKxPn7w0cRLh-voy9YF_4
-    scenes-app-posthog-ai--thread-with-multi-question-form-no-custom-answer--dark:
-        hash: v1.k794b7964.17f258161e2e083cae47538f247e1391b8096deba69d06f96292fabdd1154f18.KjDn9XBSNlY6QlN7yEFtycBTIB9TI8qqpNDDwYLsq_4
-    scenes-app-posthog-ai--thread-with-multi-question-form-no-custom-answer--light:
-        hash: v1.k794b7964.a679b50e9214b8a09abf167b674f965e82b0762ec0aece5b5443bfb33f0c5046.-FEBOX3ADDAPOwTwDoST7RDHNRFXZh7Ovm4Xearcq5s
     scenes-app-posthog-ai--thread-with-multiple-context-objects--dark:
         hash: v1.k794b7964.8acba4d66ac068d8ee60ac972cce3e5d32e547549eef409d78169e23b4c7429a.38TFrWPuNPYIAkmmyb3s0t3rAYCl41D1Hi-o-cj2bhY
     scenes-app-posthog-ai--thread-with-multiple-context-objects--light:
@@ -6830,22 +6746,6 @@ snapshots:
         hash: v1.k794b7964.2db40d0d40b796430cfdca3121f6218c702519d65e091b3a18c48f1edf92ae65.58aD-GXKio6mbuhf_t7Je6sqyWdTwC9YwOyWOQdTKeQ
     scenes-app-posthog-ai--thread-with-rate-limit-no-retry-after--light:
         hash: v1.k794b7964.a1df34e86e76087873ec1be1cf7cb245be0feb6076312d93b10f908432d67ad5.KNkCUGGFtAwute49QH64g_TnmeA_6oT5DBvMh7kBMh4
-    scenes-app-posthog-ai--thread-with-single-question-form--dark:
-        hash: v1.k794b7964.25f76fce98f1339d343a5bcf600469a161b2d5df32b40adcf1eeb96d3520347f.vdaAMXuIbQLg9TfO7bI3VWXBXF7PirJ7rxd4a3AruEM
-    scenes-app-posthog-ai--thread-with-single-question-form--light:
-        hash: v1.k794b7964.974efd50c967cb483909b82eb3ac34534e9e73b6b14fbb6cafc321a13b523c22.gJFgGzyshEy0bzvpWfE80sR1SdARM7ZPa7B25usOguQ
-    scenes-app-posthog-ai--thread-with-slider-form--dark:
-        hash: v1.k794b7964.c36c81c096bdc9d9fbec85264f9801838e8d4fa4168350104bd486107cee9b41.XhPST5_7ZbGCjqwboISZVWM4wmTAaymVhM_rzJ2Emjo
-    scenes-app-posthog-ai--thread-with-slider-form--light:
-        hash: v1.k794b7964.85af36ad9b580fe3f940931f36cd9d0ae3303938f250463503d897a5d48c85a5.nhgLBke_srrM4_ENF-eBLz9dYrYDpqRTkv6CBUL0XuY
-    scenes-app-posthog-ai--thread-with-sql-query-overflow--dark:
-        hash: v1.k794b7964.3b0192b8871cd388448c3c8b0017ae0a75071729e2748b363c39944c9f88512c.BqrfFfAY87dbRdr1S9-brsHonNCZM7Q0im6GeUvnB-A
-    scenes-app-posthog-ai--thread-with-sql-query-overflow--light:
-        hash: v1.k794b7964.fcf8d407d00c55ec16ee6879aedaea19753dad4b2f354870b87a67492e70cf73.cYDtRY6CQxG3vPT9qziLPEQ-M1lAhJWkgEgXZJC0mxw
-    scenes-app-posthog-ai--thread-with-text-and-number-form--dark:
-        hash: v1.k794b7964.a2cdc1e984a68e1d92c681a1758048d305fdb4225fb73ac41f48f12fbc5f143c.SU-hdfz8RdTjVbQUrX3eT7C1YXGQ7ZAqQslOWaBxYRE
-    scenes-app-posthog-ai--thread-with-text-and-number-form--light:
-        hash: v1.k794b7964.da459c90a235a2c8775d833a8ed8ccbd64de72f256cf249a0a92d6695906d67c.bKYf_yYm_2rR4ZoDINgcpnGuj9rOmJsYHnzwZB0Gi98
     scenes-app-posthog-ai--welcome--dark:
         hash: v1.k794b7964.255cc7354afe3bfee4d63bcd626cbb954b817ae7c9dfd13146be505ddc7f0028.zD0FAtP4Stug3YCIyFs62K41gQ1IY84zD128uDFrZ5k
     scenes-app-posthog-ai--welcome--light:
@@ -6858,6 +6758,38 @@ snapshots:
         hash: v1.k794b7964.d54fb4d8e9c218790b709f5b18efcae5c38e6ab5a0530f4908010e8074bf0b6c.zanU7Ejgz4Lm25IV-jQsIm-rGOOSs17H6bnzTKH2u80
     scenes-app-posthog-ai--welcome-with-latest-conversations--light:
         hash: v1.k794b7964.a732f664187c5f4dc15e801e158064225c5994135b3dde6b45e27d1804b43ebc.W1Q7ZB1crliI3RLGItmuOIVPY9hmydjD-yp4U5mrwmQ
+    scenes-app-posthog-ai-forms--thread-with-mixed-field-type-form--dark:
+        hash: v1.k794b7964.ca6175217faed0e867cfd45be05a7fb37e9f355177abd664e492c5f3dbc6cddb.bhAYDptn3_ULxSBKXl2K0JUWH6Irbq6RS5bvwPt0j2c
+    scenes-app-posthog-ai-forms--thread-with-mixed-field-type-form--light:
+        hash: v1.k794b7964.fdeef789c938fbbd0a8d205302ca2870d7eb1e604a2f1f9bb81c8dbcf9857525.hTFh9hxDu1zGc-wr4tP1ZxneSsm0SL4RVqY9bzgZNr4
+    scenes-app-posthog-ai-forms--thread-with-multi-field-question--dark:
+        hash: v1.k794b7964.2783d961779a0ad61d3c947d45323523885dd459a9413a836ab63427f85cc5cf.vUBBpQdpBFtBeiUnYtFhDCGu0y3IwIXD4m_XJqusEpU
+    scenes-app-posthog-ai-forms--thread-with-multi-field-question--light:
+        hash: v1.k794b7964.3228c57a2d426d7c85450d521e8e0f23d7e310b276eed7ed13671da1a17095bb.GLkzVNoHGqzUxMw49HqvXNBXKUsIjyCn-aWTztxBGYk
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form--dark:
+        hash: v1.k794b7964.83e440630230a0ceb689de86d1e7a43dc93a610285df2fd3662cf6bcdd7246bb.DAP5bR5rRJ__kB2412hY9bhDNzTc3kTL-w77Khyo_wA
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form--light:
+        hash: v1.k794b7964.766c93cee0619da839bcc04ad727749f673f6511f1435b70969e77afad0b2424.fzTGPlVjZaVePBTIGfpbljDTRMhn8lG2llCKr2DN9ps
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form-long-content--dark:
+        hash: v1.k794b7964.b3b10b2c3f7beb17c9d0767592ebc79f89ce2aa9d02955c8f8c34943518c5280.HjF8h2j8XMCs-celV96LU-FjPVj2l1e4B-hveEPL2sw
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form-long-content--light:
+        hash: v1.k794b7964.a749e8bda8f504e057b05301b3e3d374f9a642e35797cdfc6d8f942244a02b30.WVB5IYKozhxhlq6jVODaTPoJ5r3Rl1AAi2cjCjxuf7s
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form-no-custom-answer--dark:
+        hash: v1.k794b7964.58446c668493fd0d3e98687d46d508a488cfd81c8ae5295e3875cbe0498cfe1d.PM9gtRSO3yQw2jO4SLwV4rEGyYL3uk1fB8dI52f-zKo
+    scenes-app-posthog-ai-forms--thread-with-multi-question-form-no-custom-answer--light:
+        hash: v1.k794b7964.4b0f25306147075e593c42dbdbdb5c3f28d6e3576dd93a83e383115fa432e0bd.uUFvZYdaE9fPFYJjVlTbhOKqINslDoyBjmjsGqNvESI
+    scenes-app-posthog-ai-forms--thread-with-single-question-form--dark:
+        hash: v1.k794b7964.30798265f266cd80f34182ebdf0663299797a167f03ee4d6d7d460795e0556f7.vYd-oY6_SVIGdDA1K6PVxY_qlLmCRRXYQqbyoiJfuxU
+    scenes-app-posthog-ai-forms--thread-with-single-question-form--light:
+        hash: v1.k794b7964.3245627c76335c65d9e6ca435abb40846390393ed87448de4ea6bc3d20f73770.PZ3pORXbURfNXR75ZcA8Gadgau_ehOmQ9S1bB7kh6M4
+    scenes-app-posthog-ai-forms--thread-with-slider-form--dark:
+        hash: v1.k794b7964.40fb0993869cefc014a672e671d7e54cd6945adf8e45401b41792427b8e3d3fb.RVVUD4NsBR0jQu3-97-YZ_OlNHdin1EekglIPj6PIdM
+    scenes-app-posthog-ai-forms--thread-with-slider-form--light:
+        hash: v1.k794b7964.2ecc1184501441b95bcc9c2c487fb88cfffa4ad70bfb296834b96b02a37c9ba2.WSHkP1FZaItLQqEMKcWgjs7w00-dUb1r3JHYaijjHqI
+    scenes-app-posthog-ai-forms--thread-with-text-and-number-form--dark:
+        hash: v1.k794b7964.3923de3f48ea5edc066d61b076fc42f2ad3504d54c9a86b110680ade93fae5f9.6PwAFhwn4_aCg_ME9ioU9rZqb_9QZRpMpf9L3QBUb14
+    scenes-app-posthog-ai-forms--thread-with-text-and-number-form--light:
+        hash: v1.k794b7964.f71c93d98ef931b7eb242b48d1eae894ea17896268645853546ac6052df09bba.GZneO2ApKZQ2Jwn_Q3fjdSkBOR1OSv6ad2538VYQUE8
     scenes-app-posthog-ai-hands-free-surface--speaking--dark:
         hash: v1.k794b7964.57e6cf1b2966bbbcac0c6dc1fc79dbcec30647b444819a36036bf414e5b2e620.VxF2LBHOgDjQ7K3quyqD7Lt7Jr7BaC9pAP7aaPI_cKQ
     scenes-app-posthog-ai-hands-free-surface--speaking--light:
@@ -6866,6 +6798,74 @@ snapshots:
         hash: v1.k794b7964.8845839d904fcee5d1cf4d98c2e1c16cde91b474a4d12033729ebd0cd8c6c206.Hall9WIzoGr43FyAUQ6iahlleJIiJ5UCYFgvouPy8Fc
     scenes-app-posthog-ai-hands-free-surface--with-error--light:
         hash: v1.k794b7964.988574fff8b8f14327e6234395a9200de50d0c357261037219bf56344b249369.6f9U2b-TYev-MwpxHqJjEnLrrvTDRB0fMavjcFcUn6s
+    scenes-app-posthog-ai-tools--changelog-only--dark:
+        hash: v1.k794b7964.bdfda5d548efb3c138f069ef022150ccd569e40637e1ccbd2adfa53db882b7f1.Hgdf9AsndNOnqPxiu84ZUw2Z6YY7zVjJKxTk9Zd_yAs
+    scenes-app-posthog-ai-tools--changelog-only--light:
+        hash: v1.k794b7964.6856b2c160f1e0c423d22765bc19366df2d12e849b7cf7bc8c3326a09cd30622.q14GK_baoSbvOubg6ZMCxwPZWpY19rSV01lzlR7w-AQ
+    scenes-app-posthog-ai-tools--dangerous-operation-pending-approval--dark:
+        hash: v1.k794b7964.70ae9ee5e2bb82dc37e17102a8d532b7364bb693d4103148b100b0ea789fc9a3.pLWXl8wv17Ii_gk8IIjY9z7yCDe1JZ0sdiBVQ5Ve0gw
+    scenes-app-posthog-ai-tools--dangerous-operation-pending-approval--light:
+        hash: v1.k794b7964.3754f06a9d49f482e434bde25ea397cafec39720eb265bca42e01d5f1910f4bf.EU5aTFsbg5meCAvBL-Yqv2XC_y-Sqf2FAlfohzZDpRM
+    scenes-app-posthog-ai-tools--dangerous-operation-pending-approval-long-content--dark:
+        hash: v1.k794b7964.6efefb2eea40bb7da59387dcad88fddd7da0f72aafa3846adca5c35180cbfce4.e5vjZcOUH9YJydN1GUN_nJSqg0WJ5I9kLtF_q7hmwP8
+    scenes-app-posthog-ai-tools--dangerous-operation-pending-approval-long-content--light:
+        hash: v1.k794b7964.6557ac5b0fac9d1f226f12f944e08240e2913aef7d527c4b53a2017d6a7231aa.v61UHKqXj02ZfvDPrQtC2qsl4vPe0oPd98gpiaaQ_2Y
+    scenes-app-posthog-ai-tools--multi-visualization-in-thread--dark:
+        hash: v1.k794b7964.e278289eb9de180c2b31995845077f34f05ee7bf66659add563eb8d7d7dc8592.uQvjAfNevwR7QvhINeSqaoNJKg0AUpWj3PY-P_ajaWg
+    scenes-app-posthog-ai-tools--multi-visualization-in-thread--light:
+        hash: v1.k794b7964.d6abb413fd77e00eb11393b237f4eeac0edc21baed3d33f727bc910d3c3c4536.0h8RhpILbz2mY4QxRc05ZsRPAIwEctZYFunYAmQscNc
+    scenes-app-posthog-ai-tools--notebook-artifact-markdown-only--dark:
+        hash: v1.k794b7964.153ef583b440b6078bd4d7c0fda71f34388699df02b964f464f82754b883f2d2.Th0lXC3c1DSCIyk2A7Di_YHPboZhWXtudWM0qHA5934
+    scenes-app-posthog-ai-tools--notebook-artifact-markdown-only--light:
+        hash: v1.k794b7964.6f8a058e84513e0f1751505fa82bde89fdaa4ab0eb8136bb5f032882efe57152.qN98IpQX-Jg9MLCFBmh6uEyY7oRnfhDz3hne8b3UNxw
+    scenes-app-posthog-ai-tools--notebook-artifact-mixed-content--dark:
+        hash: v1.k794b7964.42c3a97d0f071b58348f25be5bca9a0cd58fc3de79cc945b76835051bed17511.bSYGotuT_cu2M3NChTSkM0wXJswtbGE9RvVCEoPShIY
+    scenes-app-posthog-ai-tools--notebook-artifact-mixed-content--light:
+        hash: v1.k794b7964.31bb46358c3c36965d24f149f28ede51ba5f6b2f15dceadf66f5e784ab2a3744.GZUBa62T7gpivNuoj91TbQp4n-DuEvPQmwUxn4W1uMI
+    scenes-app-posthog-ai-tools--notebook-artifact-with-loading-and-errors--dark:
+        hash: v1.k794b7964.a9833847543a6ba360942dbd23ee0af3c912dc010047795a1247b8d915f9961d.HSFjUi2qLWfL1DBlx2Nowj5BKXscVRXv8ex5zkovF5Q
+    scenes-app-posthog-ai-tools--notebook-artifact-with-loading-and-errors--light:
+        hash: v1.k794b7964.d5c96cf9c897e49b6d991f6c476172659866a030ee6e61281486597229a01ecc.aNpUsUHAiLdc860tHiATcHLKAJevM9D5uQjngk1_hQc
+    scenes-app-posthog-ai-tools--notebook-artifact-with-visualizations--dark:
+        hash: v1.k794b7964.fcc032307a3f8335bd46f70bc1cb541f8a1bd6c63265b1a3909a57c3fca7c35a.x_Aic8MZ6EOKu-e2fmIo8MPsyv81GWxS5GG8O8WMurM
+    scenes-app-posthog-ai-tools--notebook-artifact-with-visualizations--light:
+        hash: v1.k794b7964.6a789541dcf0f16295f6ce9c169b015b64414cdba23480c48f5c9a16e332c65f.TK5D2A67tlb1MF3dcdM1fG6KYi-DJYOWjuMTeRePLvI
+    scenes-app-posthog-ai-tools--planning-component--dark:
+        hash: v1.k794b7964.7554f70eb35a316e9c36321b194e54681e4896b6d8450492d2fcced37d90d6e8.cAQD2rkTWXauO5m_d9nADlX2DWcV7t8rNVlk011kz4I
+    scenes-app-posthog-ai-tools--planning-component--light:
+        hash: v1.k794b7964.77ad908ab65fc3c7732923ff558a6f4cbf811888ea9cddf37c9f2d8611adf59c.boK_sHAD9WEjc6ewXHHR8GSerjmTHvNwC7j8YjLjuLM
+    scenes-app-posthog-ai-tools--reasoning-component--dark:
+        hash: v1.k794b7964.59409cf43ccc3077267c455eb5e37e6400b6cbcdf5514cfacab56561ed877759.w9E4gAmY8i95xkQDdtKDXFParUAMp8W6DJcw4nQOSbg
+    scenes-app-posthog-ai-tools--reasoning-component--light:
+        hash: v1.k794b7964.dca7da4af36ceebc27cd91f2284cd25cb946bb57519baf051a9f64d2935c4928.E4EffgLrKuLQ122-ICag-EP7jqGV15mkkyoJlpECrW0
+    scenes-app-posthog-ai-tools--search-error-tracking-issues-empty--dark:
+        hash: v1.k794b7964.def15ce7c77b0ab97194e2057379b26d354f6e3bd454dad3e078f1edd45010af.ZfvLWjGTL1-h4MjPI83U9lU3s2k3IVSDjHFCy0P5xCw
+    scenes-app-posthog-ai-tools--search-error-tracking-issues-empty--light:
+        hash: v1.k794b7964.455539f043cd9d4688ecb57bf518f514979f0060c34dd1c1443015fb6e84ec77.AWGTsFtR-qmANnp73JFdu4WlzbSrU25sL2WQo0won7I
+    scenes-app-posthog-ai-tools--search-error-tracking-issues-with-results--dark:
+        hash: v1.k794b7964.8d0a34ce94e8569deb3b6be629a6c2394fdec169440fc934b15f13bd64afc734.WwzQJkPsJMxfW6546iDZYUqZxBv4lyKGABWYOVTWoro
+    scenes-app-posthog-ai-tools--search-error-tracking-issues-with-results--light:
+        hash: v1.k794b7964.2050b4fa7a2a65725b7ecc181bd12441dd105c7a6e1953bf595d0419f38c7471.z-_JvaSRVXwKUF6xxmWwQKRE5vwZAivmXKMBk0DAoUM
+    scenes-app-posthog-ai-tools--search-session-recordings-empty--dark:
+        hash: v1.k794b7964.76426d74d925d5307f8a4c1189bfa1145770c3fb810afaf41aedfa254690b3dc.9SBjsjqz6VjzB9ElKpABNZwO4rbptjfK5pMxJ8_R-O0
+    scenes-app-posthog-ai-tools--search-session-recordings-empty--light:
+        hash: v1.k794b7964.e2c63aba0957755a79a92911d4c5bae984407a54bc1caf112267dac7c0c6c073.fbATFxTnizn-MIuYCDwhCRGjBi5o34WnQ_QsSqGh4e0
+    scenes-app-posthog-ai-tools--search-session-recordings-with-results--dark:
+        hash: v1.k794b7964.8e922cbe8fc0ef6b2f4e9c9ed4ebf13cc8a31988a212346d43752712187c4cef.Nu1Q3mtibOgOBTa3AiBvrIyvrH1lTkBDmlirmMnpSvU
+    scenes-app-posthog-ai-tools--search-session-recordings-with-results--light:
+        hash: v1.k794b7964.5979f8a32840e89fd5575725a16c5128db066033c7a4a93b2f09f43d28ab4e2e.RU5z6eFhEJPVxuCgBCFvbG3DacJh7luaOZNvtUsO72A
+    scenes-app-posthog-ai-tools--task-execution-component--dark:
+        hash: v1.k794b7964.a5907a6dec461381edd6edf117daa693e49faa2992b2fe876c6dfe6614e3cd21.DidAIzzCzluEY9xA-GyzmEJNgQhSjDzDtKgV-dU1Zv0
+    scenes-app-posthog-ai-tools--task-execution-component--light:
+        hash: v1.k794b7964.6fa40ed1af111cf070b99419361fa9fc89f3b1c23744cfb86f3c4516db5b0cc8.Gd6L898Ak7ge2TxZfp2pBzhVLh_BjwjwgEg8UYbsgug
+    scenes-app-posthog-ai-tools--task-execution-with-failure--dark:
+        hash: v1.k794b7964.e0cfd139759cd4edfd5b2c3fe0031d80ec64e53926601f5115eef8f80d201d00.9MA9rFXTHO8WC2PPvU9OXItexwZucfubQYdMrcSlo0w
+    scenes-app-posthog-ai-tools--task-execution-with-failure--light:
+        hash: v1.k794b7964.a4e89c0399f9e9f4e0d26124b1d2d781cd1a194e7301e802fb770b66842eea79.6xQ5Gxmttf5lGj-DeDgibLZo1mnikN8uwc6uEQZ4NXE
+    scenes-app-posthog-ai-tools--thread-with-sql-query-overflow--dark:
+        hash: v1.k794b7964.391102534d669872e56c9486d30d2f564a9e585650c4d2f766fd79cf710dfc0e.FzCVV4b9mvwjCrQqe3Rs52Tj5aYHbVNe2IqRInXRDzQ
+    scenes-app-posthog-ai-tools--thread-with-sql-query-overflow--light:
+        hash: v1.k794b7964.998984fe26c3f9ce26629da81e63f19891aa45441c08b9ae5dccf1d497c9bddd.DdAh6vm68mAVp3cDCyYG54XXY4qjsjbYA_Zd7aY-AHY
     scenes-app-project-homepage--no-primary-dashboard--dark:
         hash: v1.k794b7964.224e8a5e493e290b4ae4bbc2e03034a73b2ecfce20c86bcde08eab86b57b712e.5356e3TF0I7FG2Xk5br9hyTsPAveCvQx9-r0J8Nc3E0
     scenes-app-project-homepage--no-primary-dashboard--light:
@@ -6959,9 +6959,9 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.b1ae6dbc8feb673159fcc13f4a8fd5ee856c63ad1204e839a1b55ef70d109c81.W5sqRIJDHcdkKlYg4ghfwpbKS2FmlQKF_N-1C83h9Mg
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.35ab1c3442aaccdbb00253b12ad6089831b2209787d912bfc01f1a5abf755143.vVggYZAeyiGeJdZ8z_TKe4kK28uMUWsAJAMcPlkWalg
+        hash: v1.k794b7964.9a85d1e551f875692d6f1ffec62f8db8e27c384e2e2b5ce505c2647d604fbd14.Sdhkzdt1LZM6P9-gz98b5hIczvxj3QsmiQVZI0FTyeE
     scenes-app-settings-environment--settings-environment-access-control--light:
-        hash: v1.k794b7964.3978b710d289d946d4edc8d7f40937b8c9150a6d8bbe8a4bdeb146f6fd407392.MuAto5ws3gu7dkA9fPauGjGoIrDkKuOE12h_D7DBoQQ
+        hash: v1.k794b7964.432e453fa102c92bf70534288829d72f0e4c36ec027701bf5522af3e94ea7209.RnsHAOIeR-82mYRPBBwrqKeJxpZpiMml7wuf8xuN3dA
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.2183cf0082a1556d6df553572df4ab3813c96288a8b9a80e669c005908230c3e.-ybX8d6KyxaSa-yJDVccZm2CkK8Fl8qLSbw9jGhSIx4
     scenes-app-settings-environment--settings-environment-autocapture--light:
@@ -7747,9 +7747,9 @@ snapshots:
     scenes-other-onboarding-shared-wizard-cloud-run--pull-request-queued--light:
         hash: v1.k794b7964.7ec7e9d1698b2e62f5228a13c1991d64086be0fbc9840457922b154816df2431.nTPGOZUNcBJ1gNrgTQKjPqKNAbhaFCjmCARBoKuu2lo
     scenes-other-onboarding-shared-wizard-cloud-run--repo-picker-open--dark:
-        hash: v1.k794b7964.0c903b9c3884ef83e1a10473b1e9acdbebc5b38b588a99bed35441b8b7ee8c0b.66xwKVU7w_BHjzjGHEkDulTABAKCpGSpl94tgE8nYSE
+        hash: v1.k794b7964.1a977cbb0a6a59c9c68182be1a30768abfe0d98ddd11cdace4a415d08b1e053d.uJCiReQqjQhBLVYGSmMSn3XpIwEaQ-aPfvRaqU8TgS8
     scenes-other-onboarding-shared-wizard-cloud-run--repo-picker-open--light:
-        hash: v1.k794b7964.4a4081541ed8303ac183359a9ca8e594b33d3b056abb86e0e936599fae609f4b.5xbzTpuLkhIYejeCA54MJabm-t9nCGSmB5zi0kJQT-c
+        hash: v1.k794b7964.216f9a849d9a48cfecdcedaa318a996d7bf66c65b6e497bc96d8a7043bcba4ff.nPN0rXCSllfOEB414bqIPAGN4gMB07O7rAZmtC460Xk
     scenes-other-onboarding-shared-wizard-cloud-run--repo-selected--dark:
         hash: v1.k794b7964.c83127f9e424470e3a9dbef3100148560455f9b3a9b5a17c82c67a63e10bd6c4.eptdbuPervntKMHipq7abx7efzF8oT1sm7zKS2Jhtxg
     scenes-other-onboarding-shared-wizard-cloud-run--repo-selected--light:

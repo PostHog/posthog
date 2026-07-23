@@ -1,7 +1,13 @@
 // AUTO-GENERATED from products/workflows/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
 import type { Schemas } from '@/api/generated'
+import { withUiApp } from '@/resources/ui-apps'
+import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
@@ -30,10 +36,6 @@ import {
     HogFlowsSchedulesPartialUpdateBody,
     HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
-import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
 
