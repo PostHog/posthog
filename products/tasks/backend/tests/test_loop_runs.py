@@ -465,6 +465,7 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         result = fire_loop(loop, None, "fire-1", "ctx")
 
         self.assertTrue(result.created)
+        assert result.task_run_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertEqual(task_run.state["model"], expected_model)
         self.assertEqual(task_run.state["reasoning_effort"], expected_effort)
