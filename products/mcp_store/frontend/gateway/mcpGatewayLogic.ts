@@ -64,7 +64,10 @@ export interface mcpGatewayLogicValues {
     allServersEnabledLoading: boolean
     allowCustomServers: boolean
     allowCustomServersLoading: boolean
+    allowMemberAgentAccess: boolean
+    allowMemberAgentAccessLoading: boolean
     canAddServers: boolean
+    canManageAgentAccess: boolean
     categoryCounts: Record<string, number>
     categoryFilter: string | null
     config: TeamMCPGatewayConfigApi | null
@@ -215,6 +218,12 @@ export interface mcpGatewayLogicActions {
     setAllowCustomServersComplete: () => {
         value: true
     }
+    setAllowMemberAgentAccess: (allowed: boolean) => {
+        allowed: boolean
+    }
+    setAllowMemberAgentAccessComplete: () => {
+        value: true
+    }
     setCategoryFilter: (category: string | null) => {
         category: string | null
     }
@@ -291,7 +300,9 @@ export interface mcpGatewayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isAdmin: (config: TeamMCPGatewayConfigApi | null) => boolean
         allowCustomServers: (config: TeamMCPGatewayConfigApi | null) => boolean
+        allowMemberAgentAccess: (config: TeamMCPGatewayConfigApi | null) => boolean
         canAddServers: (isAdmin: boolean, allowCustomServers: boolean) => boolean
+        canManageAgentAccess: (isAdmin: boolean, allowMemberAgentAccess: boolean) => boolean
         categoryCounts: (servers: MCPGatewayServerApi[]) => Record<string, number>
         filteredServers: (
             servers: MCPGatewayServerApi[],
@@ -330,6 +341,8 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         toggleRuleEnabledComplete: (ruleId: string) => ({ ruleId }),
         setAllowCustomServers: (allowed: boolean) => ({ allowed }),
         setAllowCustomServersComplete: true,
+        setAllowMemberAgentAccess: (allowed: boolean) => ({ allowed }),
+        setAllowMemberAgentAccessComplete: true,
         applyPreset: (audience: AudienceEnumApi, preset: MCPPolicyPresetEnumApi) => ({ audience, preset }),
         setMemberServerAccess: (userId: number, serverId: string, enabled: boolean) => ({
             userId,
@@ -494,6 +507,13 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 setAllowCustomServersComplete: () => false,
             },
         ],
+        allowMemberAgentAccessLoading: [
+            false,
+            {
+                setAllowMemberAgentAccess: () => true,
+                setAllowMemberAgentAccessComplete: () => false,
+            },
+        ],
         allServersEnabledLoading: [
             false,
             {
@@ -509,9 +529,17 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             (s) => [s.config],
             (config: TeamMCPGatewayConfigApi | null): boolean => config?.allow_custom_servers ?? true,
         ],
+        allowMemberAgentAccess: [
+            (s) => [s.config],
+            (config: TeamMCPGatewayConfigApi | null): boolean => config?.allow_member_agent_access ?? true,
+        ],
         canAddServers: [
             (s) => [s.isAdmin, s.allowCustomServers],
             (isAdmin: boolean, allowCustomServers: boolean): boolean => isAdmin || allowCustomServers,
+        ],
+        canManageAgentAccess: [
+            (s) => [s.isAdmin, s.allowMemberAgentAccess],
+            (isAdmin: boolean, allowMemberAgentAccess: boolean): boolean => isAdmin || allowMemberAgentAccess,
         ],
         categoryCounts: [
             (s) => [s.servers],
@@ -733,6 +761,19 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 )
             } finally {
                 actions.setAllowCustomServersComplete()
+            }
+        },
+        setAllowMemberAgentAccess: async ({ allowed }) => {
+            try {
+                const config = await mcpGatewayConfigUpdateSettingsCreate(currentProjectId(), {
+                    allow_member_agent_access: allowed,
+                })
+                actions.loadConfigSuccess(config)
+                lemonToast[allowed ? 'success' : 'info'](
+                    allowed ? 'Members can now manage agent access' : 'Only admins can manage agent access now'
+                )
+            } finally {
+                actions.setAllowMemberAgentAccessComplete()
             }
         },
         applyPreset: async ({ audience, preset }) => {

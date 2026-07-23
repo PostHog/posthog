@@ -53,7 +53,7 @@ def backfill_gateway_servers(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_store", "0014_mcp_gateway_models"),
+        ("mcp_store", "0016_mcp_gateway_models"),
     ]
 
     operations = [

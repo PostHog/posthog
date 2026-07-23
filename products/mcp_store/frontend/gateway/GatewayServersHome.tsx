@@ -87,7 +87,7 @@ function GatewayServerCard({ server }: { server: MCPGatewayServerApi }): JSX.Ele
             style={disabled ? { opacity: 0.6 } : undefined}
         >
             <div className="shrink-0">
-                <ServerIcon iconKey={server.icon_key || undefined} size={42} />
+                <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={42} />
             </div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

@@ -95,9 +95,11 @@ export function GatewayAgentScene(): JSX.Element {
                 <div className="border rounded divide-y">
                     {allServers.map((server) => {
                         const shared = sharedServerIds.has(server.id)
+                        const needsConnection =
+                            !shared && server.your_connection === null && server.shared_credential === null
                         return (
                             <div key={server.id} className="flex items-center gap-3 p-2">
-                                <ServerIcon iconKey={server.icon_key || undefined} size={28} />
+                                <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
                                 <div className="flex-1 min-w-0">
                                     <div className="font-semibold">{server.name}</div>
                                     <div className="text-xs text-secondary">
@@ -118,6 +120,11 @@ export function GatewayAgentScene(): JSX.Element {
                                     loading={agentServerAccessLoadingKeys.has(
                                         agentServerAccessKey(account.id, server.id)
                                     )}
+                                    disabledReason={
+                                        needsConnection
+                                            ? 'Connect this server before sharing it with an agent.'
+                                            : undefined
+                                    }
                                     aria-label={`${shared ? 'Revoke' : 'Grant'} ${account.name} access to ${server.name}`}
                                     onChange={(checked) => setAgentServerAccess(account.id, server.id, checked)}
                                 />

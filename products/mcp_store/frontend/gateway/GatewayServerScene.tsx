@@ -19,6 +19,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayAccessSection } from './GatewayServerAccess'
 import { gatewayServerLogic } from './gatewayServerLogic'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
@@ -30,7 +31,7 @@ export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
 }
 
 export function GatewayServerScene(): JSX.Element {
-    const { server, serverLoading, isAdmin } = useValues(gatewayServerLogic)
+    const { server, serverLoading, isAdmin, canManageAgentAccess } = useValues(gatewayServerLogic)
 
     if (!server && serverLoading) {
         return <SceneContent>Loading…</SceneContent>
@@ -46,7 +47,7 @@ export function GatewayServerScene(): JSX.Element {
             </LemonButton>
 
             <div className="flex items-center gap-3">
-                <ServerIcon iconKey={server.icon_key || undefined} size={52} />
+                <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={52} />
                 <div className="flex-1">
                     <div className="flex items-center gap-2">
                         <h1 className="mb-0">{server.name}</h1>
@@ -61,7 +62,7 @@ export function GatewayServerScene(): JSX.Element {
 
             <LemonDivider />
 
-            {isAdmin && <GatewayAccessSection />}
+            {canManageAgentAccess && <GatewayAccessSection />}
 
             <ToolPoliciesSection />
         </SceneContent>
@@ -69,9 +70,23 @@ export function GatewayServerScene(): JSX.Element {
 }
 
 function ToolPoliciesSection(): JSX.Element {
-    const { toolPolicies, toolPoliciesLoading, policyCounts, scope, scopeIsResolving, availableScopes, isAdmin } =
-        useValues(gatewayServerLogic)
+    const {
+        toolPolicies,
+        toolPoliciesLoading,
+        policyCounts,
+        scope,
+        scopeIsResolving,
+        availableScopes,
+        isAdmin,
+        canManageAgentAccess,
+    } = useValues(gatewayServerLogic)
     const { setScope, setAllTools } = useActions(gatewayServerLogic)
+    const canEditScope =
+        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
+    const policyOptions =
+        scope.scopeType === 'agent'
+            ? POLICY_OPTIONS.filter((option) => option.value !== 'needs_approval')
+            : POLICY_OPTIONS
 
     if (scopeIsResolving) {
         return (
@@ -88,21 +103,23 @@ function ToolPoliciesSection(): JSX.Element {
                     <h3 className="mb-0">Tool policies</h3>
                     <PolicySummary counts={policyCounts} />
                 </div>
-                <div className="flex items-center gap-1">
-                    <span className="text-xs text-secondary mr-1">Set all</span>
-                    {POLICY_OPTIONS.map((option) => (
-                        <LemonButton
-                            key={option.value}
-                            size="xsmall"
-                            icon={option.icon}
-                            tooltip={option.label}
-                            onClick={() => setAllTools(option.value)}
-                        />
-                    ))}
-                </div>
+                {canEditScope && (
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs text-secondary mr-1">Set all</span>
+                        {policyOptions.map((option) => (
+                            <LemonButton
+                                key={option.value}
+                                size="xsmall"
+                                icon={option.icon}
+                                tooltip={option.label}
+                                onClick={() => setAllTools(option.value)}
+                            />
+                        ))}
+                    </div>
+                )}
             </div>
 
-            {isAdmin && availableScopes.length > 1 && (
+            {canManageAgentAccess && availableScopes.length > 1 && (
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-secondary">Policy for</span>
                     <LemonSegmentedButton
@@ -140,11 +157,24 @@ function ToolPoliciesSection(): JSX.Element {
 }
 
 function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Element {
-    const { server } = useValues(gatewayServerLogic)
+    const { server, scope, isAdmin, canManageAgentAccess } = useValues(gatewayServerLogic)
     const { setToolPolicy } = useActions(gatewayServerLogic)
 
     const fqName = `${server?.name ?? ''}.${policy.tool_name}`
     const ruleLocked = policy.decided_by === 'rule'
+    const setByTeamAdmin =
+        scope.scopeType !== 'team' && (policy.decided_by === 'team' || policy.decided_by === 'preset')
+    const canEditScope =
+        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
+    const options = POLICY_OPTIONS.filter(
+        (option) => scope.scopeType !== 'agent' || option.value !== 'needs_approval'
+    ).map((option) => ({
+        ...option,
+        disabledReason:
+            scope.scopeType === 'team' || isPolicyStateAllowedByCeiling(option.value, policy.team_state)
+                ? undefined
+                : 'Unavailable because of the team admin ceiling',
+    }))
 
     return (
         <LemonCollapse
@@ -172,29 +202,42 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
                                 onKeyDown={(e) => e.stopPropagation()}
                                 role="presentation"
                             >
-                                {policy.locked ? (
+                                {ruleLocked || !canEditScope ? (
                                     <Tooltip
                                         title={
                                             ruleLocked
                                                 ? `${policy.rule_name} — team rule, overrides every scope.`
-                                                : 'Set by your admin — ask an admin to change it.'
+                                                : 'This policy is read-only.'
                                         }
                                     >
                                         <LemonTag icon={<IconLock />} type="muted">
-                                            {policy.policy_state === 'do_not_use'
-                                                ? ruleLocked
+                                            {ruleLocked
+                                                ? policy.policy_state === 'do_not_use'
                                                     ? 'Blocked by team policy'
-                                                    : 'Blocked'
-                                                : 'Approval required'}
+                                                    : 'Needs Approval by team policy'
+                                                : POLICY_OPTIONS.find((option) => option.value === policy.policy_state)
+                                                      ?.label}
                                         </LemonTag>
                                     </Tooltip>
                                 ) : (
-                                    <LemonSegmentedButton
-                                        size="xsmall"
-                                        value={policy.policy_state}
-                                        options={POLICY_OPTIONS}
-                                        onChange={(value) => setToolPolicy(policy.tool_name, value)}
-                                    />
+                                    <div className="flex items-center gap-2">
+                                        {setByTeamAdmin && (
+                                            <Tooltip title="This effective state is capped by the team admin ceiling.">
+                                                <LemonTag icon={<IconLock />} type="muted">
+                                                    Set by team admin
+                                                </LemonTag>
+                                            </Tooltip>
+                                        )}
+                                        <LemonSegmentedButton
+                                            size="xsmall"
+                                            value={policy.policy_state}
+                                            options={options}
+                                            disabledReason={
+                                                policy.locked ? 'The team admin ceiling is Blocked.' : undefined
+                                            }
+                                            onChange={(value) => setToolPolicy(policy.tool_name, value)}
+                                        />
+                                    </div>
                                 )}
                             </div>
                         </div>

@@ -8,9 +8,21 @@ import structlog
 
 from posthog.models import User
 
-from .models import MCPGatewayServer, MCPServerInstallation, MCPServerTemplate
+from .models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerTemplate,
+    MCPServiceAccountServerAccess,
+    TeamMCPGatewayConfig,
+)
 
 logger = structlog.get_logger(__name__)
+
+
+def members_can_manage_agent_access(team_id: int) -> bool:
+    """Whether regular members may grant MCP access to agents and tune it."""
+    config = TeamMCPGatewayConfig.objects.for_team(team_id).first()
+    return config is None or config.allow_member_agent_access
 
 
 def sync_catalog_templates_to_gateway(team_id: int) -> None:
@@ -99,3 +111,63 @@ def set_gateway_auth_mode(installation: MCPServerInstallation, mode: str) -> Non
     if server.auth_mode != mode:
         server.auth_mode = mode
         server.save(update_fields=["auth_mode", "updated_at"])
+
+
+def installation_for_agent_grant(
+    team_id: int, gateway_server: MCPGatewayServer, user_id: int
+) -> MCPServerInstallation | None:
+    """Choose the credential delegated by an agent-access action.
+
+    A requesting user's personal connection is the natural meaning of "share
+    access". If they do not have one, an existing team-shared credential is a
+    valid fallback.
+    """
+    personal = (
+        MCPServerInstallation.objects.filter(
+            team_id=team_id,
+            gateway_server=gateway_server,
+            user_id=user_id,
+            scope="personal",
+        )
+        .order_by("created_at")
+        .first()
+    )
+    if personal is not None:
+        return personal
+    return (
+        MCPServerInstallation.objects.filter(
+            team_id=team_id,
+            gateway_server=gateway_server,
+            scope="shared",
+        )
+        .order_by("created_at")
+        .first()
+    )
+
+
+def installation_for_agent_access(access: MCPServiceAccountServerAccess) -> MCPServerInstallation | None:
+    """Resolve an access row's credential, with a legacy shared-row fallback."""
+    installation = access.installation
+    if installation is not None:
+        if installation.team_id != access.team_id or installation.gateway_server_id != access.gateway_server_id:
+            logger.warning(
+                "Refusing mismatched agent MCP credential",
+                access_id=str(access.id),
+                installation_id=str(installation.id),
+            )
+            return None
+        return installation
+
+    prefetched_shared = getattr(access.gateway_server, "agent_shared_installations", None)
+    if prefetched_shared is not None:
+        return prefetched_shared[0] if prefetched_shared else None
+
+    return (
+        MCPServerInstallation.objects.filter(
+            team_id=access.team_id,
+            gateway_server_id=access.gateway_server_id,
+            scope="shared",
+        )
+        .order_by("created_at")
+        .first()
+    )

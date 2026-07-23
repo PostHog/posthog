@@ -35,6 +35,12 @@ export const McpGatewayConfigUpdateSettingsCreateBody = /* @__PURE__ */ zod.obje
         .boolean()
         .optional()
         .describe('Whether non-admin members may register custom MCP servers.'),
+    allow_member_agent_access: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether non-admin members may share their available MCP connections with agents and manage agent tool policies.'
+        ),
     member_default_preset: zod
         .union([
             zod
@@ -263,9 +269,6 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
-                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
-                    )
-                    .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
             })
@@ -313,9 +316,6 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                 tool_name: zod.string().describe('Tool to set the policy for.'),
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
-                    .describe(
-                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
-                    )
                     .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
@@ -434,7 +434,9 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
     agent_ids: zod
         .array(zod.uuid())
         .optional()
-        .describe('Service accounts to share the server with at install time. Admin-only.'),
+        .describe(
+            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+        ),
     return_path: zod
         .string()
         .default(mcpServerInstallationsInstallCustomCreateBodyReturnPathDefault)
@@ -477,7 +479,9 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
     agent_ids: zod
         .array(zod.uuid())
         .optional()
-        .describe('Service accounts to share the server with at install time. Admin-only.'),
+        .describe(
+            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+        ),
     return_path: zod
         .string()
         .default(mcpServerInstallationsInstallTemplateCreateBodyReturnPathDefault)

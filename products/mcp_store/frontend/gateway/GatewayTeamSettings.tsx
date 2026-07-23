@@ -9,10 +9,10 @@ import { ServerIcon } from '../scene/icons'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 const PRESETS: { value: MCPPolicyPresetEnumApi; label: string; description: string }[] = [
-    { value: 'allow', label: 'Allow all', description: 'Every tool auto-approved.' },
+    { value: 'allow', label: 'Allow all', description: 'Every tool is set to Always Allow.' },
     { value: 'user', label: 'Member decides', description: 'Every call asks first.' },
-    { value: 'ask', label: 'Ask for destructive', description: 'Destructive tools ask a human, rest auto-approved.' },
-    { value: 'block', label: 'Block destructive', description: 'Destructive tools blocked, rest auto-approved.' },
+    { value: 'ask', label: 'Ask for destructive', description: 'Destructive tools need approval, rest Always Allow.' },
+    { value: 'block', label: 'Block destructive', description: 'Destructive tools are Blocked, rest Always Allow.' },
 ]
 
 export function GatewayTeamSettings(): JSX.Element {
@@ -20,12 +20,14 @@ export function GatewayTeamSettings(): JSX.Element {
         allServersEnabledLoading,
         allowCustomServers,
         allowCustomServersLoading,
+        allowMemberAgentAccess,
+        allowMemberAgentAccessLoading,
         config,
         enabledServerCount,
         serverEnabledLoadingIds,
         servers,
     } = useValues(mcpGatewayLogic)
-    const { setAllowCustomServers, applyPreset, toggleServerEnabled, setAllServersEnabled } =
+    const { setAllowCustomServers, setAllowMemberAgentAccess, applyPreset, toggleServerEnabled, setAllServersEnabled } =
         useActions(mcpGatewayLogic)
     const [serverSearch, setServerSearch] = useState('')
 
@@ -50,6 +52,25 @@ export function GatewayTeamSettings(): JSX.Element {
                         loading={allowCustomServersLoading}
                         aria-label={`${allowCustomServers ? 'Disable' : 'Enable'} custom MCP servers`}
                         onChange={setAllowCustomServers}
+                    />
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Agent access</h3>
+                <div className="border rounded p-3 flex items-center justify-between gap-3">
+                    <div>
+                        <div className="font-semibold">Allow members to manage agent access</div>
+                        <div className="text-sm text-secondary">
+                            Members can share connections with PostHog agents and choose which tools those agents may
+                            call. Turn this off to make those controls admin-only.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        checked={allowMemberAgentAccess}
+                        loading={allowMemberAgentAccessLoading}
+                        aria-label={`${allowMemberAgentAccess ? 'Disable' : 'Enable'} member-managed agent access`}
+                        onChange={setAllowMemberAgentAccess}
                     />
                 </div>
             </div>
@@ -132,7 +153,7 @@ export function GatewayTeamSettings(): JSX.Element {
                 <div className="border rounded divide-y">
                     {filteredServers.map((server) => (
                         <div key={server.id} className="flex items-center gap-3 p-2">
-                            <ServerIcon iconKey={server.icon_key || undefined} size={28} />
+                            <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
                             <div className="flex-1">
                                 <div className="font-semibold">{server.name}</div>
                                 <div className="text-xs text-secondary">

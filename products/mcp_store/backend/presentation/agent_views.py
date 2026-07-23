@@ -5,11 +5,12 @@ token resolves the team, so there is no project in the URL. Deliberately
 outside the OpenAPI spec (like the OAuth redirect): it is an external token
 surface, not part of the app schema.
 
-Agents ride the server's shared credential — they never borrow a member's
-personal token — and every tools/call resolves through the same policy engine
-as members, under the agent's own scope.
+Each grant binds the credential its administrator delegated to the agent.
+Every tools/call resolves through the same policy engine as members, under the
+agent's own scope.
 """
 
+from collections.abc import Iterable
 from typing import Any, cast
 
 from django.http import HttpResponse
@@ -26,7 +27,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ..agents import resolve_gateway_agent_token
-from ..models import MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool, MCPServiceAccount
+from ..gateway import installation_for_agent_access
+from ..models import MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
 from ..policy import GatewayCaller, PolicyContext
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from .views import MCPProxyRenderer
@@ -69,12 +71,12 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     authentication_classes = [GatewayAgentAuthentication]
     permission_classes = [GatewayAgentPermission]
 
-    def _accessible_servers(self, account: MCPServiceAccount) -> list[MCPGatewayServer]:
+    def _accessible_server_access(self, account: MCPServiceAccount) -> list[MCPServiceAccountServerAccess]:
         return list(
-            MCPGatewayServer.objects.for_team(account.team_id)
-            .filter(agent_access__service_account=account)
-            .select_related("template")
-            .order_by("name")
+            MCPServiceAccountServerAccess.objects.for_team(account.team_id)
+            .filter(service_account=account)
+            .select_related("gateway_server__template", "installation")
+            .order_by("gateway_server__name")
         )
 
     def _touch(self, account: MCPServiceAccount) -> None:
@@ -85,7 +87,9 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         with each tool's effective policy state."""
         account = cast(MCPServiceAccount, request.auth)
         results = []
-        for server in self._accessible_servers(account):
+        for access in self._accessible_server_access(account):
+            server = access.gateway_server
+            installation = installation_for_agent_access(access)
             context = PolicyContext(
                 team_id=account.team_id,
                 caller=GatewayCaller(kind="agent", service_account_id=str(account.id)),
@@ -93,16 +97,16 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             )
             tools = []
             seen: set[str] = set()
-            tool_rows = (
-                MCPServerInstallationTool.objects.filter(
-                    installation__gateway_server=server,
-                    installation__scope="shared",
-                    installation__is_enabled=True,
-                    removed_at__isnull=True,
+            tool_rows: Iterable[tuple[str, str, dict[str, Any]]] = ()
+            if installation is not None and installation.is_enabled:
+                tool_rows = (
+                    MCPServerInstallationTool.objects.filter(
+                        installation=installation,
+                        removed_at__isnull=True,
+                    )
+                    .order_by("tool_name", "-last_seen_at")
+                    .values_list("tool_name", "description", "input_schema")
                 )
-                .order_by("tool_name", "-last_seen_at")
-                .values_list("tool_name", "description", "input_schema")
-            )
             for tool_name, description, input_schema in tool_rows:
                 if tool_name in seen:
                     continue
@@ -135,31 +139,22 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         if not pk:
             return HttpResponse('{"error": "Server not found"}', content_type="application/json", status=404)
         try:
-            server = (
-                MCPGatewayServer.objects.for_team(account.team_id)
-                .filter(agent_access__service_account=account)
-                .get(id=pk)
+            access = (
+                MCPServiceAccountServerAccess.objects.for_team(account.team_id)
+                .select_related("gateway_server", "installation")
+                .get(service_account=account, gateway_server_id=pk)
             )
-        except (MCPGatewayServer.DoesNotExist, ValueError):
+        except (MCPServiceAccountServerAccess.DoesNotExist, ValueError):
             return HttpResponse(
                 '{"error": "Server not found or not shared with this agent"}',
                 content_type="application/json",
                 status=404,
             )
-        # Agents only ride the shared credential — never a member's personal token.
-        installation = (
-            MCPServerInstallation.objects.filter(
-                team_id=account.team_id,
-                gateway_server=server,
-                scope="shared",
-                is_enabled=True,
-            )
-            .order_by("created_at")
-            .first()
-        )
+        server = access.gateway_server
+        installation = installation_for_agent_access(access)
         if installation is None:
             return HttpResponse(
-                '{"error": "This server has no shared credential; connect one so agents can call it"}',
+                '{"error": "This server has no credential shared with this agent"}',
                 content_type="application/json",
                 status=409,
             )

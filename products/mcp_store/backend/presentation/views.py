@@ -16,7 +16,7 @@ from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -42,8 +42,9 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 
 from ..agents import sync_built_in_agents
-from ..gateway import link_installation_to_gateway, set_gateway_auth_mode
+from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, set_gateway_auth_mode
 from ..models import (
+    APPROVAL_STATES,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
@@ -67,7 +68,7 @@ from ..oauth import (
     select_token_endpoint_auth_method,
 )
 from ..permissions import DenyMCPBuiltInAgentOAuth
-from ..policy import GatewayCaller
+from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolsFetchError, sync_installation_tools
@@ -363,8 +364,8 @@ class InstallCustomSerializer(serializers.Serializer):
         default="personal",
         help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
     )
-    # Gateway install-time options. Non-default values are admin-only —
-    # they shape what the whole team and its agents can reach.
+    # Team-wide install options remain admin-only. Agent grants follow the
+    # team's allow_member_agent_access setting.
     team_enabled = serializers.BooleanField(
         required=False,
         default=True,
@@ -379,7 +380,10 @@ class InstallCustomSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         required=False,
         default=list,
-        help_text="Service accounts to share the server with at install time. Admin-only.",
+        help_text=(
+            "Service accounts to share the server with at install time. "
+            "Available to members when team settings allow member-managed agent access."
+        ),
     )
     return_path = serializers.CharField(
         required=False,
@@ -411,8 +415,8 @@ class InstallTemplateSerializer(serializers.Serializer):
         default="personal",
         help_text="'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.",
     )
-    # Gateway install-time options. Non-default values are admin-only —
-    # they shape what the whole team and its agents can reach.
+    # Team-wide install options remain admin-only. Agent grants follow the
+    # team's allow_member_agent_access setting.
     team_enabled = serializers.BooleanField(
         required=False,
         default=True,
@@ -427,7 +431,10 @@ class InstallTemplateSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         required=False,
         default=list,
-        help_text="Service accounts to share the server with at install time. Admin-only.",
+        help_text=(
+            "Service accounts to share the server with at install time. "
+            "Available to members when team settings allow member-managed agent access."
+        ),
     )
     return_path = serializers.CharField(
         required=False,
@@ -472,6 +479,15 @@ class OAuthRedirectResponseSerializer(serializers.Serializer):
 
 
 class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
+    approval_state = serializers.SerializerMethodField(help_text="Effective state after applying the team ceiling.")
+    team_state = serializers.SerializerMethodField(
+        help_text="Team-admin ceiling for this tool. Null when the team imposes no ceiling."
+    )
+    locked = serializers.SerializerMethodField(
+        help_text="True when a rule or Blocked team ceiling leaves no editable state."
+    )
+    decided_by = serializers.SerializerMethodField(help_text="Policy layer that decided the effective state.")
+
     class Meta:
         model = MCPServerInstallationTool
         fields = [
@@ -481,6 +497,9 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
             "description",
             "input_schema",
             "approval_state",
+            "team_state",
+            "locked",
+            "decided_by",
             "last_seen_at",
             "removed_at",
             "created_at",
@@ -497,6 +516,38 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def _resolved_policy(self, obj: MCPServerInstallationTool) -> ResolvedPolicy | None:
+        context = cast(PolicyContext | None, self.context.get("policy_context"))
+        if context is None:
+            return None
+        if self.context.get("policy_scope_type") == "team":
+            return context.resolve_team(obj.tool_name, obj.description or "")
+        return context.resolve(obj.tool_name, obj.description or "")
+
+    @extend_schema_field(serializers.ChoiceField(choices=APPROVAL_STATES))
+    def get_approval_state(self, obj: MCPServerInstallationTool) -> str:
+        resolved = self._resolved_policy(obj)
+        return resolved.state if resolved is not None else obj.approval_state
+
+    @extend_schema_field(serializers.ChoiceField(choices=APPROVAL_STATES, allow_null=True))
+    def get_team_state(self, obj: MCPServerInstallationTool) -> str | None:
+        resolved = self._resolved_policy(obj)
+        return resolved.team_state if resolved is not None else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_locked(self, obj: MCPServerInstallationTool) -> bool:
+        resolved = self._resolved_policy(obj)
+        if resolved is None:
+            return False
+        return resolved.locked or (
+            self.context.get("policy_scope_type") != "team" and resolved.team_state == "do_not_use"
+        )
+
+    @extend_schema_field(serializers.CharField())
+    def get_decided_by(self, obj: MCPServerInstallationTool) -> str:
+        resolved = self._resolved_policy(obj)
+        return resolved.decided_by if resolved is not None else "legacy"
 
 
 class ToolApprovalUpdateSerializer(serializers.Serializer):
@@ -559,6 +610,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
+
+    def _tool_serializer_context(self, installation: MCPServerInstallation) -> dict[str, Any]:
+        if not installation.gateway_server_id:
+            return {}
+        policy_context = PolicyContext(
+            team_id=self.team_id,
+            caller=GatewayCaller(kind="member", user_id=cast(User, self.request.user).id),
+            gateway_server=installation.gateway_server,
+            installation=installation,
+        )
+        return {
+            "policy_context": policy_context,
+            "policy_scope_type": "team" if installation.scope == "shared" else "member",
+        }
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         # Enforce owner-only mutation of shared rows centrally so every action in
@@ -628,22 +693,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             raise PermissionDenied("Custom MCP servers are limited to project admins in this project.")
 
     @staticmethod
-    def _wants_admin_gateway_options(data: dict) -> bool:
-        return not data.get("team_enabled", True) or not data.get("allow_personal", True) or bool(data.get("agent_ids"))
+    def _wants_team_gateway_options(data: dict) -> bool:
+        return not data.get("team_enabled", True) or not data.get("allow_personal", True)
 
     def _validate_gateway_options(self, data: dict) -> None:
-        """Non-default gateway options are admin-only: they shape what the whole
-        team and its agents can reach. Validated before any row is created."""
-        if self._wants_admin_gateway_options(data) and not self._is_project_admin():
-            raise PermissionDenied("Only project admins can set team availability or share servers with agents.")
+        """Validate team-level options and agent grants before creating rows."""
+        if self._wants_team_gateway_options(data) and not self._is_project_admin():
+            raise PermissionDenied("Only project admins can set team availability.")
 
         agent_ids = set(data.get("agent_ids") or [])
         if not agent_ids:
             return
-        if data.get("scope", "personal") != "shared":
-            raise serializers.ValidationError(
-                {"agent_ids": "Agents can only be granted a server with a shared team credential."}
-            )
+        if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
+            raise PermissionDenied("Only project admins can share servers with agents in this project.")
 
         built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
         if not agent_ids.issubset(built_in_agent_ids):
@@ -654,11 +716,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         team options (enablement, personal connections, agent shares).
 
         Called only once the install is persisted for good; `_validate_gateway_options`
-        has already gated admin-only options.
+        has already gated team options and agent grants.
         """
         server = link_installation_to_gateway(installation, created_by=cast(User, self.request.user))
 
-        if self._wants_admin_gateway_options(data):
+        if self._wants_team_gateway_options(data):
             team_enabled = data.get("team_enabled", True)
             allow_personal = data.get("allow_personal", True)
             update_fields: list[str] = []
@@ -673,10 +735,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         for agent_id in data.get("agent_ids") or []:
             account = MCPServiceAccount.objects.for_team(self.team_id).get(id=agent_id)
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                 service_account=account,
                 gateway_server=server,
-                defaults={"team_id": self.team_id, "granted_by": cast(User, self.request.user)},
+                defaults={
+                    "team_id": self.team_id,
+                    "installation": installation,
+                    "granted_by": cast(User, self.request.user),
+                },
             )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1623,7 +1689,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         queryset = installation.tools.order_by("tool_name")
         if not include_removed:
             queryset = queryset.filter(removed_at__isnull=True)
-        serializer = MCPServerInstallationToolSerializer(queryset, many=True)
+        serializer = MCPServerInstallationToolSerializer(
+            queryset,
+            many=True,
+            context=self._tool_serializer_context(installation),
+        )
         return Response({"results": serializer.data})
 
     @validated_request(
@@ -1643,6 +1713,23 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             return Response({"detail": "Tool not found"}, status=status.HTTP_404_NOT_FOUND)
 
         new_state = request.validated_data["approval_state"]
+        if installation.scope != "shared" and installation.gateway_server_id:
+            policy_context = PolicyContext(
+                team_id=self.team_id,
+                caller=GatewayCaller(kind="member", user_id=cast(User, request.user).id),
+                gateway_server=installation.gateway_server,
+                installation=installation,
+            )
+            team_state = policy_context.team_state(tool.tool_name, tool.description or "")
+            if not is_policy_state_allowed(new_state, team_state):
+                raise serializers.ValidationError(
+                    {
+                        "approval_state": (
+                            "A team admin set a stricter ceiling for this tool. "
+                            "Choose the ceiling or a more restrictive state."
+                        )
+                    }
+                )
         if tool.approval_state != new_state:
             tool.approval_state = new_state
             tool.save(update_fields=["approval_state", "updated_at"])
@@ -1659,7 +1746,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 team=self.team,
             )
 
-        return Response(MCPServerInstallationToolSerializer(tool).data)
+        return Response(
+            MCPServerInstallationToolSerializer(
+                tool,
+                context=self._tool_serializer_context(installation),
+            ).data
+        )
 
     def _mirror_tool_approval_to_gateway(
         self, installation: MCPServerInstallation, tool_name: str, new_state: str
@@ -1706,7 +1798,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         queryset = installation.tools.filter(removed_at__isnull=True).order_by("tool_name")
-        serializer = MCPServerInstallationToolSerializer(queryset, many=True)
+        serializer = MCPServerInstallationToolSerializer(
+            queryset,
+            many=True,
+            context=self._tool_serializer_context(installation),
+        )
         return Response({"results": serializer.data})
 
 
@@ -1849,12 +1945,26 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     def _consume_oauth_state(self, request: Request, state_token: str) -> MCPOAuthState | None:
         # Only allow the user who created the state to redeem it. Prevents CSRF or session fixation.
-        if not request.user or not request.user.is_authenticated:
+        dev_mode = is_dev_mode()
+        is_authenticated = bool(request.user and request.user.is_authenticated)
+        if not is_authenticated and not dev_mode:
             logger.warning("OAuth redirect: unauthenticated callback")
             return None
 
         token_hash = _hash_oauth_state_token(state_token)
         now = timezone.now()
+        state_filters: dict[str, Any] = {
+            "token_hash": token_hash,
+            "consumed_at__isnull": True,
+        }
+        if dev_mode:
+            # Code's dev callback crosses into the system browser, which does
+            # not share the API client's local PostHog session.
+            state_filters["created_by__isnull"] = False
+            logger.info("OAuth redirect: allowing callback without user binding in dev mode")
+        else:
+            state_filters["created_by"] = request.user
+
         with transaction.atomic():
             # Lock only the oauth_state row. `template` is nullable, so the
             # select_related join is a LEFT OUTER JOIN — Postgres rejects
@@ -1862,7 +1972,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
                 .select_related("installation", "template")
-                .filter(token_hash=token_hash, consumed_at__isnull=True, created_by=request.user)
+                .filter(**state_filters)
                 .first()
             )
             if not oauth_state or oauth_state.expires_at <= now:

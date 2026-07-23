@@ -1,15 +1,16 @@
 """Gateway policy engine.
 
-Resolves the effective state of one tool for one caller. Resolution order,
-strictest source first:
+Resolves the effective state of one tool for one caller. Team policy is a
+ceiling: a caller may choose the same state or a more restrictive state, but
+can never make a tool more permissive than the team allows.
 
 1. Org rules — enabled team guardrails; a match locks the state.
-2. The caller's scope row — the member's or agent's own `MCPToolPolicy`.
-3. The team default row (`scope_type="team"`).
-4. The team preset baseline (`member_default_preset` / `agent_default_preset`).
-5. For members, the legacy per-installation approval state (pre-gateway rows
-   that were never mirrored into policy rows).
-6. `needs_approval` — freshly discovered tools are opt-in.
+2. The stricter of the caller's own choice and the team ceiling. The caller's
+   choice comes from its scope row, or for members from the legacy
+   per-installation state. The ceiling comes from the explicit team row, then
+   the audience preset.
+3. `needs_approval` — freshly discovered tools are opt-in when neither side
+   has made a choice.
 
 Every consumer (member proxy, agent proxy, Max, the gateway UI) resolves
 through this module so their answers can't drift apart.
@@ -99,6 +100,13 @@ class ResolvedPolicy:
 _STRICTNESS = {"do_not_use": 2, "needs_approval": 1, "approved": 0}
 
 
+def is_policy_state_allowed(state: str, ceiling: str | None) -> bool:
+    """Whether ``state`` is at least as restrictive as ``ceiling``."""
+    if ceiling is None:
+        return True
+    return _STRICTNESS[state] >= _STRICTNESS[ceiling]
+
+
 class PolicyContext:
     """Preloads every policy input for one (team, caller, server) so `resolve`
     is a pure in-memory lookup — callers resolve many tools in a loop."""
@@ -170,13 +178,20 @@ class PolicyContext:
             return None
         return max(matches, key=lambda rule: _STRICTNESS.get(rule.effect, 0))
 
-    def team_state(self, tool_name: str, description: str = "") -> str | None:
+    def team_policy(self, tool_name: str, description: str = "") -> tuple[str, str] | None:
         if tool_name in self._team_rows:
-            return self._team_rows[tool_name]
-        return member_preset_team_state(self.preset, tool_name, description)
+            return self._team_rows[tool_name], "team"
+        preset_state = member_preset_team_state(self.preset, tool_name, description)
+        return (preset_state, "preset") if preset_state is not None else None
 
-    def resolve(self, tool_name: str, description: str = "") -> ResolvedPolicy:
-        team_state = self.team_state(tool_name, description)
+    def team_state(self, tool_name: str, description: str = "") -> str | None:
+        team_policy = self.team_policy(tool_name, description)
+        return team_policy[0] if team_policy is not None else None
+
+    def resolve_team(self, tool_name: str, description: str = "") -> ResolvedPolicy:
+        """Resolve the editable team ceiling itself, rather than a caller under it."""
+        team_policy = self.team_policy(tool_name, description)
+        team_state = team_policy[0] if team_policy is not None else None
 
         rule = self._matching_rule(tool_name, description)
         if rule is not None:
@@ -188,17 +203,50 @@ class PolicyContext:
                 rule_description=rule.description,
             )
 
+        if team_policy is not None:
+            state, decided_by = team_policy
+            return ResolvedPolicy(state=state, decided_by=decided_by, team_state=state)
+
+        return ResolvedPolicy(state="needs_approval", decided_by="default", team_state=None)
+
+    def resolve(self, tool_name: str, description: str = "") -> ResolvedPolicy:
+        team_policy = self.team_policy(tool_name, description)
+        team_state = team_policy[0] if team_policy is not None else None
+
+        rule = self._matching_rule(tool_name, description)
+        if rule is not None:
+            return ResolvedPolicy(
+                state=rule.effect,
+                decided_by="rule",
+                team_state=team_state,
+                rule_name=rule.name,
+                rule_description=rule.description,
+            )
+
+        preference: tuple[str, str] | None = None
         if tool_name in self._scope_rows:
-            return ResolvedPolicy(state=self._scope_rows[tool_name], decided_by="scope", team_state=team_state)
+            preference = self._scope_rows[tool_name], "scope"
+        elif tool_name in self._legacy_rows:
+            preference = self._legacy_rows[tool_name], "legacy"
 
-        if tool_name in self._team_rows:
-            return ResolvedPolicy(state=self._team_rows[tool_name], decided_by="team", team_state=team_state)
+        if preference is not None:
+            preference_state, preference_source = preference
+            if team_policy is not None:
+                ceiling_state, ceiling_source = team_policy
+                if not is_policy_state_allowed(preference_state, ceiling_state):
+                    return ResolvedPolicy(
+                        state=ceiling_state,
+                        decided_by=ceiling_source,
+                        team_state=ceiling_state,
+                    )
+            return ResolvedPolicy(
+                state=preference_state,
+                decided_by=preference_source,
+                team_state=team_state,
+            )
 
-        preset_state = member_preset_team_state(self.preset, tool_name, description)
-        if preset_state is not None:
-            return ResolvedPolicy(state=preset_state, decided_by="preset", team_state=team_state)
-
-        if tool_name in self._legacy_rows:
-            return ResolvedPolicy(state=self._legacy_rows[tool_name], decided_by="legacy", team_state=team_state)
+        if team_policy is not None:
+            ceiling_state, ceiling_source = team_policy
+            return ResolvedPolicy(state=ceiling_state, decided_by=ceiling_source, team_state=ceiling_state)
 
         return ResolvedPolicy(state="needs_approval", decided_by="default", team_state=team_state)

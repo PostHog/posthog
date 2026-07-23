@@ -1352,11 +1352,26 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
+    def test_create_task_with_posthog_ai_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New PostHog AI task",
+                "description": "Created from the PostHog AI task tracker",
+                "origin_product": Task.OriginProduct.POSTHOG_AI,
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.POSTHOG_AI)
+
     @parameterized.expand(
         [
             (Task.OriginProduct.IMAGE_BUILDER,),
             (Task.OriginProduct.EXPERIMENTS,),
-            (Task.OriginProduct.POSTHOG_AI,),
             (Task.OriginProduct.SIGNALS_SCOUT,),
             (Task.OriginProduct.SUPPORT_REPLY,),
         ]

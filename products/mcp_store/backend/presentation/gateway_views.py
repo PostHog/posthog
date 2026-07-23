@@ -33,7 +33,12 @@ from ..agents import (
     get_built_in_agent_spec,
     sync_built_in_agents,
 )
-from ..gateway import sync_catalog_templates_to_gateway
+from ..gateway import (
+    installation_for_agent_access,
+    installation_for_agent_grant,
+    members_can_manage_agent_access,
+    sync_catalog_templates_to_gateway,
+)
 from ..models import (
     APPROVAL_STATES,
     POLICY_PRESET_CHOICES,
@@ -51,7 +56,7 @@ from ..models import (
     TeamMCPGatewayConfig,
 )
 from ..permissions import DenyMCPBuiltInAgentOAuth
-from ..policy import GatewayCaller, PolicyContext
+from ..policy import GatewayCaller, PolicyContext, is_policy_state_allowed
 
 logger = structlog.get_logger(__name__)
 
@@ -59,9 +64,56 @@ RESOLVED_DECIDED_BY_CHOICES = ["rule", "scope", "team", "preset", "legacy", "def
 
 AUDIT_QUICK_FILTER_CHOICES = ["all", "agents", "approvals", "blocked"]
 
+AGENT_SERVER_CONNECTION_STATE_CHOICES = [
+    "ready",
+    "pending_oauth",
+    "needs_reauth",
+    "disabled",
+    "missing_credential",
+]
+
 
 def get_gateway_config(team_id: int) -> TeamMCPGatewayConfig | None:
     return TeamMCPGatewayConfig.objects.for_team(team_id).first()
+
+
+def policy_entries_above_team_ceiling(
+    *,
+    team_id: int,
+    server: MCPGatewayServer,
+    caller: GatewayCaller,
+    entries: list[dict[str, Any]],
+) -> list[str]:
+    """Return entries that try to make a caller scope more permissive than its team ceiling."""
+    context = PolicyContext(team_id=team_id, caller=caller, gateway_server=server)
+    descriptions = dict(
+        MCPServerInstallationTool.objects.filter(
+            installation__gateway_server=server,
+            tool_name__in=[entry["tool_name"] for entry in entries],
+            removed_at__isnull=True,
+        ).values_list("tool_name", "description")
+    )
+    return [
+        entry["tool_name"]
+        for entry in entries
+        if not is_policy_state_allowed(
+            entry["policy_state"],
+            context.team_state(entry["tool_name"], descriptions.get(entry["tool_name"], "") or ""),
+        )
+    ]
+
+
+def raise_for_policies_above_team_ceiling(tool_names: list[str]) -> None:
+    if tool_names:
+        raise serializers.ValidationError(
+            {
+                "policies": (
+                    "A team admin set a stricter ceiling for: "
+                    + ", ".join(sorted(tool_names))
+                    + ". Choose the ceiling or a more restrictive state."
+                )
+            }
+        )
 
 
 class GatewayAdminMixin:
@@ -83,6 +135,13 @@ class GatewayAdminMixin:
     def _require_project_admin(self) -> None:
         if not self._is_project_admin():
             raise PermissionDenied("Only project admins can manage the MCP gateway.")
+
+    def _can_manage_agent_access(self) -> bool:
+        return self._is_project_admin() or members_can_manage_agent_access(self.team_id)  # type: ignore[attr-defined]
+
+    def _require_agent_access_manager(self) -> None:
+        if not self._can_manage_agent_access():
+            raise PermissionDenied("Only project admins can manage agent access for this project.")
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +231,13 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         source="template.icon_key",
         read_only=True,
         default="",
-        help_text="Lowercase key from the linked template for brand icons. Empty for custom servers.",
+        help_text="Deprecated brand icon key from the linked template. Empty for custom servers.",
+    )
+    icon_domain = serializers.CharField(
+        source="template.icon_domain",
+        read_only=True,
+        default="",
+        help_text="Brand domain from the linked template. Empty for custom servers.",
     )
     docs_url = serializers.CharField(
         source="template.docs_url", read_only=True, default="", help_text="Documentation URL from the template."
@@ -209,6 +274,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "is_team_enabled",
             "allow_personal_connections",
             "icon_key",
+            "icon_domain",
             "docs_url",
             "template_id",
             "tool_count",
@@ -379,7 +445,7 @@ class ResolvedToolPolicySerializer(serializers.Serializer):
         help_text="What the team-level chain (row or preset) yields, ignoring the scope. Null when the team imposes nothing.",
     )
     locked = serializers.BooleanField(
-        help_text="True when the requester can't change this row (rule match, or admin-imposed for a member)."
+        help_text="True when no state is editable for this scope (a rule match or a Blocked team ceiling)."
     )
     decided_by = serializers.ChoiceField(
         choices=RESOLVED_DECIDED_BY_CHOICES, help_text="Which policy layer decided the state."
@@ -400,10 +466,22 @@ class TeamMCPGatewayConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamMCPGatewayConfig
-        fields = ["allow_custom_servers", "member_default_preset", "agent_default_preset", "is_admin"]
+        fields = [
+            "allow_custom_servers",
+            "allow_member_agent_access",
+            "member_default_preset",
+            "agent_default_preset",
+            "is_admin",
+        ]
         extra_kwargs = {
             "allow_custom_servers": {
                 "help_text": "Whether non-admin members may register custom MCP servers with the gateway."
+            },
+            "allow_member_agent_access": {
+                "help_text": (
+                    "Whether non-admin members may share their available MCP connections with agents "
+                    "and manage agent tool policies."
+                )
             },
             "member_default_preset": {
                 "help_text": "Baseline preset for members. Empty until an admin applies one from Team settings."
@@ -422,6 +500,13 @@ class GatewayConfigUpdateSerializer(serializers.Serializer):
     allow_custom_servers = serializers.BooleanField(
         required=False, help_text="Whether non-admin members may register custom MCP servers."
     )
+    allow_member_agent_access = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether non-admin members may share their available MCP connections with agents "
+            "and manage agent tool policies."
+        ),
+    )
     member_default_preset = serializers.ChoiceField(
         choices=POLICY_PRESET_CHOICES, required=False, allow_blank=True, help_text="Baseline preset for members."
     )
@@ -437,6 +522,20 @@ class ApplyPresetSerializer(serializers.Serializer):
     preset = serializers.ChoiceField(choices=POLICY_PRESET_CHOICES, help_text="Preset to apply.")
 
 
+class MCPServiceAccountServerSerializer(serializers.Serializer):
+    """A credential-safe summary of a server configured for an agent."""
+
+    id = serializers.UUIDField(help_text="Gateway server granted to the agent.")
+    name = serializers.CharField(help_text="Server display name.")
+    description = serializers.CharField(help_text="Server description.")
+    icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
+    icon_domain = serializers.CharField(help_text="Brand domain. Empty for custom servers.")
+    connection_state = serializers.ChoiceField(
+        choices=AGENT_SERVER_CONNECTION_STATE_CHOICES,
+        help_text="Whether the credential delegated to the agent is ready to use.",
+    )
+
+
 class MCPServiceAccountSerializer(serializers.ModelSerializer):
     agent_key = serializers.SerializerMethodField(help_text="Stable PostHog agent identifier.")
     product_enabled = serializers.SerializerMethodField(
@@ -445,7 +544,10 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
     product_disabled_reason = serializers.SerializerMethodField(
         help_text="How to enable the owning product. Empty when product_enabled is true."
     )
-    server_ids = serializers.SerializerMethodField(help_text="Gateway servers this agent has access to.")
+    server_ids = serializers.SerializerMethodField(help_text="Gateway servers configured for this agent.")
+    servers = serializers.SerializerMethodField(
+        help_text="Credential-safe summaries of the gateway servers configured for this agent."
+    )
 
     class Meta:
         model = MCPServiceAccount
@@ -459,6 +561,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "product_enabled",
             "product_disabled_reason",
             "server_ids",
+            "servers",
             "last_active_at",
             "created_at",
             "updated_at",
@@ -502,6 +605,34 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
     def get_server_ids(self, obj: MCPServiceAccount) -> list[str]:
         return [str(access.gateway_server_id) for access in obj.server_access.all()]
+
+    @extend_schema_field(MCPServiceAccountServerSerializer(many=True))
+    def get_servers(self, obj: MCPServiceAccount) -> list[dict[str, Any]]:
+        servers: list[dict[str, Any]] = []
+        for access in obj.server_access.all():
+            server = access.gateway_server
+            installation = installation_for_agent_access(access)
+            connection_state = "ready"
+            if installation is None:
+                connection_state = "missing_credential"
+            elif not installation.is_enabled:
+                connection_state = "disabled"
+            elif _installation_needs_reauth(installation):
+                connection_state = "needs_reauth"
+            elif _installation_pending_oauth(installation):
+                connection_state = "pending_oauth"
+
+            servers.append(
+                {
+                    "id": server.id,
+                    "name": server.name,
+                    "description": server.description,
+                    "icon_key": server.template.icon_key if server.template else "",
+                    "icon_domain": server.template.icon_domain if server.template else "",
+                    "connection_state": connection_state,
+                }
+            )
+        return servers
 
 
 class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
@@ -685,6 +816,11 @@ class MCPGatewayServerViewSet(
             .order_by("name")
         )
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action == "policies":
+            return ["project:read"]
+        return None
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action in ("update", "partial_update"):
             return MCPGatewayServerUpdateSerializer
@@ -740,10 +876,12 @@ class MCPGatewayServerViewSet(
 
     def _require_scope_permission(self, scope_type: str, scope_user: User | None, write: bool = False) -> None:
         """Members may view team defaults and manage their own member scope;
-        everything else is admin-only."""
+        agent scopes follow the team's agent-access setting."""
         if self._is_project_admin():
             return
         if scope_type == "member" and scope_user is not None and scope_user.id == self.request.user.id:
+            return
+        if scope_type == "agent" and self._can_manage_agent_access():
             return
         if scope_type == "team" and not write:
             return
@@ -776,17 +914,12 @@ class MCPGatewayServerViewSet(
             seen.add(tool_name)
             tools.append((tool_name, description or "", input_schema or {}))
 
-        is_admin = self._is_project_admin()
         rows: list[dict[str, Any]] = []
         for tool_name, description, input_schema in tools:
-            resolved = context.resolve(tool_name, description)
-            # Beyond rule locks, a member can't loosen an admin-imposed state —
-            # unless the baseline is "Member decides".
-            member_locked = (
-                scope_type == "member"
-                and not is_admin
-                and resolved.state in ("needs_approval", "do_not_use")
-                and (resolved.decided_by == "team" or (resolved.decided_by == "preset" and context.preset != "user"))
+            resolved = (
+                context.resolve_team(tool_name, description)
+                if scope_type == "team"
+                else context.resolve(tool_name, description)
             )
             rows.append(
                 {
@@ -795,7 +928,7 @@ class MCPGatewayServerViewSet(
                     "input_schema": input_schema,
                     "policy_state": resolved.state,
                     "team_state": resolved.team_state,
-                    "locked": resolved.locked or member_locked,
+                    "locked": resolved.locked or (scope_type != "team" and resolved.team_state == "do_not_use"),
                     "decided_by": resolved.decided_by,
                     "rule_name": resolved.rule_name,
                     "rule_description": resolved.rule_description,
@@ -827,6 +960,20 @@ class MCPGatewayServerViewSet(
         data = request.validated_data
         scope_type, scope_user, scope_account = self._resolve_scope(data)
         self._require_scope_permission(scope_type, scope_user, write=True)
+
+        if scope_type != "team":
+            if scope_type == "agent" and scope_account is not None:
+                caller = GatewayCaller(kind="agent", service_account_id=str(scope_account.id))
+            else:
+                caller = GatewayCaller(kind="member", user_id=scope_user.id if scope_user else None)
+            raise_for_policies_above_team_ceiling(
+                policy_entries_above_team_ceiling(
+                    team_id=self.team_id,
+                    server=server,
+                    caller=caller,
+                    entries=data["policies"],
+                )
+            )
 
         for entry in data["policies"]:
             MCPToolPolicy.objects.update_or_create(
@@ -885,9 +1032,30 @@ class MCPServiceAccountViewSet(
             MCPServiceAccount.objects.for_team(self.team_id)
             .filter(handle__in=built_in_agent_handles())
             .select_related("team__organization")
-            .prefetch_related("server_access")
+            .prefetch_related(
+                Prefetch(
+                    "server_access",
+                    queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
+                    .select_related("gateway_server__template", "installation")
+                    .prefetch_related(
+                        Prefetch(
+                            "gateway_server__installations",
+                            queryset=MCPServerInstallation.objects.filter(
+                                team_id=self.team_id, scope="shared"
+                            ).order_by("created_at"),
+                            to_attr="agent_shared_installations",
+                        )
+                    )
+                    .order_by("gateway_server__name"),
+                )
+            )
             .order_by(catalog_order)
         )
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action == "access":
+            return ["project:read"]
+        return None
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action in ("update", "partial_update"):
@@ -917,7 +1085,7 @@ class MCPServiceAccountViewSet(
     @action(detail=True, methods=["post"], url_path="access")
     def access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Grant or revoke this agent's access to one gateway server."""
-        self._require_project_admin()
+        self._require_agent_access_manager()
         account = self.get_object()
         data = request.validated_data
         try:
@@ -926,12 +1094,30 @@ class MCPServiceAccountViewSet(
             raise NotFound("Gateway server not found.")
 
         if data["enabled"]:
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).get_or_create(
+            policies = data.get("policies") or []
+            raise_for_policies_above_team_ceiling(
+                policy_entries_above_team_ceiling(
+                    team_id=self.team_id,
+                    server=server,
+                    caller=GatewayCaller(kind="agent", service_account_id=str(account.id)),
+                    entries=policies,
+                )
+            )
+            installation = installation_for_agent_grant(self.team_id, server, cast(User, request.user).id)
+            if installation is None:
+                raise serializers.ValidationError(
+                    {"gateway_server_id": "Connect this server before sharing access with an agent."}
+                )
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                 service_account=account,
                 gateway_server=server,
-                defaults={"team_id": self.team_id, "granted_by": cast(User, request.user)},
+                defaults={
+                    "team_id": self.team_id,
+                    "installation": installation,
+                    "granted_by": cast(User, request.user),
+                },
             )
-            for entry in data.get("policies") or []:
+            for entry in policies:
                 MCPToolPolicy.objects.update_or_create(
                     team_id=self.team_id,
                     gateway_server=server,
@@ -1111,6 +1297,13 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
                 request.user,
                 "mcp_gateway custom servers toggled",
                 properties={"allow_custom_servers": data["allow_custom_servers"]},
+                team=self.team,
+            )
+        if "allow_member_agent_access" in data:
+            report_user_action(
+                request.user,
+                "mcp_gateway member agent access toggled",
+                properties={"allow_member_agent_access": data["allow_member_agent_access"]},
                 team=self.team,
             )
         return Response(self._serialize_config(config))

@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_store", "0013_alter_mcpservertemplate_category_db_default"),
+        ("mcp_store", "0015_backfill_mcp_template_icon_domains"),
         ("posthog", "1260_activitylog_idx_alog_org_created_at_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

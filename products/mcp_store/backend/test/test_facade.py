@@ -218,7 +218,7 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert len(results) == 1
 
-    def test_built_in_agent_only_gets_explicitly_granted_shared_installations(self) -> None:
+    def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.team.conversations_enabled = True
@@ -233,13 +233,13 @@ class TestGetInstallationsForSandbox(BaseTest):
             name="Ungranted",
             url="https://ungranted.example.com/mcp",
         )
-        granted = self._create_installation(
+        self._create_installation(
             scope="shared",
             gateway_server=granted_server,
             url=granted_server.url,
             display_name="Granted",
         )
-        self._create_installation(
+        personal = self._create_installation(
             scope="personal",
             gateway_server=granted_server,
             url=granted_server.url,
@@ -257,6 +257,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             team_id=self.team.id,
             service_account=account,
             gateway_server=granted_server,
+            installation=personal,
             granted_by=self.user,
         )
 
@@ -268,7 +269,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             task_agent_key="support",
         )
 
-        assert [result.id for result in results] == [str(granted.id)]
+        assert [result.id for result in results] == [str(personal.id)]
         assert results[0].proxy_path == f"/api/mcp_store/gateway/servers/{granted_server.id}/proxy/"
         assert results[0].proxy_token is not None
         assert results[0].proxy_token.startswith("mcp_gw_")

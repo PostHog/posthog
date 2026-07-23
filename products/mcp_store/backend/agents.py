@@ -137,18 +137,22 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
 
     for spec in BUILT_IN_AGENTS:
         availability = get_agent_product_availability(team, spec.key)
+        token_hash = hash_key_value(f"built-in-mcp-agent:{team.id}:{spec.key}")
         account, created = MCPServiceAccount.objects.for_team(team.id).get_or_create(
             team_id=team.id,
-            handle=spec.handle,
+            token_hash=token_hash,
             defaults={
                 "name": spec.name,
                 "description": spec.description,
+                "handle": spec.handle,
                 "status": "active" if availability.enabled else "paused",
-                "token_hash": hash_key_value(f"built-in-mcp-agent:{team.id}:{spec.key}"),
             },
         )
         if not created:
             account_changed = False
+            if account.handle != spec.handle:
+                account.handle = spec.handle
+                account_changed = True
             if account.name != spec.name:
                 account.name = spec.name
                 account_changed = True
@@ -166,7 +170,7 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
     if changed:
         MCPServiceAccount.objects.for_team(team.id).bulk_update(
             changed,
-            ["name", "description", "status", "updated_at"],
+            ["name", "description", "handle", "status", "updated_at"],
         )
 
     return accounts

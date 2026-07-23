@@ -1,7 +1,9 @@
 import hashlib
 from datetime import timedelta
-from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from django.core.signing import SignatureExpired
 from django.http import HttpResponse
@@ -14,7 +16,6 @@ from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from products.mcp_store.backend.agents import (
     create_gateway_agent_token,
@@ -30,6 +31,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
     MCPToolPolicy,
+    TeamMCPGatewayConfig,
 )
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
@@ -254,6 +256,34 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             is_active=active,
         )
 
+    def _server_with_personal_tool(
+        self, *, approval_state: str = "approved"
+    ) -> tuple[MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool]:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Ceiling test",
+            url="https://mcp.ceiling-test.example.com/mcp",
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        tool = MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            description="Create an issue",
+            approval_state=approval_state,
+            last_seen_at=timezone.now(),
+        )
+        return server, installation, tool
+
     def test_admin_list_registers_active_catalog_templates_enabled_by_default(self) -> None:
         self._make_admin()
         created = self._template("Created")
@@ -306,6 +336,149 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         admin_result = next(result for result in admin_response.json()["results"] if result["id"] == server["id"])
         assert admin_result["is_team_enabled"] is False
 
+    def test_team_policy_is_a_ceiling_for_member_and_legacy_tool_views(self) -> None:
+        self._make_admin()
+        server, installation, _tool = self._server_with_personal_tool(approval_state="approved")
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="create_issue",
+            scope_type="member",
+            scope_user=self.user,
+            state="approved",
+        )
+
+        team_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "team",
+                "policies": [{"tool_name": "create_issue", "policy_state": "needs_approval"}],
+            },
+            format="json",
+        )
+
+        assert team_response.status_code == status.HTTP_200_OK
+        assert team_response.json()["results"][0]["policy_state"] == "needs_approval"
+
+        self._make_member()
+        member_response = self.client.get(
+            self._api_url(f"{server.id}/tools/"),
+            {"scope_type": "member"},
+        )
+        assert member_response.status_code == status.HTTP_200_OK
+        member_tool = member_response.json()["results"][0]
+        assert member_tool["policy_state"] == "needs_approval"
+        assert member_tool["team_state"] == "needs_approval"
+        assert member_tool["decided_by"] == "team"
+        assert member_tool["locked"] is False
+
+        legacy_response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/tools/"
+        )
+        assert legacy_response.status_code == status.HTTP_200_OK
+        legacy_tool = legacy_response.json()["results"][0]
+        assert legacy_tool["approval_state"] == "needs_approval"
+        assert legacy_tool["team_state"] == "needs_approval"
+        assert legacy_tool["decided_by"] == "team"
+        assert legacy_tool["locked"] is False
+
+    def test_member_can_choose_below_team_ceiling_but_not_above_it(self) -> None:
+        self._make_admin()
+        server, installation, _tool = self._server_with_personal_tool(approval_state="needs_approval")
+        team_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "team",
+                "policies": [{"tool_name": "create_issue", "policy_state": "needs_approval"}],
+            },
+            format="json",
+        )
+        assert team_response.status_code == status.HTTP_200_OK
+
+        self._make_member()
+        stricter_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "member",
+                "policies": [{"tool_name": "create_issue", "policy_state": "do_not_use"}],
+            },
+            format="json",
+        )
+        assert stricter_response.status_code == status.HTTP_200_OK
+        assert stricter_response.json()["results"][0]["policy_state"] == "do_not_use"
+        assert stricter_response.json()["results"][0]["decided_by"] == "scope"
+
+        above_ceiling_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "member",
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+        assert above_ceiling_response.status_code == status.HTTP_400_BAD_REQUEST
+
+        legacy_above_ceiling_response = self.client.patch(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/tools/create_issue/",
+            data={"approval_state": "approved"},
+            format="json",
+        )
+        assert legacy_above_ceiling_response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_team_scope_displays_an_always_allow_ceiling(self) -> None:
+        self._make_admin()
+        server, _installation, _tool = self._server_with_personal_tool(approval_state="needs_approval")
+
+        response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "team",
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        policy = response.json()["results"][0]
+        assert policy["policy_state"] == "approved"
+        assert policy["team_state"] == "approved"
+        assert policy["decided_by"] == "team"
+
+    def test_agent_access_policy_cannot_exceed_team_ceiling(self) -> None:
+        self._make_admin()
+        server, _installation, _tool = self._server_with_personal_tool(approval_state="needs_approval")
+        account = sync_built_in_agents(self.team)[0]
+        team_response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "team",
+                "policies": [{"tool_name": "create_issue", "policy_state": "needs_approval"}],
+            },
+            format="json",
+        )
+        assert team_response.status_code == status.HTTP_200_OK
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/{account.id}/access/",
+            data={
+                "gateway_server_id": str(server.id),
+                "enabled": True,
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            not MCPToolPolicy.objects.for_team(self.team.id)
+            .filter(
+                gateway_server=server,
+                scope_type="agent",
+                scope_service_account=account,
+            )
+            .exists()
+        )
+
 
 class TestMCPServiceAccountAPI(APIBaseTest):
     def _api_url(self, suffix: str = "") -> str:
@@ -315,6 +488,11 @@ class TestMCPServiceAccountAPI(APIBaseTest):
     def _make_admin(self) -> None:
         membership = self.user.organization_memberships.get(organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def _make_member(self) -> None:
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
     def _active_posthog_ai_account(self) -> MCPServiceAccount:
@@ -368,6 +546,21 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert all(agent["status"] == "paused" for agent in results)
         assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
+    def test_list_reconciles_legacy_built_in_agent_handles(self) -> None:
+        self._make_admin()
+        support_account = sync_built_in_agents(self.team)[0]
+        MCPServiceAccount.objects.for_team(self.team.id).filter(id=support_account.id).update(
+            handle="svc-posthog-support"
+        )
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        support_account.refresh_from_db()
+        assert support_account.handle == "posthog-support"
+        assert response.json()["results"][0]["id"] == str(support_account.id)
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
+
     def test_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
 
@@ -379,8 +572,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert delete_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     @ALLOW_URL
-    def test_install_rejects_agent_grant_for_personal_credential(self, _mock_is_url_allowed) -> None:
-        self._make_admin()
+    def test_member_can_delegate_a_personal_credential_during_install(self, _mock_is_url_allowed) -> None:
+        self._make_member()
         account = sync_built_in_agents(self.team)[0]
         install_url = "https://mcp.personal-agent-grant.example.com/mcp"
 
@@ -397,7 +590,36 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).get(
+            service_account=account,
+            gateway_server=installation.gateway_server,
+        )
+        assert installation.scope == "personal"
+        assert access.installation == installation
+
+    @ALLOW_URL
+    def test_install_rejects_member_agent_grant_when_team_setting_is_off(self, _mock_is_url_allowed) -> None:
+        self._make_member()
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_member_agent_access=False)
+        account = sync_built_in_agents(self.team)[0]
+        install_url = "https://mcp.restricted-agent-grant.example.com/mcp"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Restricted grant",
+                "url": install_url,
+                "auth_type": "api_key",
+                "api_key": "secret",
+                "scope": "personal",
+                "agent_ids": [str(account.id)],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not MCPServerInstallation.objects.filter(team=self.team, url=install_url).exists()
 
     @ALLOW_URL
@@ -426,6 +648,221 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not MCPServerInstallation.objects.filter(team=self.team, url=install_url).exists()
+
+    def test_member_can_delegate_their_credential_and_control_agent_tools_by_default(self) -> None:
+        self._make_member()
+        account = sync_built_in_agents(self.team)[1]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Personal Notion",
+            url="https://mcp.personal-notion.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Personal Notion",
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            description="Create an issue",
+            last_seen_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={
+                "gateway_server_id": str(server.id),
+                "enabled": True,
+                "policies": [{"tool_name": "create_issue", "policy_state": "do_not_use"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).get(
+            service_account=account,
+            gateway_server=server,
+        )
+        assert access.installation == installation
+        assert access.installation.scope == "personal"
+        assert server.auth_mode == "individual"
+        assert (
+            MCPToolPolicy.objects.for_team(self.team.id)
+            .get(
+                gateway_server=server,
+                scope_type="agent",
+                scope_service_account=account,
+                tool_name="create_issue",
+            )
+            .state
+            == "do_not_use"
+        )
+
+        policy_response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/",
+            data={
+                "scope_type": "agent",
+                "scope_service_account_id": str(account.id),
+                "policies": [{"tool_name": "create_issue", "policy_state": "needs_approval"}],
+            },
+            format="json",
+        )
+        assert policy_response.status_code == status.HTTP_200_OK
+        assert policy_response.json()["results"][0]["policy_state"] == "needs_approval"
+
+        member_response = self.client.get(self._api_url())
+        scout = next(row for row in member_response.json()["results"] if row["agent_key"] == "scout")
+        assert scout["servers"] == [
+            {
+                "id": str(server.id),
+                "name": "Personal Notion",
+                "description": "",
+                "icon_key": "",
+                "icon_domain": "",
+                "connection_state": "ready",
+            }
+        ]
+
+    def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
+        self._make_member()
+        account = sync_built_in_agents(self.team)[0]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Restricted access",
+            url="https://mcp.restricted-access.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            last_seen_at=timezone.now(),
+        )
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            service_account=account,
+            gateway_server=server,
+            installation=installation,
+            granted_by=self.user,
+        )
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_member_agent_access=False)
+
+        policy_response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/",
+            data={
+                "scope_type": "agent",
+                "scope_service_account_id": str(account.id),
+                "policies": [{"tool_name": "create_issue", "policy_state": "do_not_use"}],
+            },
+            format="json",
+        )
+        revoke_response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False},
+            format="json",
+        )
+
+        assert policy_response.status_code == status.HTTP_403_FORBIDDEN
+        assert revoke_response.status_code == status.HTTP_403_FORBIDDEN
+        assert MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(id=access.id).exists()
+
+        self._make_admin()
+        admin_revoke_response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False},
+            format="json",
+        )
+        assert admin_revoke_response.status_code == status.HTTP_200_OK
+        assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(id=access.id).exists()
+
+    def test_only_admin_can_update_member_agent_access_setting(self) -> None:
+        self._make_member()
+        config_url = f"/api/projects/{self.team.id}/mcp_gateway/config/"
+        response = self.client.get(config_url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["allow_member_agent_access"] is True
+
+        member_response = self.client.post(
+            f"{config_url}update_settings/",
+            data={"allow_member_agent_access": False},
+            format="json",
+        )
+        assert member_response.status_code == status.HTTP_403_FORBIDDEN
+
+        self._make_admin()
+        admin_response = self.client.post(
+            f"{config_url}update_settings/",
+            data={"allow_member_agent_access": False},
+            format="json",
+        )
+        assert admin_response.status_code == status.HTTP_200_OK
+        assert admin_response.json()["allow_member_agent_access"] is False
+
+    def test_member_can_see_legacy_agent_grant_that_needs_a_credential(self) -> None:
+        account = sync_built_in_agents(self.team)[1]
+        template = MCPServerTemplate.objects.create(
+            name="Notion",
+            url="https://mcp.notion-agent-summary.example.com/mcp",
+            description="Notion workspace",
+            auth_type="oauth",
+            icon_key="notion",
+            icon_domain="notion.so",
+            is_active=True,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            template=template,
+            name=template.name,
+            url=template.url,
+            description=template.description,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name=template.name,
+            url=server.url,
+            auth_type="oauth",
+            scope="personal",
+            gateway_server=server,
+            sensitive_configuration={"access_token": "personal-token"},
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            service_account=account,
+            gateway_server=server,
+            granted_by=self.user,
+        )
+        self._make_member()
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        assert scout["servers"] == [
+            {
+                "id": str(server.id),
+                "name": "Notion",
+                "description": "Notion workspace",
+                "icon_key": "notion",
+                "icon_domain": "notion.so",
+                "connection_state": "missing_credential",
+            }
+        ]
 
     @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
     def test_product_becoming_unavailable_pauses_agent_and_prevents_resume(self, _mock_is_limited) -> None:
@@ -650,6 +1087,21 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             format="json",
         )
         assert grant_response.status_code == status.HTTP_200_OK
+        access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).get(
+            service_account_id=posthog_ai["id"],
+            gateway_server=granted_server,
+        )
+        assert access.installation == personal_installation
+        assert grant_response.json()["servers"] == [
+            {
+                "id": str(granted_server.id),
+                "name": "Agent only",
+                "description": "",
+                "icon_key": "",
+                "icon_domain": "",
+                "connection_state": "ready",
+            }
+        ]
 
         account = MCPServiceAccount.objects.for_team(self.team.id).get(id=posthog_ai["id"])
         agent_client = APIClient()
@@ -658,7 +1110,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [server["id"] for server in response.json()["results"]] == [str(granted_server.id)]
-        assert [tool["name"] for tool in response.json()["results"][0]["tools"]] == ["shared_tool"]
+        assert [tool["name"] for tool in response.json()["results"][0]["tools"]] == ["personal_tool"]
 
         revoke_response = self.client.post(
             self._api_url(f"{posthog_ai['id']}/access/"),
@@ -1202,7 +1654,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "status=error" in location
         assert "error=cancelled" in location
 
-    def test_callback_rejects_state_for_anonymous_consumer(self):
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=False)
+    def test_callback_rejects_state_for_anonymous_consumer(self, _is_dev):
         """State in an unauthenticated browser must return 400.
 
         If an OAuth state is handled by a browser where no user is logged in,
@@ -1223,6 +1676,36 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert row.consumed_at is None
         attacker_install.refresh_from_db()
         assert not (attacker_install.sensitive_configuration or {}).get("access_token")
+
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode", return_value=True)
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_callback_accepts_anonymous_consumer_in_dev(self, mock_post, _allow, _is_dev):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "tok", "token_type": "bearer"}
+
+        installation = self._create_installation()
+        state_token = "anonymous-dev-callback"
+        callback_url = "http://localhost:8238/mcp-oauth-complete"
+        self._create_oauth_state(
+            installation,
+            state_token,
+            pkce_verifier="v",
+            install_source="posthog-code",
+            posthog_code_callback_url=callback_url,
+        )
+
+        browser_client = APIClient()
+        response = browser_client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "code"},
+        )
+
+        assert response.status_code == 302
+        assert response["Location"].startswith(f"{callback_url}?")
+        assert "status=success" in response["Location"]
+        installation.refresh_from_db()
+        assert installation.sensitive_configuration["access_token"] == "tok"
 
     def test_callback_rejects_state_for_different_authenticated_user(self):
         """State created by user A cannot be consumed by user B in the same browser.

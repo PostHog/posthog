@@ -18,7 +18,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServiceAccountServerAccess
 
 logger = structlog.get_logger(__name__)
 
@@ -137,16 +137,15 @@ def get_installations_for_sandbox(
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
-    server-stamped built-in agent task gets only shared servers explicitly
-    granted to its service account and never receives member-personal
-    installations. Origin alone is not trusted: the persisted task agent key
-    must match the origin mapping. A mapped origin without that marker gets no
-    MCP Store installations. Unmapped origins retain the legacy member
-    behavior and optionally include the user's personal installations when
-    ``include_personal`` is True and a ``user_id`` is provided. When the user
-    has a ready personal installation for the same URL as a shared one, only
-    the personal one is returned — the user acts as themselves rather than
-    through the shared credential.
+    server-stamped built-in agent task gets only the credentials explicitly
+    delegated through its service-account grants. Origin alone is not trusted:
+    the persisted task agent key must match the origin mapping. A mapped origin
+    without that marker gets no MCP Store installations. Unmapped origins
+    retain the legacy member behavior and optionally include the user's
+    personal installations when ``include_personal`` is True and a ``user_id``
+    is provided. When the user has a ready personal installation for the same
+    URL as a shared one, only the personal one is returned — the user acts as
+    themselves rather than through the shared credential.
     """
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
@@ -174,30 +173,52 @@ def get_installations_for_sandbox(
         ):
             return []
 
-        shared_queryset = base_queryset.filter(scope="shared")
         if agent_key is not None:
             if agent_account is None:
-                shared_queryset = shared_queryset.none()
+                installations = []
             else:
-                shared_queryset = shared_queryset.filter(
-                    gateway_server__agent_access__service_account=agent_account,
+                access_rows = list(
+                    MCPServiceAccountServerAccess.objects.for_team(team_id)
+                    .filter(service_account=agent_account)
+                    .values_list("installation_id", "gateway_server_id")
                 )
+                bound_servers = {
+                    installation_id: gateway_server_id
+                    for installation_id, gateway_server_id in access_rows
+                    if installation_id is not None
+                }
+                legacy_server_ids = {
+                    gateway_server_id for installation_id, gateway_server_id in access_rows if installation_id is None
+                }
+                candidates = list(
+                    base_queryset.filter(
+                        Q(id__in=bound_servers) | Q(scope="shared", gateway_server_id__in=legacy_server_ids)
+                    )
+                )
+                installations = [
+                    installation
+                    for installation in candidates
+                    if (
+                        bound_servers.get(installation.id) == installation.gateway_server_id
+                        or (installation.scope == "shared" and installation.gateway_server_id in legacy_server_ids)
+                    )
+                ]
         else:
+            shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(
                 Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
             )
             if user_id is not None:
                 shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
-
-        # list() evaluates the lazy querysets here so DB errors hit this handler.
-        installations = list(shared_queryset)
-        if agent_key is None and include_personal and user_id is not None:
-            personal_queryset = (
-                base_queryset.filter(scope="personal", user_id=user_id)
-                .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
-                .exclude(gateway_server__member_revocations__user_id=user_id)
-            )
-            installations.extend(personal_queryset)
+            # list() evaluates the lazy querysets here so DB errors hit this handler.
+            installations = list(shared_queryset)
+            if include_personal and user_id is not None:
+                personal_queryset = (
+                    base_queryset.filter(scope="personal", user_id=user_id)
+                    .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
+                    .exclude(gateway_server__member_revocations__user_id=user_id)
+                )
+                installations.extend(personal_queryset)
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
@@ -216,7 +237,7 @@ def get_installations_for_sandbox(
         _to_info(
             installation,
             team_id,
-            agent_proxy_token=agent_proxy_token if installation.scope == "shared" else None,
+            agent_proxy_token=agent_proxy_token if agent_account is not None else None,
         )
         for installation in ready
     ]

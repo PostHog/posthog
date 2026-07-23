@@ -16,6 +16,6 @@ class ActiveInstallationInfo:
     name: str
     proxy_path: str
     scope: str = "personal"
-    # Set only for agent-scoped shared installations. Kept out of reprs so the
+    # Set only for credentials delegated to a built-in agent. Kept out of reprs so the
     # short-lived bearer cannot accidentally land in logs.
     proxy_token: str | None = field(default=None, repr=False)

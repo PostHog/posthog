@@ -263,6 +263,7 @@ class TeamMCPGatewayConfig(TeamScopedRootMixin, UUIDModel):
         "posthog.Team", on_delete=models.CASCADE, related_name="mcp_gateway_config", db_constraint=False
     )
     allow_custom_servers = models.BooleanField(default=True)
+    allow_member_agent_access = models.BooleanField(default=True)
     # Blank until an admin applies a preset from Team settings; the policy
     # engine treats blank as "no baseline".
     member_default_preset = models.CharField(max_length=20, choices=POLICY_PRESET_CHOICES, blank=True, default="")
@@ -383,11 +384,20 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccountServerAccess(TeamScopedRootMixin, UUIDModel):
-    """Grant row: this agent may call this gateway server."""
+    """Grant row: this agent may call this gateway server using one credential."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     service_account = models.ForeignKey(MCPServiceAccount, on_delete=models.CASCADE, related_name="server_access")
     gateway_server = models.ForeignKey(MCPGatewayServer, on_delete=models.CASCADE, related_name="agent_access")
+    # Null preserves grants created before credentials were bound explicitly.
+    # Those rows continue to resolve the server's shared installation.
+    installation = models.ForeignKey(
+        MCPServerInstallation,
+        on_delete=models.CASCADE,
+        related_name="agent_grants",
+        null=True,
+        blank=True,
+    )
     granted_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

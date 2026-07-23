@@ -148,6 +148,8 @@ export const TeamMCPGatewayConfigApiAgentDefaultPreset = { ...MCPPolicyPresetEnu
 export interface TeamMCPGatewayConfigApi {
     /** Whether non-admin members may register custom MCP servers with the gateway. */
     allow_custom_servers?: boolean
+    /** Whether non-admin members may share their available MCP connections with agents and manage agent tool policies. */
+    allow_member_agent_access?: boolean
     /** Baseline preset for members. Empty until an admin applies one from Team settings.
      *
      * * `allow` - Allow all
@@ -197,6 +199,8 @@ export const GatewayConfigUpdateApiAgentDefaultPreset = { ...MCPPolicyPresetEnum
 export interface GatewayConfigUpdateApi {
     /** Whether non-admin members may register custom MCP servers. */
     allow_custom_servers?: boolean
+    /** Whether non-admin members may share their available MCP connections with agents and manage agent tool policies. */
+    allow_member_agent_access?: boolean
     /** Baseline preset for members.
      *
      * * `allow` - Allow all
@@ -482,8 +486,10 @@ export interface MCPGatewayServerApi {
     readonly auth_mode: AuthModeEnumApi
     readonly is_team_enabled: boolean
     readonly allow_personal_connections: boolean
-    /** Lowercase key from the linked template for brand icons. Empty for custom servers. */
+    /** Deprecated brand icon key from the linked template. Empty for custom servers. */
     readonly icon_key: string
+    /** Brand domain from the linked template. Empty for custom servers. */
+    readonly icon_domain: string
     /** Documentation URL from the template. */
     readonly docs_url: string
     /**
@@ -579,11 +585,6 @@ export const ScopeTypeEnumApi = {
     Agent: 'agent',
 } as const
 
-/**
- * * `approved` - Approved
- * * `needs_approval` - Needs approval
- * * `do_not_use` - Do not use
- */
 export type MCPToolApprovalStateEnumApi = (typeof MCPToolApprovalStateEnumApi)[keyof typeof MCPToolApprovalStateEnumApi]
 
 export const MCPToolApprovalStateEnumApi = {
@@ -664,7 +665,7 @@ export interface ResolvedToolPolicyApi {
      * * `needs_approval` - Needs approval
      * * `do_not_use` - Do not use */
     team_state: MCPToolApprovalStateEnumApi | null
-    /** True when the requester can't change this row (rule match, or admin-imposed for a member). */
+    /** True when no state is editable for this scope (a rule match or a Blocked team ceiling). */
     locked: boolean
     /** Which policy layer decided the state.
      *
@@ -698,6 +699,47 @@ export const AgentKeyEnumApi = {
     PosthogAi: 'posthog_ai',
 } as const
 
+/**
+ * * `ready` - ready
+ * * `pending_oauth` - pending_oauth
+ * * `needs_reauth` - needs_reauth
+ * * `disabled` - disabled
+ * * `missing_credential` - missing_credential
+ */
+export type ConnectionStateEnumApi = (typeof ConnectionStateEnumApi)[keyof typeof ConnectionStateEnumApi]
+
+export const ConnectionStateEnumApi = {
+    Ready: 'ready',
+    PendingOauth: 'pending_oauth',
+    NeedsReauth: 'needs_reauth',
+    Disabled: 'disabled',
+    MissingCredential: 'missing_credential',
+} as const
+
+/**
+ * A credential-safe summary of a server configured for an agent.
+ */
+export interface MCPServiceAccountServerApi {
+    /** Gateway server granted to the agent. */
+    id: string
+    /** Server display name. */
+    name: string
+    /** Server description. */
+    description: string
+    /** Deprecated brand icon key. Empty for custom servers. */
+    icon_key: string
+    /** Brand domain. Empty for custom servers. */
+    icon_domain: string
+    /** Whether the credential delegated to the agent is ready to use.
+     *
+     * * `ready` - ready
+     * * `pending_oauth` - pending_oauth
+     * * `needs_reauth` - needs_reauth
+     * * `disabled` - disabled
+     * * `missing_credential` - missing_credential */
+    connection_state: ConnectionStateEnumApi
+}
+
 export interface MCPServiceAccountApi {
     readonly id: string
     readonly name: string
@@ -715,8 +757,10 @@ export interface MCPServiceAccountApi {
     readonly product_enabled: boolean
     /** How to enable the owning product. Empty when product_enabled is true. */
     readonly product_disabled_reason: string
-    /** Gateway servers this agent has access to. */
+    /** Gateway servers configured for this agent. */
     readonly server_ids: readonly string[]
+    /** Credential-safe summaries of the gateway servers configured for this agent. */
+    readonly servers: readonly MCPServiceAccountServerApi[]
     /**
      * When the agent last made a call through the gateway.
      * @nullable
@@ -788,8 +832,10 @@ export interface MCPServerInstallationApi {
     /** @nullable */
     readonly template_id: string | null
     readonly name: string
-    /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+    /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
     readonly icon_key: string
+    /** Brand domain from the linked template, rendered via the logo.dev icon proxy. Empty if custom install (no template). */
+    readonly icon_domain: string
     /** @maxLength 200 */
     display_name?: string
     /** @maxLength 2048 */
@@ -831,7 +877,14 @@ export interface MCPServerInstallationToolApi {
     readonly display_name: string
     readonly description: string
     readonly input_schema: unknown
-    approval_state?: MCPToolApprovalStateEnumApi
+    /** Effective state after applying the team ceiling. */
+    readonly approval_state: MCPToolApprovalStateEnumApi
+    /** Team-admin ceiling for this tool. Null when the team imposes no ceiling. */
+    readonly team_state: MCPToolApprovalStateEnumApi | null
+    /** True when a rule or Blocked team ceiling leaves no editable state. */
+    readonly locked: boolean
+    /** Policy layer that decided the effective state. */
+    readonly decided_by: string
     readonly last_seen_at: string
     /** @nullable */
     readonly removed_at: string | null
@@ -911,7 +964,7 @@ export interface InstallCustomApi {
     team_enabled?: boolean
     /** For shared-credential servers: whether members may also connect personal accounts. Admin-only. */
     allow_personal?: boolean
-    /** Service accounts to share the server with at install time. Admin-only. */
+    /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
     agent_ids?: string[]
     /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
     return_path?: string
@@ -935,7 +988,7 @@ export interface InstallTemplateApi {
     team_enabled?: boolean
     /** For shared-credential servers: whether members may also connect personal accounts. Admin-only. */
     allow_personal?: boolean
-    /** Service accounts to share the server with at install time. Admin-only. */
+    /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
     agent_ids?: string[]
     /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
     return_path?: string
@@ -951,8 +1004,10 @@ export interface MCPServerTemplateApi {
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi
-    /** @maxLength 100 */
-    icon_key?: string
+    /** Deprecated: use icon_domain instead. Lowercase key for clients that still render bundled icon assets. */
+    readonly icon_key: string
+    /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
+    readonly icon_domain: string
     category?: MCPServerCategoryEnumApi
 }
 
