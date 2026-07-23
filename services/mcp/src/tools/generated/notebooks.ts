@@ -1,17 +1,12 @@
 // AUTO-GENERATED from products/notebooks/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    NotebooksCreateBody,
-    NotebooksDestroyParams,
-    NotebooksListQueryParams,
-    NotebooksPartialUpdateBody,
-    NotebooksPartialUpdateParams,
-    NotebooksRetrieveParams,
-} from '@/generated/notebooks/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+
+import { NotebooksCreateBody, NotebooksDestroyParams, NotebooksListQueryParams, NotebooksPartialUpdateBody, NotebooksPartialUpdateParams, NotebooksRetrieveParams } from '@/generated/notebooks/api'
 
 const NotebooksCreateSchema = NotebooksCreateBody
 
@@ -21,21 +16,11 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
     handler: async (context: Context, params: z.infer<typeof NotebooksCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.text_content !== undefined) {
-            body['text_content'] = params.text_content
-        }
-        if (params.version !== undefined) {
-            body['version'] = params.version
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.content !== undefined) body["content"] = params.content
+        if (params.text_content !== undefined) body["text_content"] = params.text_content
+        if (params.version !== undefined) body["version"] = params.version
+        if (params.deleted !== undefined) body["deleted"] = params.deleted
         const result = await context.api.request<Schemas.Notebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
@@ -63,10 +48,7 @@ const notebooksDestroy = (): ToolBase<typeof NotebooksDestroySchema, Schemas.Not
 
 const NotebooksListSchema = NotebooksListQueryParams
 
-const notebooksList = (): ToolBase<
-    typeof NotebooksListSchema,
-    WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>
-> => ({
+const notebooksList = (): ToolBase<typeof NotebooksListSchema, WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>> => ({
     name: 'notebooks-list',
     schema: NotebooksListSchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksListSchema>) => {
@@ -88,9 +70,7 @@ const notebooksList = (): ToolBase<
     },
 })
 
-const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project_id: true }).extend(
-    NotebooksPartialUpdateBody.shape
-)
+const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project_id: true }).extend(NotebooksPartialUpdateBody.shape)
 
 const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
     name: 'notebooks-partial-update',
@@ -98,21 +78,11 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof NotebooksPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.text_content !== undefined) {
-            body['text_content'] = params.text_content
-        }
-        if (params.version !== undefined) {
-            body['version'] = params.version
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.content !== undefined) body["content"] = params.content
+        if (params.text_content !== undefined) body["text_content"] = params.text_content
+        if (params.version !== undefined) body["version"] = params.version
+        if (params.deleted !== undefined) body["deleted"] = params.deleted
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
