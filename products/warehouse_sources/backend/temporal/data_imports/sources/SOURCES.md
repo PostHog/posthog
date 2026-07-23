@@ -182,6 +182,7 @@ the row lists both.
 | devin_ai                         | HTTP                        | requests                                                        | ✅                          |
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
 | digitalocean                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| discourse                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                           |
 | dixa                             | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                        | HTTP                        | requests                                                        | ✅                          |
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
@@ -855,7 +856,6 @@ doesn't conflict with concurrent PRs.
 - develocity
 - dialpad
 - discord
-- discourse
 - display_video_360
 - docusign
 - dodopayments
