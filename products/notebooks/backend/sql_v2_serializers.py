@@ -205,9 +205,11 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         child=serializers.FloatField(),
         required=False,
         help_text=(
-            "Sandbox-reported phase durations in seconds: input_wait_s (waiting on the data "
+            "Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data "
             "plane), download_s (presigned frame downloads), exec_s (kernel cell execution), "
-            "sandbox_total_s (the whole sandbox-side run). Feeds the node-run metrics."
+            "sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s "
+            "(enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the "
+            "node-run metrics."
         ),
     )
 

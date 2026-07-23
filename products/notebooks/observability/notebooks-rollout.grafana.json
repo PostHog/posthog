@@ -1,0 +1,675 @@
+{
+    "title": "Notebooks \u2014 SQLV2 rollout",
+    "uid": "notebooks-sqlv2-rollout",
+    "tags": ["notebooks", "sqlv2", "frame-store"],
+    "timezone": "utc",
+    "schemaVersion": 39,
+    "editable": true,
+    "refresh": "1m",
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "description": "Rollout observability for the notebooks SQLV2 frame store. Prometheus/VictoriaMetrics side only \u2014 ClickHouse per-query cost (scanned bytes, result bytes, rows) lives in query_log_archive, see observability/notebooks-query-log.sql. Panel details and known blind spots: products/notebooks/backend/sql_v2_observability.md",
+    "templating": {
+        "list": [
+            {
+                "name": "datasource",
+                "type": "datasource",
+                "query": "prometheus",
+                "current": {
+                    "text": "victoriametrics",
+                    "value": "victoriametrics"
+                },
+                "hide": 0
+            }
+        ]
+    },
+    "panels": [
+        {
+            "type": "row",
+            "title": "Node runs \u2014 end to end (every run, every outcome)",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "Node run duration p50/p95, by node type",
+            "description": "End to end: run-row creation to the terminal transition (callback, direct-lane finish, or interrupt). Unlike the frame histograms below, every terminal outcome contributes a sample \u2014 but a kernel run whose sandbox callback is lost stays RUNNING and is missing here until re-run.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, node_type) (rate(posthog_notebooks_node_run_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p95 {{node_type}}"
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.50, sum by (le, node_type) (rate(posthog_notebooks_node_run_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p50 {{node_type}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Run outcomes",
+            "description": "done / failed / interrupted / timed_out. timed_out comes from the direct lane's grace-expiry watchdog \u2014 a rising timed_out rate means queries are expiring in the async manager, not that users are writing bad queries.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ops"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(posthog_notebooks_node_run_seconds_count[$__rate_interval]))",
+                    "legendFormat": "{{outcome}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Where the time goes \u2014 phase p95",
+            "description": "queued: enqueue to Celery pickup (direct lane). clickhouse: pickup to completion, HogQL compile + CH execution (direct lane). input_wait: sandbox waiting on the data plane for referenced frames. download: presigned frame downloads. exec: ipykernel cell execution. sandbox_total: the whole sandbox-side run.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 1
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(posthog_notebooks_node_run_phase_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p95 {{phase}}"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Rollout state \u2014 is the new path actually engaged?",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 9
+            },
+            "collapsed": false
+        },
+        {
+            "type": "timeseries",
+            "title": "Materialize attempts",
+            "description": "Materialize activity attempts started. The started counter carries no labels today \u2014 a mode label (streaming vs CH writes) requires a code change before this can split by delivery path.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 10
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_materializations_started_total[$__rate_interval]))",
+                    "legendFormat": "started"
+                }
+            ]
+        },
+        {
+            "type": "text",
+            "title": "Prerequisite check \u2014 CH user and pool routing",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 10
+            },
+            "options": {
+                "mode": "markdown",
+                "content": "No Prometheus metric carries the ClickHouse identity \u2014 the dedicated `notebooks` CH user and offline-pool prerequisites fail open and silently.\n\nVerify them ClickHouse-side with **query 2** of `observability/notebooks-query-log.sql` (Metabase): `user` should be `notebooks` and `lc_workload` should be `offline` once provisioned."
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "Degraded mode \u2014 object delivery falling back to inline",
+            "description": "An object-delivery request served over the Redis transport instead, silently clamped at 50k rows. Non-zero means the frame store is disabled or object storage is unconfigured, and users may be getting truncated frames with no signal. Should be flat zero once the flag is on.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 10
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "fillOpacity": 20
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "red",
+                                "value": 0.001
+                            }
+                        ]
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_store_fallback_inline_total[$__rate_interval]))",
+                    "legendFormat": "fallback to inline"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Outcomes",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 18
+            },
+            "collapsed": false
+        },
+        {
+            "type": "timeseries",
+            "title": "Terminal outcomes",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 19
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(posthog_notebooks_frame_materializations_finished_total[$__rate_interval]))",
+                    "legendFormat": "{{outcome}}"
+                }
+            ],
+            "description": "Materialize jobs reaching a terminal state, by outcome. The finished counter has no mode label \u2014 path-specific failure rates need a code change first."
+        },
+        {
+            "type": "stat",
+            "title": "Failure ratio",
+            "description": "Share of materialize jobs reaching a terminal failed state. Counts jobs, not attempts.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 8,
+                "y": 19
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 0.02
+                            },
+                            {
+                                "color": "red",
+                                "value": 0.1
+                            }
+                        ]
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_materializations_finished_total{outcome=\"failed\"}[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_materializations_finished_total[$__rate_interval])), 0.0000001)",
+                    "legendFormat": "failed"
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "title": "Retry amplification (attempts per job)",
+            "description": "started counts attempts; finished counts jobs. 1.0 means every job succeeds first try. Sustained >2 means jobs are bouncing off the concurrency limiter or hitting retryable ClickHouse errors, and each retry re-executes the scan.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 4,
+                "x": 12,
+                "y": 19
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "none",
+                    "decimals": 2,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 2
+                            },
+                            {
+                                "color": "red",
+                                "value": 4
+                            }
+                        ]
+                    }
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_materializations_started_total[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_materializations_finished_total[$__rate_interval])), 0.0000001)",
+                    "legendFormat": "attempts/job"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Deduplicated requests",
+            "description": "Identical in-flight materializations (same team + user + query) joining a running job instead of stacking ClickHouse load. Healthy \u2014 this is load the cluster never saw.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 19
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_materializations_deduplicated_total[$__rate_interval]))",
+                    "legendFormat": "deduplicated"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Latency \u2014 WARNING: success-only, see dashboard description",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 27
+            },
+            "collapsed": false
+        },
+        {
+            "type": "timeseries",
+            "title": "Materialize duration (activity start to object stored)",
+            "description": "SUCCESS ONLY, and the clock starts at ACTIVITY START \u2014 enqueue, Temporal scheduling, task-queue wait and retry backoff are all excluded. A job that times out at 10 minutes contributes no sample at all. Treat as a floor on user-perceived latency, not as E2E.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 28
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(posthog_notebooks_frame_materialize_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p50"
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(posthog_notebooks_frame_materialize_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p95"
+                },
+                {
+                    "refId": "C",
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(posthog_notebooks_frame_materialize_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p99"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "ClickHouse time p95",
+            "description": "Time a successful materialize spent blocked on ClickHouse: response headers plus blocking body reads of the streaming relay. Success-only (see dashboard description).",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 28
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(posthog_notebooks_frame_clickhouse_seconds_bucket[$__rate_interval])))",
+                    "legendFormat": "p95"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Relay split \u2014 where is the worker blocked? (streaming only)",
+            "description": "Mean seconds per successful materialize spent on each side of the worker relay. If the upload half starts dominating p95, that is the design doc's stated trigger for flipping NOTEBOOKS_FRAME_STORE_CH_WRITES on. No upload series is emitted on the ch_writes path \u2014 ClickHouse does the upload there.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 36
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum(rate(posthog_notebooks_frame_clickhouse_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_clickhouse_seconds_count[$__rate_interval])), 0.0000001)",
+                    "legendFormat": "clickhouse (mean)"
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum(rate(posthog_notebooks_frame_upload_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(posthog_notebooks_frame_upload_seconds_count[$__rate_interval])), 0.0000001)",
+                    "legendFormat": "object store upload (mean)"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Frame object size",
+            "description": "Stored object bytes. The 2GB result cap (_MAX_RESULT_BYTES) is enforced in-flight on the streaming path but only POST-WRITE on the ch_writes path \u2014 on ch_writes a pathological wide-row query can write tens of GB before the size check deletes it. Watch the top bucket after flipping that flag.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 36
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(posthog_notebooks_frame_object_bytes_bucket[$__rate_interval])))",
+                    "legendFormat": "p50"
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(posthog_notebooks_frame_object_bytes_bucket[$__rate_interval])))",
+                    "legendFormat": "p95"
+                },
+                {
+                    "refId": "C",
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(posthog_notebooks_frame_object_bytes_bucket[$__rate_interval])))",
+                    "legendFormat": "p99"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Throttling and concurrency",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 44
+            },
+            "collapsed": false
+        },
+        {
+            "type": "timeseries",
+            "title": "Concurrency slot rejections",
+            "description": "Rejections against the Redis-Lua slots (global 10, per-team 2). A rejection is retryable \u2014 Temporal backs off \u2014 so a moderate rate is the limiter working, not an outage. Sustained per-team blocks with a low global rate means one team is self-limiting; a high global rate means the fleet ceiling is the binding constraint. NOTE: notebooks' limiters do not set RateLimit.retry, so rejections land as result=block and never result=retry.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 45
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (limit_name, result) (rate(posthog_clickhouse_query_concurrency_limit_exceeded_total{limit_name=~\"notebooks_materialize_.*\"}[$__rate_interval]))",
+                    "legendFormat": "{{limit_name}} / {{result}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Top teams hitting the per-team ceiling",
+            "description": "Teams whose materializations are being blocked. Identifies who to talk to before raising MATERIALIZE_PER_TEAM_CONCURRENCY. For actual slot occupancy (which nothing exports today) reconstruct it from query_log_archive \u2014 see notebooks-query-log.sql query 5.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 45
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "topk(10, sum by (team_id) (rate(posthog_clickhouse_query_concurrency_limit_exceeded_total{limit_name=~\"notebooks_materialize_.*\", result=\"block\"}[$__rate_interval])))",
+                    "legendFormat": "team {{team_id}}"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "HTTP surface",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 53
+            },
+            "collapsed": false
+        },
+        {
+            "type": "timeseries",
+            "title": "Data-plane endpoint latency p95",
+            "description": "Per-REQUEST latency of the sandbox's POST /internal/notebooks/data_plane/query/ and its status polls. This is NOT query latency \u2014 the POST returns 202 as soon as the job is enqueued and each poll returns 202 or a 302 immediately. It answers 'is the data plane responsive', not 'how long do users wait'. The view label value is unverified: these paths have no name= in urls.py, so confirm it with list_prometheus_label_values before trusting this panel.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 54
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, view) (rate(django_http_requests_latency_seconds_by_view_method_bucket{view=~\".*notebook.*data_plane.*\"}[$__rate_interval])))",
+                    "legendFormat": "p95 {{view}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Notebooks API latency p95 by view",
+            "description": "The user-facing REST surface (api/projects/:id/notebooks/...), including the sql_v2_run dispatch action. posthog_api_requests_latency_seconds only covers paths containing 'api/', which is why the internal data-plane endpoints are on the panel to the left instead.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 54
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, view) (rate(posthog_api_requests_latency_seconds_bucket{view=~\".*notebook.*\"}[$__rate_interval])))",
+                    "legendFormat": "p95 {{view}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Notebooks API responses by status class",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 62
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (view, status_class) (rate(posthog_api_requests_latency_seconds_count{view=~\".*notebook.*\"}[$__rate_interval]))",
+                    "legendFormat": "{{view}} {{status_class}}"
+                }
+            ]
+        }
+    ]
+}

@@ -2218,6 +2218,27 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=None, error=None)
         mock_report.assert_not_called()
 
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_direct_run_reports_queued_and_clickhouse_phases(self, mock_report, _mock_enabled):
+        # The "why was it slow: queue wait vs ClickHouse" split rides QueryStatus into the
+        # envelope; if the attach (or a QueryStatus field) silently changes, the phase
+        # decomposition disappears from every dashboard while the run still completes.
+        run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
+        response = self.client.post(run_url, data={"node_id": "n1", "code": "select 1 as a"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        run_id = response.json()["run_id"]
+        body = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
+        ).json()
+        self.assertEqual(body["status"], NotebookNodeRun.Status.DONE)
+
+        mock_report.assert_called_once()
+        _event, properties = mock_report.call_args[0]
+        self.assertEqual(properties["outcome"], "done")
+        self.assertGreaterEqual(properties["queued_seconds"], 0)
+        self.assertGreaterEqual(properties["clickhouse_seconds"], 0)
+
     @parameterized.expand(
         [
             ("still_running_fails", NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.FAILED, 1),

@@ -127,6 +127,25 @@ def _finish_direct_run(
     return bool(updated)
 
 
+def _query_status_timings(status: Any) -> dict[str, float]:
+    """Decompose a completed QueryStatus into phase timings for the run envelope.
+
+    `queued_s` is enqueue -> Celery pickup (slot/queue wait); `clickhouse_s` is pickup ->
+    completion — HogQL compile plus the ClickHouse execution, the closest server-side
+    proxy for "how long the query itself took". Both are the decomposition fields
+    sql_v2_observability.md gap 1 called for.
+    """
+    timings: dict[str, float] = {}
+    start_time = getattr(status, "start_time", None)
+    pickup_time = getattr(status, "pickup_time", None)
+    end_time = getattr(status, "end_time", None)
+    if start_time and pickup_time:
+        timings["queued_s"] = round(max((pickup_time - start_time).total_seconds(), 0.0), 3)
+    if pickup_time and end_time:
+        timings["clickhouse_s"] = round(max((end_time - pickup_time).total_seconds(), 0.0), 3)
+    return timings
+
+
 def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     """Advance a direct (hogql) run from its async query status and return its transient rows.
 
@@ -180,6 +199,9 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
             types,
             has_more=fetched_has_more or len(rows) > DISPLAY_PAGE_LIMIT,
         )
+        timings = _query_status_timings(status)
+        if timings:
+            envelope["timings"] = timings
         _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=envelope, error=None)
         # Lost transitions land here too (an interrupt, or another poller); the
         # refreshed row's status decides whether the rows may be served.
