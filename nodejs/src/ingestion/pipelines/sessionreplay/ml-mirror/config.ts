@@ -1,3 +1,5 @@
+import os from 'node:os'
+
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
@@ -40,7 +42,8 @@ export type MlMirrorConfig = {
     /**
      * Cap on sessions scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
      * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
-     * compression), so keep this below the pool size. Per-session event order is preserved at any
+     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
+     * explicit positive value is used verbatim. Per-session event order is preserved at any
      * setting; 1 restores fully sequential scrubbing.
      */
     SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
@@ -69,6 +72,23 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
-        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 3,
+        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
+}
+
+const DEFAULT_UV_THREADPOOL_SIZE = 4
+
+/**
+ * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
+ * cores, not the node's.
+ */
+export function resolveMlAnonymizeMaxConcurrency(
+    configured: number,
+    availableParallelism: number = os.availableParallelism(),
+    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
+): number {
+    if (configured > 0) {
+        return configured
+    }
+    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
 }

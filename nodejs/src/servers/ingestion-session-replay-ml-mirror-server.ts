@@ -19,7 +19,11 @@ import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
 } from '~/ingestion/pipelines/sessionreplay/consumer'
-import { MlMirrorConfig, getDefaultMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import {
+    MlMirrorConfig,
+    getDefaultMlMirrorConfig,
+    resolveMlAnonymizeMaxConcurrency,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
@@ -155,7 +159,9 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             encryptor: new CleartextRecordingEncryptor(keyStore),
             createPipeline: (pipelineConfig) =>
                 createMlMirrorReplayPipeline(pipelineConfig, {
-                    anonymizeMaxConcurrency: this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY,
+                    anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
+                        this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
+                    ),
                 }),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
