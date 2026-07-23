@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
 
-import { IconCorrelationAnalysis, IconGlobe, IconGraph } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconCorrelationAnalysis, IconGraph } from '@posthog/icons'
 
 import {
     FEATURE_FLAGS,
@@ -10,7 +11,6 @@ import {
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_RECURRING,
 } from 'lib/constants'
-import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
@@ -22,9 +22,13 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import {
     FunnelSketch,
     GenericInsightSketch,
+    LifecycleSketch,
+    NumberSketch,
     PathsSketch,
     RetentionSketch,
+    StickinessSketch,
     TrendsSketch,
+    WorldMapSketch,
 } from 'scenes/saved-insights/InsightTypeSketch'
 import {
     INSIGHT_TYPES_METADATA,
@@ -63,9 +67,10 @@ import {
  *   sidebar-compact   (K): visual alternative; family and method as two bare selects on one
  *                          row, no decoration at all (same grouping as G)
  *   sidebar-section   (L): a native "Visualization" section styled exactly like General and
- *                          Filters, with the display menu's groups promoted to the top level
- *                          (time series, total value, world map, calendar heatmap, funnel,
- *                          retention, ...) and the display options as suboptions
+ *                          Filters; a carousel of sketch cards with descriptions, where the
+ *                          display menu's groups are the top level (time series, total value,
+ *                          world map, calendar heatmap, funnel, retention, ...) and the
+ *                          display options are suboptions
  *
  * Type switches go through setActiveView (config carry-over intact); mode switches go through
  * updateInsightFilter on the live query. Rendered from EditorFilters, inert (null) unless the
@@ -829,11 +834,34 @@ const LINE_BAR_DISPLAYS: SubtypeOption[] = [
 interface VisRow {
     key: string
     label: string
-    icon: React.ComponentType<any>
+    description: string
+    sketch: () => JSX.Element
     active: boolean
     onSelect: () => void
     disabledReason?: string
     subs: SubOption[]
+}
+
+/** No hand-drawn heatmap sketch exists yet, so this draws a minimal one in the same style. */
+function CalendarHeatmapSketch(): JSX.Element {
+    return (
+        <svg viewBox="0 0 160 88" className="h-auto w-full" fill="none" aria-hidden="true">
+            {Array.from({ length: 7 }, (_, col) =>
+                Array.from({ length: 4 }, (_, rowIndex) => (
+                    <rect
+                        key={`${col}-${rowIndex}`}
+                        x={12 + col * 20}
+                        y={8 + rowIndex * 19}
+                        width={16}
+                        height={15}
+                        rx={3}
+                        fill="var(--data-color-1)"
+                        opacity={((col * 4 + rowIndex) % 5) * 0.2 + 0.15}
+                    />
+                ))
+            )}
+        </svg>
+    )
 }
 
 function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX.Element {
@@ -843,6 +871,18 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const apply = updateInsightFilter as unknown as ApplyInsightFilter
+
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+    const scrollByCards = (direction: 1 | -1): void => {
+        scrollRef.current?.scrollBy({ left: direction * 150, behavior: 'smooth' })
+    }
+
+    useEffect(() => {
+        // Bring the active card into view when the section mounts.
+        scrollRef.current
+            ?.querySelector<HTMLElement>('[aria-pressed="true"]')
+            ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+    }, [])
 
     const trendsDisplay = activeView === InsightType.TRENDS ? (display ?? ChartDisplayType.ActionsLineGraph) : null
     const isTotalValue = TOTAL_VALUE_DISPLAYS.some((option) => option.value === trendsDisplay)
@@ -874,7 +914,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'time-series',
             label: 'Time series',
-            icon: INSIGHT_TYPES_METADATA[InsightType.TRENDS].icon,
+            description: 'Values over time, as lines or bars.',
+            sketch: TrendsSketch,
             active:
                 trendsDisplay !== null &&
                 !isTotalValue &&
@@ -886,7 +927,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'total-value',
             label: 'Total value',
-            icon: Icon123,
+            description: 'One combined value for the whole period.',
+            sketch: NumberSketch,
             active: isTotalValue,
             onSelect: () => setTrendsDisplay(ChartDisplayType.BoldNumber),
             subs: displaySubsFor(TOTAL_VALUE_DISPLAYS, ChartDisplayType.BoldNumber),
@@ -894,7 +936,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'world-map',
             label: 'World map',
-            icon: IconGlobe,
+            description: 'Values per country on a map.',
+            sketch: WorldMapSketch,
             active: trendsDisplay === ChartDisplayType.WorldMap,
             onSelect: () => setTrendsDisplay(ChartDisplayType.WorldMap),
             subs: [],
@@ -902,7 +945,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'calendar-heatmap',
             label: 'Calendar heatmap',
-            icon: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery].icon,
+            description: 'Values broken down by day and hour.',
+            sketch: CalendarHeatmapSketch,
             active: trendsDisplay === ChartDisplayType.CalendarHeatmap,
             onSelect: () => setTrendsDisplay(ChartDisplayType.CalendarHeatmap),
             disabledReason: heatmapEnabled
@@ -913,7 +957,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'funnel',
             label: 'Funnel',
-            icon: INSIGHT_TYPES_METADATA[InsightType.FUNNELS].icon,
+            description: 'How many users complete a sequence of steps.',
+            sketch: FunnelSketch,
             active: activeView === InsightType.FUNNELS,
             onSelect: () => setActiveView(InsightType.FUNNELS),
             subs: [
@@ -946,7 +991,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'retention',
             label: 'Retention',
-            icon: INSIGHT_TYPES_METADATA[InsightType.RETENTION].icon,
+            description: 'How many users come back after an initial action.',
+            sketch: RetentionSketch,
             active: activeView === InsightType.RETENTION,
             onSelect: () => setActiveView(InsightType.RETENTION),
             subs: displaySubsFor(LINE_BAR_DISPLAYS, ChartDisplayType.ActionsLineGraph),
@@ -954,7 +1000,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'paths',
             label: 'User paths',
-            icon: INSIGHT_TYPES_METADATA[InsightType.PATHS].icon,
+            description: 'The journeys users take through your product.',
+            sketch: PathsSketch,
             active: activeView === InsightType.PATHS,
             onSelect: () => setActiveView(InsightType.PATHS),
             subs: [],
@@ -962,7 +1009,8 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'stickiness',
             label: 'Stickiness',
-            icon: INSIGHT_TYPES_METADATA[InsightType.STICKINESS].icon,
+            description: 'How often users repeat an action.',
+            sketch: StickinessSketch,
             active: activeView === InsightType.STICKINESS,
             onSelect: () => setActiveView(InsightType.STICKINESS),
             subs: displaySubsFor(LINE_BAR_DISPLAYS, ChartDisplayType.ActionsLineGraph),
@@ -970,38 +1018,78 @@ function PrototypeVisualizationOptions({ insightProps }: EditorFilterProps): JSX
         {
             key: 'lifecycle',
             label: 'Lifecycle',
-            icon: INSIGHT_TYPES_METADATA[InsightType.LIFECYCLE].icon,
+            description: 'New, returning, resurrected, and dormant users.',
+            sketch: LifecycleSketch,
             active: activeView === InsightType.LIFECYCLE,
             onSelect: () => setActiveView(InsightType.LIFECYCLE),
             subs: [],
         },
     ]
 
+    const activeRow = rows.find((row) => row.active)
+
     return (
-        <div className="flex flex-col gap-0.5">
-            {rows.map((row) => {
-                const RowIcon = row.icon
-                return (
-                    <div key={row.key}>
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            active={row.active}
-                            icon={<RowIcon />}
-                            onClick={row.active ? undefined : row.onSelect}
-                            disabledReason={row.disabledReason}
+        <div>
+            <div className="-mt-1 mb-1 flex items-center justify-end gap-0.5">
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconChevronLeft />}
+                    onClick={() => scrollByCards(-1)}
+                    tooltip="Scroll left"
+                />
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconChevronRight />}
+                    onClick={() => scrollByCards(1)}
+                    tooltip="Scroll right"
+                />
+            </div>
+            <div ref={scrollRef} className="flex snap-x gap-1.5 overflow-x-auto pb-1">
+                {rows.map((row) => {
+                    const Sketch = row.sketch
+                    const card = (
+                        <button
+                            key={row.key}
+                            type="button"
+                            aria-pressed={row.active}
+                            onClick={row.disabledReason || row.active ? undefined : row.onSelect}
+                            className={clsx(
+                                'w-[8.75rem] shrink-0 snap-start rounded-md border p-1.5 text-left transition-colors',
+                                row.active
+                                    ? 'border-accent bg-accent-highlight-secondary shadow-sm'
+                                    : 'border-primary hover:border-accent',
+                                row.disabledReason ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                            )}
                             data-attr={`prototype-insight-vis-${row.key}`}
                         >
-                            {row.label}
-                        </LemonButton>
-                        {row.active && row.subs.length > 0 && (
-                            <div className="border-primary mt-0.5 mb-1 ml-3.5 border-l pl-2">
-                                <SubChips options={row.subs} dataAttrPrefix={`prototype-insight-vis-${row.key}`} />
+                            <Sketch />
+                            <div
+                                className={clsx(
+                                    'mt-1 text-xs font-semibold',
+                                    row.active ? 'text-accent' : 'text-primary'
+                                )}
+                            >
+                                {row.label}
                             </div>
-                        )}
-                    </div>
-                )
-            })}
+                            <div className="text-secondary mt-0.5 text-[0.6875rem] leading-tight">
+                                {row.description}
+                            </div>
+                        </button>
+                    )
+                    return row.disabledReason ? (
+                        <Tooltip key={row.key} title={row.disabledReason} placement="top">
+                            {card}
+                        </Tooltip>
+                    ) : (
+                        card
+                    )
+                })}
+            </div>
+            {activeRow && activeRow.subs.length > 0 && (
+                <div className="mt-1.5">
+                    <SubChips options={activeRow.subs} dataAttrPrefix={`prototype-insight-vis-${activeRow.key}`} />
+                </div>
+            )}
         </div>
     )
 }
