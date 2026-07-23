@@ -104,6 +104,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+# Endpoints whose list API ignores state/sort/direction and always returns newest-first by
+# created_at. They take a minimal paged read (below) and must report sort_mode=desc on every sync,
+# including the first (see _resolve_sort_mode) — the two must stay in lockstep, hence one set.
+_ALWAYS_NEWEST_FIRST_ENDPOINTS = ("workflow_runs", "deployments")
+
+
 def _build_initial_params(
     config: GithubEndpointConfig,
     endpoint: str,
@@ -111,14 +117,12 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs and deployments share a param surface: they accept neither
-    # state/sort/direction nor `since`, and always return newest-first by
-    # created_at. We intentionally send no time filter either — a `created`
-    # filter would cap the result set to GitHub's 1,000-result search limit and
-    # silently drop rows on busy repos. Incremental sync is handled instead by
-    # paginating newest-first and stopping at the cursor (see get_rows), so the
-    # request stays a plain paged read regardless of incremental state.
-    if endpoint in ("workflow_runs", "deployments"):
+    # These endpoints accept neither state/sort/direction nor `since`. We intentionally send no
+    # time filter either — a `created` filter would cap the result set to GitHub's 1,000-result
+    # search limit and silently drop rows on busy repos. Incremental sync is handled instead by
+    # paginating newest-first and stopping at the cursor (see get_rows), so the request stays a
+    # plain paged read regardless of incremental state.
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS:
         return {"per_page": config.page_size}
 
     params: dict[str, Any] = {
@@ -175,15 +179,16 @@ def _resolve_sort_mode(
 
     Most endpoints emit asc on the first sync / full refresh (stable offset
     pagination via sort=created&direction=asc) and only flip to their
-    configured sort once a cutoff exists. workflow_runs is different: it ignores
-    sort/direction and always returns newest-first, so it emits desc on every
-    sync, including the first. Fan-out children inherit the parent walk's order
-    on every sync too, first incremental sync included: the initial_lookback_days
-    floor gives that sync a cutoff, which makes the parent walk descend. Reporting
-    asc for it would let the pipeline persist the cursor per batch and, on an
+    configured sort once a cutoff exists. The _ALWAYS_NEWEST_FIRST_ENDPOINTS
+    (workflow_runs, deployments) are different: they ignore sort/direction and
+    always return newest-first, so they emit desc on every sync, including the
+    first. Fan-out children inherit the parent walk's order on every sync too,
+    first incremental sync included: the initial_lookback_days floor gives that
+    sync a cutoff, which makes the parent walk descend. Reporting asc for any of
+    these would let the pipeline persist the cursor per batch and, on an
     interrupted backfill, strand every row older than the batches that flushed.
     """
-    if endpoint == "workflow_runs" or config.fan_out_parent is not None:
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode

@@ -550,6 +550,14 @@ class TestGithubSourceSortMode:
                 datetime(2026, 1, 15, tzinfo=UTC),
                 "desc",
             ),
+            # deployments is the same category as workflow_runs (minimal params, API ignores
+            # sort/direction, always newest-first), so it must report desc even on the first sync /
+            # full refresh — never the asc default. Guards the _build_initial_params /
+            # _resolve_sort_mode parity.
+            ("deployments_full_refresh", "deployments", False, None, "desc"),
+            ("deployments_first_sync_no_cutoff", "deployments", True, None, "desc"),
+            # deployment_statuses fans out over deployments newest-first, desc on every sync.
+            ("deployment_statuses_first_sync_no_cutoff", "deployment_statuses", True, None, "desc"),
         ]
     )
     def test_sort_mode(
@@ -1634,7 +1642,13 @@ class TestGithubWebhookSource:
         _token, repo, url, events = update.call_args.args
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
-        assert sorted(events) == ["pull_request_review", "workflow_job", "workflow_run"]
+        assert sorted(events) == [
+            "deployment",
+            "deployment_status",
+            "pull_request_review",
+            "workflow_job",
+            "workflow_run",
+        ]
         # A PAT config resolves to the empty record-only identity; the point pinned here is that
         # the identity is resolved and passed at all.
         assert update.call_args.kwargs["egress_identity"] == GithubEgressIdentity()
