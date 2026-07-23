@@ -772,6 +772,11 @@ class TestStagedIncrementalCursor:
             schema.stage_incremental_field_value("run-1", 1718377611)
         assert schema.sync_type_config["incremental_staged"]["last_value"] == 1718377611
 
+    def test_update_incremental_field_value_keeps_epoch_number_for_datetime_field(self) -> None:
+        schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
+        schema.update_incremental_field_value(1718377611, save=False)
+        assert schema.sync_type_config["incremental_field_last_value"] == 1718377611
+
     def test_stage_writes_earliest_value(self) -> None:
         schema = self._make_schema()
         with patch.object(schema, "save"):
