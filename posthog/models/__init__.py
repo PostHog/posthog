@@ -11,7 +11,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .column_configuration import ColumnConfiguration
-from .comment import Comment
+from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
@@ -192,6 +192,7 @@ __all__ = [
     "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
+    "CommentSlackThread",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
