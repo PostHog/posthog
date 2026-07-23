@@ -49,14 +49,23 @@ fn decompress_string(ctx: &Ctx<'_>, s: &str) -> Result<(Vec<u8>, bool)> {
     Ok((out, was_zstd))
 }
 
-fn compress_bytes(json: &[u8]) -> Result<String> {
+/// Compress a scrubbed cv payload, patching any deferred-image tokens first — after this the bytes
+/// are opaque to the final patch pass over the block lines.
+fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
+    let patched;
+    let json = if ctx.has_pending_images() {
+        patched = ctx.patch_pending_images(json.to_vec());
+        patched.as_slice()
+    } else {
+        json
+    };
     Ok(bytes_to_latin1(
         &compression::compress_cv(json).context("compress cv payload")?,
     ))
 }
 
-fn compress_value(value: &Value<'_>) -> Result<String> {
-    compress_bytes(value.encode().as_bytes())
+fn compress_value(ctx: &Ctx<'_>, value: &Value<'_>) -> Result<String> {
+    compress_bytes(ctx, value.encode().as_bytes())
 }
 
 /// Scrub a `cv`-compressed FullSnapshot `data` value (a compressed latin-1 string, gzip or zstd)
@@ -77,11 +86,11 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
             if was_zstd {
                 return Ok(false);
             }
-            *data = string_value(compress_bytes(&scratch)?);
+            *data = string_value(compress_bytes(ctx, &scratch)?);
             return Ok(true);
         }
         Some(true) => {
-            *data = string_value(compress_bytes(&walked)?);
+            *data = string_value(compress_bytes(ctx, &walked)?);
             return Ok(true);
         }
         None => {}
@@ -91,7 +100,7 @@ pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, data: &mut Value<'_>) -> Re
     reject_if_too_deep(&scratch, "cv payload")?;
     let mut payload = parse_untrusted(&mut scratch).context("parse cv payload")?;
     scrub_full_snapshot(ctx, &mut payload);
-    let recompressed = compress_value(&payload)?;
+    let recompressed = compress_value(ctx, &payload)?;
     *data = string_value(recompressed);
     Ok(true)
 }
@@ -165,7 +174,7 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, data: &mut Object<'_>) -> Result
     }
 
     for (sub_key, json) in recompress {
-        data.insert(key(sub_key), string_value(compress_bytes(&json)?));
+        data.insert(key(sub_key), string_value(compress_bytes(ctx, &json)?));
     }
 
     Ok(changed)

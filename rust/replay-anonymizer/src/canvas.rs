@@ -5,8 +5,9 @@
 use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
-use crate::blur::{blank_image_data_uri, is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
+use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
 use crate::context::Ctx;
+use crate::images::ImageFallback;
 use crate::json::{
     as_array, as_array_mut, as_object, as_object_mut, as_str, as_u32, as_usize, key, string_value,
 };
@@ -79,7 +80,7 @@ fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut Value<'_>) -> bool {
     match value {
         Value::String(s) => {
             if is_image_data_uri(s) {
-                let b = ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri);
+                let b = ctx.scrub_image(s, ImageFallback::Blank);
                 *value = string_value(b);
                 return true;
             }
@@ -103,7 +104,7 @@ fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut Value<'_>) -> bool {
     // URL that may itself carry PII.
     if let Some(src) = obj.get("src").and_then(as_str).map(str::to_string) {
         if is_image_data_uri(&src) {
-            let b = ctx.blur_data_uri(&src).unwrap_or_else(blank_image_data_uri);
+            let b = ctx.scrub_image(&src, ImageFallback::Blank);
             obj.insert(key("src"), string_value(b));
             return true;
         }
@@ -169,14 +170,13 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         None => return false,
     };
     let original = format!("data:{mime};base64,{base64}");
-    let (new_b64, new_type) = match ctx
-        .blur_data_uri(&original)
-        .and_then(|b| split_data_uri(&b))
-    {
-        Some((m, b64)) => (b64, m),
-        // Fail-safe: a blank pixel (matches the TS synchronous neutralization).
-        None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
-    };
+    // scrub_image never fails outward (fallbacks are baked in), so the split always succeeds; the
+    // stated fallback keeps the fail-safe explicit if the URI shape ever changes.
+    let (new_b64, new_type) =
+        match split_data_uri(&ctx.scrub_image(&original, ImageFallback::Blank)) {
+            Some((m, b64)) => (b64, m),
+            None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
+        };
     if let Some(ab) = blob
         .get_mut("data")
         .and_then(as_array_mut)
