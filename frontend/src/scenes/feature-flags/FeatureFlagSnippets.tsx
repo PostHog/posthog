@@ -349,7 +349,7 @@ remote_config_payload = posthog.get_remote_config_payload('${flagKey}')`}
             ? `
     # add group properties used in the flag to ensure the flag
     # is evaluated locally, vs. going to our servers
-    group_properties={ ${groupType.group_type}: {'${propertyName}': 'value', 'name': 'xyz'}}`
+    group_properties={ '${groupType.group_type}': {'${propertyName}': 'value', 'name': 'xyz'}}`
             : `
     # add person properties used in the flag to ensure the flag
     # is evaluated locally, vs. going to our servers
