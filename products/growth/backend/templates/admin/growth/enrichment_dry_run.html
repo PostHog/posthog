@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} (inactive){% endif %}</h1>
-<p>Model {{ config.model }}, temperature {{ config.temperature }}, {{ rows|length }} most recent archived orgs. Nothing was persisted.</p>
+<p>Model {{ config.model }}, temperature {{ config.temperature }}, {{ rows|length }} most recent archived orgs{% if contains %} matching "{{ contains }}"{% endif %}. Nothing was persisted.</p>
 <table>
     <thead>
         <tr>

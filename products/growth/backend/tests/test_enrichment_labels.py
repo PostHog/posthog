@@ -262,12 +262,18 @@ class TestEnrichmentLabelDryRun(BaseTest):
         self.client.force_login(self.user)
 
         with patch("products.growth.backend.admin.get_llm_client", return_value=_mock_llm_client()):
-            response = self.client.post(
+            options_page = self.client.post(
                 "/admin/growth/enrichmentpromptconfig/",
                 {"action": "dry_run_selected", "_selected_action": [str(config.pk)]},
             )
+            results_page = self.client.post(
+                "/admin/growth/enrichmentpromptconfig/",
+                {"action": "dry_run_selected", "_selected_action": [str(config.pk)], "apply": "1", "sample": "5"},
+            )
 
-        assert response.status_code == 200
-        assert b"Acme" in response.content
-        assert b"true" in response.content
+        assert options_page.status_code == 200
+        assert b"Sample size" in options_page.content
+        assert results_page.status_code == 200
+        assert b"Acme" in results_page.content
+        assert b"true" in results_page.content
         assert EnrichmentLabelResult.objects.count() == 0

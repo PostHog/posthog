@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} (inactive){% endif %}</h1>
+<p>Classifies archived orgs with this config and shows the verdicts. Nothing is persisted.</p>
+<form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="dry_run_selected" />
+    <input type="hidden" name="apply" value="1" />
+    <input type="hidden" name="_selected_action" value="{{ config.pk }}" />
+    <p>
+        <label for="sample">Sample size (most recent archived orgs, max {{ max_sample }}):</label>
+        <input type="number" id="sample" name="sample" value="10" min="1" max="{{ max_sample }}" />
+    </p>
+    <p>
+        <label for="contains">Only orgs whose company name contains (optional):</label>
+        <input type="text" id="contains" name="contains" placeholder="e.g. acme" />
+    </p>
+    <button type="submit" class="button default">Run</button>
+    <a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}">Cancel</a>
+</form>
+{% endblock %}

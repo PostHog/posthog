@@ -5,6 +5,7 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
@@ -372,6 +373,7 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
 
 # Bounded so the synchronous admin dry-run stays a short page load, not a batch job.
 _DRY_RUN_SAMPLE = 10
+_DRY_RUN_MAX_SAMPLE = 100
 _DRY_RUN_WORKERS = 5
 
 
@@ -386,15 +388,35 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     list_select_related = ("created_by",)
     actions = ("dry_run_selected",)
 
-    @admin.action(description=f"Dry run on the {_DRY_RUN_SAMPLE} most recent archived orgs (persists nothing)")
+    @admin.action(description="Dry run on recent archived orgs (persists nothing)")
     def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponse | None:
         config = queryset.first()
         if config is None or queryset.count() != 1:
             self.message_user(request, "Select exactly one config to dry-run.", level=messages.WARNING)
             return None
 
-        recent = sorted(latest_fetches_qs().values_list("id", "fetched_at"), key=lambda p: p[1], reverse=True)
-        fetch_ids = [fetch_id for fetch_id, _ in recent[:_DRY_RUN_SAMPLE]]
+        # First POST comes from the changelist action; show the options page. The options
+        # page posts back with apply=1 (standard admin intermediate-page pattern).
+        if "apply" not in request.POST:
+            return render(
+                request,
+                "admin/growth/enrichment_dry_run_form.html",
+                {"config": config, "max_sample": _DRY_RUN_MAX_SAMPLE},
+            )
+
+        try:
+            sample = min(max(int(request.POST.get("sample") or _DRY_RUN_SAMPLE), 1), _DRY_RUN_MAX_SAMPLE)
+        except ValueError:
+            sample = _DRY_RUN_SAMPLE
+        contains = (request.POST.get("contains") or "").strip()
+
+        candidates = latest_fetches_qs()
+        if contains:
+            candidates = candidates.filter(
+                Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
+            )
+        recent = sorted(candidates.values_list("id", "fetched_at"), key=lambda p: p[1], reverse=True)
+        fetch_ids = [fetch_id for fetch_id, _ in recent[:sample]]
         fetches = list(OrganizationEnrichmentFetch.objects.filter(id__in=fetch_ids).select_related("organization"))
 
         # All ORM work happens here on the request thread; workers only make LLM calls.
@@ -431,7 +453,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         return render(
             request,
             "admin/growth/enrichment_dry_run.html",
-            {"config": config, "rows": rows, "summary": summary},
+            {"config": config, "rows": rows, "summary": summary, "contains": contains},
         )
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
