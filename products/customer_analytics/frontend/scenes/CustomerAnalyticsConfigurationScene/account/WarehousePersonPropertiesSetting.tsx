@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -9,7 +9,10 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertySyncRunApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
@@ -22,11 +25,63 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
     pending: 'default',
 }
 
-// Project-settings view of the warehouse → person property sources: the same definitions managed on
-// the Customer analytics accounts page, filtered to person targets and created straight into 'person'.
+const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
+    completed: 'success',
+    running: 'primary',
+    failed: 'danger',
+}
+
+// Run history for one source, loaded lazily when its row is expanded.
+function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
+    const { runsBySourceId, runsLoadingBySourceId } = useValues(customPropertyDefinitionsLogic)
+    const runs = runsBySourceId[sourceId] ?? []
+
+    const columns: LemonTableColumns<CustomPropertySyncRunApi> = [
+        {
+            title: 'Status',
+            render: (_, run) => (
+                <Tooltip title={run.error ?? undefined}>
+                    <LemonTag type={TAG_TYPE_BY_RUN_STATUS[run.status] ?? 'default'}>{run.status}</LemonTag>
+                </Tooltip>
+            ),
+        },
+        { title: 'Trigger', dataIndex: 'trigger' },
+        { title: 'Rows produced', render: (_, run) => run.produced },
+        { title: 'Affected persons', render: (_, run) => run.existing },
+        {
+            title: 'Skipped (no person)',
+            render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
+        },
+        {
+            title: 'Started',
+            render: (_, run) =>
+                run.started_at ? <TZLabel time={run.started_at} /> : <span className="text-secondary">—</span>,
+        },
+        {
+            title: 'Finished',
+            render: (_, run) =>
+                run.finished_at ? <TZLabel time={run.finished_at} /> : <span className="text-secondary">—</span>,
+        },
+    ]
+
+    return (
+        <LemonTable
+            columns={columns}
+            dataSource={runs}
+            loading={runsLoadingBySourceId[sourceId] ?? false}
+            rowKey="id"
+            size="small"
+            emptyState="No runs yet."
+        />
+    )
+}
+
+// First-class Customer analytics view of the warehouse → person property sources: manages the person
+// mappings, shows the next scheduled sync, lets you trigger a sync or backfill, and expands to run history.
 export function WarehousePersonPropertiesSetting(): JSX.Element {
-    const { definitions, definitionsLoading } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition } = useActions(customPropertyDefinitionsLogic)
+    const { definitions, definitionsLoading, triggeringSourceIds } = useValues(customPropertyDefinitionsLogic)
+    const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, loadRuns } =
+        useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -88,40 +143,84 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                     return <span className="text-secondary">—</span>
                 }
                 const status = sourceSyncStatus(definition.source)
+                // Only report an affected count for a finished run — an in-progress/failed run's count
+                // isn't "the last run". status.tooltip is undefined for the synced/pending states, so
+                // build the title from the present parts rather than interpolating undefined into it.
+                const latestRun = definition.source.latest_run
+                const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
+                const tooltipTitle =
+                    [status.tooltip, affected != null ? `${affected} people affected on the last run` : null]
+                        .filter(Boolean)
+                        .join(' — ') || undefined
                 return (
-                    <Tooltip title={status.tooltip}>
+                    <Tooltip title={tooltipTitle}>
                         <span className="flex items-center gap-2">
                             <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
                             {status.level === 'synced' && definition.source.last_synced_at && (
                                 <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
                             )}
+                            {affected != null && <IconInfo className="text-secondary" />}
                         </span>
                     </Tooltip>
                 )
             },
         },
         {
+            title: 'Next sync',
+            render: (_, definition) =>
+                definition.source?.next_sync_at ? (
+                    <TZLabel time={definition.source.next_sync_at} className="text-secondary" />
+                ) : (
+                    <span className="text-secondary">—</span>
+                ),
+        },
+        {
             title: '',
             width: 0,
-            render: (_, definition) => (
-                <div className="flex gap-1 justify-end">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPencil />}
-                        tooltip="Edit"
-                        onClick={() => openEditModal(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                    <LemonButton
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete"
-                        onClick={() => confirmDelete(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                </div>
-            ),
+            render: (_, definition) => {
+                const source = definition.source
+                const triggering = !!source && triggeringSourceIds.includes(source.id)
+                const running = source?.latest_run?.status === 'running'
+                // A run is in flight for this table; block a second trigger and show it as busy.
+                const busyReason = running ? 'A sync or backfill is already running for this table' : undefined
+                const disabledReason = restrictionReason ?? (!source ? 'No source configured' : undefined) ?? busyReason
+                return (
+                    <div className="flex gap-1 justify-end">
+                        <LemonButton
+                            size="small"
+                            icon={<IconRefresh />}
+                            tooltip="Sync now — re-runs the warehouse sync for this table"
+                            onClick={() => source && triggerSync({ sourceId: source.id })}
+                            loading={triggering}
+                            disabledReason={disabledReason}
+                        />
+                        <LemonButton
+                            size="small"
+                            tooltip="Backfill — reads the whole table to fill in historical rows"
+                            onClick={() => source && triggerBackfill({ sourceId: source.id })}
+                            loading={triggering || running}
+                            disabledReason={disabledReason}
+                        >
+                            Backfill
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            tooltip="Edit"
+                            onClick={() => openEditModal(definition)}
+                            disabledReason={restrictionReason}
+                        />
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete"
+                            onClick={() => confirmDelete(definition)}
+                            disabledReason={restrictionReason}
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
@@ -142,6 +241,12 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                 dataSource={personDefinitions}
                 loading={definitionsLoading}
                 rowKey="id"
+                expandable={{
+                    rowExpandable: (definition) => !!definition.source,
+                    onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    expandedRowRender: (definition) =>
+                        definition.source ? <PersonPropertyRuns sourceId={definition.source.id} /> : null,
+                }}
                 emptyState="No warehouse-backed person properties yet. Add one to sync warehouse columns onto people."
             />
             <CustomPropertyModal />

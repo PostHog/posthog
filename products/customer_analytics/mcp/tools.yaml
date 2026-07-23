@@ -467,6 +467,9 @@ tools:
     custom-property-definitions-values-retrieve:
         operation: custom_property_definitions_values_retrieve
         enabled: false
+    custom-property-sources-backfill-create:
+        operation: custom_property_sources_backfill_create
+        enabled: false
     custom-property-sources-create:
         operation: custom_property_sources_create
         enabled: false
@@ -481,6 +484,12 @@ tools:
         enabled: false
     custom-property-sources-retrieve:
         operation: custom_property_sources_retrieve
+        enabled: false
+    custom-property-sources-runs-list:
+        operation: custom_property_sources_runs_list
+        enabled: false
+    custom-property-sources-sync-create:
+        operation: custom_property_sources_sync_create
         enabled: false
     custom-property-sources-update:
         operation: custom_property_sources_update

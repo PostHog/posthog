@@ -1769,7 +1769,10 @@ describe('Cyclotron V2', () => {
             const defaults = {
                 team_id: 1,
                 function_id: null,
-                queue_name: QUEUE,
+                // Default to a real invocation queue so a poisoned genuine invocation is recorded.
+                // The janitor only records give-ups on invocation queues; anything else is a
+                // wrapper/meta job that's dropped without a record (see WRAPPER drop tests below).
+                queue_name: 'hogflow',
                 status: 'available',
                 priority: 0,
                 scheduled: new Date(),
@@ -1984,6 +1987,57 @@ describe('Cyclotron V2', () => {
             // ...then the cyclotron row is gone (no silent delete, no leftover).
             expect(await totalJobCount()).toBe(0)
         })
+
+        // Both meta/wrapper queues share cyclotron_jobs with real invocations and
+        // stamp function_id to a target function, so both must be dropped without a
+        // record — else the autodrain replays a real flow with fabricated globals.
+        // 'some_future_meta_queue' is an unknown, non-invocation queue: it guards the allow-list's
+        // fail-safe. Under the old deny-list a queue nobody listed would be RECORDED as a replayable
+        // hog_flow (the autodrain would then replay a phantom flow) — with the allow-list any queue
+        // not in CYCLOTRON_INVOCATION_JOB_QUEUES is dropped without a record by default.
+        it.each(['rerun', 'hogflow_batch_resolve', 'some_future_meta_queue'])(
+            'drops a poisoned %s wrapper without recording it, still records real invocations',
+            async (wrapperQueue) => {
+                const staleHeartbeat = new Date(Date.now() - 60_000)
+                const wrapperId = uuidv7()
+                const invocationId = uuidv7()
+                // A poisoned WRAPPER job and a genuine poisoned invocation, same sweep.
+                await insertRawJob({
+                    id: wrapperId,
+                    function_id: uuidv7(),
+                    queue_name: wrapperQueue,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+                await insertRawJob({
+                    id: invocationId,
+                    function_id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+
+                const { service, recordTerminalFailureDurably } = createMockResults(true)
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                // The wrapper is dropped with NO replay record — recording it would let
+                // the autodrain rediscover it as a hog_flow and replay a real flow with
+                // fabricated globals. Only the genuine invocation is recorded.
+                expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+                expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: invocationId }),
+                    expect.anything()
+                )
+                expect(result.poisonedIds).toEqual([invocationId])
+                // Both cyclotron rows are gone — the wrapper is given up on, just untraced.
+                expect(await totalJobCount()).toBe(0)
+            }
+        )
 
         it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)

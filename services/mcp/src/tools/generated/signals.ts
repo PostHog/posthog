@@ -758,6 +758,22 @@ const scoutMembersList = (): ToolBase<typeof ScoutMembersListSchema, WithPostHog
     },
 })
 
+const ScoutMetadataGetSchema = z.object({})
+
+const scoutMetadataGet = (): ToolBase<typeof ScoutMetadataGetSchema, Schemas.ScoutMetadata> => ({
+    name: 'scout-metadata-get',
+    schema: ScoutMetadataGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ScoutMetadataGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutMetadata>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/metadata/current/`,
+        })
+        return result
+    },
+})
+
 const ScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
 const scoutProjectProfileGet = (): ToolBase<typeof ScoutProjectProfileGetSchema, Schemas.ProjectProfile> => ({
@@ -1483,6 +1499,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
     'scout-members-list': scoutMembersList,
+    'scout-metadata-get': scoutMetadataGet,
     'scout-project-profile-get': scoutProjectProfileGet,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
