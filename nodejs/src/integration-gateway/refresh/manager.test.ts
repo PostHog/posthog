@@ -53,6 +53,7 @@ function setup(
         lockResult?: 'OK' | null
         config?: Partial<RefreshManagerConfig>
         ownedTeams?: RefreshTeamGate
+        updatePersisted?: boolean
     } = {}
 ) {
     const encryptedFields = new EncryptedFields(SALT)
@@ -68,8 +69,8 @@ function setup(
         ...opts.rowOverrides,
     }
     const repository = {
-        fetchOne: jest.fn().mockResolvedValue(row),
-        updateAfterRefresh: jest.fn().mockResolvedValue(undefined),
+        fetchOneForUpdate: jest.fn().mockResolvedValue(row),
+        updateAfterRefresh: jest.fn().mockResolvedValue(opts.updatePersisted ?? true),
         markRefreshFailed: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<IntegrationRepository>
     const lockResult = opts.lockResult === undefined ? 'OK' : opts.lockResult
@@ -123,13 +124,15 @@ describe('RefreshManager', () => {
         const result = await manager.refresh(row)
 
         expect(repository.updateAfterRefresh).toHaveBeenCalledTimes(1)
-        const [id, newConfig, newSensitive] = repository.updateAfterRefresh.mock.calls[0]
+        const [id, newConfig, newSensitive, expectedRefreshToken] = repository.updateAfterRefresh.mock.calls[0]
         expect(id).toBe(1)
         expect(newConfig.expires_in).toBe(1800)
         expect(newConfig.refreshed_at).toBeGreaterThan(nowSecs() - 5)
         // Written back encrypted (never plaintext), and Django-readable via the primary key.
         expect(encryptedFields.decrypt(newSensitive.access_token)).toBe('new-access')
         expect(encryptedFields.decrypt(newSensitive.refresh_token)).toBe('new-refresh')
+        // The compare-and-swap guard is the exact stored ciphertext read under the lock.
+        expect(encryptedFields.decrypt(expectedRefreshToken)).toBe('old-refresh')
         // The returned row carries the refreshed credentials for the read path.
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('new-access')
 
@@ -140,6 +143,38 @@ describe('RefreshManager', () => {
         expect(options.body).toContain('client_id=cid')
         // On success the lock is released so a later legitimate refresh can proceed.
         expect(client.del).toHaveBeenCalled()
+    })
+
+    it('discards the refresh when the compare-and-swap loses the race (concurrent reconnect)', async () => {
+        mockTokenResponse(200, { access_token: 'new-access', expires_in: 1800, refresh_token: 'new-refresh' })
+        // updateAfterRefresh matches 0 rows: the row was rotated (e.g. a user reconnect) since we read it.
+        const { manager, repository, encryptedFields } = setup({ updatePersisted: false })
+        const reconnected: IntegrationRow = {
+            id: 1,
+            team_id: 2,
+            kind: 'hubspot',
+            config: { refreshed_at: nowSecs(), expires_in: 3600 },
+            sensitive_config: { access_token: encryptedFields.encrypt('reconnected-access') },
+        }
+        // First call = pre-refresh read; second call = the post-CAS-miss re-read of the winner's row.
+        ;(repository.fetchOneForUpdate as jest.Mock)
+            .mockResolvedValueOnce({
+                id: 1,
+                team_id: 2,
+                kind: 'hubspot',
+                config: { refreshed_at: nowSecs() - 3000, expires_in: 3600 },
+                sensitive_config: {
+                    access_token: encryptedFields.encrypt('old-access'),
+                    refresh_token: encryptedFields.encrypt('old-refresh'),
+                },
+            })
+            .mockResolvedValueOnce(reconnected)
+
+        const result = await manager.refresh(reconnected)
+
+        // We serve the winner's row, not our now-stale refresh, and never mark it failed.
+        expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('reconnected-access')
+        expect(repository.markRefreshFailed).not.toHaveBeenCalled()
     })
 
     it('does nothing when the token is still fresh (no HTTP call, no write)', async () => {
