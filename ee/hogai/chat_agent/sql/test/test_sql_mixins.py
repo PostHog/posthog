@@ -1,4 +1,5 @@
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -197,6 +198,22 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         self.assertEqual(context.exception.llm_output, "SELECT * FROM nowhere")
         self.assertEqual(context.exception.validation_message, "Unknown table `nowhere`.")
+
+    async def test_quality_check_output_printer_type_error_becomes_retryable(self):
+        # A raw TypeError from the printer (e.g. comparing a string constant to a number) must be
+        # converted into a retryable validation error, not propagate as an uncaught crash.
+        mixin = self._node
+
+        output = self._sql_output("SELECT 1")
+
+        with patch(
+            "ee.hogai.chat_agent.sql.mixins.prepare_and_print_ast",
+            side_effect=TypeError("'>=' not supported between instances of 'str' and 'int'"),
+        ):
+            with self.assertRaises(PydanticOutputParserException) as context:
+                await mixin._quality_check_output(output)
+
+        self.assertIn("isn't valid HogQL", context.exception.validation_message)
 
     async def test_quality_check_output_empty_query_raises_exception(self):
         """Test quality check failure with empty query."""
