@@ -6,6 +6,7 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogPermissionError,
     wrapError,
 } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
@@ -202,6 +203,21 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /**
+     * Broader recoverable-state predicate for the org/project fetches behind
+     * `getOrFetchCached`. Extends `_isRecoverableNotFound` to the
+     * permission-denied case: a direct `GET /api/projects/{id}/` from a token
+     * whose user isn't a member of the project's org returns a 404 ("You need
+     * to belong to an organization."), while org-membership or scope changes
+     * can instead surface a 403 `permission_denied` (a PostHogPermissionError).
+     * Both are expected user-config states the agent recovers from via
+     * switch-project/switch-organization, so they warn instead of capturing;
+     * genuine 5xx/unexpected failures still reach error tracking.
+     */
+    private _isRecoverableStateFetchError(error: unknown): boolean {
+        return this._isRecoverableNotFound(error) || error instanceof PostHogPermissionError
+    }
+
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
@@ -312,7 +328,19 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // Recoverable 404/permission-denied on the org/project fetches is
+            // expected user-config state (membership changed, token points at an
+            // inaccessible/deleted org), not a service bug. Capturing it here —
+            // reached via getOrgField on every request — floods the AI team's
+            // error tracking, so warn instead, mirroring the precedent in
+            // `_getDefaultOrganizationAndProject`. Genuine failures still capture.
+            if (this._isRecoverableStateFetchError(error)) {
+                console.warn(
+                    `[StateManager] ${opts.name} fetch returned a recoverable access error (404/permission denied); serving last-known cached value without capturing`
+                )
+            } else {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
