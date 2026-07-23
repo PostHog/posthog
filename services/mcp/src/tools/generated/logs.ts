@@ -1,12 +1,34 @@
 // AUTO-GENERATED from products/logs/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
-
-import { LogsAlertsCreateBody, LogsAlertsDestinationsCreateBody, LogsAlertsDestinationsCreateParams, LogsAlertsDestinationsDeleteCreateBody, LogsAlertsDestinationsDeleteCreateParams, LogsAlertsDestroyParams, LogsAlertsEventsListParams, LogsAlertsEventsListQueryParams, LogsAlertsListQueryParams, LogsAlertsPartialUpdateBody, LogsAlertsPartialUpdateParams, LogsAlertsRetrieveParams, LogsAlertsSimulateCreateBody, LogsAttributesRetrieveQueryParams, LogsCountCreateBody, LogsCountRangesCreateBody, LogsFacetValuesCreateBody, LogsPatternsCreateBody, LogsPatternsDiffCreateBody, LogsQueryCreateBody, LogsServicesCreateBody, LogsSparklineCreateBody, LogsValuesRetrieveQueryParams } from '@/generated/logs/api'
+import {
+    LogsAlertsCreateBody,
+    LogsAlertsDestinationsCreateBody,
+    LogsAlertsDestinationsCreateParams,
+    LogsAlertsDestinationsDeleteCreateBody,
+    LogsAlertsDestinationsDeleteCreateParams,
+    LogsAlertsDestroyParams,
+    LogsAlertsEventsListParams,
+    LogsAlertsEventsListQueryParams,
+    LogsAlertsListQueryParams,
+    LogsAlertsPartialUpdateBody,
+    LogsAlertsPartialUpdateParams,
+    LogsAlertsRetrieveParams,
+    LogsAlertsSimulateCreateBody,
+    LogsAttributesRetrieveQueryParams,
+    LogsCountCreateBody,
+    LogsCountRangesCreateBody,
+    LogsFacetValuesCreateBody,
+    LogsPatternsCreateBody,
+    LogsPatternsDiffCreateBody,
+    LogsQueryCreateBody,
+    LogsServicesCreateBody,
+    LogsSparklineCreateBody,
+    LogsValuesRetrieveQueryParams,
+} from '@/generated/logs/api'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
 
@@ -16,39 +38,111 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     handler: async (context: Context, params: z.infer<typeof LogsAlertsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.enabled !== undefined) body["enabled"] = params.enabled
-        if (params.filters !== undefined) body["filters"] = params.filters
-        if (params.threshold_count !== undefined) body["threshold_count"] = params.threshold_count
-        if (params.threshold_operator !== undefined) body["threshold_operator"] = params.threshold_operator
-        if (params.window_minutes !== undefined) body["window_minutes"] = params.window_minutes
-        if (params.evaluation_periods !== undefined) body["evaluation_periods"] = params.evaluation_periods
-        if (params.datapoints_to_alarm !== undefined) body["datapoints_to_alarm"] = params.datapoints_to_alarm
-        if (params.cooldown_minutes !== undefined) body["cooldown_minutes"] = params.cooldown_minutes
-        if (params.snooze_until !== undefined) body["snooze_until"] = params.snooze_until
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.threshold_count !== undefined) {
+            body['threshold_count'] = params.threshold_count
+        }
+        if (params.threshold_operator !== undefined) {
+            body['threshold_operator'] = params.threshold_operator
+        }
+        if (params.window_minutes !== undefined) {
+            body['window_minutes'] = params.window_minutes
+        }
+        if (params.evaluation_periods !== undefined) {
+            body['evaluation_periods'] = params.evaluation_periods
+        }
+        if (params.datapoints_to_alarm !== undefined) {
+            body['datapoints_to_alarm'] = params.datapoints_to_alarm
+        }
+        if (params.cooldown_minutes !== undefined) {
+            body['cooldown_minutes'] = params.cooldown_minutes
+        }
+        if (params.snooze_until !== undefined) {
+            body['snooze_until'] = params.snooze_until
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['id', 'name', 'enabled', 'state', 'filters', 'threshold_count', 'threshold_operator', 'window_minutes', 'check_interval_minutes', 'evaluation_periods', 'datapoints_to_alarm', 'cooldown_minutes', 'snooze_until', 'next_check_at', 'last_notified_at', 'last_checked_at', 'consecutive_failures', 'last_error_message', 'created_at', 'updated_at']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'enabled',
+            'state',
+            'filters',
+            'threshold_count',
+            'threshold_operator',
+            'window_minutes',
+            'check_interval_minutes',
+            'evaluation_periods',
+            'datapoints_to_alarm',
+            'cooldown_minutes',
+            'snooze_until',
+            'next_check_at',
+            'last_notified_at',
+            'last_checked_at',
+            'consecutive_failures',
+            'last_error_message',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
         return filtered
     },
 })
 
-const LogsAlertsDestinationsCreateSchema = (LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(LogsAlertsDestinationsCreateBody.shape)).extend({ type: LogsAlertsDestinationsCreateBody.shape['type'].describe('Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'), slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe('Slack workspace integration ID. Required when type is slack.'), slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe('Slack channel ID. Required when type is slack.'), slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe('Optional Slack channel name used for display.'), webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe('Required when type is webhook or teams.') })
+const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true })
+    .extend(LogsAlertsDestinationsCreateBody.shape)
+    .extend({
+        type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
+            'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+        ),
+        slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
+            'Slack workspace integration ID. Required when type is slack.'
+        ),
+        slack_channel_id: LogsAlertsDestinationsCreateBody.shape['slack_channel_id'].describe(
+            'Slack channel ID. Required when type is slack.'
+        ),
+        slack_channel_name: LogsAlertsDestinationsCreateBody.shape['slack_channel_name'].describe(
+            'Optional Slack channel name used for display.'
+        ),
+        webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
+            'Required when type is webhook or teams.'
+        ),
+    })
 
-const logsAlertsDestinationsCreate = (): ToolBase<typeof LogsAlertsDestinationsCreateSchema, Schemas.LogsAlertDestinationResponse> => ({
+const logsAlertsDestinationsCreate = (): ToolBase<
+    typeof LogsAlertsDestinationsCreateSchema,
+    Schemas.LogsAlertDestinationResponse
+> => ({
     name: 'logs-alerts-destinations-create',
     schema: LogsAlertsDestinationsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.type !== undefined) body["type"] = params.type
-        if (params.slack_workspace_id !== undefined) body["slack_workspace_id"] = params.slack_workspace_id
-        if (params.slack_channel_id !== undefined) body["slack_channel_id"] = params.slack_channel_id
-        if (params.slack_channel_name !== undefined) body["slack_channel_name"] = params.slack_channel_name
-        if (params.webhook_url !== undefined) body["webhook_url"] = params.webhook_url
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.slack_workspace_id !== undefined) {
+            body['slack_workspace_id'] = params.slack_workspace_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        if (params.webhook_url !== undefined) {
+            body['webhook_url'] = params.webhook_url
+        }
         const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
@@ -59,7 +153,9 @@ const logsAlertsDestinationsCreate = (): ToolBase<typeof LogsAlertsDestinationsC
     },
 })
 
-const LogsAlertsDestinationsDeleteCreateSchema = LogsAlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(LogsAlertsDestinationsDeleteCreateBody.shape)
+const LogsAlertsDestinationsDeleteCreateSchema = LogsAlertsDestinationsDeleteCreateParams.omit({
+    project_id: true,
+}).extend(LogsAlertsDestinationsDeleteCreateBody.shape)
 
 const logsAlertsDestinationsDeleteCreate = (): ToolBase<typeof LogsAlertsDestinationsDeleteCreateSchema, unknown> => ({
     name: 'logs-alerts-destinations-delete-create',
@@ -67,7 +163,9 @@ const logsAlertsDestinationsDeleteCreate = (): ToolBase<typeof LogsAlertsDestina
     handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsDeleteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.hog_function_ids !== undefined) body["hog_function_ids"] = params.hog_function_ids
+        if (params.hog_function_ids !== undefined) {
+            body['hog_function_ids'] = params.hog_function_ids
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
@@ -92,9 +190,14 @@ const logsAlertsDestroy = (): ToolBase<typeof LogsAlertsDestroySchema, unknown> 
     },
 })
 
-const LogsAlertsEventsListSchema = LogsAlertsEventsListParams.omit({ project_id: true }).extend(LogsAlertsEventsListQueryParams.shape)
+const LogsAlertsEventsListSchema = LogsAlertsEventsListParams.omit({ project_id: true }).extend(
+    LogsAlertsEventsListQueryParams.shape
+)
 
-const logsAlertsEventsList = (): ToolBase<typeof LogsAlertsEventsListSchema, WithPostHogUrl<Schemas.PaginatedLogsAlertEventList>> => ({
+const logsAlertsEventsList = (): ToolBase<
+    typeof LogsAlertsEventsListSchema,
+    WithPostHogUrl<Schemas.PaginatedLogsAlertEventList>
+> => ({
     name: 'logs-alerts-events-list',
     schema: LogsAlertsEventsListSchema,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsEventsListSchema>) => {
@@ -107,14 +210,32 @@ const logsAlertsEventsList = (): ToolBase<typeof LogsAlertsEventsListSchema, Wit
                 offset: params.offset,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'created_at', 'kind', 'state_before', 'state_after', 'threshold_breached', 'result_count', 'error_message', 'query_duration_ms'])) } as typeof result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'created_at',
+                    'kind',
+                    'state_before',
+                    'state_after',
+                    'threshold_breached',
+                    'result_count',
+                    'error_message',
+                    'query_duration_ms',
+                ])
+            ),
+        } as typeof result
         return await withPostHogUrl(context, filtered, '/logs')
     },
 })
 
 const LogsAlertsListSchema = LogsAlertsListQueryParams
 
-const logsAlertsList = (): ToolBase<typeof LogsAlertsListSchema, WithPostHogUrl<Schemas.PaginatedLogsAlertConfigurationList>> => ({
+const logsAlertsList = (): ToolBase<
+    typeof LogsAlertsListSchema,
+    WithPostHogUrl<Schemas.PaginatedLogsAlertConfigurationList>
+> => ({
     name: 'logs-alerts-list',
     schema: LogsAlertsListSchema,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsListSchema>) => {
@@ -128,12 +249,29 @@ const logsAlertsList = (): ToolBase<typeof LogsAlertsListSchema, WithPostHogUrl<
                 offset: params.offset,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'name', 'enabled', 'state', 'threshold_count', 'threshold_operator', 'window_minutes', 'created_at', 'updated_at'])) } as typeof result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'enabled',
+                    'state',
+                    'threshold_count',
+                    'threshold_operator',
+                    'window_minutes',
+                    'created_at',
+                    'updated_at',
+                ])
+            ),
+        } as typeof result
         return await withPostHogUrl(context, filtered, '/logs')
     },
 })
 
-const LogsAlertsPartialUpdateSchema = LogsAlertsPartialUpdateParams.omit({ project_id: true }).extend(LogsAlertsPartialUpdateBody.shape)
+const LogsAlertsPartialUpdateSchema = LogsAlertsPartialUpdateParams.omit({ project_id: true }).extend(
+    LogsAlertsPartialUpdateBody.shape
+)
 
 const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchema, Schemas.LogsAlertConfiguration> => ({
     name: 'logs-alerts-partial-update',
@@ -141,22 +279,63 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
     handler: async (context: Context, params: z.infer<typeof LogsAlertsPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) body["name"] = params.name
-        if (params.enabled !== undefined) body["enabled"] = params.enabled
-        if (params.filters !== undefined) body["filters"] = params.filters
-        if (params.threshold_count !== undefined) body["threshold_count"] = params.threshold_count
-        if (params.threshold_operator !== undefined) body["threshold_operator"] = params.threshold_operator
-        if (params.window_minutes !== undefined) body["window_minutes"] = params.window_minutes
-        if (params.evaluation_periods !== undefined) body["evaluation_periods"] = params.evaluation_periods
-        if (params.datapoints_to_alarm !== undefined) body["datapoints_to_alarm"] = params.datapoints_to_alarm
-        if (params.cooldown_minutes !== undefined) body["cooldown_minutes"] = params.cooldown_minutes
-        if (params.snooze_until !== undefined) body["snooze_until"] = params.snooze_until
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.threshold_count !== undefined) {
+            body['threshold_count'] = params.threshold_count
+        }
+        if (params.threshold_operator !== undefined) {
+            body['threshold_operator'] = params.threshold_operator
+        }
+        if (params.window_minutes !== undefined) {
+            body['window_minutes'] = params.window_minutes
+        }
+        if (params.evaluation_periods !== undefined) {
+            body['evaluation_periods'] = params.evaluation_periods
+        }
+        if (params.datapoints_to_alarm !== undefined) {
+            body['datapoints_to_alarm'] = params.datapoints_to_alarm
+        }
+        if (params.cooldown_minutes !== undefined) {
+            body['cooldown_minutes'] = params.cooldown_minutes
+        }
+        if (params.snooze_until !== undefined) {
+            body['snooze_until'] = params.snooze_until
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['id', 'name', 'enabled', 'state', 'filters', 'threshold_count', 'threshold_operator', 'window_minutes', 'check_interval_minutes', 'evaluation_periods', 'datapoints_to_alarm', 'cooldown_minutes', 'snooze_until', 'next_check_at', 'last_notified_at', 'last_checked_at', 'consecutive_failures', 'last_error_message', 'created_at', 'updated_at']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'enabled',
+            'state',
+            'filters',
+            'threshold_count',
+            'threshold_operator',
+            'window_minutes',
+            'check_interval_minutes',
+            'evaluation_periods',
+            'datapoints_to_alarm',
+            'cooldown_minutes',
+            'snooze_until',
+            'next_check_at',
+            'last_notified_at',
+            'last_checked_at',
+            'consecutive_failures',
+            'last_error_message',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
         return filtered
     },
 })
@@ -172,34 +351,83 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = pickResponseFields(result, ['id', 'name', 'enabled', 'state', 'filters', 'threshold_count', 'threshold_operator', 'window_minutes', 'check_interval_minutes', 'evaluation_periods', 'datapoints_to_alarm', 'cooldown_minutes', 'snooze_until', 'next_check_at', 'last_notified_at', 'last_checked_at', 'consecutive_failures', 'last_error_message', 'created_at', 'updated_at']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'enabled',
+            'state',
+            'filters',
+            'threshold_count',
+            'threshold_operator',
+            'window_minutes',
+            'check_interval_minutes',
+            'evaluation_periods',
+            'datapoints_to_alarm',
+            'cooldown_minutes',
+            'snooze_until',
+            'next_check_at',
+            'last_notified_at',
+            'last_checked_at',
+            'consecutive_failures',
+            'last_error_message',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
         return filtered
     },
 })
 
 const LogsAlertsSimulateCreateSchema = LogsAlertsSimulateCreateBody
 
-const logsAlertsSimulateCreate = (): ToolBase<typeof LogsAlertsSimulateCreateSchema, Schemas.LogsAlertSimulateResponse> => ({
+const logsAlertsSimulateCreate = (): ToolBase<
+    typeof LogsAlertsSimulateCreateSchema,
+    Schemas.LogsAlertSimulateResponse
+> => ({
     name: 'logs-alerts-simulate-create',
     schema: LogsAlertsSimulateCreateSchema,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.filters !== undefined) body["filters"] = params.filters
-        if (params.threshold_count !== undefined) body["threshold_count"] = params.threshold_count
-        if (params.threshold_operator !== undefined) body["threshold_operator"] = params.threshold_operator
-        if (params.window_minutes !== undefined) body["window_minutes"] = params.window_minutes
-        if (params.check_interval_minutes !== undefined) body["check_interval_minutes"] = params.check_interval_minutes
-        if (params.evaluation_periods !== undefined) body["evaluation_periods"] = params.evaluation_periods
-        if (params.datapoints_to_alarm !== undefined) body["datapoints_to_alarm"] = params.datapoints_to_alarm
-        if (params.cooldown_minutes !== undefined) body["cooldown_minutes"] = params.cooldown_minutes
-        if (params.date_from !== undefined) body["date_from"] = params.date_from
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.threshold_count !== undefined) {
+            body['threshold_count'] = params.threshold_count
+        }
+        if (params.threshold_operator !== undefined) {
+            body['threshold_operator'] = params.threshold_operator
+        }
+        if (params.window_minutes !== undefined) {
+            body['window_minutes'] = params.window_minutes
+        }
+        if (params.check_interval_minutes !== undefined) {
+            body['check_interval_minutes'] = params.check_interval_minutes
+        }
+        if (params.evaluation_periods !== undefined) {
+            body['evaluation_periods'] = params.evaluation_periods
+        }
+        if (params.datapoints_to_alarm !== undefined) {
+            body['datapoints_to_alarm'] = params.datapoints_to_alarm
+        }
+        if (params.cooldown_minutes !== undefined) {
+            body['cooldown_minutes'] = params.cooldown_minutes
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
         const result = await context.api.request<Schemas.LogsAlertSimulateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/simulate/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['buckets', 'fire_count', 'resolve_count', 'total_buckets', 'threshold_count', 'threshold_operator']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'buckets',
+            'fire_count',
+            'resolve_count',
+            'total_buckets',
+            'threshold_count',
+            'threshold_operator',
+        ]) as typeof result
         return filtered
     },
 })
@@ -262,7 +490,9 @@ const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountRespons
     handler: async (context: Context, params: z.infer<typeof LogsCountSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsCountResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count/`,
@@ -281,7 +511,9 @@ const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._Logs
     handler: async (context: Context, params: z.infer<typeof LogsCountRangesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsCountRangesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count-ranges/`,
@@ -300,7 +532,9 @@ const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, S
     handler: async (context: Context, params: z.infer<typeof LogsFacetValuesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsFacetValuesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/facet_values/`,
@@ -319,13 +553,21 @@ const logsPatterns = (): ToolBase<typeof LogsPatternsSchema, Schemas._LogsPatter
     handler: async (context: Context, params: z.infer<typeof LogsPatternsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsPatternsResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
             body,
         })
-        const filtered = omitResponseFields(result, ['patterns.*.examples', 'patterns.*.sparkline', 'patterns.*.count', 'patterns.*.error_count', 'sparkline_buckets']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'patterns.*.examples',
+            'patterns.*.sparkline',
+            'patterns.*.count',
+            'patterns.*.error_count',
+            'sparkline_buckets',
+        ]) as typeof result
         return filtered
     },
 })
@@ -338,14 +580,23 @@ const logsPatternsDiff = (): ToolBase<typeof LogsPatternsDiffSchema, Schemas._Lo
     handler: async (context: Context, params: z.infer<typeof LogsPatternsDiffSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
-        if (params.baselineDateRange !== undefined) body["baselineDateRange"] = params.baselineDateRange
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
         const result = await context.api.request<Schemas._LogsPatternsDiffResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns_diff/`,
             body,
         })
-        const filtered = omitResponseFields(result, ['entries.*.pattern.examples', 'entries.*.pattern.sparkline', 'entries.*.pattern.count', 'entries.*.pattern.error_count']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'entries.*.pattern.examples',
+            'entries.*.pattern.sparkline',
+            'entries.*.pattern.count',
+            'entries.*.pattern.error_count',
+        ]) as typeof result
         return filtered
     },
 })
@@ -358,7 +609,9 @@ const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas
     handler: async (context: Context, params: z.infer<typeof LogsServicesCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsServicesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/services/`,
@@ -377,7 +630,9 @@ const logsSparklineQuery = (): ToolBase<typeof LogsSparklineQuerySchema, Schemas
     handler: async (context: Context, params: z.infer<typeof LogsSparklineQuerySchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsSparklineResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/sparkline/`,
@@ -396,7 +651,9 @@ const queryLogs = (): ToolBase<typeof QueryLogsSchema, Schemas._LogsQueryRespons
     handler: async (context: Context, params: z.infer<typeof QueryLogsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) body["query"] = params.query
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas._LogsQueryResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
