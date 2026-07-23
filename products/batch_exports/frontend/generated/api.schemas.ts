@@ -11,6 +11,7 @@
  * * `events` - Events
  * * `persons` - Persons
  * * `sessions` - Sessions
+ * * `hogql` - Hogql
  */
 export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
 
@@ -18,6 +19,7 @@ export const ModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
+    Hogql: 'hogql',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -527,7 +529,8 @@ export interface BatchExportApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi | BlankEnumApi | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
@@ -1333,7 +1336,8 @@ export interface BatchExportRequestApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination: BatchExportDestinationRequestApi
@@ -1493,7 +1497,8 @@ export interface PatchedBatchExportRequestApi {
      *
      * * `events` - Events
      * * `persons` - Persons
-     * * `sessions` - Sessions */
+     * * `sessions` - Sessions
+     * * `hogql` - Hogql */
     model?: ModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination?: BatchExportDestinationRequestApi
