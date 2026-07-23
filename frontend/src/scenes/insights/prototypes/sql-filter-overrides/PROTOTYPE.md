@@ -18,7 +18,7 @@ http://localhost:8010/project/<id>/insights/<short_id>?variant=A
 
 Switch with the floating bottom bar or `←`/`→`. Variants:
 
-- **A — Classic insight card**: the results sit in a bordered card like a trends insight, with the date range and property filters in the top row inside the border. Immediate apply.
+- **A — Classic insight card**: the results sit in the real `InsightVizDisplay` card with an `InsightDisplayConfig` header row — the date filter is configured exactly like `InsightDateFilter`, showing the effective range (override if set, else saved), plus property filters. No extra labels. Immediate apply.
 - **B — Overrides panel**: page stays clean; one button opens a staged panel showing saved filters next to your overrides, with explicit Apply/Clear. Deliberate, diff-oriented.
 - **C — Editable summary**: a prose line ("Showing … where …") whose segments edit in place. Zero chrome until you interact.
 

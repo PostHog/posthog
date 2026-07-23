@@ -23,7 +23,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { dateFilterToText } from 'lib/utils/dateFilters'
+import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema/schema-general'
@@ -99,50 +99,56 @@ interface VariantProps {
 }
 
 /**
- * Variant A — looks like a classic insight: one bordered card whose top row (inside the border)
- * holds the date range and filters, with the results attached below. Immediate apply.
+ * Variant A — looks like a classic insight. Reuses the exact InsightVizDisplay /
+ * InsightDisplayConfig classes and the InsightDateFilter configuration, so the card is
+ * pixel-identical to a trends insight — except changes write filter overrides, not the insight.
+ * The date filter shows the effective range: the override if set, else the saved one.
  */
 function VariantClassicCard({ overrides, saved, children }: VariantProps & { children: React.ReactNode }): JSX.Element {
-    const savedDateLabel = dateFilterToText(saved.dateRange?.date_from, saved.dateRange?.date_to, 'all time')
     return (
-        <div className="rounded border bg-surface-primary">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-2">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <div className="InsightVizDisplay InsightVizDisplay--type-trends border rounded bg-surface-primary">
+            <div className="InsightDisplayConfig @container flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]">
+                <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
                     <span className="flex items-center gap-x-2 text-sm">
-                        <span>Date range</span>
                         <DateFilter
-                            size="small"
-                            dateFrom={overrides.date_from ?? null}
-                            dateTo={overrides.date_to ?? null}
-                            placeholder={savedDateLabel ?? 'all time'}
-                            onChange={(date_from, date_to) => setOverrides({ ...overrides, date_from, date_to })}
+                            showExplicitDateToggle
+                            allowTimePrecision
+                            allowFixedRangeWithTime
+                            dateFrom={overrides.date_from ?? saved.dateRange?.date_from ?? null}
+                            dateTo={overrides.date_to ?? saved.dateRange?.date_to ?? null}
+                            explicitDate={overrides.explicitDate ?? saved.dateRange?.explicitDate ?? false}
+                            onChange={(date_from, date_to, explicitDate) =>
+                                setOverrides({ ...overrides, date_from, date_to, explicitDate })
+                            }
+                            dateOptions={dateMapping}
+                            allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
                             makeLabel={(key) => (
                                 <>
-                                    <IconCalendar />
-                                    <span> {key}</span>
+                                    <IconCalendar /> {key}
                                 </>
                             )}
                         />
                     </span>
-                    <PropertyFilters
-                        pageKey="sql-overrides-prototype-a"
-                        buttonSize="small"
-                        propertyFilters={overrides.properties ?? []}
-                        onChange={(properties) => setOverrides({ ...overrides, properties })}
-                        taxonomicGroupTypes={TAXONOMIC_GROUPS}
-                        addText="Add filter"
-                    />
+                    <span className="flex items-center gap-x-2 text-sm">
+                        <PropertyFilters
+                            pageKey="sql-overrides-prototype-a"
+                            buttonSize="small"
+                            propertyFilters={overrides.properties ?? []}
+                            onChange={(properties) => setOverrides({ ...overrides, properties })}
+                            taxonomicGroupTypes={TAXONOMIC_GROUPS}
+                            addText="Add filter"
+                        />
+                    </span>
                 </div>
                 <div className="flex items-center gap-x-2">
                     {!isOverrideEmpty(overrides) && (
-                        <LemonButton size="xsmall" type="tertiary" onClick={() => setOverrides(null)}>
+                        <LemonButton size="small" onClick={() => setOverrides(null)}>
                             Reset to saved
                         </LemonButton>
                     )}
-                    <span className="text-xs text-secondary">View only — not saved</span>
                 </div>
             </div>
-            <div className="flex flex-col p-2">{children}</div>
+            <div className="InsightVizDisplay__content">{children}</div>
         </div>
     )
 }
