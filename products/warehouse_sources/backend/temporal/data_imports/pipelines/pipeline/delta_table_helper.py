@@ -51,6 +51,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
+# Substrings of the `OSError`s delta-rs's Rust `object_store` crate raises from
+# `DeltaTable.is_deltatable()` when it can't reach or authenticate against our own S3-backed
+# data-warehouse bucket (IMDS/STS blips, dispatch timeouts) — not a customer credential problem.
+# Transient and self-recovering: the next maintenance pass re-lists from scratch, so these
+# shouldn't be treated the same as a bug in our maintenance logic.
+TRANSIENT_OBJECT_STORE_ERRORS = (
+    "an error occurred while loading credentials",
+    "the credential provider was not enabled",
+    "Generic S3 error",
+)
+
+
+def is_transient_object_store_error(error: BaseException) -> bool:
+    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.

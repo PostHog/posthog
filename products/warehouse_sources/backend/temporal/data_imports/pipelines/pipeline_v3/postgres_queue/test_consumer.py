@@ -176,6 +176,37 @@ class TestProcessSingle:
         states = [call[1]["job_state"] for call in mock_status.call_args_list]
         assert SourceBatchStatus.State.WAITING_RETRY not in states
 
+    @pytest.mark.parametrize(
+        ("message", "expect_capture"),
+        [
+            # Expected upstream/customer condition (a source column's type changed and no longer
+            # fits the stored type): the run fails with an actionable message but stays out of
+            # error tracking.
+            ("Source column type changed: 'price' has values that no longer fit its stored type int64", False),
+            # A genuine non-retryable failure must still surface so real bugs aren't hidden.
+            ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_expected_user_error_skips_error_tracking(self, message: str, expect_capture: bool):
+        consumer = _make_consumer(max_attempts=3)
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock(side_effect=ValueError(message))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert mock_fail.call_args[1]["reason"] == message  # run still fails with the actionable message
+        assert mock_capture.called is expect_capture
+
     @pytest.mark.asyncio
     async def test_max_attempts_exceeded_fails_run(self):
         consumer = _make_consumer(max_attempts=3)
