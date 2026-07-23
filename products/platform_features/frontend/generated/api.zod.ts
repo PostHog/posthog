@@ -395,21 +395,13 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const commentsSendToSlackCreateBodyChannelIdMax = 255
 
-export const commentsSendToSlackCreateBodyChannelNameDefault = ``
-export const commentsSendToSlackCreateBodyChannelNameMax = 255
-
 export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
     channel_id: zod
         .string()
         .max(commentsSendToSlackCreateBodyChannelIdMax)
-        .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
-    channel_name: zod
-        .string()
-        .max(commentsSendToSlackCreateBodyChannelNameMax)
-        .default(commentsSendToSlackCreateBodyChannelNameDefault)
         .describe(
-            'Display name of the channel, with or without a leading #. Stored for the UI to show where the discussion lives; the channel ID stays authoritative for posting.'
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
         ),
 })
 

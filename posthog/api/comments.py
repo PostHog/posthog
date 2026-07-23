@@ -74,8 +74,8 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
     channel_id = serializers.CharField(help_text="Slack channel ID this discussion is mirrored to.")
     channel_name = serializers.CharField(
         allow_blank=True,
-        help_text="Slack channel name captured when the discussion was sent (no leading #). "
-        "Empty when unknown; may lag behind a rename in Slack.",
+        help_text="Slack channel name resolved from Slack when the discussion was sent (no leading #). "
+        "Empty for private channels and when unknown; may lag behind a rename in Slack.",
     )
     url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
 
@@ -343,7 +343,8 @@ class CommentSlackThreadSerializer(serializers.ModelSerializer):
             "integration": {"help_text": "Slack integration used to post to and read from the thread."},
             "slack_channel_id": {"help_text": "Slack channel the mirrored thread lives in."},
             "slack_channel_name": {
-                "help_text": "Slack channel name captured at send time (no leading #). Empty when unknown."
+                "help_text": "Slack channel name resolved from Slack at send time (no leading #). "
+                "Empty for private channels and when unknown."
             },
             "slack_thread_ts": {"help_text": "Slack thread timestamp anchoring the mirrored thread."},
             "slack_team_id": {"help_text": "Slack workspace ID, used to route inbound replies back."},
@@ -356,19 +357,9 @@ class SendCommentToSlackSerializer(serializers.Serializer):
     )
     channel_id = serializers.CharField(
         max_length=255,
-        help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.",
+        help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. "
+        "The channel's display name is resolved server-side.",
     )
-    channel_name = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="Display name of the channel, with or without a leading #. Stored for the UI "
-        "to show where the discussion lives; the channel ID stays authoritative for posting.",
-    )
-
-    def validate_channel_name(self, value: str) -> str:
-        return value.lstrip("#")
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -577,6 +568,27 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
 
+    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
+        """Resolve the target channel server-side — the caller-supplied id is never paired with a
+        caller-supplied label. Private channels are restricted to the workspace connector (matching
+        the channel picker, which hides them from everyone else) and their names are never persisted,
+        since the stored name is shown to every reader of the discussion.
+        """
+        client = SlackIntegration(integration).client
+        client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
+        try:
+            channel = client.conversations_info(channel=channel_id)["channel"]
+        except SlackApiError as e:
+            slack_error = (e.response.get("error") if e.response else None) or "unknown error"
+            raise exceptions.ValidationError(f"Could not look up the Slack channel ({slack_error})")
+        if channel.get("is_private"):
+            if integration.created_by_id != user.id:
+                raise exceptions.PermissionDenied(
+                    "Only the user who connected this Slack workspace can send a discussion to a private channel"
+                )
+            return ""
+        return channel.get("name") or ""
+
     @extend_schema(
         request=SendCommentToSlackSerializer,
         responses=CommentSlackThreadSerializer,
@@ -604,11 +616,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         params.is_valid(raise_exception=True)
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
-        channel_name = params.validated_data["channel_name"]
 
         integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
         if integration is None:
             raise exceptions.ValidationError("Slack integration not found")
+
+        channel_name = self._resolve_slack_channel_name(integration, channel_id, cast(User, request.user))
 
         # Reserve the mapping before posting: a discussion mirrors to exactly one Slack thread (1:1),
         # and the source_comment OneToOne makes this get_or_create race-safe — a double-click can't
