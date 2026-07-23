@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { resolveProductMeta } from '../messages/posthogProducts'
 
@@ -11,7 +13,7 @@ import { resolveProductMeta } from '../messages/posthogProducts'
  * product the agent grounded an answer in. Hidden when empty. Each chip is a product icon plus a
  * Sentence-cased label; unknown ids degrade to the wire label and a generic icon.
  */
-export function ResourcesBar(): JSX.Element | null {
+export function ResourcesBar({ className }: { className?: string } = {}): JSX.Element | null {
     const { resourcesUsed } = useValues(runStreamLogic)
 
     if (resourcesUsed.length === 0) {
@@ -19,7 +21,10 @@ export function ResourcesBar(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-wrap items-center gap-1.5 px-3" data-attr="max-sandbox-resources-bar">
+        <div
+            className={cn('flex flex-wrap items-center gap-1.5 px-3', className)}
+            data-attr="max-sandbox-resources-bar"
+        >
             <span className="text-xs text-muted mr-0.5">PostHog resources used:</span>
             {resourcesUsed.map((product) => {
                 const { label, Icon } = resolveProductMeta(product.id, product.label)

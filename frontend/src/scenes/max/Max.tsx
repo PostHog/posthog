@@ -172,7 +172,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         </BindLogic>
     )
     const header = (
-        <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
+        <SidePanelPaneHeader
+            // New view: the header floats over the panel content (which reserves clearance for it — see
+            // `SidePanelRunnerImpl`), so the runner's internally-scrolled thread passes behind it, like the
+            // legacy view's thread does behind this same header when it's sticky in the outer scroller.
+            className={cn('transition-all duration-200', isNewView && 'absolute top-0 left-0 right-0')}
+            showCloseButton={false}
+        >
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
                     <AnimatedBackButton in={isNewView ? panelCanGoBack : !backButtonDisabled}>
@@ -240,8 +246,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             {/* The new view scrolls internally (virtualized thread, history list), so the ScrollArea
             content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
             grows it to fit the whole thread and no scroller ever engages. The legacy view is the
-            opposite: it relies on this container growing so the outer viewport scrolls it. */}
-            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0')}>
+            opposite: it relies on this container growing so the outer viewport scrolls it. `relative`
+            anchors the new view's floating header (absolute, above) over the panel content. */}
+            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0 relative')}>
                 {header}
                 {content}
             </SidePanelContentContainer>
