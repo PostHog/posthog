@@ -1156,8 +1156,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 # Already in flight — counted in the caps already, so it consumes no new headroom.
                 results.append({"session_id": session_id, "scan_outcome": "already_running"})
             elif outcome is WorkflowStartOutcome.CAPPED:
-                # A concurrent caller consumed the remaining slots; everything after caps too, and
-                # the in-flight cap (not the pre-slice's reason) is what's binding now.
+                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
                 results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
                 max_starts = started
                 skip_reason = "skipped_limit"
@@ -1171,11 +1170,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
         """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
-        reason once that's used up, and the row counts for reuse by the per-start slot claims."""
+        reason once that's used up, and the row counts reused by the per-start slot claims."""
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
         scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
-        # Enqueued-but-not-yet-persisted scans hold claims instead of rows; count them so the
-        # pre-slice matches what the atomic claims will actually admit.
+        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
         in_flight_limit = max(
             0,
             min(

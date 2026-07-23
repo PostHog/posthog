@@ -48,8 +48,7 @@ class WorkflowStartOutcome(enum.Enum):
 
 
 def check_team_in_flight_capacity(team_id: int) -> None:
-    """Raise 429 when the team is already at its in-flight apply cap. Counts persisted in-flight
-    rows plus enqueued-but-not-yet-persisted claims, so racing requests see each other."""
+    """Raise 429 when in-flight rows plus enqueued-but-not-yet-persisted claims hit the team cap."""
     count = ReplayObservation.in_flight_for_team(team_id).count() + pending_enqueue_claims_for_team(team_id)
     if count >= MAX_IN_FLIGHT_APPLIES_PER_TEAM:
         raise Throttled(detail=f"This team already has {count} observations running. Try again in a few minutes.")
@@ -81,10 +80,8 @@ def start_apply_scanner_workflow(
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
 
-    An enqueue-slot claim is taken atomically before the workflow starts, so concurrent callers
-    can't collectively race past the in-flight caps between their headroom snapshot and the
-    observation row appearing. Callers that already counted in-flight rows can pass the counts to
-    save two queries; the claim itself is what makes the admission race-safe.
+    An atomic enqueue-slot claim guards the caps before the workflow starts; callers that already
+    counted in-flight rows can pass the counts to save two queries.
     """
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     if team_in_flight_rows is None:
@@ -131,9 +128,8 @@ def start_apply_scanner_workflow(
             release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
             return workflow_id, WorkflowStartOutcome.FAILED
         logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        # Keep the claim: it shares the running workflow's deterministic id, so it either gets
-        # released when that workflow persists its row or self-expires. Releasing here could drop a
-        # racing caller's live claim; a lingering one only under-admits briefly, the safe direction.
+        # Keep the claim: releasing could drop a racing caller's live claim for the same workflow
+        # id, while a lingering one only under-admits until released or expired.
         return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
     except Exception:
         logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
