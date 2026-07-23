@@ -29,7 +29,6 @@ from posthog.models.integration import (
     Integration,
     SlackIntegration,
     SlackIntegrationError,
-    sign_slack_request,
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
@@ -73,6 +72,11 @@ from products.slack_app.backend.services.integration_resolver import (
     load_integrations,
     resolve_user_for_workspace,
     user_resolution_failure_reply,
+)
+from products.slack_app.backend.services.region_auth import (
+    REGION_SIGNATURE_HEADER,
+    REGION_TIMESTAMP_HEADER,
+    sign_region_request,
 )
 from products.slack_app.backend.services.region_claims import evaluate_workspace_claims
 from products.slack_app.backend.services.slack_app_home import (
@@ -577,7 +581,7 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
 
 def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
     kinds_token = ",".join(sorted(kinds))
-    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+    return f"slack_app:ws_claims:{SlackChatProvider.kind}:{slack_team_id}:{kinds_token}"
 
 
 def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
@@ -599,11 +603,10 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
 
     target_domain = other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
-    target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
+    target_url = f"{scheme}://{target_domain}/chat/{SlackChatProvider.kind}/workspace/claims/"
 
     body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
-    signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
-    signature, ts = sign_slack_request(body, signing_secret)
+    signature, ts = sign_region_request(body, SlackChatProvider.region_claims_secret())
 
     try:
         response = requests.post(
@@ -611,8 +614,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-Slack-Signature": signature,
-                "X-Slack-Request-Timestamp": ts,
+                REGION_SIGNATURE_HEADER: signature,
+                REGION_TIMESTAMP_HEADER: ts,
                 REGION_PROXY_HEADER: "1",
             },
             timeout=WORKSPACE_CLAIMS_TIMEOUT_SECONDS,

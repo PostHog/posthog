@@ -10,11 +10,11 @@ from django.test import RequestFactory, TestCase, override_settings
 import requests
 from rest_framework.test import APIClient
 
-from posthog.models.integration import Integration, validate_slack_request
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.services.region_auth import sign_region_request
+from products.slack_app.backend.services.region_auth import sign_region_request, validate_region_request
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -165,12 +165,12 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
     def test_targets_eu_when_called_from_us(self):
         self._call(self._response(200, {"claimed": False}), incoming_host="us.posthog.com")
         assert "eu.posthog.com" in self.last_call.args[0]
-        assert self.last_call.args[0].endswith("/slack/workspace/claims/")
+        assert self.last_call.args[0].endswith("/chat/slack/workspace/claims/")
 
     def test_targets_us_when_called_from_eu(self):
         self._call(self._response(200, {"claimed": False}), incoming_host="eu.posthog.com")
         assert "us.posthog.com" in self.last_call.args[0]
-        assert self.last_call.args[0].endswith("/slack/workspace/claims/")
+        assert self.last_call.args[0].endswith("/chat/slack/workspace/claims/")
 
     def test_non_200_returns_none(self):
         result = self._call(self._response(500, {"claimed": True}))
@@ -280,18 +280,18 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
     def test_signed_request_is_accepted_by_validator(self):
         # End-to-end roundtrip: the sent headers + body, fed into the receiver's verifier, must
         # validate cleanly. This is the actual contract we care about — the matched constant-time
-        # comparison happens inside validate_slack_request.
+        # comparison happens inside validate_region_request.
         self._call(self._response(200, {"claimed": False}))
         sent_body = self.last_call.kwargs["data"]
         sent_headers = self.last_call.kwargs["headers"]
         request = RequestFactory().post(
-            "/slack/workspace/claims/",
+            "/chat/slack/workspace/claims/",
             data=sent_body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=sent_headers["X-Slack-Signature"],
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=sent_headers["X-Slack-Request-Timestamp"],
+            HTTP_X_POSTHOG_REGION_SIGNATURE=sent_headers["X-PostHog-Region-Signature"],
+            HTTP_X_POSTHOG_REGION_TIMESTAMP=sent_headers["X-PostHog-Region-Timestamp"],
         )
-        validate_slack_request(request, self.signing_secret)  # raises on mismatch
+        validate_region_request(request, self.signing_secret)  # raises on mismatch
         # Loop header is included so even if the endpoint URL were ever swapped to the event
         # callback by mistake, the receiver would not re-enter the cross-region machinery.
         assert sent_headers["X-PostHog-Region-Proxied"] == "1"
