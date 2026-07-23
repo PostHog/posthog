@@ -5,6 +5,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import {
@@ -14,7 +15,6 @@ import {
     ResolutionError,
     SecureRequestError,
     fetch,
-    fetchAttribution,
 } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { tryCatch } from '~/common/utils/try-catch'
