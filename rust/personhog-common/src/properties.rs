@@ -186,6 +186,86 @@ fn sanitize_value(value: &mut Value, stats: &mut SanitizeStats) {
     }
 }
 
+/// Rewrite number tokens that serde_json refuses so the document parses,
+/// mimicking `JSON.parse`'s rounding. Postgres renders jsonb numerics in
+/// expanded decimal (never e-notation), and serde_json rejects expansions
+/// near `f64::MAX` even when the value itself is representable — while
+/// every JS consumer reads the same bytes fine, because `JSON.parse`
+/// rounds to the nearest double instead of erroring. Legacy and
+/// Node-written rows can therefore hold numerics the leader's strict
+/// parser chokes on.
+///
+/// Tokens serde_json accepts are copied verbatim (no precision change);
+/// rejected tokens whose value fits a double are rewritten to its
+/// shortest representation — the exact value `JSON.parse` yields — and
+/// magnitudes beyond `f64::MAX` (unreachable from JS; Python bigints and
+/// raw SQL) are clamped to ±[`MAX_JSONB_SAFE_MAGNITUDE`], where today's
+/// pipeline reads `Infinity` and rewrites it as `null`. String content is
+/// copied verbatim, so digits inside strings are never touched. Intended
+/// for the rare failure path only: callers parse normally first and
+/// rewrite only when that fails.
+pub fn rewrite_out_of_range_numbers(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                // Copy the whole string token verbatim, escape-aware.
+                let start = i;
+                i += 1;
+                while i < bytes.len() {
+                    match bytes[i] {
+                        b'\\' => i = (i + 2).min(bytes.len()),
+                        b'"' => {
+                            i += 1;
+                            break;
+                        }
+                        _ => i += 1,
+                    }
+                }
+                out.push_str(&text[start..i]);
+            }
+            b'-' | b'0'..=b'9' => {
+                let start = i;
+                while i < bytes.len()
+                    && matches!(bytes[i], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+                {
+                    i += 1;
+                }
+                let token = &text[start..i];
+                if token.parse::<serde_json::Number>().is_ok() {
+                    out.push_str(token);
+                } else {
+                    match token.parse::<f64>() {
+                        // std's parser rounds to nearest like JSON.parse,
+                        // so a finite result is the double JS reads.
+                        Ok(f) if f.is_finite() => out.push_str(
+                            &serde_json::Number::from_f64(f)
+                                .expect("finite float converts")
+                                .to_string(),
+                        ),
+                        _ => {
+                            let sign = if token.starts_with('-') { "-" } else { "" };
+                            out.push_str(&format!("{sign}{MAX_JSONB_SAFE_MAGNITUDE:e}"));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Structural bytes and whitespace; non-ASCII only occurs
+                // inside strings, which the arm above copies as slices.
+                let start = i;
+                while i < bytes.len() && !matches!(bytes[i], b'"' | b'-' | b'0'..=b'9') {
+                    i += 1;
+                }
+                out.push_str(&text[start..i]);
+            }
+        }
+    }
+    out
+}
+
 /// The size Postgres will report for this value as a `jsonb` column —
 /// `pg_column_size(value::jsonb)` — computed without touching Postgres.
 pub fn jsonb_column_size(value: &Value) -> usize {
@@ -547,5 +627,67 @@ mod tests {
         let before = value.clone();
         assert!(!sanitize_for_jsonb(&mut value).changed());
         assert_eq!(value, before);
+    }
+
+    /// PG's expanded rendering of JS `Number.MAX_VALUE`: the mantissa
+    /// digits followed by 292 zeros — serde_json rejects it, JSON.parse
+    /// rounds it to exactly `f64::MAX`.
+    fn max_value_expansion() -> String {
+        format!("17976931348623157{}", "0".repeat(292))
+    }
+
+    #[test]
+    fn rewrite_rounds_representable_expansions_to_the_double_js_reads() {
+        let text = format!("{{\"x\": {}}}", max_value_expansion());
+        assert!(serde_json::from_str::<Value>(&text).is_err());
+        let parsed: Value = serde_json::from_str(&rewrite_out_of_range_numbers(&text)).unwrap();
+        assert_eq!(parsed["x"].as_f64().unwrap(), f64::MAX);
+    }
+
+    #[test]
+    fn rewrite_clamps_beyond_f64_preserving_sign() {
+        // 2e308 and a Python-bigint-scale integer, positive and negative.
+        let text = format!(
+            "{{\"a\": 2{z308}, \"b\": -2{z308}, \"c\": 1{z400}}}",
+            z308 = "0".repeat(308),
+            z400 = "0".repeat(400),
+        );
+        assert!(serde_json::from_str::<Value>(&text).is_err());
+        let parsed: Value = serde_json::from_str(&rewrite_out_of_range_numbers(&text)).unwrap();
+        assert_eq!(parsed["a"].as_f64().unwrap(), MAX_JSONB_SAFE_MAGNITUDE);
+        assert_eq!(parsed["b"].as_f64().unwrap(), -MAX_JSONB_SAFE_MAGNITUDE);
+        assert_eq!(parsed["c"].as_f64().unwrap(), MAX_JSONB_SAFE_MAGNITUDE);
+    }
+
+    #[test]
+    fn rewrite_never_touches_strings_or_parseable_numbers() {
+        // Digit runs inside strings — including one shaped exactly like
+        // an offending token, behind an escaped quote — plus in-range
+        // numbers, must all pass through byte-identical.
+        let text = format!(
+            "{{\"note\": \"big: 2{z}\", \"esc\": \"say \\\"1{z}\\\" loud\", \
+             \"n\": 1e307, \"tiny\": 0.000123, \"neg\": -42}}",
+            z = "0".repeat(308),
+        );
+        assert_eq!(rewrite_out_of_range_numbers(&text), text);
+    }
+
+    #[test]
+    fn rewrite_output_reparses_for_every_probe_shape() {
+        // The PG probe fixtures that motivated the rewriter, as one doc.
+        let text = format!(
+            "[{max}, 2{z308}, 1{z400}, 1e-308, 0.5, \"x\"]",
+            max = max_value_expansion(),
+            z308 = "0".repeat(308),
+            z400 = "0".repeat(400),
+        );
+        let parsed: Value = serde_json::from_str(&rewrite_out_of_range_numbers(&text)).unwrap();
+        let items = parsed.as_array().unwrap();
+        assert_eq!(items[0].as_f64().unwrap(), f64::MAX);
+        assert_eq!(items[1].as_f64().unwrap(), MAX_JSONB_SAFE_MAGNITUDE);
+        assert_eq!(items[2].as_f64().unwrap(), MAX_JSONB_SAFE_MAGNITUDE);
+        assert_eq!(items[3].as_f64().unwrap(), 1e-308);
+        assert_eq!(items[4].as_f64().unwrap(), 0.5);
+        assert_eq!(items[5], "x");
     }
 }

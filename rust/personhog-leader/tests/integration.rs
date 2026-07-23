@@ -1211,6 +1211,59 @@ async fn pg_fallback_loads_person_on_cache_miss() {
     cancel.cancel();
 }
 
+/// Rows written by other services can hold numerics whose PG-expanded
+/// rendering serde_json rejects even though JSON.parse reads them fine
+/// (JS `Number.MAX_VALUE` is the canonical case — a common "unlimited"
+/// sentinel). The fallback must load such rows the way JS would — rounding
+/// representable values, clamping beyond-f64 garbage — never panic or
+/// leave the person permanently unloadable.
+#[tokio::test]
+async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
+    let pool = common::create_persons_pool().await;
+    let team_id: i32 = 99_060;
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Written exactly as Node's pg driver would: e-notation literals that
+    // PG stores as full-precision numerics and renders back expanded.
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id)
+         VALUES (now(),
+                 '{\"credits\": 1.7976931348623157e+308, \"overflow\": 2e308, \"plan\": \"pro\"}'::jsonb,
+                 false, gen_random_uuid(), 1, $1)
+         RETURNING id",
+    )
+    .bind(team_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let key = PersonCacheKey {
+        team_id: team_id as i64,
+        person_id: row.0,
+    };
+    let person = personhog_leader::pg::load_person_from_pg(&pool, &key)
+        .await
+        .expect("load must not fail")
+        .expect("person exists");
+
+    // The representable sentinel reads as the exact double JS reads;
+    // beyond-f64 garbage clamps instead of poisoning the row; neighbors
+    // are untouched.
+    assert_eq!(person.properties["credits"].as_f64().unwrap(), f64::MAX);
+    assert_eq!(person.properties["overflow"].as_f64().unwrap(), 1e307);
+    assert_eq!(person.properties["plan"], "pro");
+
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
 // ============================================================
 // Test 9: PG fallback returns NotFound for non-existent person
 // ============================================================
