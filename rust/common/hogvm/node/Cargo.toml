@@ -17,6 +17,7 @@ crate-type = ["cdylib", "lib"]
 noop = ["napi/noop", "napi-derive/noop"]
 
 [dependencies]
+common-alloc = { path = "../../alloc" }
 hogvm = { path = ".." }
 maxminddb = "0.24"
 napi = { version = "2", default-features = false, features = ["napi8", "serde-json"] }

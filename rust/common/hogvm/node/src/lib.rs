@@ -11,6 +11,11 @@
 //! can't support fails the execution with an `unsupported_ext_fn:<name>` error so the caller can
 //! fall back to the Node VM.
 
+// Workspace-standard allocator (jemalloc): the interpreter's small-alloc churn was ~33% of
+// self-time under glibc malloc (see perf/LOG.md iteration 8). Applies to this cdylib's Rust
+// allocations and its bins (profile_geoip), same as every other PostHog Rust service.
+common_alloc::used!();
+
 mod exec;
 mod ext_fns;
 mod geoip;

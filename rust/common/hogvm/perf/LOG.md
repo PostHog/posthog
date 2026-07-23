@@ -359,3 +359,41 @@ this file does not yet contain one.
   again — allocator block should now dominate even more; consider whether the
   remaining malloc traffic (globals conversion + result serialization) needs a
   structural change (reusing buffers across events in run_batch_program).
+
+## 2026-07-23 — iteration 8: jemalloc for the addon binary
+
+- Machine: same runner, moderate load (HEAD ~206.5 us/op median of 3:
+  203.3 / 210.9 / 206.5).
+- Profile: allocator now ~32.6% of self-time (malloc 17.6, free 9.1, consolidate 3.9,
+  unlink 2.0) — the dominant block, spread across many small sources (globals JSON
+  conversion, property writes, geoip record, result serialization); no single caller
+  is worth a solo iteration anymore. `step` 9.7, memmove 4.3, indexmap 3.8, memcmp
+  2.0, json_to_hog 2.0.
+- Hypothesis: swap the allocator under the addon. glibc malloc's
+  small-alloc/free churn (with visible `malloc_consolidate`/`unlink_chunk` binning
+  overhead) is the bottleneck; the rust workspace's standard allocator is jemalloc via
+  the `common-alloc` crate (`common_alloc::used!()`), already used by PostHog's Rust
+  services — the napi addon just never adopted it. Add it to `hogvm-node` (lib.rs), so
+  the cdylib and its bins (including `profile_geoip`) allocate via jemalloc.
+  Dependency rationale (constraint 4): not a new dependency in spirit — it is the
+  workspace-standard allocator crate, path-depended from the addon workspace.
+  Gate >= 2%; predicted 5-15% (allocator time should compress substantially).
+- Diff summary: `common-alloc = { path = "../../alloc" }` in the addon manifest and
+  `common_alloc::used!()` in `node/src/lib.rs` — jemalloc as the Rust global allocator
+  for the cdylib and its bins. No hogvm-crate changes (crate gates unaffected,
+  re-verified green anyway).
+- Gates: 77 crate + 19 addon tests, fixture parity, cymbal/cohort-core compile,
+  fmt/clippy/shear — all green.
+- Measurement (interleaved A/B, 5 rounds, 100k iters each): per-round ratios
+  0.676 / 0.679 / 0.685 / 0.711 / 0.659 — median **0.679 (~32% improvement)**;
+  base median 206.0, cand median 141.1.
+- Verdict: **COMMITTED** (`perf(hogvm): jemalloc for the node addon (206.0 -> 141.1 us/op)`).
+  Production note: this changes the Rust-side allocator inside the plugin-server node
+  process when the addon loads — jemalloc is already the standard across PostHog Rust
+  services, but memory-footprint characteristics of the addon will shift; watch RSS on
+  rollout.
+- Iteration score: committed improvement — counter stays 0.
+- Cumulative committed same-machine ratios:
+  0.894 x 0.968 x 0.934 x 0.959 x 0.959 x 0.679 = **~0.505** (~49.5% cumulative
+  reduction vs loop start) — **the ~38% stretch-equivalent is exceeded; the loop's
+  stop condition fires this iteration.**
