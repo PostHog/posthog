@@ -8,7 +8,7 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from posthog.exceptions_capture import capture_exception
 
@@ -16,6 +16,14 @@ logger = structlog.get_logger(__name__)
 
 
 class ObjectStorageError(Exception):
+    pass
+
+
+class ObjectStorageUnavailableError(ObjectStorageError):
+    """Object storage could not be reached at all — e.g. the credential chain resolved
+    nothing and boto3 raised NoCredentialsError. Distinct from a genuine read failure so
+    callers can degrade gracefully (serve unavailable / fall back) instead of 500ing."""
+
     pass
 
 
@@ -264,6 +272,18 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
+        except NoCredentialsError as e:
+            # The credential chain (explicit keys or ambient IAM role) resolved nothing, so
+            # storage is unreachable rather than the object being unreadable. Surface a
+            # distinct error so callers can degrade instead of treating it as a read failure.
+            logger.exception(
+                "object_storage.credentials_unavailable",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageUnavailableError("credentials unavailable") from e
         except Exception as e:
             logger.exception(
                 "object_storage.read_failed",
