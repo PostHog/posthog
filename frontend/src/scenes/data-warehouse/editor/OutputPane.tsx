@@ -4,7 +4,7 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, { DataGridProps, RenderHeaderCellProps } from 'react-data-grid'
 
 import {
     IconCode,
@@ -1107,15 +1107,16 @@ const Content = ({
     showVisualizationSettings,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+    const { resultsSortColumns } = useValues(outputPaneLogic)
+    const { setResultsSortColumns } = useActions(outputPaneLogic)
 
     const sortedRows = useMemo(() => {
-        if (!sortColumns.length) {
+        if (!resultsSortColumns.length) {
             return rows
         }
 
         return [...rows].sort((a, b) => {
-            for (const { columnKey, direction } of sortColumns) {
+            for (const { columnKey, direction } of resultsSortColumns) {
                 const aVal = a[columnKey]
                 const bVal = b[columnKey]
 
@@ -1134,7 +1135,7 @@ const Content = ({
             }
             return 0
         })
-    }, [rows, sortColumns])
+    }, [rows, resultsSortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
 
     if (hasError) {
@@ -1246,8 +1247,8 @@ const Content = ({
                             className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                             columns={columns}
                             rows={sortedRows}
-                            sortColumns={sortColumns}
-                            onSortColumnsChange={setSortColumns}
+                            sortColumns={resultsSortColumns}
+                            onSortColumnsChange={setResultsSortColumns}
                         />
                     </TabScroller>
                 )}

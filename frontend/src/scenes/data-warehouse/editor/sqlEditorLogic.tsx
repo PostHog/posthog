@@ -21,6 +21,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { Suspense } from 'react'
+import type { SortColumn } from 'react-data-grid'
 
 import {
     LemonCheckbox,
@@ -99,6 +100,7 @@ import type { Response } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
+import { queryHasOrderBy } from './sql-utils'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
     aiSuggestionOnAccept,
@@ -720,6 +722,9 @@ export interface sqlEditorLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
+    setResultsSortColumns: (columns: SortColumn[]) => {
+        columns: SortColumn[]
+    } // outputPaneLogic
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
@@ -1107,7 +1112,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
-            ['setActiveTab'],
+            ['setActiveTab', 'setResultsSortColumns'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
@@ -1876,7 +1881,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             },
-            runQuery: ({ queryOverride, switchTab }) => {
+            runQuery: async ({ queryOverride, switchTab }) => {
                 let query: string
                 if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter)
@@ -1937,6 +1942,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const compactQuery = query.replace(/\s+/g, ' ').trim()
                 const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
                 tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
+
+                // If the query orders its own results, drop any client-side sort on the Results grid
+                // so the SQL ORDER BY is what's shown; otherwise leave the user's column sort in place.
+                if (await queryHasOrderBy(query)) {
+                    actions.setResultsSortColumns([])
+                }
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]

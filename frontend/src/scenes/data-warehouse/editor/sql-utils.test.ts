@@ -2,6 +2,7 @@ import {
     buildQueryForColumnClick,
     normalizeIdentifier,
     parseQueryTablesAndColumns,
+    queryHasOrderBy,
     queryUsesFiltersPlaceholder,
 } from './sql-utils'
 
@@ -33,6 +34,19 @@ describe('sql-utils', () => {
             ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
         ])('%s', (_name, query, expected) => {
             expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
+        })
+    })
+
+    describe('queryHasOrderBy', () => {
+        test.each([
+            ['top-level ORDER BY', 'SELECT event FROM events ORDER BY timestamp', true],
+            ['no ORDER BY', 'SELECT event FROM events', false],
+            ['ORDER BY only inside a string literal', "SELECT 'order by x' AS c FROM events", false],
+            ['ORDER BY only inside a line comment', 'SELECT event FROM events -- ORDER BY timestamp', false],
+            ['null query', null, false],
+            ['unparseable query', 'not a select', false],
+        ])('%s', async (_name, query, expected) => {
+            expect(await queryHasOrderBy(query)).toBe(expected)
         })
     })
 
