@@ -285,6 +285,30 @@ def project_reader_namespaces(
     return schemas, relations
 
 
+def _block_if_pending_deletion(organization_id: UUID | str) -> Response | None:
+    """Refuse warehouse-creating calls for an organization whose deletion is underway.
+
+    Organization deletion is asynchronous: ``perform_destroy`` marks the org
+    ``is_pending_deletion`` and hands off to the Temporal workflow, whose first step
+    deprovisions the org's managed warehouse. API-key routes bypass the UI's
+    pending-deletion lockout, so without this guard a caller could provision a NEW
+    warehouse (or add a team row) after that deprovision step and before the org cascade —
+    recreating exactly the orphaned-warehouse hole the workflow closes (the fresh
+    ``DuckgresServer`` row is cascade-deleted without ever being deprovisioned). Every
+    entrypoint that can create duckgres state calls this first; read-only endpoints stay
+    accessible.
+    """
+    # Keep posthog.models off this adapter's import path.
+    from posthog.models.organization import Organization  # noqa: PLC0415
+
+    if Organization.objects.filter(id=organization_id, is_pending_deletion=True).exists():
+        return Response(
+            {"error": "This organization is pending deletion; its managed warehouse can no longer be modified."},
+            status=status.HTTP_409_CONFLICT,
+        )
+    return None
+
+
 def provision(
     organization_id: UUID | str,
     database_name: str | None,
@@ -292,6 +316,9 @@ def provision(
     schema_name: str | None,
     require_enabled: bool = True,
 ) -> Response:
+    pending_deletion = _block_if_pending_deletion(organization_id)
+    if pending_deletion is not None:
+        return pending_deletion
     name_error = validate_warehouse_name(database_name)
     if name_error:
         return Response({"error": name_error}, status=status.HTTP_400_BAD_REQUEST)
@@ -587,6 +614,9 @@ def onboard_team(
     Backend/ops callers (the Django admin) pass `require_enabled=False` to bypass the
     org feature-flag gate.
     """
+    pending_deletion = _block_if_pending_deletion(organization_id)
+    if pending_deletion is not None:
+        return pending_deletion
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
     schema_error = _validate_schema_name(schema_name)

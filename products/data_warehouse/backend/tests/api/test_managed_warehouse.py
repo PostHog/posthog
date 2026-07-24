@@ -1166,6 +1166,35 @@ def test_deprovision_for_org_deletion_treats_converged_states_as_done(
 
 
 @pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
+def test_provision_rejected_for_org_pending_deletion(mock_request: MagicMock) -> None:
+    # The deletion workflow's deprovision step runs once, early: a warehouse provisioned for a
+    # pending-deletion org afterwards would be cascade-deleted without ever being deprovisioned,
+    # so the control plane must never be reached.
+    org = Organization.objects.create(name="Org", is_pending_deletion=True)
+    team = Team.objects.create(organization=org, name="Env")
+
+    resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "myschema", require_enabled=False)
+
+    assert resp.status_code == 409
+    assert "pending deletion" in resp.data["error"]
+    mock_request.assert_not_called()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.create_team")
+def test_onboard_team_rejected_for_org_pending_deletion(mock_create_team: MagicMock) -> None:
+    org = Organization.objects.create(name="Org", is_pending_deletion=True)
+    team = Team.objects.create(organization=org, name="Env")
+
+    resp = managed_warehouse.onboard_team(org.id, team.id, "myschema", require_enabled=False)
+
+    assert resp.status_code == 409
+    assert "pending deletion" in resp.data["error"]
+    mock_create_team.assert_not_called()
+
+
+@pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.deprovision")
 def test_deprovision_for_org_deletion_raises_on_control_plane_error(mock_deprovision: MagicMock) -> None:
     # A transient failure must raise so the Temporal activity retries instead of silently
