@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconCheckCircle, IconNotebook, IconPlus, IconTarget, IconThumbsDown, IconWarning } from '@posthog/icons'
 
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { urls } from 'scenes/urls'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
@@ -42,22 +43,27 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                         {isBlank ? <IconPlus /> : TEMPLATE_ICONS[template.icon]}
                     </span>
                 </div>
-                <div className="flex-1 flex flex-col justify-start">
+                <div className="flex-1 flex flex-col justify-start w-full">
                     <div className="flex items-center justify-center gap-2 mb-2">
                         <h3 className="text-base font-semibold text-default mb-0">
                             {isBlank ? 'Create from scratch' : template.name}
                         </h3>
                         {!isBlank && <ScannerTypeBadge scannerType={template.scanner_type} size="small" />}
                     </div>
-                    <p className="text-sm text-secondary leading-relaxed">
+                    <p className="text-sm text-secondary leading-relaxed mb-0">
                         {isBlank
                             ? 'Build a fully custom scanner with your own prompt and configuration.'
                             : template.description}
                     </p>
+                    {/* mt-auto pins the output token to the card's bottom edge so it lines up across the grid,
+                        regardless of how many lines each description takes. */}
                     {!isBlank && (
-                        <p className="text-xs text-muted mt-2 mb-0">
-                            Output: {scannerTypeOutputHint(template.scanner_type)}
-                        </p>
+                        <div className="mt-auto pt-4 flex justify-center">
+                            <LemonSnack type="regular">
+                                <span className="text-muted">Output:</span>{' '}
+                                {scannerTypeOutputHint(template.scanner_type)}
+                            </LemonSnack>
+                        </div>
                     )}
                 </div>
             </div>
