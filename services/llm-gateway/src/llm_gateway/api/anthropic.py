@@ -62,6 +62,11 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
 BEDROCK_COUNT_TOKENS_ENDPOINT_NAME = "bedrock_count_tokens"
 
+# Fable uses the same model on both providers and has repeatedly timed out on both in the same
+# degradation window. Returning the Anthropic failure lets callers switch models instead of waiting
+# through a second provider timeout that cannot provide meaningful redundancy.
+BEDROCK_FALLBACK_EXCLUDED_MODELS: frozenset[str] = frozenset({"claude-fable-5"})
+
 
 def _invalid_header_exception(message: str) -> HTTPException:
     return HTTPException(status_code=400, detail={"error": {"message": message, "type": "invalid_request_error"}})
@@ -79,6 +84,10 @@ def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
         return extract_posthog_use_bedrock_fallback_from_headers(request) or False
     except ValueError as exc:
         raise _invalid_header_exception(str(exc)) from exc
+
+
+def _can_use_bedrock_fallback(model: str, requested: bool) -> bool:
+    return requested and model not in BEDROCK_FALLBACK_EXCLUDED_MODELS
 
 
 # Params that are safe to forward on the Bedrock path. This is an allowlist on purpose:
@@ -520,7 +529,7 @@ async def _handle_anthropic_messages(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
-    use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
+    use_bedrock_fallback = _can_use_bedrock_fallback(body.model, _get_use_bedrock_fallback_from_headers(request))
 
     # `@cf/` models are served by the GLM routing layer (Cloudflare, or Modal during the ramp), so
     # route them by model id — the same way the chat/completions and responses handlers do. The

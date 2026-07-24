@@ -265,6 +265,32 @@ class TestBedrockFallback:
         assert mock_handle.call_count == 1
 
     @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
+    def test_fable_failure_returns_without_bedrock_retry(
+        self,
+        mock_handle: AsyncMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        mock_handle.side_effect = HTTPException(
+            status_code=504,
+            detail={"error": {"message": "Request timed out", "type": "timeout_error"}},
+        )
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-fable-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 504
+        assert mock_handle.call_count == 1
+
+    @patch("llm_gateway.api.anthropic.handle_llm_request", new_callable=AsyncMock)
     @BEDROCK_SETTINGS_PATCH
     def test_fallback_returns_original_error_when_bedrock_also_fails(
         self,

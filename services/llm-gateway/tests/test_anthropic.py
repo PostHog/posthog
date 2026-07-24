@@ -1576,6 +1576,32 @@ class TestAnthropicCircuitBreakerIntegration:
         breaker.evaluate.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_does_not_bypass_anthropic_for_fable(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict[str, Any],
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-fable-5"
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_closed_breaker_routes_to_anthropic(
         self,
         mock_anthropic: MagicMock,

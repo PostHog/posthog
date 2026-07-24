@@ -188,6 +188,7 @@ X-PostHog-Use-Bedrock-Fallback: true
 
 The fallback only triggers on server errors (5xx), not client errors (4xx).
 If both Anthropic and Bedrock fail, the original Anthropic error is returned.
+`claude-fable-5` is excluded because concurrent degradation affects the same model on both providers; callers should switch to an alternate model when it fails.
 
 ### Configuration
 
