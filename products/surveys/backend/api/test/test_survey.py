@@ -2831,6 +2831,57 @@ class TestSurvey(APIBaseTest):
         assert len(results) == 1
         assert results[0]["id"] == str(regular_survey.id)
 
+    # Fields that identify a survey in a list and must always be present.
+    LIST_METADATA_FIELDS = ["id", "name", "type", "schedule", "start_date", "end_date", "archived", "created_at"]
+    # Heavy configuration and creator fields that `?basic=true` must strip from list rows.
+    LIST_HEAVY_FIELDS = [
+        "questions",
+        "conditions",
+        "appearance",
+        "linked_flag",
+        "targeting_flag",
+        "internal_targeting_flag",
+        "feature_flag_keys",
+        "created_by",
+        "translations",
+        "form_content",
+    ]
+
+    @parameterized.expand(
+        [
+            ("basic_true", {"basic": "true"}, False),
+            ("basic_false", {"basic": "false"}, True),
+            ("basic_absent", {}, True),
+        ]
+    )
+    def test_list_basic_query_param_trims_heavy_fields(self, _name, query_params, expect_heavy_fields):
+        # Create through the API so the survey gets a targeting flag, internal targeting flag,
+        # created_by, questions, and conditions — the fields `?basic=true` should hide.
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with full config",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "How are you?"}],
+                "conditions": {"url": "https://app.posthog.com"},
+                "targeting_flag_filters": {"groups": [{"variant": None, "rollout_percentage": None, "properties": []}]},
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", data=query_params)
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()["results"][0]
+
+        # Metadata is always present so callers can still identify surveys.
+        for field in self.LIST_METADATA_FIELDS:
+            assert field in row, f"expected metadata field {field} in list row"
+
+        for field in self.LIST_HEAVY_FIELDS:
+            assert (field in row) is expect_heavy_fields, (
+                f"unexpected presence of {field} (expected {expect_heavy_fields})"
+            )
+
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

@@ -2142,6 +2142,10 @@ export interface SurveyGlobalStatsResponseApi {
 export type SurveysListParams = {
     archived?: boolean
     /**
+     * Return a trimmed list payload that omits the heavy `questions`, `conditions`, `appearance`, linked/targeting flag, `feature_flag_keys`, `created_by`, `translations`, and `form_content` fields. Use this when you only need to identify surveys (id, name, type, schedule, status, dates); fetch the full configuration from the retrieve endpoint.
+     */
+    basic?: boolean
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[]

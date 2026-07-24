@@ -18,6 +18,12 @@ export const SurveysListParams = /* @__PURE__ */ zod.object({
 
 export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional(),
+    basic: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return a trimmed list payload that omits the heavy `questions`, `conditions`, `appearance`, linked/targeting flag, `feature_flag_keys`, `created_by`, `translations`, and `form_content` fields. Use this when you only need to identify surveys (id, name, type, schedule, status, dates); fetch the full configuration from the retrieve endpoint.'
+        ),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
