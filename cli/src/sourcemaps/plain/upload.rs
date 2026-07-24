@@ -7,9 +7,14 @@ use tracing::{debug, info, warn};
 /// Sibling-JS size below which an empty sourcemap is treated as a harmless
 /// bundler-generated wrapper (e.g. Turbopack App Router page entries,
 /// webpack re-export shims). Observed wrapper files in the wild are
-/// under 1 KiB; 2 KiB leaves comfortable headroom for tools that inject
-/// extra glue (PostHog chunk-id IIFE, etc.) without misclassifying real code.
-const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
+/// under 1 KiB; Turbopack App Router wrappers can reach roughly 3 KiB after
+/// the PostHog chunk-id injection. 4 KiB keeps those harmless wrappers quiet
+/// while still flagging larger empty sourcemaps for investigation.
+const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
+
+fn is_empty_sourcemap_wrapper(js_size: usize) -> bool {
+    js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES
+}
 
 use crate::{
     api::{
@@ -113,7 +118,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     for pair in &empty_pairs {
         let js_size = pair.source.inner.content.len();
         let map_path = pair.sourcemap.inner.path.display();
-        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+        if is_empty_sourcemap_wrapper(js_size) {
             empty_skipped_wrapper += 1;
             debug!(
                 "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
@@ -194,4 +199,19 @@ fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_empty_sourcemap_wrapper;
+
+    #[test]
+    fn treats_turbopack_page_wrapper_as_harmless_empty_sourcemap() {
+        assert!(is_empty_sourcemap_wrapper(2864));
+    }
+
+    #[test]
+    fn keeps_a_four_kib_empty_sourcemap_suspect() {
+        assert!(!is_empty_sourcemap_wrapper(4096));
+    }
 }
