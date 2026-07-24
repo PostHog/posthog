@@ -7,9 +7,11 @@ import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import {
     SessionRecordingPlaylistLogicProps,
+    getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -251,9 +253,16 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
 
 /** Browse and filter recordings, then fire this scanner against any of them. */
 function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    // Seed the browser with the scanner's own scan conditions so it previews the recordings this scanner
+    // actually runs against, not just the latest recordings. Only the condition dimensions
+    // (events/actions/properties/duration/test accounts) live on the scanner query, so overlay those onto
+    // the default recent-recordings date range and sort order. The user can still widen or clear the filters.
+    const scannerConditions = recordingsQueryToUniversalFilters(scanner?.query)
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `vision-run-${scannerId}`,
         updateSearchParams: false,
+        filters: { ...getDefaultFilters(), ...scannerConditions },
     }
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
