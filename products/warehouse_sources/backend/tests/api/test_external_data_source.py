@@ -7833,9 +7833,9 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
         # The deploy-static catalog is browser-cacheable so repeat visits skip re-downloading it.
-        cache_control = response.headers["Cache-Control"]
-        assert "private" in cache_control
-        assert "max-age=600" in cache_control
+        directives = response.headers["Cache-Control"].split(", ")
+        assert "private" in directives
+        assert "max-age=600" in directives
 
     @parameterized.expand(
         [
