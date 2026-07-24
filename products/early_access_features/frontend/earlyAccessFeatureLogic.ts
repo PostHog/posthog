@@ -12,6 +12,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { identifierToHuman } from 'lib/utils/strings'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -27,13 +28,18 @@ import {
     EarlyAccessFeatureTabs,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    PreflightStatus,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
+    Region,
 } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'
+
+/** PostHog's own dogfooding project on US cloud — mirrors POSTHOG_TEAM_ID in the backend. */
+export const POSTHOG_TEAM_ID = 2
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
@@ -53,6 +59,7 @@ export interface EarlyAccessFeatureLogicProps {
 export interface earlyAccessFeatureLogicValues {
     earlyAccessFeatures: EarlyAccessFeatureType[] // earlyAccessFeaturesLogic
     currentTeamId: number | null // teamLogic
+    preflight: PreflightStatus | null // preflightLogic
     activeTab: EarlyAccessFeatureTabs
     breadcrumbs: Breadcrumb[]
     earlyAccessFeature: EarlyAccessFeatureType | NewEarlyAccessFeatureType
@@ -229,7 +236,14 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            earlyAccessFeaturesLogic,
+            ['earlyAccessFeatures'],
+            preflightLogic,
+            ['preflight'],
+        ],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -311,9 +325,18 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     forms(({ actions, props, values }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
-            errors: ({ name, payload }) =>
+            errors: ({ name, description, payload }) =>
                 ({
                     name: !name ? 'Feature name must be set' : undefined,
+                    // Mirrors the backend rule: PostHog's own project (US cloud, id 2) requires a description
+                    // on newly created features. Create-only and US-only to match the serializer.
+                    description:
+                        props.id === 'new' &&
+                        values.preflight?.region?.toUpperCase() === Region.US &&
+                        values.currentTeamId === POSTHOG_TEAM_ID &&
+                        !description?.trim()
+                            ? 'A description is required'
+                            : undefined,
                     // payload is edited as a JSON string in the form, but typed as Record<string, any>
                     payload:
                         payload && typeof payload === 'string'
