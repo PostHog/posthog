@@ -270,6 +270,26 @@ class TestFileSystemShortcutAccessLevels(APIBaseTest):
         # so the user's own dashboard stays accessible while the blocked one is marked "none"
         self.assertEqual(levels, {"Mine": "manager", "Theirs": "none"})
 
+    def test_reorder_serializes_access_controlled_shortcuts(self):
+        # reorder serializes the raw queryset with many=True; the access-level field used to
+        # crash on a queryset (only lists were handled), 500ing the save for any user whose
+        # starred list held an access-controlled item.
+        mine = Dashboard.objects.create(team=self.team, name="Mine", created_by=self.user)
+        first = FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Mine", type="dashboard", ref=str(mine.pk), order=0
+        )
+        second = FileSystemShortcut.objects.create(team=self.team, user=self.user, path="Plain", type="folder", order=1)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(second.id), str(first.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["id"] for row in response.json()], [str(second.id), str(first.id)])
+        self.assertEqual({row["path"]: row["user_access_level"] for row in response.json()}["Mine"], "manager")
+
     def test_unresolved_refs_indistinguishable_from_blocked_objects(self):
         # Shortcuts accept arbitrary refs, so a guessed ref must not reveal via its access
         # level whether a protected object exists
