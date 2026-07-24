@@ -13,7 +13,7 @@ import {
     installationStateDecorator,
     richScenarioDecorators,
     scenarioMocks,
-} from './quickstartStoryScenarios'
+} from '../quickstartStoryScenarios'
 
 // The test2 arm: focused install before the first event, then a computed hero answer above
 // the product cards, and nothing below them. No publications rail means no external artwork,
