@@ -245,6 +245,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
+    # changelog-bot curator (PostHog/changelog-bot). Model ids keep the "openai/" prefix — the
+    # curator sends the id verbatim and the allowlist matches the raw body string.
+    "changelog_bot": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"openai/gpt-5.6-terra", "openai/gpt-5.6-sol"}),
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
 }
 
 
