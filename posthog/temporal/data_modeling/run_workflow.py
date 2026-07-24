@@ -725,7 +725,10 @@ async def materialize_model(
     )
 
     saved_query.is_materialized = True
-    await database_sync_to_async(saved_query.save)()
+    # Only write the column we changed. A full-row save() would rewrite `name` from a now-stale
+    # object (materialization can take minutes, during which the row may have been renamed),
+    # tripping the (team_id, name) unique constraint.
+    await database_sync_to_async(saved_query.save)(update_fields=["is_materialized", "updated_at"])
 
     await logger.ainfo("Creating table")
     create_result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
@@ -733,7 +736,7 @@ async def materialize_model(
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     saved_query.table_id = dwh_table.id
-    await database_sync_to_async(saved_query.save)()
+    await database_sync_to_async(saved_query.save)(update_fields=["table", "updated_at"])
 
     await update_table_row_count(saved_query, row_count, logger)
 
