@@ -1,9 +1,8 @@
 """Configuration constants for survey summarization."""
 
-from .models import GeminiModel
+from .models import AnthropicModel
 
-# Default model for survey summarization
-DEFAULT_MODEL = GeminiModel.GEMINI_3_FLASH_PREVIEW
+DEFAULT_MODEL = AnthropicModel.CLAUDE_HAIKU_4_5
 
 # Timeout configuration (seconds)
 SUMMARIZATION_TIMEOUT = 60

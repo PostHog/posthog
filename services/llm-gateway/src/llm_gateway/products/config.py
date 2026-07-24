@@ -255,6 +255,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
+    # Summarizes free-text survey responses into themes on a cheap per-summary model, billed to the
+    # customer's AI credits.
+    "survey_summary": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=CreditBucket.AI_CREDITS,
+    ),
     # Drafts a Custom REST source manifest from API docs. Low volume, high stakes, long context —
     # pinned to Opus rather than the cheap per-row model the enrichment context layer uses.
     "warehouse_custom_source_builder": ProductConfig(
