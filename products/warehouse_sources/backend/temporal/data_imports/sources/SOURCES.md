@@ -629,6 +629,7 @@ the row lists both.
 | zonka_feedback                   | HTTP                        | requests                                                        | ✅                          |
 | zoom                             | HTTP                        | requests                                                        | ✅                          |
 | zuora                            | HTTP                        | requests                                                        | ✅                          |
+| zylo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -1409,4 +1410,3 @@ doesn't conflict with concurrent PRs.
 - zoho_inventory
 - zoho_invoice
 - zoominfo
-- zylo
