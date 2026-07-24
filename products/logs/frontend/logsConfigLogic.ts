@@ -10,7 +10,9 @@ import { teamLogic } from 'scenes/teamLogic'
 // SDK convention before `logs_config` resolves.
 export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = 'posthogDistinctId'
 
-export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+// Both keys are SDK-auto-attached distinct_id carriers (posthog-js emits `distinctId`,
+// backend SDKs / OTel emit `posthogDistinctId`), so both are safe defaults.
+export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, 'distinctId']
 
 // Mirrors the backend default in products/logs/backend/models.py. Ordered: session ID
 // detection checks keys in list order and the first match wins.

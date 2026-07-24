@@ -810,12 +810,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     <>
                         The log attributes PostHog reads to identify which person a log belongs to. A log is linked when
                         any of these attributes matches one of the person&apos;s distinct IDs. Defaults to{' '}
-                        <code>posthogDistinctId</code>, the key the JavaScript and React Native SDKs auto-attach. Add
-                        keys only if your backend pipeline emits the person identifier under different attributes.
+                        <code>posthogDistinctId</code> and <code>distinctId</code>, the keys the JavaScript and React
+                        Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier
+                        under different attributes.
                     </>
                 ),
                 searchDescription:
-                    "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
+                    "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId and distinctId, the keys the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
