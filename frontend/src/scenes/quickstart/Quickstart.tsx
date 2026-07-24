@@ -1595,6 +1595,58 @@ const LOCAL_PATH_STEPS = [
     'See your data',
 ]
 
+// A cloud run's status at quickstart altitude: healthy-and-working, failed-with-a-way-out,
+// or finished-with-the-PR. Sub-step detail stays behind the header chip's dialog.
+function QuickstartRunStatus({
+    progress,
+    onRetryLocally,
+}: {
+    progress: InstallationProgress
+    onRetryLocally: () => void
+}): JSX.Element {
+    if (progress.error) {
+        return (
+            <div className="flex flex-col gap-2" role="status">
+                <div className="font-semibold text-sm">{progress.error.title}</div>
+                {progress.error.detail && <p className="text-secondary text-sm mb-0">{progress.error.detail}</p>}
+                <div>
+                    <LemonButton type="secondary" size="small" onClick={onRetryLocally}>
+                        Run it in your terminal instead
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    }
+    if (progress.prUrl) {
+        return (
+            <div className="flex flex-col gap-2" role="status">
+                <div className="font-semibold text-sm">
+                    {progress.prMerged ? 'Pull request merged' : 'The agent opened a pull request'}
+                </div>
+                <p className="text-secondary text-sm mb-0">
+                    {progress.prMerged
+                        ? 'Deploy your changes and data starts flowing.'
+                        : 'Review the changes and merge when ready.'}
+                </p>
+                {!progress.prMerged && (
+                    <div>
+                        <LemonButton type="primary" size="small" to={progress.prUrl} targetBlank>
+                            Review the pull request
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
+        )
+    }
+    return (
+        <div className="flex items-center gap-2" role="status" aria-live="polite">
+            <Spinner className="text-lg" />
+            <span className="text-sm">The agent is working on your integration.</span>
+            {currentTaskLabel(progress) && <span className="text-secondary text-sm">{currentTaskLabel(progress)}</span>}
+        </div>
+    )
+}
+
 // The install decision as a master-detail layout: intro and stacked radio cards on the
 // left, the chosen mode's expanded content on the right. Same rules as onboarding's
 // WizardInstallOptions: a cloud run pins the view to its progress; a failed run falls
@@ -1663,33 +1715,36 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
                 </div>
             </div>
             <div className="rounded border bg-surface-primary p-4 flex flex-col gap-4 h-full">
-                {effectiveMode !== 'manual' && (
+                {effectiveMode === 'cloud' && cloudRunPinned ? (
+                    <QuickstartWizardProgress
+                        fallback={<WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />}
+                    >
+                        {(progress) => (
+                            <>
+                                <InstallPathTimeline
+                                    steps={CLOUD_PATH_STEPS}
+                                    activeIndex={progress.prMerged ? 4 : progress.prUrl ? 3 : 2}
+                                />
+                                <QuickstartRunStatus progress={progress} onRetryLocally={runItYourself} />
+                            </>
+                        )}
+                    </QuickstartWizardProgress>
+                ) : effectiveMode !== 'manual' ? (
                     <InstallPathTimeline
                         steps={effectiveMode === 'cloud' ? CLOUD_PATH_STEPS : LOCAL_PATH_STEPS}
                         activeIndex={
                             effectiveMode === 'cloud'
-                                ? cloudRunPinned
-                                    ? 2
-                                    : selectedRepository || isGithubConnected
-                                      ? 1
-                                      : 0
+                                ? selectedRepository || isGithubConnected
+                                    ? 1
+                                    : 0
                                 : isLocalRunActive
                                   ? 1
                                   : 0
                         }
                     />
-                )}
+                ) : null}
                 {effectiveMode === 'cloud' ? (
-                    cloudRunPinned ? (
-                        // Compact status line: the horizontal timeline is the only timeline on this
-                        // page, so the run renders as a one-line progress summary instead of the
-                        // shared vertical checklist
-                        <QuickstartWizardProgress
-                            fallback={<WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />}
-                        >
-                            {(progress) => <QuickstartInstallationProgress progress={progress} />}
-                        </QuickstartWizardProgress>
-                    ) : (
+                    cloudRunPinned ? null : (
                         <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
                     )
                 ) : effectiveMode === 'local' ? (
