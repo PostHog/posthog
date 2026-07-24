@@ -6,7 +6,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     AnyResponseType,
@@ -73,7 +73,7 @@ export function EndpointsUsageTrendsNode(props: {
 
     return (
         <div className="border rounded bg-bg-light p-2 h-60">
-            <LineGraph
+            <SqlChart
                 xData={xData}
                 yData={yData}
                 visualizationType={chartType}

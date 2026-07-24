@@ -18,7 +18,7 @@ import {
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlLineGraph } from './SqlLineGraph'
 
 // Some blocks below mount the full DataVisualization tree (~7 logics). Neither timeout is set
@@ -68,7 +68,7 @@ const ySeries = (name: string, data: (number | null)[], settings: YSettings = {}
     settings,
 })
 
-const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
+const props = (overrides: Partial<SqlChartProps>): SqlChartProps => ({
     xData: xData(['Mon', 'Tue', 'Wed']),
     yData: [],
     visualizationType: ChartDisplayType.ActionsLineGraph,
@@ -76,7 +76,7 @@ const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
     ...overrides,
 })
 
-const renderChart = async (overrides: Partial<LineGraphProps>): Promise<void> => {
+const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => {
     renderWithInsights({ component: <SqlLineGraph {...props(overrides)} /> })
     await screen.findByLabelText(/chart with/i)
 }

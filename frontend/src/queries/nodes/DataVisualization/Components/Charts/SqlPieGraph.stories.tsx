@@ -6,7 +6,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
 
 const meta: Meta<typeof SqlPieGraph> = {
@@ -48,7 +48,7 @@ function Stage({ children }: { children: ReactNode }): JSX.Element {
     return <div style={{ height: 420, width: 760, display: 'flex', flexDirection: 'column' }}>{children}</div>
 }
 
-const render = (props: LineGraphProps): JSX.Element => (
+const render = (props: SqlChartProps): JSX.Element => (
     <Stage>
         <SqlPieGraph {...props} />
     </Stage>

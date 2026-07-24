@@ -13,7 +13,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import {
     AREA_FILL_OPACITY,
     MAX_SERIES,
@@ -56,7 +56,7 @@ const breakdownSeries = (
     settings: AxisBreakdownSeries<number | null>['settings'] = {}
 ): AxisBreakdownSeries<number | null> => ({ name: breakdownValue, breakdownValue, data, settings })
 
-const baseProps = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
+const baseProps = (overrides: Partial<SqlChartProps>): SqlChartProps => ({
     xData: null,
     yData: [],
     visualizationType: ChartDisplayType.ActionsLineGraph,
@@ -309,7 +309,7 @@ describe('sqlLineGraphAdapter', () => {
 
     describe('capYSeriesData', () => {
         it('returns null for missing data', () => {
-            expect(capYSeriesData(undefined as unknown as LineGraphProps['yData'])).toBeNull()
+            expect(capYSeriesData(undefined as unknown as SqlChartProps['yData'])).toBeNull()
         })
 
         it('returns the data unchanged at or below the cap', () => {

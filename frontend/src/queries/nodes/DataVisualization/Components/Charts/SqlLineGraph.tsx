@@ -5,19 +5,19 @@ import { DefaultTooltip, TimeSeriesLineChart, type PointClickData, type TooltipC
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-line-chart')
 
 /**
- * SQL line/area graph rendered via @posthog/quill-charts, gated behind the
- * `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles line, area, goal
- * lines, and trend lines; everything else falls back to the legacy chart.js path. Tooltip content
- * (per-column formatting, total row) is configured in {@link buildLineChartConfig}.
+ * SQL line/area graph rendered via @posthog/quill-charts. The default SQL chart renderer (see
+ * {@link sqlChartComponentFor}); bar-only and mixed series route to their own components. Handles
+ * line, area, goal lines, and trend lines. Tooltip content (per-column formatting, total row) is
+ * configured in {@link buildLineChartConfig}.
  */
-export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
+export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
     const { onPointClick: onPointClickProp } = props
     const model = useSqlChartModel(props, buildLineChartConfig)
 
