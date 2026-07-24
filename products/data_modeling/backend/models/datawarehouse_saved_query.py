@@ -450,7 +450,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 hogql_type_str = clickhouse_type.partition("(")[0]
                 fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
-                fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
+                field_class = STR_TO_HOGQL_MAPPING.get(
+                    str(type.get("hogql", "UnknownDatabaseField")),
+                    STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+                )
+                fields[column] = field_class(name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
