@@ -16,6 +16,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
@@ -232,6 +233,27 @@ function parseHistoryPoints(raw: unknown): [number, number][] {
     return points
 }
 
+export interface HistoryDisplay {
+    latest: [number, number] | null
+    /** The value in effect at the window start: the last write before the cutoff,
+     * carried forward, so sparsely-written properties still chart at any window. */
+    baseline: [number, number] | null
+    chartPoints: [number, number][]
+}
+
+export function buildHistoryDisplay(allPoints: [number, number][], windowDays: number, nowMs: number): HistoryDisplay {
+    const cutoff = Math.floor(nowMs / 1000) - windowDays * 24 * 60 * 60
+    const inWindow = allPoints.filter(([timestamp]) => timestamp >= cutoff)
+    const lastBefore = allPoints.filter(([timestamp]) => timestamp < cutoff).at(-1) ?? null
+    const carriedForward: [number, number] | null = lastBefore ? [cutoff, lastBefore[1]] : null
+    const latest = inWindow.at(-1) ?? lastBefore
+    return {
+        latest,
+        baseline: carriedForward ?? inWindow[0] ?? null,
+        chartPoints: carriedForward ? [carriedForward, ...inWindow] : inWindow,
+    }
+}
+
 function CustomPropertyHistoryCell({
     raw,
     definition,
@@ -241,17 +263,22 @@ function CustomPropertyHistoryCell({
     definition: CustomPropertyDefinitionApi
     display: AccountColumnDisplayConfig
 }): JSX.Element {
-    const allPoints = parseHistoryPoints(raw)
-    const cutoff = dayjs().subtract(display.window_days, 'day').unix()
-    const points = allPoints.filter(([timestamp]) => timestamp >= cutoff)
-    const latest = points[points.length - 1] ?? allPoints[allPoints.length - 1]
+    const { latest, baseline, chartPoints } = buildHistoryDisplay(
+        parseHistoryPoints(raw),
+        display.window_days,
+        dayjs().valueOf()
+    )
 
     if (!latest) {
         return <span className="text-muted">—</span>
     }
     const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
-    if (points.length < 2) {
-        return <span>{formatValue(latest[1])}</span>
+    if (chartPoints.length < 2) {
+        return (
+            <Tooltip title="Not enough history to chart yet — showing the current value.">
+                <span>{formatValue(latest[1])}</span>
+            </Tooltip>
+        )
     }
 
     if (display.mode === 'sparkline') {
@@ -260,8 +287,8 @@ function CustomPropertyHistoryCell({
                 <Sparkline
                     type="line"
                     className="h-8"
-                    data={points.map(([, value]) => value)}
-                    labels={points.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
+                    data={chartPoints.map(([, value]) => value)}
+                    labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
                     renderTooltipValue={formatValue}
                     maximumIndicator={false}
                 />
@@ -269,15 +296,19 @@ function CustomPropertyHistoryCell({
         )
     }
 
-    const baseline = points[0]
-    const delta = latest[1] - baseline[1]
+    const delta = latest[1] - baseline![1]
     const deltaClass = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted'
-    const deltaText = delta === 0 ? 'No change' : `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
+    // Percentage change against the window-start value; a zero baseline has no
+    // meaningful ratio, so fall back to the absolute delta.
+    const deltaText =
+        delta === 0
+            ? 'No change'
+            : baseline![1] === 0
+              ? `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
+              : `${delta > 0 ? '+' : '-'}${percentage(Math.abs(delta / baseline![1]), 1)}`
     return (
         <Tooltip
-            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline[1])} on ${dayjs
-                .unix(baseline[0])
-                .format('MMM D, YYYY')} (last ${display.window_days} days)`}
+            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline![1])} ${display.window_days} days ago`}
         >
             <span className="inline-flex items-baseline gap-1.5">
                 <span>{formatValue(latest[1])}</span>

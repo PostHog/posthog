@@ -30,6 +30,7 @@ import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type { AccountRelationshipDefinitionApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
+import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import { customPropertyFiltersToExpressions } from './accountsCustomPropertyFilters'
 import {
     ACCOUNT_EXPANSION_TABS,
@@ -155,6 +156,7 @@ export interface AccountsViewUrlState {
     mine?: boolean
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
+    columnDisplay?: AccountColumnDisplayState
     tileFilter?: TileFilter
     customProperties?: AccountCustomPropertyFilter[]
 }
@@ -163,6 +165,7 @@ export interface AccountsViewUrlState {
 export interface accountsLogicValues {
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
+    columnDisplay: AccountColumnDisplayState // accountsColumnConfigLogic
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
     defaultSelectColumns: string[] // accountsColumnConfigLogic
     querySelectColumns: string[] // accountsColumnConfigLogic
@@ -208,6 +211,16 @@ export interface accountsLogicActions {
     } // accountsColumnConfigLogic
     selectColumn: (column: string) => {
         column: string
+    } // accountsColumnConfigLogic
+    setColumnDisplay: (
+        definitionId: string,
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+    ) => {
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        definitionId: string
+    } // accountsColumnConfigLogic
+    setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
+        config: AccountColumnDisplayState
     } // accountsColumnConfigLogic
     setSelectColumns: (columns: string[]) => {
         columns: string[]
@@ -347,7 +360,8 @@ export interface accountsLogicMeta {
             selectColumns: string[],
             defaultSelectColumns: string[],
             tileFilter: TileFilter | null,
-            customPropertyFilters: AccountCustomPropertyFilter[]
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            columnDisplay: any
         ) => AccountsViewUrlState
         hogqlQuery: (
             searchQuery: string,
@@ -404,6 +418,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'aliasToDefinition',
                 'relationshipDefinitionsLoaded',
                 'customPropertyDefinitionsById',
+                'columnDisplay',
             ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
@@ -412,7 +427,15 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
         actions: [
             accountsColumnConfigLogic,
-            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
+            [
+                'setSelectColumns',
+                'selectColumn',
+                'unselectColumn',
+                'moveColumn',
+                'resetColumns',
+                'setColumnDisplay',
+                'setColumnDisplayConfig',
+            ],
             accountsOverviewTilesLogic,
             ['setTileFilter'],
             accountsExpansionLogic,
@@ -584,6 +607,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.defaultSelectColumns,
                 s.tileFilter,
                 s.customPropertyFilters,
+                s.columnDisplay,
             ],
             (
                 searchQuery: string,
@@ -594,7 +618,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 selectColumns: string[],
                 defaultSelectColumns: string[],
                 tileFilter: TileFilter | null,
-                customPropertyFilters: AccountCustomPropertyFilter[]
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                columnDisplay: AccountColumnDisplayState
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
                 const trimmedSearch = searchQuery.trim()
@@ -615,6 +640,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (!objectsEqual(selectColumns, defaultSelectColumns)) {
                     state.columns = selectColumns
+                }
+                if (Object.keys(columnDisplay).length > 0) {
+                    state.columnDisplay = columnDisplay
                 }
                 if (tileFilter) {
                     state.tileFilter = tileFilter
@@ -986,6 +1014,8 @@ export const accountsLogic = kea<accountsLogicType>([
             unselectColumn: toUrl,
             moveColumn: toUrl,
             resetColumns: toUrl,
+            setColumnDisplay: toUrl,
+            setColumnDisplayConfig: toUrl,
             setTileFilter: toUrl,
         }
     }),
@@ -1064,6 +1094,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 // async saved-config load resolves.
                 if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
                     actions.setSelectColumns(view.columns)
+                }
+
+                const columnDisplay =
+                    view.columnDisplay && typeof view.columnDisplay === 'object' ? view.columnDisplay : {}
+                if (!objectsEqual(columnDisplay, values.columnDisplay)) {
+                    actions.setColumnDisplayConfig(columnDisplay)
                 }
 
                 const tileFilter = view.tileFilter ?? null
