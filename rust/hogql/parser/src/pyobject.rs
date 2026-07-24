@@ -7,6 +7,7 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::IntoPyObjectExt;
 use serde_json::Value;
 
 /// Raise the matching `posthog.hogql.errors` exception for a parser error envelope, importing ONLY the errors module — error paths don't pay for the success-path converter's AST/enum imports. Mirrors `json_ast.py`'s `SyntaxError`/`ParsingError`/else mapping; shared by `Converter::build_error` and the standalone `parse_string_literal_text` entry point.
@@ -17,7 +18,7 @@ pub(crate) fn raise_error_envelope(
     start: Option<u64>,
     end: Option<u64>,
 ) -> PyErr {
-    let errors_module = match py.import_bound("posthog.hogql.errors") {
+    let errors_module = match py.import("posthog.hogql.errors") {
         Ok(m) => m,
         Err(e) => return e,
     };
@@ -30,16 +31,19 @@ pub(crate) fn raise_error_envelope(
         Ok(c) => c,
         Err(e) => return e,
     };
-    let kwargs = PyDict::new_bound(py);
+    let kwargs = PyDict::new(py);
     if let Err(e) = kwargs.set_item("start", start) {
         return e;
     }
     if let Err(e) = kwargs.set_item("end", end) {
         return e;
     }
-    let args = PyTuple::new_bound(py, [message]);
+    let args = match PyTuple::new(py, [message]) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
     match cls.call(&args, Some(&kwargs)) {
-        Ok(exc) => PyErr::from_value_bound(exc),
+        Ok(exc) => PyErr::from_value(exc),
         Err(e) => e,
     }
 }
@@ -50,16 +54,16 @@ pub struct Converter<'py> {
     ast_module: Bound<'py, PyModule>,
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
-    /// Python builtin `int` class. Mirrors `PyEmitter::cls_int`; cached so big-int literals don't pay `py.eval_bound("int", ...)` per call.
+    /// Python builtin `int` class. Mirrors `PyEmitter::cls_int`; cached so big-int literals don't pay `py.eval("int", ...)` per call.
     cls_int: Bound<'py, PyAny>,
 }
 
 impl<'py> Converter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
-        let ast_module = py.import_bound("posthog.hogql.ast")?;
+        let ast_module = py.import("posthog.hogql.ast")?;
         let arith_op_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_op_enum = ast_module.getattr("CompareOperationOp")?;
-        let cls_int = py.import_bound("builtins")?.getattr("int")?;
+        let cls_int = py.import("builtins")?.getattr("int")?;
         Ok(Self {
             py,
             ast_module,
@@ -70,29 +74,29 @@ impl<'py> Converter<'py> {
     }
 
     /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` / `ParsingError` if the parser returned an error envelope.
-    pub fn convert_root(&self, value: &Value) -> PyResult<PyObject> {
+    pub fn convert_root(&self, value: &Value) -> PyResult<Py<PyAny>> {
         self.convert(value)
     }
 
     /// Recursive walk. Mirrors `_deserialize_node` in `json_ast.py`.
-    fn convert(&self, value: &Value) -> PyResult<PyObject> {
+    fn convert(&self, value: &Value) -> PyResult<Py<PyAny>> {
         match value {
             Value::Null => Ok(self.py.None()),
-            Value::Bool(b) => Ok(b.into_py(self.py)),
+            Value::Bool(b) => b.into_py_any(self.py),
             Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    Ok(i.into_py(self.py))
+                    i.into_py_any(self.py)
                 } else if let Some(u) = n.as_u64() {
-                    Ok(u.into_py(self.py))
+                    u.into_py_any(self.py)
                 } else if let Some(f) = n.as_f64() {
-                    Ok(f.into_py(self.py))
+                    f.into_py_any(self.py)
                 } else {
                     Err(PyValueError::new_err(format!("Invalid JSON number: {n}")))
                 }
             }
-            Value::String(s) => Ok(s.as_str().into_py(self.py)),
+            Value::String(s) => s.as_str().into_py_any(self.py),
             Value::Array(items) => {
-                let list = PyList::empty_bound(self.py);
+                let list = PyList::empty(self.py);
                 for item in items {
                     list.append(self.convert(item)?)?;
                 }
@@ -124,7 +128,7 @@ impl<'py> Converter<'py> {
                     None
                 };
 
-                let kwargs = PyDict::new_bound(self.py);
+                let kwargs = PyDict::new(self.py);
                 for (key, val) in map.iter() {
                     if key == "node" || key == "value_type" {
                         continue;
@@ -162,7 +166,7 @@ impl<'py> Converter<'py> {
                     // `ctes` may arrive as a list of nodes carrying `name` — fold into a dict keyed by name, preserving order.
                     if key == "ctes" {
                         if let Value::Array(items) = val {
-                            let dict = PyDict::new_bound(self.py);
+                            let dict = PyDict::new(self.py);
                             for item in items {
                                 let name =
                                     item.get("name").and_then(Value::as_str).ok_or_else(|| {
@@ -183,7 +187,7 @@ impl<'py> Converter<'py> {
                         && !val.as_object().is_some_and(|m| m.contains_key("node"))
                     {
                         let map = val.as_object().unwrap();
-                        let dict = PyDict::new_bound(self.py);
+                        let dict = PyDict::new(self.py);
                         for (k, v) in map.iter() {
                             dict.set_item(k, self.convert(v)?)?;
                         }
@@ -212,7 +216,7 @@ impl<'py> Converter<'py> {
                     kwargs.set_item(key, converted)?;
                 }
 
-                let args = PyTuple::empty_bound(self.py);
+                let args = PyTuple::empty(self.py);
                 Ok(ast_class.call(&args, Some(&kwargs))?.unbind())
             }
         }
@@ -240,7 +244,7 @@ impl<'py> Converter<'py> {
     }
 
     /// Build a Python `int` from an integer literal in the lossless-string envelope (decimal or `0x…` hex, optional leading `-`). Rust can't natively represent arbitrary-precision ints, so we hand the raw digits to Python's `int(text, base)` constructor via the cached `cls_int`.
-    fn parse_large_int_literal(&self, value: &str) -> PyResult<Option<PyObject>> {
+    fn parse_large_int_literal(&self, value: &str) -> PyResult<Option<Py<PyAny>>> {
         let body = value.strip_prefix('-').unwrap_or(value);
         let is_hex = body.starts_with("0x") || body.starts_with("0X");
         let base = if is_hex { 16 } else { 10 };
@@ -249,7 +253,10 @@ impl<'py> Converter<'py> {
         if !body_no_prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Ok(None);
         }
-        let args = PyTuple::new_bound(self.py, [value.into_py(self.py), base.into_py(self.py)]);
+        let args = PyTuple::new(
+            self.py,
+            [value.into_py_any(self.py)?, base.into_py_any(self.py)?],
+        )?;
         match self.cls_int.call(&args, None) {
             Ok(obj) => Ok(Some(obj.unbind())),
             Err(_) => Ok(None),
