@@ -111,6 +111,27 @@ tools:
     internal-hog-flows-user-blast-radius-persons-create:
         operation: internal_hog_flows_user_blast_radius_persons_create
         enabled: false
+    messaging-templates-create:
+        operation: messaging_templates_create
+        enabled: false
+    messaging-templates-design-partial-update:
+        operation: messaging_templates_design_partial_update
+        enabled: false
+    messaging-templates-destroy:
+        operation: messaging_templates_destroy
+        enabled: false
+    messaging-templates-list:
+        operation: messaging_templates_list
+        enabled: false
+    messaging-templates-partial-update:
+        operation: messaging_templates_partial_update
+        enabled: false
+    messaging-templates-retrieve:
+        operation: messaging_templates_retrieve
+        enabled: false
+    messaging-templates-update:
+        operation: messaging_templates_update
+        enabled: false
     workflows-create:
         operation: hog_flows_create
         enabled: true
