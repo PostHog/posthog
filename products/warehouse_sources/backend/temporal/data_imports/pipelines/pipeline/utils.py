@@ -1183,8 +1183,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    # Non-numeric value in a column imported as a number; the caller adds column context.
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = decimal.Decimal(stripped)
+                    except decimal.InvalidOperation:
+                        # A genuinely non-numeric value in a column imported as a number; the caller adds column context.
+                        raise TypeError("must be real number, not str")
 
                 if (
                     math.isnan(x)
@@ -1203,7 +1209,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = float(stripped)
+                    except ValueError:
+                        raise TypeError("must be real number, not str")
 
                 if math.isnan(x) or np.isinf(x):
                     return None
