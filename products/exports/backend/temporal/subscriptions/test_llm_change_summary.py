@@ -718,9 +718,7 @@ class TestGenerateChangeSummary:
             generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
 
         captured_calls = [
-            c.kwargs
-            for method in (fake_client.capture, fake_client._capture_ai)
-            for c in method.call_args_list
+            c.kwargs for method in (fake_client.capture, fake_client._capture_ai) for c in method.call_args_list
         ]
         ai_generation_calls = [c for c in captured_calls if c.get("event") == "$ai_generation"]
         assert len(ai_generation_calls) == 1, (
