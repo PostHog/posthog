@@ -3,14 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -153,11 +151,13 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
-    const isDagSchedulesOnly = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_BACKEND_V2]
+    // Only single-schedule v2 teams lose the control, since their cadence lives on the DAG's one
+    // schedule and per-view writes are rejected. The server decides: the flag that distinguishes
+    // per-node schedules is evaluated server-side and never reaches the frontend.
+    const isDagSchedulesOnly = !!savedQuery?.sync_frequency_managed_by_dag
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
