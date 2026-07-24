@@ -256,6 +256,8 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  /** Injected logger; defaults to a console logger with debug enabled. */
+  logger?: Logger;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
@@ -279,7 +281,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.toolUseCache = {};
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
-    this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
+    this.logger =
+      options?.logger ??
+      new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
     this.enrichment = createEnrichment(options?.posthogApiConfig, this.logger);
   }
 

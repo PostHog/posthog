@@ -119,6 +119,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
+      logger: config.logger?.child("ClaudeAcpAgent"),
     });
     return agent;
   }, agentStream);

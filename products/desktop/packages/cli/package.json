@@ -1,0 +1,33 @@
+{
+  "name": "@posthog/code-cli",
+  "version": "0.0.0-dev",
+  "private": true,
+  "description": "Headless CLI for PostHog Code — one-shot agent runs over the in-process ACP connection",
+  "type": "module",
+  "bin": {
+    "posthog-code-cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsup",
+    "typecheck": "pnpm exec tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.1.0",
+    "@posthog/agent": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "commander": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  }
+}

@@ -34,6 +34,10 @@
       "project": ["src/**/*.ts", "bin/**/*.ts"],
       "includeEntryExports": true
     },
+    "packages/cli": {
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
     "packages/agent": {
       "project": ["src/**/*.ts"],
       "ignore": ["src/templates/**"],
