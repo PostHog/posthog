@@ -31741,6 +31741,16 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
+      page: string;
+      query: string;
+      date: string;
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      position: number;
+    }
+
     export interface GorgiasTicketSignalExtra {
       status: string | null;
       priority: string | null;
@@ -35132,16 +35142,6 @@ export namespace Schemas {
       hs_pipeline_stage: string | null;
       hs_ticket_category: string | null;
       createdate: string | null;
-    }
-
-    export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
-      page: string;
-      query: string;
-      date: string;
-      clicks: number;
-      impressions: number;
-      ctr: number;
-      position: number;
     }
 
     export interface IdentityMatchingError {
