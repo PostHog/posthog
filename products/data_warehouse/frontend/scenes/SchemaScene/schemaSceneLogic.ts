@@ -23,7 +23,7 @@ import {
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
-export const SCHEMA_SCENE_TABS = ['configuration', 'metrics', 'history'] as const
+export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
 
 export const SCHEMA_CONFIGURATION_SECTIONS = [
@@ -84,7 +84,7 @@ export interface schemaSceneLogicActions {
         section: 'columns' | 'danger-zone' | 'descriptions' | 'details' | 'schedule' | 'sync-method'
     }
     _setCurrentTab: (tab: SchemaSceneTab) => {
-        tab: 'configuration' | 'history' | 'metrics'
+        tab: 'configuration' | 'history' | 'metrics' | 'syncs'
     }
     cancelSchema: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
@@ -135,7 +135,7 @@ export interface schemaSceneLogicActions {
         section: 'columns' | 'danger-zone' | 'descriptions' | 'details' | 'schedule' | 'sync-method'
     }
     setCurrentTab: (tab: SchemaSceneTab) => {
-        tab: 'configuration' | 'history' | 'metrics'
+        tab: 'configuration' | 'history' | 'metrics' | 'syncs'
     }
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean

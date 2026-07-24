@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -10,7 +9,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -19,6 +17,8 @@ import { ActivityScope } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
+import { shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
+import { SyncsTab } from '../SourceScene/tabs/SyncsTab'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
 import {
@@ -63,6 +63,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const { featureFlags } = useValues(featureFlagLogic)
 
     const cleanedSourceId = cleanSourceId(sourceId)
+    const showSyncs = shouldShowManagedSourceSyncsTab(source)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     const showColumnsSection = supportsColumnSelection
@@ -75,6 +76,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentTab('configuration')
         }
     }, [showMetrics, currentTab, setCurrentTab])
+
+    useEffect(() => {
+        if (!showSyncs && currentTab === 'syncs') {
+            setCurrentTab('configuration')
+        }
+    }, [showSyncs, currentTab, setCurrentTab])
 
     useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {
@@ -117,19 +124,20 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                             source={source}
                             section={currentSection}
                             onConfigureSyncMethod={() => setCurrentSection('sync-method')}
-                            onViewSyncHistory={() =>
-                                router.actions.push(
-                                    combineUrl(urls.dataWarehouseSource(sourceId, 'syncs'), {
-                                        schema: schema.name,
-                                    }).url
-                                )
-                            }
                         />
                     }
                 />
             ),
         },
     ]
+
+    if (showSyncs) {
+        tabs.push({
+            label: 'Syncs',
+            key: 'syncs',
+            content: <SyncsTab id={cleanedSourceId} lockedSchema={schema.name} />,
+        })
+    }
 
     if (showMetrics) {
         tabs.push({
@@ -145,7 +153,10 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         content: <ActivityLog id={schema.id} scope={ActivityScope.EXTERNAL_DATA_SCHEMA} />,
     })
 
-    const activeTab = !showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab
+    const activeTab =
+        (!showMetrics && currentTab === 'metrics') || (!showSyncs && currentTab === 'syncs')
+            ? 'configuration'
+            : currentTab
 
     return (
         <SceneContent>
