@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    FilterLogicalOperator,
     GroupNode,
     MultipleBreakdownType,
 )
@@ -97,7 +100,9 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
     if len(group_filters) == 1:
         return group_filters[0]
 
-    if group.operator == "OR":
+    if group.operator == FilterLogicalOperator.OR_:
         return ast.Or(exprs=group_filters)
 
-    return None
+    # AND grouping isn't supported yet. Fail loudly instead of silently dropping the
+    # event filter, which would match every event and return wrong results.
+    raise ValidationError(f"Event groups only support the OR operator, got {group.operator}")
