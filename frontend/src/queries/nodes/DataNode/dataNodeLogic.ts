@@ -1035,6 +1035,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                        } else if (cache.abortedQueryIds?.has(queryId)) {
+                            // A query we already asked the backend to cancel (e.g. because a newer
+                            // query superseded it) can come back as QUERY_WAS_CANCELLED when a
+                            // `pollOnly` load re-polls that same id. That's not a real failure, so
+                            // don't surface an error state — recompute the current query instead, so
+                            // the user sees the result they actually asked for.
+                            cache.abortedQueryIds.delete(queryId)
+                            actions.loadData(
+                                isInsightQueryNode(query) || isHogQLQuery(query) ? 'force_async' : 'force_blocking'
+                            )
                         }
                         breakpoint()
                         throw error
@@ -1942,6 +1952,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         abortQuery: async ({ queryId }) => {
             try {
+                // Remember which query ids we've cancelled so that a QUERY_WAS_CANCELLED
+                // surfacing on a later re-poll of the same id isn't shown as a hard error.
+                ;(cache.abortedQueryIds ??= new Set<string>()).add(queryId)
                 const { currentTeamId } = values
                 await api.delete(`api/environments/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
