@@ -63,20 +63,19 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 
 ## Style
 
-Write comments the way you'd write technical documentation: explicit, complete, and precise. State the reasoning in full so the reader does not have to infer any of it. A longer comment that spells out the cause and effect is better than a short one that leaves parts implicit.
+Write comments the way you'd write technical documentation: explicit and precise. State the reasoning so the reader does not have to infer it. Length is not a target in either direction: don't clip a comment to look terse, and don't pad it to look thorough. Say what needs saying and stop.
 
-- **Be explicit and technical.** State the cause and effect in full. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
-- **Complete sentences, not fragments.** Write "Feature X does Y because Z, so callers must W." Don't compress it into a clipped fragment.
-- **Longer is fine when it adds information.** Prefer one thorough sentence (or two) that fully explains the why over a terse one that only gestures at it. Cut words that add nothing, not words that add precision.
-- **No short-punchy-fragment-with-a-dash style.** The clipped `# do the thing — it's faster` shape is the AI tell to avoid. Rewrite it as a full sentence with a real connective ("because", "so that", "which means"), no em-dash.
+- **Be explicit and technical.** State the cause and effect. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
+- **Let length follow the content.** One line is fine when one line covers it; use more when the reasoning needs more. Neither brevity nor length is the goal.
+- **No em-dash.** The tell to avoid is the clipped two-part phrase joined by a dash, like `# do the thing — it's faster`. Use a real connective instead ("because", "so that", "which means", "to avoid").
 - **Explain why, not what.** The what is in the code; the why usually is not.
 - **Preserve existing comments when moving or refactoring code**, unless the change makes them wrong. Don't drop an existing why just because you're relocating the function.
 - **Match the surrounding density.** Don't add a comment to every line of a file that had none; don't strip a well-commented module bare.
 
-Contrast:
+The fix for the em-dash is the connective, not more words. A short comment is fine once the dash is gone:
 
 - ❌ `# batch here — avoids N+1`
-- ✅ `# Fetch all the memberships in one query here because doing it per-row triggers an N+1 against posthog_organizationmembership, which dominated the request time on large orgs.`
+- ✅ `# batch here to avoid an N+1 against posthog_organizationmembership`
 
 ## When you're tempted to comment
 
