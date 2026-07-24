@@ -25,6 +25,8 @@ export interface TableRowProps<T extends Record<string, any>> {
     pinnedColumnWidths?: number[]
     columns?: LemonTableColumn<T, any>[]
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
+    /** Right-click handler attached to every data cell, used to offer "Copy cell contents". */
+    onCellContextMenu?: (event: React.MouseEvent<HTMLTableCellElement>) => void
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -43,6 +45,7 @@ function TableRowRaw<T extends Record<string, any>>({
     pinnedColumnWidths,
     columns,
     rowActions,
+    onCellContextMenu,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -159,6 +162,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                             : column.style),
                                         ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
+                                    onContextMenu={onCellContextMenu}
                                     {...extraCellProps}
                                 >
                                     {isTableCellRepresentation(contents) ? contents.children : contents}
