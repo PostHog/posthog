@@ -691,16 +691,53 @@ class BasePrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
-            if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
-                raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
-            if on_clause_guard is not None:
-                combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint.expr])
-                join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
-            else:
-                join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
+            join_strings.append(self._print_join_constraint(node.constraint, node.type, on_clause_guard))
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
+
+    def _print_join_constraint(
+        self, constraint: ast.JoinConstraint, node_type: ast.Type | None, on_clause_guard: ast.Expr | None
+    ) -> str:
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
+        if constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
+            raise QueryError(f"Invalid join constraint type: {constraint.constraint_type!r}")
+
+        if constraint.constraint_type == "USING":
+            # The resolver binds USING fields to the left table, so they'd print qualified (`e.col`) —
+            # but USING columns must be bare identifiers, else ClickHouse raises Code 47.
+            fields = self._unwrap_using_fields(constraint.expr)
+            if on_clause_guard is None:
+                names = ", ".join(self._print_identifier(str(field.chain[-1])) for field in fields)
+                return f"USING ({names})"
+            # A LEFT-JOIN guard (team_id / access control) must live in the join condition to preserve
+            # NULL rows, but USING can't carry a predicate — so lower to ON:
+            #   LEFT JOIN persons AS p USING (person_id)  ->  ... ON e.person_id = p.person_id AND p.team_id = 2
+            if not isinstance(
+                node_type, ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType
+            ):
+                raise QueryError("JOIN USING requires a table or subquery on the right-hand side")
+            comparisons: list[ast.Expr] = []
+            for field in fields:
+                name = str(field.chain[-1])
+                right = ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=node_type))
+                comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=right))
+            return f"ON {self.visit(ast.And(exprs=[on_clause_guard, *comparisons]))}"
+
+        if on_clause_guard is not None:
+            combined_constraint = ast.And(exprs=[on_clause_guard, constraint.expr])
+            return f"{constraint.constraint_type} {self.visit(combined_constraint)}"
+        return f"{constraint.constraint_type} {self.visit(constraint)}"
+
+    def _unwrap_using_fields(self, expr: ast.Expr) -> list[ast.Field]:
+        columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
+        fields: list[ast.Field] = []
+        for col in columns:
+            # The resolver wraps each resolved field in a hidden Alias; unwrap to the bare Field.
+            field = col.expr if isinstance(col, ast.Alias) else col
+            if not isinstance(field, ast.Field) or not field.chain:
+                raise QueryError("JOIN USING expects column names")
+            fields.append(field)
+        return fields
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)

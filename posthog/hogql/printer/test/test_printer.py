@@ -2159,6 +2159,37 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "single_column",
+                "SELECT s.platform_group FROM (SELECT 1 AS platform_group) AS s "
+                "LEFT JOIN (SELECT 1 AS platform_group) AS platform USING (platform_group)",
+                "USING (platform_group)",
+            ),
+            (
+                "multi_column",
+                "SELECT a.x FROM (SELECT 1 AS x, 2 AS y) AS a INNER JOIN (SELECT 1 AS x, 2 AS y) AS b USING (x, y)",
+                "USING (x, y)",
+            ),
+        ],
+    )
+    def test_join_using_prints_bare_identifiers(self, _name: str, query: str, expected_using: str):
+        # ClickHouse's analyzer rejects table-qualified columns inside USING (Code 47). The resolver binds
+        # each USING field to the left table, so the printer must strip that qualification and emit bare
+        # identifiers — not rewrite the join to ON — when there's no guard predicate to fold in.
+        self.assertIn(expected_using, self._select(query))
+
+    def test_left_join_using_retains_team_id_guard(self):
+        # Lowering USING to ON must still fold the LEFT-JOIN team_id guard into the ON clause, otherwise
+        # the joined table would leak rows across teams.
+        result = self._select("SELECT e.event FROM events AS e LEFT JOIN events AS s USING (event)")
+        on_start = result.find(" ON ")
+        where_start = result.find("WHERE")
+        on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
+        self.assertIn(f"equals(s.team_id, {self.team.pk})", on_clause)
+        self.assertIn("equals(e.event, s.event)", on_clause)
+
+    @parameterized.expand(
+        [
             ("gte", ast.CompareOperationOp.GtEq),
             ("gt", ast.CompareOperationOp.Gt),
             ("lte", ast.CompareOperationOp.LtEq),
