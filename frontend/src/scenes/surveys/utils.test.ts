@@ -406,6 +406,18 @@ describe('survey utils', () => {
             expect(result?.events).toEqual({ values: [{ name: 'test' }] })
             expect(result?.deviceTypes).toEqual(['mobile'])
         })
+
+        it('normalizes malformed non-array event trigger values to arrays', () => {
+            const input = {
+                events: { values: 'signed_up', repeatedActivation: true },
+                cancelEvents: { values: { name: 'purchase' } },
+            } as unknown as SurveyDisplayConditions
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.Popover)
+
+            expect(result?.events).toEqual({ values: [], repeatedActivation: true })
+            expect(result?.cancelEvents).toEqual({ values: [] })
+        })
     })
 
     describe('sanitizeSurvey', () => {

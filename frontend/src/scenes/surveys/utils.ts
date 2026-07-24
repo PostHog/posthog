@@ -260,6 +260,15 @@ export function sanitizeSurveyDisplayConditions(
         delete sanitized.linkedFlagVariant
     }
 
+    // Normalize malformed/legacy event trigger `values` (e.g. edited as raw JSON) to arrays so the
+    // editor never feeds a non-array into `.map`, which throws a full-page React error.
+    if (sanitized.events && !Array.isArray(sanitized.events.values)) {
+        sanitized.events = { ...sanitized.events, values: [] }
+    }
+    if (sanitized.cancelEvents && !Array.isArray(sanitized.cancelEvents.values)) {
+        sanitized.cancelEvents = { ...sanitized.cancelEvents, values: [] }
+    }
+
     return sanitized
 }
 
