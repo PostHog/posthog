@@ -135,7 +135,9 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
 def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnalyticsAchievementProgress:
     user_id = ctx.user.id if (track.scope == AchievementScope.USER and ctx.user is not None) else None
     canonical_team_id = ctx.team.parent_team_id or ctx.team.id
-    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).get_or_create(
+    # We already have the canonical id, so pass canonical=True to skip the per-call Team lookup
+    # resolve_effective_team_id would otherwise run — this is on the read path for every track.
+    progress, _ = WebAnalyticsAchievementProgress.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
         user_id=user_id,
         track_key=str(track.key),
