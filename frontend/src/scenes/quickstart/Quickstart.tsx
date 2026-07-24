@@ -41,7 +41,6 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -98,7 +97,6 @@ import {
     SDKInstructionsMap,
     SDKKey,
     SDKTagOverrides,
-    Region,
     SidePanelTab,
 } from '~/types'
 
@@ -267,45 +265,6 @@ function ProjectTokenChip(): JSX.Element | null {
             copyThing="project token"
             action="copy_project_token"
         />
-    )
-}
-
-function ProjectFactsHints({ children }: { children?: React.ReactNode }): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const { preflight } = useValues(preflightLogic)
-
-    if (!currentTeam?.api_token) {
-        return null
-    }
-    const region = preflight?.region === Region.DEV ? 'DEV' : (preflight?.region ?? 'local')
-
-    return (
-        <div className="text-xs text-muted flex flex-wrap items-center gap-1">
-            <span
-                className="cursor-pointer hover:text-primary"
-                title="Copy project ID"
-                onClick={() => {
-                    captureQuickstartAction('copy_project_id')
-                    void copyToClipboard(String(currentTeam.id), 'project ID')
-                }}
-                data-attr="quickstart-copy-project-id"
-            >
-                Project ID {currentTeam.id}
-            </span>
-            <span>·</span>
-            <span
-                className="cursor-pointer hover:text-primary"
-                title={`Copy API host: ${apiHostOrigin()}`}
-                onClick={() => {
-                    captureQuickstartAction('copy_api_host')
-                    void copyToClipboard(apiHostOrigin(), 'API host')
-                }}
-                data-attr="quickstart-copy-api-host"
-            >
-                Region {region}
-            </span>
-            {children}
-        </div>
     )
 }
 
@@ -1891,33 +1850,24 @@ export function Quickstart(): JSX.Element {
                     <p className="text-secondary mb-0 mt-1 max-w-140">
                         Connect your product's context, configure Tools, and choose how you work with PostHog.
                     </p>
-                    <div className="mt-3 flex flex-col gap-1">
-                        <div className="flex flex-wrap items-stretch gap-2">
-                            <ProjectTokenChip />
-                            {/* In focused-install mode the wizard progress renders as the page hero instead */}
-                            {!focusedInstall && (
-                                <QuickstartInstallationPrompt
-                                    installationComplete={installationComplete}
-                                    showInstallLink={quickstartVariant !== 'test2'}
-                                />
-                            )}
-                        </div>
-                        <ProjectFactsHints>
-                            {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
-                                <>
-                                    <span>·</span>
-                                    <span>No events yet</span>
-                                    <span>·</span>
-                                    <Link
-                                        onClick={reopenFocusedInstall}
-                                        className="text-xs"
-                                        data-attr="quickstart-back-to-setup"
-                                    >
-                                        Back to setup
-                                    </Link>
-                                </>
-                            )}
-                        </ProjectFactsHints>
+                    <div className="mt-3 flex flex-wrap items-stretch gap-2">
+                        <ProjectTokenChip />
+                        {/* In focused-install mode the wizard progress renders as the page hero instead */}
+                        {!focusedInstall && (
+                            <QuickstartInstallationPrompt
+                                installationComplete={installationComplete}
+                                showInstallLink={quickstartVariant !== 'test2'}
+                            />
+                        )}
+                        {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
+                            <LemonButton
+                                size="small"
+                                onClick={reopenFocusedInstall}
+                                data-attr="quickstart-back-to-setup"
+                            >
+                                Back to setup
+                            </LemonButton>
+                        )}
                     </div>
                 </section>
             </div>
