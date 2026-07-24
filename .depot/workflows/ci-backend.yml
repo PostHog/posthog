@@ -90,13 +90,13 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
-        # still skip drafts. Ready PRs run the full matrices — the merge gate —
-        # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft; the `no-ci` label silences the workflow on a draft
-        # entirely. Mirrors canonical.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # PRs (draft or ready) run the snob-selected Django subset (≤3 shards);
+        # turbo-tests skip PRs. The full matrices run on the merge queue's
+        # trunk-merge/** draft PRs — the merge gate. Add the `run-ci-backend`
+        # label (labeled/unlabeled re-trigger) to force the full matrices on a
+        # PR; the `no-ci` label silences the workflow on a draft entirely.
+        # Mirrors canonical.
+        types: [opened, synchronize, reopened, labeled, unlabeled]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -541,12 +541,12 @@ jobs:
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
-    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
-    # subset for fast feedback; the full matrix runs once the PR is marked ready
-    # for review, and that ready run is the merge gate. When selection can't be
-    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
-    # a selector full-run signal), the draft skips the heavy matrices entirely —
-    # the pre-selection draft behavior — and defers to the ready full run.
+    # Pick which Django tests to run on PRs. PRs get the snob-selected subset for
+    # fast feedback; the full matrix runs on the merge queue's trunk-merge/** test
+    # PRs, and that queue run is the merge gate. When selection can't be trusted
+    # on a PR (legacy graph impact, turbo-discover or selector failure, a selector
+    # full-run signal), the PR skips the heavy matrices entirely and defers to the
+    # merge-queue full run.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -554,13 +554,13 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and pushes always run full,
-        # which build_django_matrix falls back to
+        # Only regular PRs do selective runs; merge-queue trunk-merge/** PRs and
+        # pushes always run full, which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
-        # forces the full matrices on a draft.
+        # forces the full matrices on a PR.
         if: |
             github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == true &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04
@@ -606,7 +606,7 @@ jobs:
                   if [[ "$RUN_LEGACY" == "true" ]]; then
                       # turbo-discover detected product->legacy graph impact; the
                       # diff-based selector can't see this, so its subset would be
-                      # incomplete. Skip the draft matrices; the ready run is full.
+                      # incomplete. Skip the selective matrices; the merge-queue run is full.
                       skip=true
                   elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
                       # Conservative — turbo-discover failed.
@@ -622,7 +622,7 @@ jobs:
               id: select
               # continue-on-error so a selector or git fetch failure doesn't fail this
               # job — a failed select-tests would leave MODE empty and build_django_matrix
-              # would fall back to an expensive full matrix on a draft. Classify reads
+              # would fall back to an expensive full matrix on a PR. Classify reads
               # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
               continue-on-error: true
               if: steps.fallback.outputs.skip == 'false'
@@ -666,8 +666,8 @@ jobs:
                       } >> "$GITHUB_OUTPUT"
                   }
 
-                  # Untrusted selection on a draft skips the heavy matrices (the
-                  # pre-selection draft behavior); the ready-for-review run is full.
+                  # Untrusted selection skips the heavy matrices; the merge-queue
+                  # run is full.
                   fall_back_to_skip() {
                       echo "mode=skip" >> "$GITHUB_OUTPUT"
                       echo "core_files=" >> "$GITHUB_OUTPUT"
@@ -684,14 +684,14 @@ jobs:
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
-                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
+                      echo "::warning::shadow selector did not produce output; skipping heavy matrices (full run happens in the merge queue)"
                       fall_back_to_skip selector_error
                       exit 0
                   fi
 
                   full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                   if [[ "$full_run_reasons" -gt 0 ]]; then
-                      echo "Selector requested a full run; draft defers it to ready for review:"
+                      echo "Selector requested a full run; deferring it to the merge queue:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
                       fall_back_to_skip full_run_requested
                       exit 0
@@ -766,12 +766,14 @@ jobs:
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
+    # Skipped on regular PRs — the merge queue's trunk-merge/** run is the full gate;
+    # the run-ci-backend label forces them on a PR.
     # A status function is required to inspect dependency results after failures.
     # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
-            !cancelled() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
+            !cancelled() && (github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
@@ -1274,25 +1276,25 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  IS_SELECTIVE_PR: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
 
-                  # A draft PR must never fall back to the full matrix. select-tests only
-                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
-                  # draft means select-tests was cancelled or failed (typically
-                  # ready_for_review superseding it mid-flight). Skip here and defer to the
-                  # ready run. The run-ci-backend label intentionally forces full on a draft.
-                  if [[ -z "$MODE" && "$IS_DRAFT" == "true" && "$FORCE_FULL" != "true" ]]; then
-                      echo "::notice::Draft PR with no trusted Django selection — skipping heavy matrices; the ready-for-review run is the full gate"
+                  # A regular PR must never fall back to the full matrix. select-tests only
+                  # runs on regular PRs and sets MODE to "skip"/"selected"; an empty MODE on
+                  # one means select-tests was cancelled or failed (typically a newer push
+                  # superseding it mid-flight). Skip here and defer to the merge-queue run —
+                  # the actual merge gate. The run-ci-backend label intentionally forces full.
+                  if [[ -z "$MODE" && "$IS_SELECTIVE_PR" == "true" && "$FORCE_FULL" != "true" ]]; then
+                      echo "::notice::PR with no trusted Django selection — skipping heavy matrices; the merge-queue run is the full gate"
                       MODE="skip"
                   fi
 
                   if [[ "$MODE" == "skip" ]]; then
-                      # Draft PR where selection couldn't be trusted: skip the heavy
-                      # matrices and defer to the full run on ready for review.
+                      # PR where selection couldn't be trusted: skip the heavy
+                      # matrices and defer to the full run in the merge queue.
                       echo "include=[]" >> "$GITHUB_OUTPUT"
                       echo "Django matrix size: 0 (mode=skip)"
                       exit 0
@@ -1520,7 +1522,7 @@ jobs:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
-        # The non-empty include guard covers drafts in skip mode and selected runs
+        # The non-empty include guard covers PRs in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
         # A status function is required to inspect dependency results after failures.
         # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.

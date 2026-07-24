@@ -1,0 +1,91 @@
+# Uploads this PR's impacted targets to Trunk so the merge queue can schedule
+# it. Trunk needs an impacted-targets upload to place a PR into a parallel-queue
+# lane; without one, fork PRs never enter the queue and have to be merged by
+# hand.
+#
+# The upload authenticates with the org API token (x-api-token) on internal PRs.
+# Fork PR workflow runs do NOT receive repo secrets — GitHub withholds them from
+# `pull_request` runs originating in a fork — so for forks we authenticate with
+# the workflow run id instead (x-forked-workflow-run-id). Trunk verifies the run
+# id belongs to a live fork-PR workflow whose head SHA matches the payload.
+# Ref: https://docs.trunk.io/merge-queue/optimizations/parallel-queues/api#handling-forked-pull-requests
+#
+# SECURITY: this MUST stay on the `pull_request` trigger, never
+# `pull_request_target`. `pull_request_target` would hand repo secrets to code
+# from untrusted forks ("pwn request"). The fork path deliberately needs no
+# secret, so the plain `pull_request` trigger is sufficient and safe.
+name: Trunk Impacted Targets
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+    # Supersede in-flight uploads when the PR head moves; the last upload per
+    # head SHA wins on Trunk's side anyway. Key on the PR number, not head_ref:
+    # fork PRs frequently share a source branch name (many are opened from
+    # `master`), and keying on head_ref would put two such PRs in one group
+    # where one cancels the other's upload — leaving that head SHA without the
+    # upload it needs to enter the queue.
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    upload:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # The queue's own trunk-merge/** test PRs never need to enter the queue.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        # Reads only the event payload and talks out to Trunk — no repo write or
+        # PR API access needed.
+        permissions:
+            contents: read
+        env:
+            IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+            RUN_ID: ${{ github.run_id }}
+            REPO_OWNER: ${{ github.repository_owner }}
+            REPO_NAME: ${{ github.event.repository.name }}
+            PR_NUMBER: ${{ github.event.pull_request.number }}
+            # Head SHA (not the synthetic merge commit): it matches the workflow
+            # run's head_sha, which is what Trunk checks when verifying a fork
+            # upload.
+            PR_SHA: ${{ github.event.pull_request.head.sha }}
+            TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+        steps:
+            - name: Upload impacted targets to Trunk
+              # Not continue-on-error: a silent failure here keeps the PR out of
+              # the queue, so surface upload problems loudly. --retry rides out
+              # transient Trunk/network blips.
+              run: |
+                  set -euo pipefail
+
+                  # We report "ALL" — every target — which is always correct: it
+                  # can never under-report and let the queue merge conflicting
+                  # PRs in parallel. It yields no parallelism benefit, but it
+                  # gets every PR (forks included) into the queue. To actually
+                  # parallelise, replace "ALL" with a computed target-name list
+                  # once the queue's target names are defined; see the Trunk
+                  # bazel-action reference impl.
+                  payload="$(jq -n \
+                    --arg host "github.com" \
+                    --arg owner "$REPO_OWNER" \
+                    --arg name "$REPO_NAME" \
+                    --argjson number "$PR_NUMBER" \
+                    --arg sha "$PR_SHA" \
+                    --arg targetBranch "$TARGET_BRANCH" \
+                    '{repo: {host: $host, owner: $owner, name: $name}, pr: {number: $number, sha: $sha}, targetBranch: $targetBranch, impactedTargets: "ALL"}')"
+
+                  if [ "$IS_FORK" = "true" ]; then
+                    echo "Fork PR — authenticating with x-forked-workflow-run-id ($RUN_ID)"
+                    auth_header="x-forked-workflow-run-id: $RUN_ID"
+                  else
+                    echo "Internal PR — authenticating with x-api-token"
+                    auth_header="x-api-token: $TRUNK_API_TOKEN"
+                  fi
+
+                  curl --fail --silent --show-error --retry 3 --retry-all-errors \
+                    -X POST "https://api.trunk.io/v1/setImpactedTargets" \
+                    -H "Content-Type: application/json" \
+                    -H "$auth_header" \
+                    --data "$payload"

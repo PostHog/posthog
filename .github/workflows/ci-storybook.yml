@@ -1,14 +1,14 @@
 name: Storybook
 on:
     pull_request:
-        # Draft PRs run a narrowed visual-regression matrix when the Storybook module
-        # graph can safely identify affected stories. Ready PRs run the full chromium
-        # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label —
-        # labeled/unlabeled re-trigger the run so it starts without needing a push.
-        # The `no-ci` label does the opposite: it silences this workflow on a draft
-        # entirely (prototypes), until it is removed or the PR is marked ready.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # PRs (draft or ready) run a narrowed visual-regression matrix when the
+        # Storybook module graph can safely identify affected stories. The full
+        # chromium matrix (the merge gate) runs on the merge queue's trunk-merge/**
+        # draft PRs. To force the full matrix on a PR, add the `run-ci-frontend`
+        # label — labeled/unlabeled re-trigger the run so it starts without needing
+        # a push. The `no-ci` label does the opposite: it silences this workflow on
+        # a draft entirely (prototypes), until it is removed or the PR leaves draft.
+        types: [opened, synchronize, reopened, labeled, unlabeled]
     push:
         branches:
             - master
@@ -28,7 +28,8 @@ jobs:
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
-        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        # The merge queue's trunk-merge/** draft PRs never carry the label, so the
+        # merge gate is unaffected.
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
@@ -764,8 +765,9 @@ jobs:
         needs: [select-stories]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-stories only runs on internal draft PRs; fire only when it produced a
-        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        # select-stories only runs on internal PRs outside the merge queue; fire only
+        # when it produced a decision. DevEx project only; continue-on-error so
+        # telemetry never reds CI.
         if: |
             always() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
@@ -795,11 +797,11 @@ jobs:
                         "run_id": ${{ toJSON(github.run_id) }}
                       }
 
-    # Pick a narrowed visual-regression matrix for draft PRs based on which stories
-    # the Vite module graph says are affected by the diff. Ready PRs and drafts with
-    # the run-ci-frontend label skip this job and use the full chromium matrix.
-    # Selector uncertainty skips draft visual regression because the ready run is
-    # still the merge gate.
+    # Pick a narrowed visual-regression matrix for PRs based on which stories
+    # the Vite module graph says are affected by the diff. The merge queue's
+    # trunk-merge/** PRs and PRs with the run-ci-frontend label skip this job
+    # and use the full chromium matrix. Selector uncertainty skips PR visual
+    # regression because the merge-queue run is the merge gate.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -808,7 +810,7 @@ jobs:
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
-            && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -900,14 +902,14 @@ jobs:
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; skipping draft visual regression"
+                      echo "::warning::story selector did not produce output; skipping PR visual regression"
                       fall_back_to_skip selector_error
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
+                      echo "Selector declined to narrow (mode=$MODE); skipping PR visual regression"
                       fall_back_to_skip "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
                       exit 0
                   fi
@@ -919,7 +921,7 @@ jobs:
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                       emit_metrics true no_affected_stories
-                      echo "Selective mode: 0 affected stories, skipping draft visual regression"
+                      echo "Selective mode: 0 affected stories, skipping PR visual regression"
                       exit 0
                   fi
 

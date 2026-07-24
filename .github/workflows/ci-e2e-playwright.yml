@@ -8,8 +8,9 @@ on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
         # every code PR, and a full ~25-minute stack boot per draft push is the
-        # remaining big per-PR cost. The ready-for-review full run is the merge
-        # gate; use workflow_dispatch to force a run on a draft.
+        # remaining big per-PR cost. Ready PRs run a narrowed spec selection; the
+        # full suite (the merge gate) runs on the merge queue's trunk-merge/**
+        # draft PRs. Use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
@@ -76,14 +77,16 @@ jobs:
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
         # would count as a pass.
         timeout-minutes: 7
-        # Run on master push, manual dispatch, and on ready internal-repo PRs.
-        # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
-        # aggregator treats skipped as success, and drafts can't merge anyway.
+        # Run on master push, manual dispatch, ready internal-repo PRs, and the
+        # merge queue's trunk-merge/** PRs (drafts, but the full merge gate).
+        # Other drafts skip E2E (see the trigger comment); the `Playwright tests
+        # pass` aggregator treats skipped as success, and drafts can't merge anyway.
         if: |
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             (github.event.pull_request.draft != true ||
+              startsWith(github.head_ref, 'trunk-merge/')))
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -305,17 +308,17 @@ jobs:
     select-specs:
         name: Select affected E2E specs
         needs: [changes]
-        # Narrow the suite only on incremental `synchronize` pushes to a ready
-        # (non-draft) internal PR. Every other trigger — opened, reopened,
-        # ready_for_review, workflow_dispatch, and push to master — skips
-        # this job, leaving empty outputs so the playwright job runs the FULL suite.
-        # The merge gate (ready_for_review run) and the post-merge master run always
-        # run everything, so a selection miss is caught there. Fail-open is FULL,
+        # Narrow the suite on every run for a ready (non-draft) internal PR
+        # outside the merge queue. The merge queue's trunk-merge/** runs,
+        # workflow_dispatch, and pushes to master skip this job, leaving empty
+        # outputs so the playwright job runs the FULL suite. The merge gate
+        # (trunk-merge/** run) and the post-merge master run always run
+        # everything, so a selection miss is caught there. Fail-open is FULL,
         # never skip: over-selection would silently drop coverage.
         if: |
             needs.changes.outputs.shouldRun == 'true'
             && github.event_name == 'pull_request'
-            && github.event.action == 'synchronize'
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && github.event.pull_request.draft != true
             && github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ubuntu-latest

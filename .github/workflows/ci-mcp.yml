@@ -4,12 +4,12 @@ on:
     push:
         branches: [master]
     pull_request:
-        # Draft PRs run build + unit tests only; the integration tests (which boot
-        # the full PostHog backend and trigger on any Python change) run when the
-        # PR is marked ready for review — that full run is the merge gate.
+        # PRs run build + unit tests only; the integration tests (which boot the
+        # full PostHog backend and trigger on any Python change) run on the merge
+        # queue's trunk-merge/** draft PRs — that queue run is the merge gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
-        types: [opened, synchronize, reopened, ready_for_review]
+        types: [opened, synchronize, reopened]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -28,7 +28,8 @@ jobs:
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
-        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        # The merge queue's trunk-merge/** draft PRs never carry the label, so the
+        # merge gate is unaffected.
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
@@ -249,11 +250,14 @@ jobs:
         runs-on: depot-ubuntu-24.04-4
         needs: changes
         timeout-minutes: 30
-        # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # Python change, so they're the expensive half of this workflow. Build and
-        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
-        # skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
+        # Skipped on regular PRs: these boot the full PostHog backend and trigger on
+        # any Python change, so they're the expensive half of this workflow. Build
+        # and unit tests still run on PRs; the `MCP Tests Pass` aggregator treats
+        # skipped as success, and the merge queue's trunk-merge/** run is the merge
+        # gate.
+        if: |
+            needs.changes.outputs.mcp == 'true' &&
+            (github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
