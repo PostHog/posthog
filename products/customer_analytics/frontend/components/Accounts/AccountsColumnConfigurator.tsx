@@ -36,6 +36,7 @@ import {
     DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
+import { accountsViewsLogic } from './accountsViewsLogic'
 
 const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
 
@@ -77,6 +78,7 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                             Reset to defaults
                         </LemonButton>
                     </div>
+                    <SaveViewButton />
                     <LemonButton type="primary" onClick={onClose} data-attr="accounts-columns-done">
                         Done
                     </LemonButton>
@@ -132,6 +134,42 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+// Column and display changes only persist when saved to a view; surface that path here
+// so users don't have to find the view selector after configuring.
+function SaveViewButton(): JSX.Element {
+    const { currentView, canEditCurrentView, isDirty, viewsLoading } = useValues(accountsViewsLogic)
+    const { updateView, setIsCreating } = useActions(accountsViewsLogic)
+    const { hideColumnConfigurator } = useActions(accountsColumnConfigLogic)
+
+    if (currentView && canEditCurrentView) {
+        return (
+            <LemonButton
+                type="secondary"
+                loading={viewsLoading}
+                disabledReason={isDirty ? undefined : 'No changes to save'}
+                onClick={() => updateView({ id: currentView.id, updates: {} })}
+                data-attr="accounts-columns-update-view"
+            >
+                Update "{currentView.name}"
+            </LemonButton>
+        )
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            // The create-view modal is rendered by AccountsViewSelector and would stack
+            // behind this one — close the configurator first so it's reachable.
+            onClick={() => {
+                hideColumnConfigurator()
+                setIsCreating(true)
+            }}
+            data-attr="accounts-columns-save-view"
+        >
+            Save as new view
+        </LemonButton>
     )
 }
 

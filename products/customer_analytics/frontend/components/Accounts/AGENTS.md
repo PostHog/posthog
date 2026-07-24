@@ -137,8 +137,9 @@ A shared link's `#view=` URL hash always wins over the saved `currentViewId`.
 **One-time tiles migration:** on first load, if the signed-in user is the creator of the existing default `ColumnConfiguration` row and its `properties.tiles` is empty while their localStorage tiles differ from `DEFAULT_TILES`, `accountsViewsLogic` patches the localStorage tiles into that row.
 The operation is idempotent and skips non-creators.
 
-**Column configurator:** `AccountsColumnConfigurator.tsx` no longer persists columns itself — its footer button is "Done" (closes only).
+**Column configurator:** `AccountsColumnConfigurator.tsx` no longer persists columns itself — "Done" closes only.
 Column changes are saved as part of a view via `AccountsViewSelector.tsx` (the view dropdown in `AccountsTabFilters`), which offers "Save current view" (creates) and "Update '<name>'" (patches the selected view).
+The configurator's footer also surfaces that path (`SaveViewButton`): "Update "<name>"" when the current view is editable (disabled until dirty), otherwise "Save as new view" — both delegate to `accountsViewsLogic` (`updateView` / `setIsCreating`), the latter opening the create-view modal that `AccountsViewSelector` renders.
 
 ## Max / agent integration
 
