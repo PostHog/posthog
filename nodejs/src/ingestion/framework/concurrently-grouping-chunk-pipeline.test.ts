@@ -3,7 +3,10 @@ import { Message } from 'node-rdkafka'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { ConcurrentlyGroupingChunkPipeline, passThroughGroupChunk } from './concurrently-grouping-chunk-pipeline'
+import {
+    ConcurrentlyGroupingChunkPipeline,
+    processGroupChunkSequentially,
+} from './concurrently-grouping-chunk-pipeline'
 import { createContext, createNewChunkPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { dlq, drop, ok } from './results'
@@ -61,8 +64,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -80,8 +82,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
             const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
@@ -101,8 +102,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -121,8 +121,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -146,8 +145,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -180,8 +178,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -226,8 +223,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -290,8 +286,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -332,8 +327,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -405,8 +399,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline,
                 maxConcurrency
             )
@@ -448,8 +441,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline,
                 2
             )
@@ -515,8 +507,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -549,8 +540,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
 
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -680,8 +670,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -751,8 +740,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -966,8 +954,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -994,8 +981,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -1039,8 +1025,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -1077,8 +1062,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -1118,8 +1102,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
@@ -1137,8 +1120,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             }
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input: { value: string; group: string }) => input.group,
-                processor,
-                passThroughGroupChunk,
+                processGroupChunkSequentially(processor),
                 previousPipeline
             )
 
