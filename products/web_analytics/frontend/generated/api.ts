@@ -22,6 +22,7 @@ import type {
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    PrecomputeDebugResponseApi,
     RecordInteractionRequestApi,
     RecordInteractionResponseApi,
     RecordVisitResponseApi,
@@ -30,6 +31,7 @@ import type {
     SavedListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
+    WebAnalyticsPrecomputeDebugParams,
     WebAnalyticsRecapParams,
     WebAnalyticsRecapResponseApi,
     WebAnalyticsUserPreferencesApi,
@@ -591,5 +593,36 @@ export const webAnalyticsFilterPresetsDestroy = async (
     return apiMutator<unknown>(getWebAnalyticsFilterPresetsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getWebAnalyticsPrecomputeDebugUrl = (projectId: string, params?: WebAnalyticsPrecomputeDebugParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_precompute_debug/state/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_precompute_debug/state/`
+}
+
+/**
+ * Staff/dev-only debug view of the team's lazy precompute store: which query hashes are stored, which day buckets each covers, per-bucket TTL, and — where recoverable from query_log — the originating query (with filters) each hash serves.
+ * @summary Inspect stored lazy-precompute state (staff only)
+ */
+export const webAnalyticsPrecomputeDebug = async (
+    projectId: string,
+    params?: WebAnalyticsPrecomputeDebugParams,
+    options?: RequestInit
+): Promise<PrecomputeDebugResponseApi> => {
+    return apiMutator<PrecomputeDebugResponseApi>(getWebAnalyticsPrecomputeDebugUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

@@ -6,6 +6,19 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
+    scenes: {
+        WebAnalyticsPrecomputeDebug: {
+            import: () => import('./frontend/PrecomputeDebugScene'),
+            projectBased: true,
+            name: 'Web analytics precompute debug',
+            description: 'Staff-only view of stored precompute hashes, buckets, and TTLs.',
+            layout: 'app-container',
+            iconType: 'web_analytics',
+        },
+    },
+    routes: {
+        '/web/debug/precompute': ['WebAnalyticsPrecomputeDebug', 'webAnalyticsPrecomputeDebug'],
+    },
     urls: {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
@@ -14,6 +27,7 @@ export const manifest: ProductManifest = {
         webAnalyticsHealth: (): string => `/web/health`,
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+        webAnalyticsPrecomputeDebug: (): string => `/web/debug/precompute`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [
