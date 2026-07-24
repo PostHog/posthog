@@ -700,6 +700,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
                 "foreign table from the sync, then re-enable the sync."
             ),
+            # A selected relation is a postgres_fdw foreign table whose locally-declared enum column
+            # doesn't match the data actually stored on the remote server — the remote row holds a
+            # label the local enum type doesn't define (SQLSTATE 22P02, "invalid input value for enum
+            # <type>: <value>"). Postgres enforces enum labels at write time on ordinary tables, so
+            # this can only surface when reading through a foreign table's separately-declared type.
+            # The schema drift lives on the customer's side and is deterministic, so retrying re-reads
+            # into the same row every time. Match the stable message and exclude the volatile enum
+            # type name and offending value.
+            "invalid input value for enum": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw) whose "
+                "locally-declared enum column doesn't match the data on the remote server "
+                '(PostgreSQL reported "invalid input value for enum"). Update the local enum type to '
+                "include the value used on the remote server, or remove the foreign table from the "
+                "sync, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(
