@@ -1,0 +1,122 @@
+packages:
+  - apps/*
+  - packages/*
+  - tooling/*
+
+catalog:
+  '@hono/node-server': ^1.13.7
+  '@hono/trpc-server': ^0.3.4
+  '@earendil-works/pi-agent-core': 0.80.6
+  '@earendil-works/pi-ai': 0.80.6
+  '@earendil-works/pi-coding-agent': 0.80.6
+  '@earendil-works/pi-tui': 0.80.6
+  '@parcel/watcher': ^2.5.6
+  '@phosphor-icons/react': ^2.1.10
+  '@posthog/quill': 0.3.0-beta.24
+  '@radix-ui/themes': ^3.2.1
+  '@tanstack/react-query': ^5.100.14
+  '@tanstack/react-router': ^1.170.10
+  '@tanstack/react-router-devtools': ^1.167.0
+  '@tanstack/router-generator': ^1.167.17
+  '@tanstack/router-plugin': ^1.168.13
+  '@trpc/client': ^11.17.0
+  '@trpc/server': ^11.17.0
+  '@trpc/tanstack-react-query': ^11.17.0
+  '@types/node': ^20.0.0
+  '@types/react': ^19.2.15
+  '@types/react-dom': ^19.2.3
+  hono: ^4.6.14
+  inversify: ^7.10.6
+  react: 19.2.6
+  react-dom: 19.2.6
+  reflect-metadata: ^0.2.2
+  superjson: ^2.2.2
+  tsup: ^8.5.1
+  typescript: ^5.5.0
+
+ignoredBuiltDependencies:
+  - msw
+  - protobufjs
+
+minimumReleaseAge: 10080
+
+minimumReleaseAgeExclude:
+  - '@agentclientprotocol/sdk'
+  - '@anthropic-ai/claude-agent-sdk'
+  - '@anthropic-ai/claude-agent-sdk-darwin-arm64'
+  - '@anthropic-ai/claude-agent-sdk-darwin-x64'
+  - '@anthropic-ai/claude-agent-sdk-linux-arm64'
+  - '@anthropic-ai/claude-agent-sdk-linux-arm64-musl'
+  - '@anthropic-ai/claude-agent-sdk-linux-x64'
+  - '@anthropic-ai/claude-agent-sdk-linux-x64-musl'
+  - '@anthropic-ai/claude-agent-sdk-win32-arm64'
+  - '@anthropic-ai/claude-agent-sdk-win32-x64'
+  - '@anthropic-ai/sdk'
+  - '@earendil-works/pi-agent-core'
+  - '@earendil-works/pi-ai'
+  - '@earendil-works/pi-coding-agent'
+  - '@earendil-works/pi-tui'
+  - '@pierre/diffs'
+  - '@pierre/theming'
+  - '@posthog/quill'
+  - '@posthog/quill-charts'
+  - '@posthog/quill-tokens'
+  - '@tanstack/devtools-core'
+  - '@tanstack/history'
+  - '@tanstack/react-router'
+  - '@tanstack/react-router-devtools'
+  - '@tanstack/react-store'
+  - '@tanstack/react-virtual'
+  - '@tanstack/router-core'
+  - '@tanstack/router-devtools-core'
+  - '@tanstack/router-generator'
+  - '@tanstack/router-plugin'
+  - '@tanstack/router-utils'
+  - '@tanstack/store'
+  - '@tanstack/virtual-core'
+  - '@tanstack/virtual-file-routes'
+
+overrides:
+  # node-abi predates Electron 42; ^3.92.0 is the first release that knows its ABI
+  # (146), needed when rebuilding native modules against Electron 42.
+  node-abi: ^3.92.0
+  # Dedupe the zod 4.x line to one version so cross-package schema types stay
+  # nameable (TS2742). Scoped to 4.x; 3.x consumers are untouched.
+  'zod@^4.0.0': 4.4.3
+  # Keep one React across the monorepo so apps/code and apps/mobile share an
+  # instance (react-test-renderer must match react).
+  react: 19.2.6
+  react-dom: 19.2.6
+  react-test-renderer: 19.2.6
+  # Dedupe @types/react so shared UI Ref types unify across apps (a second copy
+  # makes nominally-distinct Ref types and breaks ref props in packages/ui).
+  '@types/react': ^19.2.15
+  '@types/react-dom': ^19.2.3
+  # quill 0.3.0-beta.14 ships a broken `@base-ui/react: catalog:` dependency (the
+  # catalog protocol leaked into the published package and can't resolve for an
+  # external dep); pin it to a real version so installs of quill succeed.
+  '@posthog/quill>@base-ui/react': ^1.3.0
+  # node-gyp 12 downloads Node headers via undici (^6.25.0). undici through 7.27.2
+  # crashes intermittently with `assert(!this.paused)` in the H1 parser's finish()
+  # when the socket ends while the body stream is paused, which happens when a
+  # native module compiles from source under backpressure (e.g. node-pty in CI).
+  # undici 8.4.1 dropped that assertion and handles the paused case gracefully;
+  # node-gyp only uses stable public exports (fetch/Agent), so 8.x is safe.
+  'node-gyp>undici': 8.4.1
+  # Swap vite for the rolldown-based fork for faster dev boot times (#3027).
+  vite: npm:rolldown-vite@7.3.1
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@posthog/cli'
+  - better-sqlite3
+  - core-js
+  - electron
+  - electron-winstaller
+  - esbuild
+  - node-pty
+  - tree-sitter-cli
+
+patchedDependencies:
+  node-pty: patches/node-pty.patch
+  react-hotkeys-hook: patches/react-hotkeys-hook.patch

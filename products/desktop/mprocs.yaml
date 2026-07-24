@@ -1,0 +1,76 @@
+procs:
+  code:
+    shell: 'node scripts/wait-for-electron-exit.mjs && node scripts/pnpm-run.mjs --filter code run start'
+    env:
+      DEBUG: "false"
+    depends_on:
+      - agent
+      - git
+      - enricher
+      - platform
+    groups:
+      layer: Application
+
+  agent:
+    shell: 'node scripts/pnpm-run.mjs --filter agent run dev'
+    groups:
+      layer: Packages
+
+  git:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/git run dev'
+    groups:
+      layer: Packages
+
+  platform:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/platform run dev'
+    groups:
+      layer: Packages
+
+  enricher:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/enricher run dev'
+    groups:
+      layer: Packages
+
+  storybook:
+    shell: 'node scripts/pnpm-run.mjs --filter code run storybook'
+    autostart: false
+    groups:
+      layer: Tools
+
+  mobile-ios:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/mobile run ios'
+    autostart: false
+    groups:
+      layer: Application
+
+  chromium-log:
+    shell: 'tail -F ~/.posthog-code/logs-dev/chromium.log'
+    groups:
+      layer: Tools
+
+  web:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/web run dev'
+    autostart: false
+    groups:
+      layer: Application
+
+  web-playwright:
+    shell: 'node scripts/pnpm-run.mjs --filter @posthog/web run test:e2e'
+    autostart: false
+    groups:
+      layer: Tools
+
+  # The desktop e2e fixture launches the PACKAGED app from out/, so package
+  # first (matches CI) or it fails with "No packaged app found". Slow on first
+  # run; re-run test:e2e directly if the app is already packaged and unchanged.
+  desktop-playwright:
+    shell: 'node scripts/pnpm-run.mjs --filter code run package && node scripts/pnpm-run.mjs --filter code run test:e2e'
+    autostart: false
+    groups:
+      layer: Tools
+
+# Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
+default_group: layer
+
+group_order:
+  layer: [Application, Packages, Tools]

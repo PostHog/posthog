@@ -1,0 +1,68 @@
+{
+  "name": "@posthog/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities for PostHog",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./analytics-events": {
+      "types": "./dist/analytics-events.d.ts",
+      "import": "./dist/analytics-events.js"
+    },
+    "./agent-platform-types": {
+      "types": "./dist/agent-platform-types.d.ts",
+      "import": "./dist/agent-platform-types.js"
+    },
+    "./domain-types": {
+      "types": "./dist/domain-types.d.ts",
+      "import": "./dist/domain-types.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./deeplink": {
+      "types": "./dist/deeplink.d.ts",
+      "import": "./dist/deeplink.js"
+    },
+    "./dismissalReasons": {
+      "types": "./dist/dismissalReasons.d.ts",
+      "import": "./dist/dismissalReasons.js"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.js"
+    },
+    "./mcp-sandbox-proxy": {
+      "types": "./dist/mcp-sandbox-proxy.d.ts",
+      "import": "./dist/mcp-sandbox-proxy.js"
+    },
+    "./posthog-property-headers": {
+      "types": "./dist/posthog-property-headers.d.ts",
+      "import": "./dist/posthog-property-headers.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "0.19.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ]
+}

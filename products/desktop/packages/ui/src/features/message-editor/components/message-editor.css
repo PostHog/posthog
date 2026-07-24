@@ -1,0 +1,31 @@
+/* Tiptap placeholder - targets empty first paragraph */
+.cli-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Ensure Tiptap NodeView wrappers render inline for mention chips */
+.cli-editor [data-node-view-wrapper] {
+  display: inline;
+}
+
+/* Editor scrollbar - slim, transparent track, hugs right edge */
+.cli-editor-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-thumb {
+  background: var(--gray-a5);
+  border-radius: 3px;
+}
+
+.cli-editor-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-a7);
+}

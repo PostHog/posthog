@@ -1,0 +1,67 @@
+{
+  "name": "posthog-code",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for the PostHog desktop app and agent framework",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b",
+  "scripts": {
+    "preinstall": "node scripts/enforce-pnpm.mjs",
+    "postinstall": "bash scripts/ensure-phrocs.sh --update",
+    "setup": "bash apps/code/bin/setup",
+    "prepare": "husky",
+    "dev": "pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
+    "dev:mprocs": "pnpm build:deps && mprocs",
+    "dev:agent": "pnpm --filter agent dev",
+    "dev:git": "pnpm --filter @posthog/git dev",
+    "dev:code": "pnpm --filter code start",
+    "app:cdp": "node scripts/electron-cdp.mjs",
+    "build": "turbo build",
+    "build:deps": "turbo build --filter=@posthog/code^...",
+    "package": "turbo build && pnpm --filter code package",
+    "test": "turbo test",
+    "test:bun": "turbo test --filter=@posthog/core --filter=@posthog/cli",
+    "test:vitest": "pnpm --filter code --filter @posthog/electron-trpc test",
+    "test:e2e": "pnpm --filter code test:e2e",
+    "test:e2e:headed": "pnpm --filter code test:e2e:headed",
+    "test:e2e:web": "pnpm --filter @posthog/web test:e2e",
+    "test:e2e:web:ui": "pnpm --filter @posthog/web test:e2e:ui",
+    "rebuild:sqlite-node": "node scripts/rebuild-better-sqlite3-node.mjs",
+    "rebuild:sqlite-electron": "node scripts/rebuild-better-sqlite3-electron.mjs",
+    "typecheck": "turbo typecheck",
+    "boundaries": "node scripts/check-host-boundaries.mjs",
+    "optimize:onboarding-videos": "node scripts/optimize-onboarding-videos.mjs",
+    "lint": "biome check --write --unsafe",
+    "format": "biome format --write",
+    "clean": "pnpm -r clean",
+    "knip": "knip",
+    "skills:pull": "node scripts/pull-skills.mjs"
+  },
+  "keywords": [
+    "posthog",
+    "code",
+    "tasks",
+    "developer-tools",
+    "agent"
+  ],
+  "author": "PostHog",
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@posthog/cli": "^0.7.3",
+    "fflate": "^0.8.2",
+    "husky": "^9.1.7",
+    "knip": "^5.66.3",
+    "lint-staged": "^15.5.2",
+    "mprocs": "^0.7.1",
+    "turbo": "^2.9.16"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
+      "bash -c 'pnpm typecheck'"
+    ]
+  }
+}
