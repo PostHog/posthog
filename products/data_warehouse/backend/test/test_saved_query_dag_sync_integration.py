@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.facade.modeling import UnknownParentError
 from products.data_modeling.backend.facade.models import DEFAULT_DAG_NAME, DataWarehouseSavedQuery, Node, NodeType
 
 
@@ -181,3 +183,37 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         # should still exist on dag sync failure
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(DataWarehouseSavedQuery.objects.filter(id=response.json()["id"]).exists())
+
+    @parameterized.expand(
+        [
+            # A saved query referencing a deleted/renamed/typo'd table is user-caused and expected:
+            # the best-effort sync should log a warning, not report to error tracking.
+            ("expected_unresolvable_parent", UnknownParentError("klaviyo_sends", ""), False),
+            # A genuinely unexpected sync failure must still be reported.
+            ("unexpected_failure", RuntimeError("boom"), True),
+        ]
+    )
+    def test_dag_sync_error_capture_depends_on_error_type(self, name, side_effect, expect_capture):
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+                side_effect=side_effect,
+            ),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": f"dag_sync_error_type_{name}",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT 1",
+                    },
+                },
+                format="json",
+            )
+        # the save always succeeds regardless of the best-effort sync outcome
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(mock_capture_exception.called, expect_capture)
