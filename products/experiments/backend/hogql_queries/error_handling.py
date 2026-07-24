@@ -50,7 +50,7 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
     # HogQL/Query errors
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
-    ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
+    ExposedCHQueryError: "Unable to retrieve experiment data. Please check your metric and filter configuration.",
     # ClickHouse resource errors
     ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
     # Python built-in errors that can occur during calculation

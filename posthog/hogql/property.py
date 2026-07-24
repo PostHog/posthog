@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from datetime import datetime
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -7,6 +8,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 import re2
+from dateutil import parser as dateutil_parser
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -378,6 +380,32 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _validate_date_value(value: ValueT, operator: PropertyOperator, property_key: str) -> None:
+    """Reject an absolute date value that ClickHouse cannot parse with a clear
+    user-facing error rather than letting the whole query fail deep inside
+    ClickHouse with e.g. ``Cannot parse time component of DateTime 17:35``.
+
+    Only absolute values reach this check — relative values (``-7d``) are
+    resolved to a valid wall-clock string before this runs. A bare time such as
+    ``17:35`` carries no date component, so the emitted ``toDateTime`` blows up.
+    We detect that by parsing twice with different fallback dates: if the date
+    portion changes between the two, no date was present in the value."""
+    if not isinstance(value, str):
+        return
+    try:
+        parsed_a = dateutil_parser.parse(value, default=datetime(2000, 1, 1))
+        parsed_b = dateutil_parser.parse(value, default=datetime(2001, 2, 3))
+    except (ValueError, OverflowError) as err:
+        raise QueryError(
+            f"Invalid date value '{value}' for property '{property_key}' with operator {operator}"
+        ) from err
+    if (parsed_a.year, parsed_a.month, parsed_a.day) != (parsed_b.year, parsed_b.month, parsed_b.day):
+        raise QueryError(
+            f"Invalid date value '{value}' for property '{property_key}' with operator {operator}: "
+            f"a date value is required, not a time on its own"
+        )
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -569,10 +597,12 @@ def _expr_to_compare_op(
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
+        resolved = _resolve_date_value(value, team)
+        _validate_date_value(resolved, operator, property.key)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=resolved)),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -584,19 +614,23 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
+        resolved = _resolve_date_value(value, team)
+        _validate_date_value(resolved, operator, property.key)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=resolved)),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
+        resolved = _resolve_date_value(value, team)
+        _validate_date_value(resolved, operator, property.key)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=resolved)),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))

@@ -380,6 +380,21 @@ class TestProperty(BaseTest):
         assert isinstance(result.right.args[0], ast.Constant)
         assert result.right.args[0].value == expected_rhs
 
+    @parameterized.expand(
+        [
+            ("bare_time", "17:35", "is_date_before"),
+            ("bare_time_exact", "14:00", "is_date_exact"),
+            ("bare_time_after", "17:35", "is_date_after"),
+            ("unparseable", "not a date", "is_date_before"),
+        ]
+    )
+    def test_property_to_expr_date_operator_rejects_malformed_value(self, _name, value, operator):
+        # A malformed absolute value (e.g. a bare time) used to be lowered straight into
+        # toDateTime(...) and blow up deep inside ClickHouse ("Cannot parse time component
+        # of DateTime 17:35"). It must now fail early with a clear QueryError naming the filter.
+        with self.assertRaisesMessage(QueryError, "field_a"):
+            self._property_to_expr({"type": "event", "key": "field_a", "value": value, "operator": operator})
+
     def test_property_to_expr_event_list(self):
         # positive
         self.assertEqual(
