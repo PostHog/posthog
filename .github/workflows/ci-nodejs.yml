@@ -145,10 +145,14 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            # Fork PRs run untrusted build scripts: keep them off the shared WebDAV compiler
+            # cache (no RUSTC_WRAPPER means no cache writes an internal build would later read).
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -198,10 +202,14 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            # Fork PRs run untrusted build scripts: keep them off the shared WebDAV compiler
+            # cache (no RUSTC_WRAPPER means no cache writes an internal build would later read).
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -302,10 +310,14 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            # Fork PRs run untrusted build scripts: keep them off the shared WebDAV compiler
+            # cache (no RUSTC_WRAPPER means no cache writes an internal build would later read).
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -556,10 +568,14 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            # Fork PRs run untrusted build scripts: keep them off the shared WebDAV compiler
+            # cache (no RUSTC_WRAPPER means no cache writes an internal build would later read).
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
