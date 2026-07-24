@@ -247,7 +247,7 @@ export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicTy
                 loadOrganizationIntegrations: async () => {
                     const res = await api.organizationIntegrations.list()
 
-                    return res.results.map((integration) => {
+                    return (res?.results ?? []).map((integration) => {
                         return {
                             ...integration,
                             icon_url: ICONS[integration.kind],
