@@ -16,6 +16,11 @@ import { reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 const CANVAS_W = 1280
 const CANVAS_H = 720
 
+/** LemonModal's vertical chrome: its max-height offset (60px + 2rem) plus its 1rem top/bottom margins. */
+const MODAL_VERTICAL_CHROME_PX = 124
+/** Scale floor: in a viewport shorter than the modal chrome the canvas overflows, not collapses. */
+const MIN_SCALE = 0.1
+
 /** Shared lane centers: chunk cards, validate cards, and every connector line up on these. */
 const LANES = ['16.667%', '50%', '83.333%'] as const
 
@@ -177,10 +182,13 @@ export function PipelineDetailModal(): JSX.Element {
 
     // LemonModal caps itself at 90% of the viewport width and just under the viewport height; fit
     // the fixed-ratio canvas inside those bounds, never upscaling past the designed size.
-    const scale = Math.min(
-        1,
-        ((windowSize.width ?? CANVAS_W) * 0.9) / CANVAS_W,
-        ((windowSize.height ?? CANVAS_H + 124) - 124) / CANVAS_H
+    const scale = Math.max(
+        MIN_SCALE,
+        Math.min(
+            1,
+            ((windowSize.width ?? CANVAS_W) * 0.9) / CANVAS_W,
+            ((windowSize.height ?? CANVAS_H + MODAL_VERTICAL_CHROME_PX) - MODAL_VERTICAL_CHROME_PX) / CANVAS_H
+        )
     )
 
     return (
