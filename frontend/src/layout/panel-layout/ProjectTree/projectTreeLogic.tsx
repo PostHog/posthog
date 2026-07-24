@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -1192,7 +1193,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, key }) => ({
+    listeners(({ actions, values, key, props }) => ({
         setActivePanelIdentifier: () => {
             if (values.searchTerm !== '') {
                 actions.clearSearch()
@@ -1213,7 +1214,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: () => {
             actions.checkSelectedFolders()
         },
-        loadSearchResultsSuccess: () => {
+        loadSearchResultsSuccess: ({ searchResults, payload }) => {
+            // Fire once per settled search term (the 250ms breakpoint cancels intermediate keystrokes),
+            // and only for the first page so pagination doesn't double-count.
+            if (searchResults.searchTerm && (!payload || !payload.offset)) {
+                posthog.capture('project tree searched', {
+                    root: props.root ?? 'project://',
+                    has_results: searchResults.results.length > 0,
+                })
+            }
             actions.checkSelectedFolders()
         },
         deleteSavedItem: () => {
@@ -1358,6 +1367,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveCheckedItems: ({ path }) => {
             const { checkedItems } = values
             let skipInFolder: string | null = null
+            // Count only the moves actually issued — descendants of a moved folder are skipped,
+            // so the checked count would overstate how many items moved.
+            let movedCount = 0
             for (const item of values.sortedItems) {
                 if (skipInFolder !== null) {
                     if (item.path.startsWith(skipInFolder + '/')) {
@@ -1369,11 +1381,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
                     actions.moveItem(item, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true, key)
+                    movedCount++
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
                 }
             }
+            posthog.capture('project tree items moved', {
+                root: props.root ?? 'project://',
+                count: movedCount,
+                is_bulk: true,
+            })
         },
         linkCheckedItems: ({ path }) => {
             const { checkedItems } = values
@@ -1493,12 +1511,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const splits = splitPath(item.path)
             if (splits.length > 0) {
                 if (value) {
+                    posthog.capture('project tree item renamed', {
+                        root: props.root ?? 'project://',
+                        item_type: item.type ?? null,
+                    })
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]), false, key)
                     actions.setEditingItemId('')
                 }
             }
         },
+        deleteItem: ({ item }) => {
+            posthog.capture('project tree item deleted', {
+                root: props.root ?? 'project://',
+                item_type: item.type ?? null,
+            })
+        },
         createFolder: ({ parentPath, editAfter, callback }) => {
+            posthog.capture('project tree folder created', {
+                root: props.root ?? 'project://',
+                is_root_folder: !parentPath,
+            })
             const parentSplits = parentPath ? splitPath(parentPath) : []
             const newPath = joinPath([...parentSplits, 'Untitled folder'])
             actions.addFolder(newPath, editAfter, callback)
@@ -1507,6 +1539,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadSearchResults(searchTerm)
         },
         setSortMethod: ({ sortMethod }) => {
+            posthog.capture('project tree sort changed', {
+                root: props.root ?? 'project://',
+                sort_method: sortMethod,
+            })
             if (values.searchTerm) {
                 actions.loadSearchResults(values.searchTerm, 0)
             }

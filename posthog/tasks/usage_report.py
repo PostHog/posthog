@@ -237,7 +237,7 @@ class UsageReportCounters:
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
 
-    # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    # PostHog Desktop Billing Credits (PostHog Desktop product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
     posthog_code_credits_used_in_period: int
 
     # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
@@ -1398,7 +1398,7 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
-# PostHog Code bills model costs as pure pass-through: no markup
+# PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
@@ -1425,7 +1425,7 @@ POSTHOG_AI_PRODUCTS = [
     "replay_vision",
 ]
 
-# ai_product values billed as PostHog Code credits.
+# ai_product values billed as PostHog Desktop credits.
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
@@ -1691,7 +1691,7 @@ def get_teams_with_posthog_code_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'.
+    """PostHog Desktop billing credits — only events tagged with ai_product='posthog_code'.
 
     Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
     """

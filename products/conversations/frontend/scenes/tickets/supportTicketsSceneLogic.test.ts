@@ -37,6 +37,7 @@ describe('supportTicketsSceneLogic', () => {
         it.each([
             ['legacy "all"', 'all', []],
             ['legacy "unassigned"', 'unassigned', ['unassigned']],
+            ['dynamic "me"', 'me', ['me']],
             ['legacy single user', { type: 'user', id: 1 }, [{ type: 'user', id: 1 }]],
             ['undefined', undefined, []],
             ['null', null, []],
@@ -93,6 +94,21 @@ describe('supportTicketsSceneLogic', () => {
             }).toFinishAllListeners()
             expect(logic.values.assigneeFilterEntries).toEqual(['unassigned'])
             expect(lastAssigneeParam).toBe('unassigned')
+        })
+
+        it('passes the dynamic "me" token through unchanged so the backend resolves the viewer', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAssigneeFilter(['me', { type: 'user', id: 1 }])
+            }).toFinishAllListeners()
+            expect(lastAssigneeParam).toBe('me,user:1')
+
+            // A saved view scoped to "me" round-trips as the portable token, not a
+            // concrete user id — so it stays each viewer's own tickets.
+            await expectLogic(logic, () => {
+                logic.actions.applyViewFilters({ assignee: ['me'] })
+            }).toFinishAllListeners()
+            expect(logic.values.assigneeFilterEntries).toEqual(['me'])
+            expect(lastAssigneeParam).toBe('me')
         })
     })
 
