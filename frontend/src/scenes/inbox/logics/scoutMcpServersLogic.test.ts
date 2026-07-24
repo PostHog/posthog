@@ -18,13 +18,21 @@ function server(id: string, name: string, connectionState: ConnectionStateEnumAp
         name,
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
+        icon_domain: `${name.toLowerCase()}.com`,
         connection_state: connectionState,
     }
 }
 
 function account(
     agentKey: MCPServiceAccountApi['agent_key'],
-    servers: MCPServiceAccountServerApi[]
+    servers: MCPServiceAccountServerApi[],
+    {
+        status = 'active',
+        productEnabled = true,
+    }: {
+        status?: MCPServiceAccountApi['status']
+        productEnabled?: boolean
+    } = {}
 ): MCPServiceAccountApi {
     return {
         id: `${agentKey}-id`,
@@ -32,8 +40,8 @@ function account(
         description: `${agentKey} agent`,
         handle: `svc-${agentKey}`,
         agent_key: agentKey,
-        status: 'active',
-        product_enabled: true,
+        status,
+        product_enabled: productEnabled,
         product_disabled_reason: '',
         server_ids: servers.map(({ id }) => id),
         servers,
@@ -77,7 +85,39 @@ describe('scoutMcpServersLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.scoutServers).toEqual([notion, linear])
+        expect(logic.values.isScoutMcpAccessEnabled).toBe(true)
         expect(logic.values.readyScoutServers).toEqual([linear])
+        expect(logic.values.availableScoutServers).toEqual([linear])
         expect(logic.values.scoutServersNeedingSetup).toEqual([notion])
+    })
+
+    it.each([
+        ['MCP access is paused', { status: 'paused' as const }],
+        ['Scout is unavailable', { productEnabled: false }],
+    ])('does not expose ready servers when %s', async (_, accountOptions) => {
+        const linear = server('linear-id', 'Linear', 'ready')
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [account('scout', [linear], accountOptions)],
+                    },
+                ],
+            },
+        })
+
+        logic = scoutMcpServersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutServers).toEqual([linear])
+        expect(logic.values.isScoutMcpAccessEnabled).toBe(false)
+        expect(logic.values.readyScoutServers).toEqual([linear])
+        expect(logic.values.availableScoutServers).toEqual([])
+        expect(logic.values.scoutServersNeedingSetup).toEqual([])
     })
 })

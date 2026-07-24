@@ -14,7 +14,7 @@ const CONNECTION_STATE: Record<
     MCPServiceAccountServerApi['connection_state'],
     { label: string; tagType: LemonTagType }
 > = {
-    ready: { label: 'Available to Scout', tagType: 'success' },
+    ready: { label: 'Connection ready', tagType: 'success' },
     pending_oauth: { label: 'Pending OAuth', tagType: 'warning' },
     needs_reauth: { label: 'Reconnect', tagType: 'danger' },
     disabled: { label: 'Disabled', tagType: 'muted' },
@@ -73,12 +73,13 @@ export function McpServersSection(): JSX.Element {
                 <span className="text-secondary group-hover:text-default">View MCP server settings</span>
                 <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
             </Link>
-            {scoutAccount?.status === 'paused' && (
+            {scoutAccount !== null && !scoutAccount.product_enabled ? (
+                <div className="border-t px-3 py-2 text-xs text-secondary">
+                    {scoutAccount.product_disabled_reason || 'Scout is unavailable.'}
+                </div>
+            ) : scoutAccount?.status === 'paused' ? (
                 <div className="border-t px-3 py-2 text-xs text-secondary">Scout MCP access is paused.</div>
-            )}
-            {!scoutAccount?.product_enabled && scoutAccount !== null && (
-                <div className="border-t px-3 py-2 text-xs text-secondary">The Scout product is not enabled.</div>
-            )}
+            ) : null}
         </div>
     )
 }

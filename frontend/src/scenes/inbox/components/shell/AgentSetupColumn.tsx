@@ -220,25 +220,33 @@ function CodeAccessWidget(): JSX.Element {
 
 function McpServersWidget(): JSX.Element {
     useMountedLogic(scoutMcpServersLogic)
-    const { readyScoutServers, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
+    const { availableScoutServers, scoutAccount, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
         useValues(scoutMcpServersLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
-    const readyCount = readyScoutServers.length
+    const availableCount = availableScoutServers.length
     const needsSetupCount = scoutServersNeedingSetup.length
     let status = 'Share external tools'
-    if (readyCount > 0 && needsSetupCount > 0) {
-        status = `${readyCount} available · ${needsSetupCount} need setup`
-    } else if (readyCount > 0) {
-        status = `${readyCount} available to Scout`
+    let tone: WidgetTone = 'neutral'
+    if (scoutAccount !== null && !scoutAccount.product_enabled) {
+        status = 'Scout unavailable'
+    } else if (scoutAccount?.status === 'paused') {
+        status = 'MCP access paused'
+    } else if (availableCount > 0 && needsSetupCount > 0) {
+        status = `${availableCount} available · ${needsSetupCount} need setup`
+        tone = 'done'
+    } else if (availableCount > 0) {
+        status = `${availableCount} available to Scout`
+        tone = 'done'
     } else if (needsSetupCount > 0) {
         status = `${needsSetupCount} need setup`
+        tone = 'todo'
     }
     return (
         <SetupWidgetCard
             icon={<IconServer />}
             title="MCP servers"
             size="md"
-            tone={readyCount > 0 ? 'done' : needsSetupCount > 0 ? 'todo' : 'neutral'}
+            tone={tone}
             loading={scoutServersLoading && scoutServers.length === 0}
             status={status}
             onClick={() => openSetupModal('mcp-servers')}
