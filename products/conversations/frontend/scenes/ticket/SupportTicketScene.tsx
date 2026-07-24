@@ -85,9 +85,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
-        hasUnsavedChanges,
         unsavedTicketChanges,
-        ticketUpdating,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -111,7 +109,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setTags,
         setSnoozedUntil,
         sendMessage,
-        updateTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
@@ -466,17 +463,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <span className="text-muted-alt">Tags</span>
                                 <TicketTags tags={tags} onChange={setTags} saving={false} />
                             </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                loading={ticketUpdating}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
-                            >
-                                Save changes
-                            </LemonButton>
                         </div>
                     </LemonCard>
 
