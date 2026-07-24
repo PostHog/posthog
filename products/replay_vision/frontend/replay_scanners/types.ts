@@ -177,6 +177,19 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
+// A plain-language description of what each scanner type produces per session, for people who don't yet
+// know the type names. Kept short so it reads as a chip subtitle / tooltip.
+const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
+    monitor: 'yes or no',
+    classifier: 'a tag from a set you define',
+    scorer: 'a number score',
+    summarizer: 'a text summary',
+}
+
+export function scannerTypeOutputHint(scannerType: ScannerType): string {
+    return SCANNER_TYPE_OUTPUT_HINT[scannerType]
+}
+
 export function createdByLabel(user: ScannerCreatedBy | null): string {
     if (!user) {
         return ''

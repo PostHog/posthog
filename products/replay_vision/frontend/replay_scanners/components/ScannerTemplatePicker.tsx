@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates, newScanner } from '../scannerTemplates'
+import { scannerTypeOutputHint } from '../types'
 
 const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     warning: <IconWarning />,
@@ -53,6 +54,11 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                             ? 'Build a fully custom scanner with your own prompt and configuration.'
                             : template.description}
                     </p>
+                    {!isBlank && (
+                        <p className="text-xs text-muted mt-2 mb-0">
+                            Output: {scannerTypeOutputHint(template.scanner_type)}
+                        </p>
+                    )}
                 </div>
             </div>
         </button>
