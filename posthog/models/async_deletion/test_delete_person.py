@@ -18,6 +18,10 @@ class TestDeletePerson(BaseTest, ClickhouseTestMixin):
 
         remove_deleted_person_data(mutations_sync=True)
 
-        count = sync_execute("SELECT count() FROM person")[0][0]
+        # Disable the trivial-count optimization: it sums each part's cached row count, and the
+        # lightweight delete's per-part existing-rows count is recomputed asynchronously, so a
+        # plain count() can still include the just-deleted rows. Forcing a real scan applies the
+        # (already-synced) delete mask and makes the count deterministic.
+        count = sync_execute("SELECT count() FROM person", settings={"optimize_trivial_count_query": 0})[0][0]
 
         assert count == 1
