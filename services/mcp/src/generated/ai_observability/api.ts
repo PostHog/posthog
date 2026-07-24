@@ -514,10 +514,10 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional trigger conditions to filter which events are sampled.'),
     target: zod
         .enum(['generation', 'trace'])
-        .describe('* `generation` - Generation\n* `trace` - Trace')
+        .describe('\* `generation` - Generation\n\* `trace` - Trace')
         .default(evaluationsTestHogCreateBodyTargetDefault)
         .describe(
-            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n* `generation` - Generation\n* `trace` - Trace"
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
     target_config: zod
         .object({
