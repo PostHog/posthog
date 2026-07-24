@@ -1516,29 +1516,47 @@ function QuickstartHeroAnswerCard(): JSX.Element | null {
     )
 }
 
-// Lean quickstart version of the wizard install switcher: same flows and rules as
-// onboarding's WizardInstallOptions (cloud run blocks the local tab; a failed run falls
-// back to the command), without the framework badges or illustration.
+// Lean quickstart version of the wizard install switcher. Same rules as onboarding's
+// WizardInstallOptions (a cloud run pins the view to its progress; a failed run falls back
+// to the command), plus manual per-tool setup as a third mode.
 function QuickstartInstallSwitcher(): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useValues(preflightLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
-    const [mode, setMode] = useState<'cloud' | 'local'>('cloud')
+    const { featuredProducts } = useValues(quickstartLogic)
+    const { openToolSetupModal } = useActions(quickstartLogic)
+    const [mode, setMode] = useState<'cloud' | 'local' | 'manual'>('cloud')
 
     const offerCloud = cloudRunEnabled && isCloudOrDev
-    const localBlocked = !!activeCloudRun
-    const effectiveMode = localBlocked ? 'cloud' : mode
+    const cloudRunPinned = !!activeCloudRun
+    const effectiveMode = cloudRunPinned ? 'cloud' : offerCloud ? mode : mode === 'cloud' ? 'local' : mode
     const runItYourself = (): void => {
         clearActiveCloudRun()
         setMode('local')
     }
-    const cloudBlock = <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
-    const localBlock = <WizardCommandBlock hideHog align="start" />
+    const switchDisabledReason = cloudRunPinned ? 'A cloud run is in progress.' : undefined
 
-    if (!offerCloud) {
-        return activeCloudRun ? cloudBlock : localBlock
-    }
+    const manualBlock = (
+        <div className="flex flex-wrap gap-2">
+            {featuredProducts.map((product) => (
+                <LemonButton
+                    key={product.key}
+                    type="secondary"
+                    size="small"
+                    icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
+                    onClick={() => {
+                        captureQuickstartAction('set_up_product', product.key, { source: 'focused_install' })
+                        openToolSetupModal(product.key)
+                    }}
+                    data-attr={`quickstart-focused-setup-${product.key}`}
+                >
+                    {product.name}
+                </LemonButton>
+            ))}
+        </div>
+    )
+
     return (
         <div className="flex flex-col gap-3 items-start">
             <LemonSegmentedButton
@@ -1551,30 +1569,47 @@ function QuickstartInstallSwitcher(): JSX.Element {
                     setMode(value)
                 }}
                 options={[
-                    { value: 'cloud', label: 'Open a pull request', 'data-attr': 'quickstart-wizard-mode-cloud' },
+                    ...(offerCloud
+                        ? [
+                              {
+                                  value: 'cloud' as const,
+                                  label: 'Open a pull request',
+                                  'data-attr': 'quickstart-wizard-mode-cloud',
+                              },
+                          ]
+                        : []),
                     {
-                        value: 'local',
-                        label: 'Run it yourself',
-                        disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
+                        value: 'local' as const,
+                        label: offerCloud ? 'Run it yourself' : 'Run the wizard',
+                        disabledReason: switchDisabledReason,
                         'data-attr': 'quickstart-wizard-mode-local',
+                    },
+                    {
+                        value: 'manual' as const,
+                        label: 'Install manually',
+                        disabledReason: switchDisabledReason,
+                        'data-attr': 'quickstart-wizard-mode-manual',
                     },
                 ]}
             />
-            <div className="w-full">{effectiveMode === 'cloud' ? cloudBlock : localBlock}</div>
+            <div className="w-full">
+                {effectiveMode === 'cloud' ? (
+                    <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
+                ) : effectiveMode === 'local' ? (
+                    <WizardCommandBlock hideHog align="start" />
+                ) : (
+                    manualBlock
+                )}
+            </div>
         </div>
     )
 }
 
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
-// methods live inline, in priority order: cloud wizard, local wizard (both inside
-// WizardInstallOptions, which renders an active cloud run in place), then manual per-tool
-// setup via the existing modal. No detour back to onboarding.
+// methods live inline as switcher modes: cloud wizard, local wizard, manual per-tool setup.
 function QuickstartFocusedInstall(): JSX.Element {
-    const { featuredProducts } = useValues(quickstartLogic)
-    const { openToolSetupModal } = useActions(quickstartLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const isLocalRunActive = useLocalWizardRunActive()
-    const wizardBusy = !!activeCloudRun || isLocalRunActive
 
     return (
         <section className="max-w-xl flex flex-col gap-6">
@@ -1583,7 +1618,7 @@ function QuickstartFocusedInstall(): JSX.Element {
                 <p className="text-secondary mb-0">
                     Install the PostHog SDK to start sending data. The setup wizard is an agent that reads your codebase
                     and writes the integration for you. It can open a pull request on your repo, or you can run it in
-                    your terminal.
+                    your terminal. You can also install manually for a specific tool.
                 </p>
             </div>
 
@@ -1591,32 +1626,6 @@ function QuickstartFocusedInstall(): JSX.Element {
                 <InstallationProgressView mode="local" />
             ) : (
                 <QuickstartInstallSwitcher />
-            )}
-
-            {!wizardBusy && (
-                <div>
-                    <SubsectionHeader title="Or install manually for a specific tool" />
-                    <div className="flex flex-wrap gap-2">
-                        {featuredProducts.map((product) => (
-                            <LemonButton
-                                key={product.key}
-                                type="secondary"
-                                size="small"
-                                icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
-                                onClick={() => {
-                                    captureQuickstartAction('set_up_product', product.key, {
-                                        source: 'focused_install',
-                                    })
-                                    openToolSetupModal(product.key)
-                                }}
-                                data-attr={`quickstart-focused-setup-${product.key}`}
-                            >
-                                {product.name}
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <p className="text-secondary text-sm mb-0 mt-3">Your tools appear here once data arrives.</p>
-                </div>
             )}
         </section>
     )
