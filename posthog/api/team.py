@@ -478,27 +478,22 @@ TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
-    goals = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
+        fields = ["base_currency", "events", "filter_test_accounts"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
         if instance.events:
             repr["events"] = [event.model_dump() for event in instance.events]
-        if instance.goals:
-            repr["goals"] = [goal.model_dump() for goal in instance.goals]
         return repr
 
     def to_internal_value(self, data):
         internal_value = super().to_internal_value(data)
         if "events" in internal_value:
             internal_value["_events"] = internal_value["events"]
-        if "goals" in internal_value:
-            internal_value["_goals"] = internal_value["goals"]
         return internal_value
 
 
@@ -1690,7 +1685,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Capture old config before saving
         old_config = {
             "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
-            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
             "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
         }
 
@@ -1708,7 +1702,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for revenue analytics config changes
         new_config = {
             "events": validated_data.get("events", []),
-            "goals": validated_data.get("goals", []),
             "filter_test_accounts": validated_data.get("filter_test_accounts", False),
         }
 

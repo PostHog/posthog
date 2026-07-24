@@ -49,10 +49,8 @@ import {
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
     RetentionFilterType,
-    RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SessionRecordingType,
-    SimpleIntervalType,
     SlackIntegrationScope,
     SlackIntegrationScopeInReview,
     StepOrderValue,
@@ -102,8 +100,6 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
-    RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
-    RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
@@ -149,11 +145,6 @@ export enum NodeKind {
     WebNotableChangesQuery = 'WebNotableChangesQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
-    RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
-    RevenueAnalyticsMRRQuery = 'RevenueAnalyticsMRRQuery',
-    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
-    RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
@@ -231,11 +222,6 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
     | NonIntegratedConversionsTableQuery
@@ -249,8 +235,6 @@ export type AnyDataNode =
     | WebAnalyticsExternalSummaryQuery
     | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingBreakdownsQuery
@@ -314,8 +298,6 @@ export type QuerySchema =
     | HogQLMetadata
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingBreakdownsQuery
@@ -338,11 +320,6 @@ export type QuerySchema =
     | WebNotableChangesQuery
 
     // Revenue analytics
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
 
     // Marketing analytics
     | MarketingAnalyticsTableQuery
@@ -1126,13 +1103,6 @@ export type DataTableNodeSourceUnion =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | SessionsQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
     | NonIntegratedConversionsTableQuery
@@ -1167,13 +1137,6 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | SessionsQuery
-                    | RevenueAnalyticsGrossRevenueQuery
-                    | RevenueAnalyticsMetricsQuery
-                    | RevenueAnalyticsMRRQuery
-                    | RevenueAnalyticsOverviewQuery
-                    | RevenueAnalyticsTopCustomersQuery
-                    | RevenueExampleEventsQuery
-                    | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
                     | NonIntegratedConversionsTableQuery
@@ -3194,126 +3157,6 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
     columns?: unknown[]
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
-
-/*
- * Revenue Analytics
- */
-export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
-export interface RevenueAnalyticsBreakdown {
-    type: 'revenue_analytics'
-    property: string
-}
-
-export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
-    dateRange?: DateRange
-    properties: RevenueAnalyticsPropertyFilters
-}
-
-export interface RevenueAnalyticsGrossRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
-    breakdown: RevenueAnalyticsBreakdown[]
-    interval: SimpleIntervalType
-}
-
-export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown[]
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
-
-export interface RevenueAnalyticsMRRQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMRRQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsMRRQuery
-    breakdown: RevenueAnalyticsBreakdown[]
-    interval: SimpleIntervalType
-}
-
-export interface RevenueAnalyticsMRRQueryResultItem {
-    total: unknown
-    new: unknown
-    expansion: unknown
-    contraction: unknown
-    churn: unknown
-}
-
-export interface RevenueAnalyticsMRRQueryResponse extends AnalyticsQueryResponseBase {
-    results: RevenueAnalyticsMRRQueryResultItem[]
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsMRRQueryResponse = CachedQueryResponse<RevenueAnalyticsMRRQueryResponse>
-
-export interface RevenueAnalyticsOverviewQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
-export interface RevenueAnalyticsOverviewItem {
-    key: RevenueAnalyticsOverviewItemKey
-    value: number
-}
-
-export interface RevenueAnalyticsOverviewQueryResponse extends AnalyticsQueryResponseBase {
-    results: RevenueAnalyticsOverviewItem[]
-}
-export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
-
-export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsMetricsQuery
-    breakdown: RevenueAnalyticsBreakdown[]
-    interval: SimpleIntervalType
-}
-
-export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
-
-export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
-export interface RevenueAnalyticsTopCustomersQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsTopCustomersQuery
-    groupBy: RevenueAnalyticsTopCustomersGroupBy
-}
-
-export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsTopCustomersQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
-
-export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
-    kind: NodeKind.RevenueExampleEventsQuery
-    limit?: integer
-    offset?: integer
-}
-
-export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    types?: unknown[]
-    columns?: unknown[]
-}
-export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
-
-export interface RevenueExampleDataWarehouseTablesQuery extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
-    kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    limit?: integer
-    offset?: integer
-}
-
-export interface RevenueExampleDataWarehouseTablesQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    types?: unknown[]
-    columns?: unknown[]
-}
-export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
-    CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
 /* Error Tracking */
 
@@ -5900,6 +5743,7 @@ export enum DefaultChannelTypes {
     OrganicSocial = 'Organic Social',
     OrganicVideo = 'Organic Video',
     OrganicShopping = 'Organic Shopping',
+    AI = 'AI',
     Push = 'Push',
     SMS = 'SMS',
     Audio = 'Audio',
@@ -6303,27 +6147,11 @@ export interface RevenueAnalyticsEventItem {
     currencyAwareDecimal: boolean
 }
 
-export interface RevenueAnalyticsGoal {
-    name: string
-    due_date: string
-    goal: number
-
-    /**
-     * @default 'gross'
-     */
-    mrr_or_gross: 'mrr' | 'gross'
-}
-
 export interface RevenueAnalyticsConfig {
     /**
      * @default []
      */
     events: RevenueAnalyticsEventItem[]
-
-    /**
-     * @default []
-     */
-    goals: RevenueAnalyticsGoal[]
 
     /**
      * @default false
@@ -7440,6 +7268,7 @@ export const externalDataSources = [
     'PrestaShop',
     'Pretix',
     'Primetric',
+    'Printavo',
     'Printify',
     'Productive',
     'Pylon',
@@ -8250,6 +8079,9 @@ export const externalDataSources = [
     'Tally',
     'Nuntly',
     'Vturb',
+    'Meltwater',
+    'UserCom',
+    'Latitude',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8915,10 +8747,7 @@ export enum ProductIntentContext {
     QUICK_SURVEY_STARTED = 'quick_survey_started',
 
     // Revenue Analytics
-    REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',
-    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = 'revenue_analytics_onboarding_completed',
     REVENUE_ANALYTICS_EVENT_CREATED = 'revenue_analytics_event_created',
-    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = 'revenue_analytics_data_source_connected',
 
     // Marketing Analytics
     MARKETING_ANALYTICS_SOURCE_CONFIGURED = 'marketing_analytics_source_configured',
