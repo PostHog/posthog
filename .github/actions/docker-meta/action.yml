@@ -17,7 +17,7 @@ inputs:
         description: 'DockerHub username'
     dockerhub-password:
         required: true
-        description: 'DockerHub password/token'
+        description: 'DockerHub password/token. Pass an empty string to skip the DockerHub login, e.g. on PR validation builds that must not see the credential.'
     ecr-image-name:
         required: false
         default: ''
@@ -74,6 +74,9 @@ runs:
               logout: false
 
         - name: Login to DockerHub
+          # Skipped when no credential is passed (fork PRs, credential-free
+          # validation builds) instead of failing the login.
+          if: inputs.dockerhub-password != ''
           uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
           with:
               username: ${{ inputs.dockerhub-username }}
