@@ -19,6 +19,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyRateThrottle, SustainedRateThrottle
+from posthog.utils import safe_cache_add
 
 from products.outcomes.backend.criteria import (
     AGGREGATIONS,
@@ -269,5 +270,11 @@ class OutcomeDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         definition = self.get_object()
         if definition.last_calculated_at and timezone.now() - definition.last_calculated_at < CALCULATE_DEBOUNCE:
             raise Throttled(detail="This outcome was calculated moments ago. Try again in a couple of minutes.")
+        # Atomic in-flight guard: concurrent requests all read the same stale last_calculated_at
+        # (it is only written when a run finishes), so without this each would enqueue its own
+        # full-history run. safe_cache_add lets exactly one caller win per debounce window.
+        lock_key = f"outcomes:calculate:{definition.id}"
+        if not safe_cache_add(lock_key, "1", int(CALCULATE_DEBOUNCE.total_seconds())):
+            raise Throttled(detail="This outcome is already being recalculated. Try again in a couple of minutes.")
         calculate_outcome.delay(outcome_id=str(definition.id), team_id=definition.team_id)
         return Response(self.get_serializer(definition).data, status=status.HTTP_202_ACCEPTED)

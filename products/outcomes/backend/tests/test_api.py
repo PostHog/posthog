@@ -145,6 +145,17 @@ class TestOutcomeAPI(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_task.delay.assert_not_called()
 
+    def test_calculate_coalesces_concurrent_requests(self) -> None:
+        # Before the first run finishes, last_calculated_at is still unset, so the debounce
+        # above never fires; only the in-flight lock stops a burst from each enqueueing a run.
+        outcome = self._create_outcome()
+        with patch("products.outcomes.backend.api.calculate_outcome") as mock_task:
+            first = self.client.post(f"/api/projects/{self.team.id}/outcomes/{outcome.id}/calculate")
+            second = self.client.post(f"/api/projects/{self.team.id}/outcomes/{outcome.id}/calculate")
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_task.delay.assert_called_once()
+
     def test_api_is_gated_on_the_feature_flag(self) -> None:
         self._create_outcome()
         with patch("products.outcomes.backend.api.outcomes_feature_enabled", return_value=False):
