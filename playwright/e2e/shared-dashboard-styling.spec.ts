@@ -66,6 +66,11 @@ test.describe('Shared dashboard styling', () => {
 
         expect(failedCssRequests).toHaveLength(0)
         await expect(page.locator('body.ExporterBody')).toBeVisible()
+
+        // The entry CSS must ship as a render-blocking <link rel="stylesheet"> in the served HTML,
+        // not be injected by script after paint — otherwise navigation flashes unstyled content.
+        const servedHtml = await (await page.request.get(`/shared/${sharingData.access_token}`)).text()
+        expect(servedHtml).toContain('<link rel="stylesheet"')
     })
 
     test('CSS fallback works when hashed CSS returns error', async ({ page, playwrightSetup }) => {
