@@ -18,7 +18,7 @@ Does not apply to: code comments, commit messages, log lines, variable/function 
 
 ## Voice
 
-Write like a calm, competent person typed it. Neutral and humane.
+Write the way a person would. Neutral and humane.
 
 - **Sentence case.** Capitalize only the first word and proper nouns. "Save as view", not "Save As View". "Product analytics", not "Product Analytics".
 - **Be direct and friendly.** Short sentences. Say what happened and what to do next.
