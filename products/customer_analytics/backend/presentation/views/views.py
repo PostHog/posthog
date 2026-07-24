@@ -587,6 +587,7 @@ class CustomPropertySourceViewSet(
                 source_column=data.source_column,
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
+                column_descriptions=data.column_descriptions,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),

@@ -76,36 +76,6 @@ giving it richer context about PostHog's data model.
 
 Primarily oriented toward coding agents (PostHog Code, PostHog AI, Claude Code).
 
-## Claude web and desktop exec schema budget
-
-Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters.
-The final, post-injection `exec` input schema has a strict test budget below that limit.
-
-Keep guidance needed for routine tool calls inline.
-This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
-Put optional or task-specific global guidance in the Claude exec learn catalog, available through `learn` and `learn <guide>`.
-The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
-PostHog and project skills are enabled independently of the client through the `mcp-exec-skills` feature flag and discovered at runtime through `learn skills` or `learn -s <query>`.
-Read bundled PostHog skills with `learn posthog:<skill> [path]` and current-project Skills store entries with `learn project:<skill> [path]`.
-Search merges both sources into one relevance order, so an exact project match can outrank a weak PostHog one.
-Preview descriptions without reading bodies with `learn -d <source>:<skill> [...]`, and read several targets in one call with `learn <source>:<skill> <path> [path...]` or `learn <source>:<skill> [<source>:<skill>...]`.
-When the flag is enabled, every non-plugin cli client is instructed to run `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before selecting tools.
-Claude web and desktop keep their built-in learning topics when the flag is off. Other cli-mode clients receive only skill commands when the flag is on, without the Claude-specific learning topics.
-Keep skill names, descriptions, bodies, and references out of the tool schema.
-The fixed learn grammar and compact tool-domain index must remain inline so Claude can discover both capabilities.
-
-The MCP server loads the published `skills.zip` release into a Redis stale-while-revalidate cache. Custom archive URLs use isolated cache namespaces.
-It reads project skills from the request-authenticated project without caching them in the MCP service.
-Project discovery includes only latest, active, uncategorized skills and requires `llm_skill:read`.
-Skill reads include a file manifest, and references that exceed the output budget return a heading outline.
-Use `learn <source>:<skill> <path> -s <query>` for scoped full-text search or `learn <source>:<skill> <path> --lines <start>:<end>` for a bounded inclusive range.
-Script paths are searchable and their contents are readable directly or by line range, but script contents are not part of the full-text index.
-The plugin and posthog-code consumers do not receive `learn`, because both already supply PostHog skills directly.
-
-Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
-Those descriptions remain the source of truth for `info` and `schema` discovery.
-When adding global prompt guidance, keep it inline only when it is useful on nearly every call; otherwise add it to an existing learn guide or create a globally unique guide ID.
-
 ## SQL-first MCP: HogQL system tables
 
 Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.

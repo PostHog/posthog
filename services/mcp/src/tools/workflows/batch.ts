@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-type BlastRadius = { affected: number; total: number; limit: number }
+type BlastRadius = { affected: number; total: number; limit: number; confirm_token: string }
 
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
@@ -75,6 +75,13 @@ const RunBatchSchema = z.object({
                 'confirmed before you called this — never size and fire in one step. Rejected if it no longer ' +
                 'matches the current audience, forcing a re-check.'
         ),
+    confirm_token: z
+        .string()
+        .describe(
+            'The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. ' +
+                'The API rejects dispatch without it, and it goes stale when the audience filters change or ' +
+                'after 15 minutes — re-preview to refresh.'
+        ),
     variables: z
         .record(z.string(), z.unknown())
         .optional()
@@ -109,7 +116,11 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         return await context.api.request({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.workflow_id))}/batch_jobs/`,
-            body: { filters, ...(params.variables !== undefined ? { variables: params.variables } : {}) },
+            body: {
+                filters,
+                confirm_token: params.confirm_token,
+                ...(params.variables !== undefined ? { variables: params.variables } : {}),
+            },
         })
     },
 })
@@ -128,6 +139,13 @@ const ScheduleCreateSchema = z.object({
             'The affected-user count from workflows-blast-radius that you showed the user AND they explicitly ' +
                 'confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it ' +
                 'no longer matches.'
+        ),
+    confirm_token: z
+        .string()
+        .describe(
+            'The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. ' +
+                'The API rejects schedule creation without it, and it goes stale when the audience filters change ' +
+                'or after 15 minutes - re-preview to refresh.'
         ),
     variables: z
         .record(z.string(), z.unknown())
@@ -169,6 +187,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
             body: {
                 rrule: params.rrule,
                 starts_at: params.starts_at,
+                confirm_token: params.confirm_token,
                 ...(params.timezone !== undefined ? { timezone: params.timezone } : {}),
                 ...(params.variables !== undefined ? { variables: params.variables } : {}),
             },
