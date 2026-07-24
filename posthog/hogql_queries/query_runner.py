@@ -1955,7 +1955,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Guard against response classes that don't carry the field: every analytics response
             # inherits `warnings` from AnalyticsQueryResponseBase, and several standalone classes
             # add it explicitly — but a future response class that omits it would otherwise crash
-            # pydantic validation on the extra key (and poison the cache, which set_cache_data has
+            # pydantic validation on the extra key (and poison the cache, which store_result has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
                 # The accumulator is authoritative for sync warnings (it collects across every inner

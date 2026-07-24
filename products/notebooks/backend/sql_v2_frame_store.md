@@ -74,7 +74,7 @@ Every building block already runs in production. Inventory (per deep-dive, 2026-
 
 ### Relevant negative
 
-There is **no generic S3-backed query-result cache** — `query_cache_factory.py` only returns the Redis manager.
+There is **no generic S3-backed query-result cache** — the query cache (`posthog/query_cache/`) is Redis-only.
 That cache exists to reuse identical insight queries within a TTL; the notebook flow gets its reuse from
 `query_hash`-keyed frames (in-flight dedup and retry re-fetch today; cross-run reuse is phase 3), so we are
 not duplicating (or blocked on) any platform facility.
