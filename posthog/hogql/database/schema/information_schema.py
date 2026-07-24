@@ -616,14 +616,12 @@ class _Introspection:
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
         for relationship in relationships:
-            confidence, reasoning, proposal_id = (
-                accepted_relationships.get(relationship.provenance_key, (None, None, None))
+            confidence, reasoning = (
+                accepted_relationships.get(relationship.provenance_key, (None, None))
                 if relationship.provenance_key is not None
-                else (None, None, None)
+                else (None, None)
             )
-            status = "accepted" if proposal_id is not None else None
-            enriched_rows.append([*relationship.values, confidence, reasoning, proposal_id, status])
-        enriched_rows.extend(_catalog_proposed_relationships(self.context, self.allowed_tables))
+            enriched_rows.append([*relationship.values, confidence, reasoning])
         self._data_catalog_enriched_relationship_rows = enriched_rows
         return self._data_catalog_enriched_relationship_rows
 
@@ -808,20 +806,16 @@ _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     *_RELATIONSHIPS_COLUMNS,
     ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
-    ("id", _NULLABLE_STRING),
-    ("status", _NULLABLE_STRING),
 ]
-_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"confidence", "reasoning", "id", "status"})
+_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"confidence", "reasoning"})
 
 _RELATIONSHIPS_DESCRIPTION = (
     "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
     "Use it to discover how to join from one table to another in HogQL."
 )
 _DATA_CATALOG_ENRICHED_RELATIONSHIPS_DESCRIPTION = (
-    "Relationships between tables; one row per relationship. Active joins (lazy joins and field "
-    "traversers) are usable in HogQL; accepted catalog proposals appear as real joins with their "
-    "reviewed context. Pending proposals appear with status='proposed' and relationship_kind="
-    "'proposed_join' — the review queue, not yet usable joins. Filter by status to inspect the queue."
+    "Active, joinable relationships between tables (lazy joins and field traversers); one row per "
+    "relationship. Accepted catalog proposals appear as real lazy joins with their reviewed context."
 )
 
 _DATA_TYPES: list[tuple[str, str]] = [
@@ -875,6 +869,23 @@ _CERTIFICATIONS_DESCRIPTION = (
     "certification. Unlike the certification column on information_schema.tables (which shows only "
     "settled 'certified'/'deprecated' marks), this lists the full review queue — including 'proposed' "
     "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue."
+)
+
+_RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("source_table", _STRING),
+    ("source_column", _STRING),
+    ("target_table", _STRING),
+    ("target_column", _STRING),
+    ("confidence", _NULLABLE_FLOAT),
+    ("reasoning", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+_RELATIONSHIP_PROPOSALS_DESCRIPTION = (
+    "The review queue of pending table-join proposals awaiting human review; one row per proposal. "
+    "These are NOT usable joins — accepting one (relationship accept tool, addressed by this id) turns it "
+    "into a real join that then appears in information_schema.relationships. Only pending proposals show "
+    "here: accepted ones become relationships, rejected ones are suppressed."
 )
 
 
@@ -1038,7 +1049,7 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
 
 def _catalog_accepted_relationships(
     context: "HogQLContext", allowed: Optional[frozenset[str]]
-) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str], str]]:
+) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]]:
     """Accepted proposals keyed by their created join's identity, only while that join still matches
     what was reviewed (fail-soft).
 
@@ -1063,9 +1074,8 @@ def _catalog_accepted_relationships(
         )
         if allowed is not None:
             accepted = accepted.filter(created_join__source_table_name__in=allowed)
-        result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str], str]] = {}
+        result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]] = {}
         for (
-            proposal_id,
             p_source_table,
             p_source_key,
             p_target_table,
@@ -1081,7 +1091,6 @@ def _catalog_accepted_relationships(
             confidence,
             reasoning,
         ) in accepted.values_list(
-            "id",
             "source_table_name",
             "source_table_key",
             "joining_table_name",
@@ -1113,7 +1122,6 @@ def _catalog_accepted_relationships(
             result[(source_table, field_name, source_key, target_table, target_key)] = (
                 confidence,
                 reasoning or None,
-                str(proposal_id),
             )
         return result
     except Exception:
@@ -1121,14 +1129,13 @@ def _catalog_accepted_relationships(
         return {}
 
 
-def _catalog_proposed_relationships(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
-    """Pending relationship proposals as synthetic enriched-relationship rows (fail-soft).
+def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """The team's pending relationship (join) proposals as information_schema rows (fail-soft).
 
-    A proposed row is the review queue, not a usable join: it carries `relationship_kind='proposed_join'`
-    and `via=NULL` so nothing mistakes it for something HogQL can join through, plus the proposal id the
-    accept/reject tools need. Rejected proposals never surface (unbounded noise; the undirected
-    fingerprint already blocks re-proposal). Hidden without data_catalog read access, and dropped when
-    either endpoint is denied or invisible to the caller.
+    Only pending proposals appear: an accepted proposal becomes a real join in
+    information_schema.relationships, and a rejected one is suppressed forever. Returns nothing without
+    data_catalog read access, and drops any proposal whose source or target table is denied or invisible
+    to the caller. `allowed` trims the query to the pushed-down set of source-table names.
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
@@ -1148,21 +1155,19 @@ def _catalog_proposed_relationships(context: "HogQLContext", allowed: Optional[f
                 continue
             rows.append(
                 [
+                    str(proposal.id),
                     proposal.source_table_name,
                     proposal.source_table_key,
                     proposal.joining_table_name,
                     proposal.joining_table_key,
-                    "proposed_join",
-                    None,
                     proposal.confidence,
                     proposal.reasoning or None,
-                    str(proposal.id),
-                    "proposed",
+                    proposal.created_at.isoformat(),
                 ]
             )
         return rows
     except Exception:
-        logger.exception("information_schema: failed to load proposed relationships", team_id=team_id)
+        logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
         return []
 
 
@@ -1380,12 +1385,7 @@ class InformationSchemaRelationshipsTable(LazyTable):
             "target_column", nullable=True, description="Column (or field path) on the target table that is joined to."
         ),
         "relationship_kind": _string_field(
-            "relationship_kind",
-            nullable=False,
-            description=(
-                "Kind of relationship: 'lazy_join' or 'field_traverser' (both usable in HogQL), or "
-                "'proposed_join' (a pending proposal in the review queue, not yet a usable join)."
-            ),
+            "relationship_kind", nullable=False, description="Kind of relationship: 'lazy_join' or 'field_traverser'."
         ),
         "via": _string_field(
             "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
@@ -1393,22 +1393,12 @@ class InformationSchemaRelationshipsTable(LazyTable):
         "confidence": FloatDatabaseField(
             name="confidence",
             nullable=True,
-            description="Discovery confidence, 0-1: retained from the accepted proposal behind an active join, or the proposed join's own confidence.",
+            description="Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
         ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
             description="Why a join was proposed; retained on the active join after acceptance.",
-        ),
-        "id": _string_field(
-            "id",
-            nullable=True,
-            description="Proposal UUID — pass to the relationship accept/reject tools; NULL for joins not managed through the catalog.",
-        ),
-        "status": _string_field(
-            "status",
-            nullable=True,
-            description="'proposed' (pending queue, not yet a usable join), 'accepted' (reviewed), NULL for plain joins.",
         ),
     }
 
@@ -1569,6 +1559,40 @@ class InformationSchemaCertificationsTable(LazyTable):
         return "system__information_schema__certifications"
 
 
+class InformationSchemaRelationshipProposalsTable(LazyTable):
+    description: str = _RELATIONSHIP_PROPOSALS_DESCRIPTION
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Proposal UUID — pass to the relationship accept/reject tools."),
+        "source_table": _string_field("source_table", description="Table the proposed join starts from."),
+        "source_column": _string_field("source_column", description="Key expression on the source table."),
+        "target_table": _string_field("target_table", description="Table the proposed join points to."),
+        "target_column": _string_field("target_column", description="Key expression on the target table."),
+        "confidence": FloatDatabaseField(
+            name="confidence", nullable=True, description="Discovery confidence in the proposed join, 0-1."
+        ),
+        "reasoning": _string_field(
+            "reasoning", nullable=True, description="Why the join was proposed; sampling evidence and review context."
+        ),
+        "created_at": _string_field("created_at", description="ISO timestamp when the proposal was created."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "source_table")
+        return _rows_select(
+            context,
+            "relationship_proposals",
+            _RELATIONSHIP_PROPOSALS_COLUMNS,
+            _catalog_relationship_proposals(context, allowed),
+            allowed,
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.relationship_proposals"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__relationship_proposals"
+
+
 def information_schema_node() -> TableNode:
     """The `information_schema` namespace, mounted under `system` (see `SystemTables.children`)."""
     return TableNode(
@@ -1580,6 +1604,9 @@ def information_schema_node() -> TableNode:
             "data_types": TableNode(name="data_types", table=InformationSchemaDataTypesTable()),
             "metrics": TableNode(name="metrics", table=InformationSchemaMetricsTable()),
             "certifications": TableNode(name="certifications", table=InformationSchemaCertificationsTable()),
+            "relationship_proposals": TableNode(
+                name="relationship_proposals", table=InformationSchemaRelationshipProposalsTable()
+            ),
         },
     )
 
@@ -1587,6 +1614,7 @@ def information_schema_node() -> TableNode:
 def disable_data_catalog(info_schema: TableNode) -> None:
     info_schema.children.pop("metrics", None)
     info_schema.children.pop("certifications", None)
+    info_schema.children.pop("relationship_proposals", None)
 
     tables = info_schema.children.get("tables")
     if tables is not None and isinstance(tables.table, InformationSchemaTablesTable):
@@ -1596,6 +1624,4 @@ def disable_data_catalog(info_schema: TableNode) -> None:
     if relationships is not None and isinstance(relationships.table, InformationSchemaRelationshipsTable):
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
-        relationships.table.fields.pop("id", None)
-        relationships.table.fields.pop("status", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION

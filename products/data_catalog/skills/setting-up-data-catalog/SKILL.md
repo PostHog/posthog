@@ -86,11 +86,18 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
    ```sql
    SELECT id, name, status, is_drifted, description FROM system.information_schema.metrics WHERE status = 'proposed';
-   SELECT id, source_table, target_table, confidence, reasoning
-   FROM system.information_schema.relationships WHERE status = 'proposed';
+   SELECT id, source_table, source_column, target_table, target_column, confidence, reasoning
+   FROM system.information_schema.relationship_proposals;
    SELECT id, target_name, target_kind, status, notes
    FROM system.information_schema.certifications WHERE status = 'proposed';
    ```
+
+   Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
+   without this skill never mistakes an unreviewed item for an approved one:
+   `information_schema.relationships` lists only real joins (a proposal shows up there **only after**
+   it's accepted); `relationship_proposals` is the pending queue and holds only unreviewed proposals.
+   Likewise the `certification` column on `information_schema.tables` shows only settled trust marks,
+   while the `certifications` table carries the full review queue.
 
 2. **Summarize each proposal with its evidence** (match rates, sample values, drift state) so a human
    can decide quickly.
