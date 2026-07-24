@@ -955,6 +955,22 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_deactivate_succeeds_when_billing_refresh_fails(self, mock_get_billing, mock_deactivate_products):
+        # A transient billing-service failure while refreshing state after a successful
+        # deactivation must degrade to a 200, not surface as a 500 on this admin path.
+        mock_deactivate_products.return_value = MagicMock()
+        mock_get_billing.side_effect = Exception(
+            "Billing service returned bad status code: 408", "body:", {"error_message": "timeout"}
+        )
+
+        response = self.client.post("/api/billing/deactivate", {"products": "product_1"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
+        self.assertEqual(response.json(), {"available_product_features": [], "products": []})
+
 
 class TestStartupApplicationBillingAPI(APILicensedTest):
     def setUp(self):
