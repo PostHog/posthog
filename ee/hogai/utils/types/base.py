@@ -293,6 +293,8 @@ class InsightQuery(BaseModel):
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @classmethod
     def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
