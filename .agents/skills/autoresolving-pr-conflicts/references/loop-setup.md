@@ -7,7 +7,7 @@ The Loop's `instructions` stay minimal; the checked-in `SKILL.md` in this direct
 
 - Tasks + Loops access on the team creating the loop (`loops` feature flag, `HasLoopsAccess`).
 - A GitHub integration for the PostHog org whose App installation covers `PostHog/posthog` with `Contents: Read & Write` and `Pull requests: Read & Write`. Note its integration id.
-- Optional but recommended: the VM sandbox runtime (`tasks-modal-vm-sandbox` flag) for the loop owner's origin, so the sandbox can run Docker and regenerate API types via `hogli build:openapi`. Without it the loop still works, but PRs whose conflicts include `frontend/src/generated/**` or `products/**/frontend/generated/**` are flagged for a human instead of resolved.
+- Strongly recommended: the VM sandbox runtime (`tasks-modal-vm-sandbox` flag) for the loop owner's origin, so the sandbox can run Docker. Docker is required for all deterministic regeneration, because the skill runs regen tooling (which is PR-controlled code after the merge) only inside a credentialless container and imports back just the generated outputs. Without it the loop still resolves source conflicts, but every generated-artifact conflict (lockfiles included) is flagged for a human.
 
 ## Create the loop
 
@@ -54,6 +54,7 @@ Keep that boundary least-privilege:
 - Leave `connectors.posthog_mcp_scopes` at its `read_only` default and attach no MCP Store installations; the sweep needs neither.
 - Don't set a custom `sandbox_environment` with extra egress; the default GitHub-only allowlist is what the sweep needs.
 - The sandbox's git guard (signed commits only, no raw `git push`) and GitHub's protected-branch rules are load-bearing; treat any run that reports friction with them as a bug in the run, not a reason to loosen them.
+- Regeneration never executes PR-controlled tooling in the credentialed session: the skill exports the merged tree (minus `.git`) into a credentialless container, runs `hogli` there, and imports back only files matching the generated-artifact globs. If the tasks platform ships first-class nested credentialless sandboxes, adopt them here.
 - If the tasks platform ships an enforced "push to existing branches, never create PRs" behavior flag, adopt it here and drop the reliance on `create_prs: true` plus instructions.
 
 Untrusted input is handled the same way: the skill routes all marker state through `scripts/autoresolve-marker.sh`, which emits only SHA-validated tuples, so raw PR comment bodies never enter the agent's context as potential instructions.
