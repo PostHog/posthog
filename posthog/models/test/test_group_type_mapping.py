@@ -30,6 +30,7 @@ from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 def _clear_cache(project_id: int) -> None:
     safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
     safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
+    safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
 
 PERSONHOG_SUCCESS_DATA = [
@@ -262,9 +263,9 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
     """The batch fetch reads at eventual consistency; a lagging or inconsistent replica
     can return an empty mapping for a project that authoritatively has group types. That
     silent empty is what drove the flag-cache write to try to erase a populated mapping.
-    get_group_types_for_projects must re-confirm such empties against the primary — but
-    only when a populated last-known-good exists, so the common no-groups path stays off
-    the primary.
+    get_group_types_for_projects must re-confirm every empty against the primary —
+    including the cold-cache edge where no last-known-good exists — while a confirmed-empty
+    marker keeps the common no-groups path off the primary after the first probe.
     """
 
     def setUp(self):
@@ -294,9 +295,11 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
             side_effect=fetch,
         )
 
-    def test_replica_empty_with_stale_is_reconfirmed_from_primary(self):
-        # The replica silently dropped populated_pid; the primary still has its rows.
-        self._set_stale(self.populated_pid)
+    def test_replica_empty_without_stale_is_reconfirmed_from_primary(self):
+        # The cold-cache edge: the replica dropped populated_pid, there is no stale key,
+        # and the project is authoritatively populated. The reconfirm must still probe the
+        # primary and correct the empty, closing the edge that otherwise reached (and fired)
+        # the write-side guard.
         rows = [{"group_type": "organization", "group_type_index": 0}]
 
         with self._patch_fetch(
@@ -306,24 +309,27 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
             result = get_group_types_for_projects(self.project_ids)
 
         assert result[self.populated_pid] == rows
-        # empty_pid has no last-known-good, so it is trusted as genuinely empty.
         assert result[self.empty_pid] == []
-
         strong_calls = [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"]
         assert len(strong_calls) == 1
-        assert strong_calls[0].args[1] == [self.populated_pid]
+        assert sorted(strong_calls[0].args[1]) == sorted(self.project_ids)
 
-    def test_replica_empty_without_stale_is_not_reconfirmed(self):
-        # No last-known-good for either project → the primary is never probed and the
-        # empties are trusted (the common no-group-types path must stay cheap).
+    def test_confirmed_empty_marker_keeps_cold_empties_off_primary(self):
+        # A genuinely empty project is probed once, marked confirmed-empty, then skipped on
+        # the next read — so reconfirming cold empties doesn't hammer the primary on every
+        # rebuild for the common no-group-types case.
         with self._patch_fetch(
             replica={self.populated_pid: [], self.empty_pid: []},
-            primary={self.populated_pid: [{"group_type": "organization", "group_type_index": 0}]},
+            primary={},
         ) as mock_fetch:
+            get_group_types_for_projects(self.project_ids)
+            # Second call: both projects now carry the confirmed-empty marker, so the
+            # replica's empty is trusted without another primary probe.
             result = get_group_types_for_projects(self.project_ids)
 
         assert result == {self.populated_pid: [], self.empty_pid: []}
-        assert [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"] == []
+        strong_calls = [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"]
+        assert len(strong_calls) == 1
 
     def test_replica_empty_with_stale_but_primary_empty_stays_empty(self):
         # The last group type was genuinely deleted: the primary confirms empty, so we
@@ -338,13 +344,15 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
 
         assert result[self.populated_pid] == []
         # The now-outdated last-known-good is cleared so it can't resurrect the deleted
-        # group types on a later personhog outage, and so this project stops being
-        # flagged as a suspect on every subsequent read.
+        # group types on a later personhog outage, and the confirmed-empty marker is set so
+        # this project stops probing the primary on every subsequent read.
         assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.populated_pid}") is None
+        assert get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.populated_pid}") is True
 
     def test_primary_reconfirm_failure_serves_stale_not_empty(self):
-        # If the primary confirmation itself fails, serve the last-known-good rather than
-        # handing back the replica's unconfirmed empty.
+        # If the primary confirmation itself fails, serve the last-known-good for the project
+        # that has one rather than handing back the replica's unconfirmed empty. A project
+        # with no last-known-good has nothing to restore, so it keeps the replica's empty.
         self._set_stale(self.populated_pid)
 
         def fetch(client, project_ids, *, consistency="eventual"):
@@ -359,6 +367,7 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
             result = get_group_types_for_projects(self.project_ids)
 
         assert result[self.populated_pid] == PERSONHOG_SUCCESS_DATA
+        assert result[self.empty_pid] == []
 
 
 class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
