@@ -1,6 +1,9 @@
 import { BindLogic } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
@@ -10,6 +13,12 @@ import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 export function LogsSamplingSection(): JSX.Element | null {
     const enabled = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
     if (!enabled) {
+        return null
+    }
+    // The drop-rules endpoints are RBAC-gated on the logs resource independently of the feature
+    // flag. Without at least viewer access the list request 403s, so hide the panel rather than
+    // mount the logic and fire a request we know will fail.
+    if (!userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer)) {
         return null
     }
     return (
