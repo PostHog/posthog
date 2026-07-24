@@ -40,9 +40,12 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
+        # Fail fast rather than scan unbounded data, but match the cap CountQueryRunner
+        # (and AlertCheckQuery) use against the same table — the bucketed count scans the
+        # same filtered stream a plain count does, so a lower cap trips 10x sooner.
         return HogQLGlobalSettings(
             max_execution_time=30,
-            max_bytes_to_read=1_000_000_000,
+            max_bytes_to_read=10_000_000_000,
             read_overflow_mode="throw",
         )
 
