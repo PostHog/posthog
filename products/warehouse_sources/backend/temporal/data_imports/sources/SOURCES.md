@@ -383,6 +383,7 @@ the row lists both.
 | new_york_times                   | HTTP                        | requests                                                        | ✅                          |
 | news_api                         | HTTP                        | requests                                                        | ✅                          |
 | newsdata                         | HTTP                        | requests                                                        | ✅                          |
+| npm_registry                     | HTTP                        | requests                                                        | ✅                          |
 | okta                             | HTTP                        | requests                                                        | ✅                          |
 | nocrm                            | HTTP                        | requests                                                        | ✅                          |
 | northflank                       | HTTP                        | requests                                                        | ✅                          |
@@ -1119,7 +1120,6 @@ doesn't conflict with concurrent PRs.
 - nolt
 - nops
 - northpass_lms
-- npm_registry
 - nuntly
 - nutshell
 - nylas
