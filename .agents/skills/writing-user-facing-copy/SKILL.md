@@ -21,13 +21,13 @@ Does not apply to: code comments, commit messages, log lines, variable/function 
 Write the way a person would. Neutral and humane.
 
 - **Sentence case.** Capitalize only the first word and proper nouns. "Save as view", not "Save As View". "Product analytics", not "Product Analytics".
-- **Be direct and friendly.** Short sentences. Say what happened and what to do next.
+- **Be direct and friendly.** Say what happened and what to do next.
 - **Plain language, no jargon.** Use the label the user sees, not the internal name. `surveyPopupDelaySeconds` becomes "Delay the survey popup".
 - **Don't editorialize.** State what is, not how exciting it is. Cut "powerful", "seamless", "effortless", "simply", "just", "easily", "supercharge", "unlock".
-- **No sales-y or edgy copy.** No marketing hooks, no clever one-liners, no hype. This is a tool people use to get work done.
+- **No sales-y or edgy copy.** No marketing hooks, no clever one-liners, no hype.
 - **American English spelling.** "color", "analyze", "canceled".
 
-## The rules that are easy to break
+## Specific rules
 
 ### No em-dashes
 
@@ -48,7 +48,7 @@ Also avoid the sentence *shapes* that lean on that dash, because they read as ma
 
 Write the plain version instead.
 
-### Errors and empty states guide, they don't dead-end
+### Errors and empty states point to a next step
 
 Say what happened and the next action. Never leave the user staring at a failure with nothing to do.
 
