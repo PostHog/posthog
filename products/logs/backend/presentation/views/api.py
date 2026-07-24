@@ -26,13 +26,14 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -1277,10 +1278,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            # A user-caused query error (bad filter expression, unsupported HogQL) is a clean 400,
+            # matching the sibling `query` action — not a generic 500 that floods error tracking.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(

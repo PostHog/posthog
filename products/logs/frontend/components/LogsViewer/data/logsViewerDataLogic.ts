@@ -753,20 +753,40 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const signal = sparklineController.signal
                     actions.cancelInProgressSparkline(sparklineController)
 
-                    const response = await api.logs.sparkline({
-                        query: {
-                            orderBy: values.orderBy,
-                            dateRange: values.utcDateRange,
-                            searchTerm: values.filters.searchTerm,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
-                            sparklineBreakdownBy: values.sparklineBreakdownBy,
-                        },
-                        signal,
-                    })
-                    actions.setSparklineAbortController(null)
-                    return response
+                    try {
+                        const response = await api.logs.sparkline({
+                            query: {
+                                orderBy: values.orderBy,
+                                dateRange: values.utcDateRange,
+                                searchTerm: values.filters.searchTerm,
+                                filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                                severityLevels: values.filters.severityLevels,
+                                serviceNames: values.filters.serviceNames,
+                                sparklineBreakdownBy: values.sparklineBreakdownBy,
+                            },
+                            signal,
+                        })
+                        actions.setSparklineAbortController(null)
+                        return response
+                    } catch (error) {
+                        actions.setSparklineAbortController(null)
+                        // A superseded/aborted request (a newer query started, or the viewer
+                        // unmounted) is expected control flow — keep the current data untouched.
+                        if (signal.aborted || isUserInitiatedError(error)) {
+                            return values.sparkline
+                        }
+                        // A routine backend failure on this secondary chart shouldn't escalate to a
+                        // global uncaught-exception capture (the main log list stays usable). Record
+                        // the query-failure analytics and drop the chart to an empty state.
+                        const { error_type, status_code } = classifyQueryError(error)
+                        posthog.capture('logs query failed', {
+                            query_type: 'sparkline',
+                            error_type,
+                            status_code,
+                            error_message: String(error),
+                        })
+                        return []
+                    }
                 },
                 setSparkline: ({ sparkline }) => sparkline ?? [],
             },
@@ -1045,18 +1065,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             const { error_type, status_code } = classifyQueryError(errorObject ?? error)
             posthog.capture('logs query failed', {
                 query_type: 'logs_next_page',
-                error_type,
-                status_code,
-                error_message: String(error),
-            })
-        },
-        fetchSparklineFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
-                return
-            }
-            const { error_type, status_code } = classifyQueryError(errorObject ?? error)
-            posthog.capture('logs query failed', {
-                query_type: 'sparkline',
                 error_type,
                 status_code,
                 error_message: String(error),

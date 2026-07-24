@@ -317,6 +317,31 @@ describe('tracingDataLogic', () => {
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
+
+        it('records a sparkline query failure and drops to an empty chart instead of throwing', async () => {
+            // A backend 500 on the secondary sparkline must not reject out of the loader and
+            // escalate to a global uncaught-exception capture (which floods error tracking). The
+            // loader catches it, records the analytics event, and empties the chart while the
+            // trace list keeps working.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            jest.spyOn(api.tracing, 'sparkline').mockRejectedValue(
+                Object.assign(new Error('A server error occurred.'), { status: 500 })
+            )
+            logic = mountWithSpans([])
+            logic.actions.fetchSparklineSuccess([{ time: '2026-01-01T00:00:00Z', service: 'svc', count: 2 }])
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchSparkline()
+            })
+                .toDispatchActions(['fetchSparkline', 'fetchSparklineSuccess'])
+                .toMatchValues({ rawSparklineData: [] })
+
+            expect(captureSpy).toHaveBeenCalledWith('tracing query failed', {
+                query_type: 'sparkline',
+                error_message: expect.any(String),
+            })
+            captureSpy.mockRestore()
+        })
     })
 
     describe('keyed instances', () => {

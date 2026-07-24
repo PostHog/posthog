@@ -1111,21 +1111,38 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await api.tracing.sparkline(
-                        {
-                            dateRange: values.utcDateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            rootSpans: values.filters.viewMode === 'traces',
-                        },
-                        controller.signal
-                    )
+                    try {
+                        const response = await api.tracing.sparkline(
+                            {
+                                dateRange: values.utcDateRange,
+                                serviceNames:
+                                    values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                                filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                                rootSpans: values.filters.viewMode === 'traces',
+                            },
+                            controller.signal
+                        )
 
-                    actions.setSparklineAbortController(null)
-                    // Record the scope only after a successful fetch, so a failed/aborted request retries.
-                    cache.sparklineScope = scopeKey
-                    return response.results
+                        actions.setSparklineAbortController(null)
+                        // Record the scope only after a successful fetch, so a failed/aborted request retries.
+                        cache.sparklineScope = scopeKey
+                        return response.results
+                    } catch (error) {
+                        actions.setSparklineAbortController(null)
+                        // A superseded/aborted request (a newer query started, or the viewer
+                        // unmounted) is expected control flow — keep the current data untouched.
+                        if (controller.signal.aborted || isUserInitiatedError(error)) {
+                            return values.rawSparklineData
+                        }
+                        // A routine backend failure on this secondary chart shouldn't escalate to a
+                        // global uncaught-exception capture (the trace list stays usable). Record the
+                        // failure and drop the chart to an empty state.
+                        posthog.capture('tracing query failed', {
+                            query_type: 'sparkline',
+                            error_message: String(error),
+                        })
+                        return []
+                    }
                 },
             },
         ],

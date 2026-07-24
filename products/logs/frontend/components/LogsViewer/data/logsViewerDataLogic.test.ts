@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
@@ -264,7 +266,6 @@ describe('logsViewerDataLogic', () => {
         it.each([
             ['fetchLogsFailure' as const, 'logs'],
             ['fetchNextLogsPageFailure' as const, 'logs_next_page'],
-            ['fetchSparklineFailure' as const, 'sparkline'],
         ])('captures %s with query_type "%s"', async (action, expectedQueryType) => {
             logic.actions[action]('Some server error')
             await expectLogic(logic).toFinishAllListeners()
@@ -275,6 +276,30 @@ describe('logsViewerDataLogic', () => {
                 status_code: null,
                 error_message: 'Some server error',
             })
+        })
+
+        it('records a sparkline query failure and drops to an empty chart instead of throwing', async () => {
+            // A backend 500 on the secondary sparkline must not escalate to a global
+            // uncaught-exception capture (which floods error tracking). The loader catches it,
+            // records the analytics event, and returns an empty chart while the log list keeps working.
+            logic.actions.setSparkline([{ time: '2026-01-01T00:00:00Z', severity: 'info', count: 3 }])
+            const sparklineSpy = jest
+                .spyOn(api.logs, 'sparkline')
+                .mockRejectedValue(Object.assign(new Error('A server error occurred.'), { status: 500 }))
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchSparkline()
+            })
+                .toDispatchActions(['fetchSparkline', 'fetchSparklineSuccess'])
+                .toMatchValues({ sparkline: [] })
+
+            expect(posthog.capture).toHaveBeenCalledWith('logs query failed', {
+                query_type: 'sparkline',
+                error_type: 'server_error',
+                status_code: 500,
+                error_message: expect.any(String),
+            })
+            sparklineSpy.mockRestore()
         })
 
         it.each([
@@ -304,7 +329,6 @@ describe('logsViewerDataLogic', () => {
             async (error) => {
                 logic.actions.fetchLogsFailure(error)
                 logic.actions.fetchNextLogsPageFailure(error)
-                logic.actions.fetchSparklineFailure(error)
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(posthog.capture).not.toHaveBeenCalled()
