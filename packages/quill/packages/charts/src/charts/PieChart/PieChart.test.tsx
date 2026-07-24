@@ -43,6 +43,18 @@ function pointInSlice(layout: PieLayout, sliceIndex: number): { clientX: number;
     }
 }
 
+// A cursor point 14px beyond the outer rim along a slice's bisector — outside the hover slack
+// (hoverGrowth 8px) but within the click's widened hit region, so a click there is a near-miss
+// that should still register.
+function pointOutsideRim(layout: PieLayout, sliceIndex: number): { clientX: number; clientY: number } {
+    const slice = layout.slices[sliceIndex]
+    const r = layout.outerRadius + 14
+    return {
+        clientX: layout.cx + Math.sin(slice.centroidAngle) * r,
+        clientY: layout.cy - Math.cos(slice.centroidAngle) * r,
+    }
+}
+
 function sliceLabels(wrapper: HTMLElement): string[] {
     return Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-slice-label"]')).map(
         (el) => el.textContent ?? ''
@@ -144,6 +156,22 @@ describe('PieChart', () => {
                 expect.objectContaining({ sliceIndex: 1, value: 50, fraction: 0.5 })
             )
             expect(onSliceClick.mock.calls[0][0].series.key).toBe('b')
+        })
+
+        // Resolving the click from its own coordinates (rather than the last hover index) is what
+        // lets a fast/touch click — or a click that doesn't land dead-center — still drill in.
+        it.each([
+            {
+                name: 'a point inside the slice with no prior hover',
+                point: (l: PieLayout) => pointInSlice(l, 0),
+                idx: 0,
+            },
+            { name: 'a near-miss just outside the rim', point: (l: PieLayout) => pointOutsideRim(l, 1), idx: 1 },
+        ])('resolves the clicked slice from the click coordinates: $name', ({ point, idx }) => {
+            const onSliceClick = jest.fn<void, [RadialSlicePayload]>()
+            const { chart } = renderHogChart(<PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick} />)
+            fireEvent.click(chart.element, point(layoutFor(SERIES)))
+            expect(onSliceClick).toHaveBeenCalledWith(expect.objectContaining({ sliceIndex: idx }))
         })
 
         it('does not invoke onSliceClick when the click misses every slice', () => {

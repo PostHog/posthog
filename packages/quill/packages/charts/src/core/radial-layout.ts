@@ -46,17 +46,21 @@ export function cursorOffsetToAngle(dx: number, dy: number): number {
 export interface SliceAtOptions {
     /** Allowance beyond `outerRadius` so the popped-out slice still registers as hovered. */
     outerSlack?: number
+    /** Ignore the inter-slice pad gap so a cursor landing in the gap still resolves to the
+     *  adjacent slice (each slice spans its full angular range). Used for click hit-testing,
+     *  where a near-miss should still drill in rather than silently no-op. */
+    ignorePadGap?: boolean
 }
 
 /** Returns the index of the slice under the cursor, or -1.
  *  - Misses the donut inner hole (`r < innerRadius`).
  *  - Misses past the outer edge plus optional slack.
- *  - Treats `padAngle/2` of each slice's start/end as a gap (no hit).
+ *  - Treats `padAngle/2` of each slice's start/end as a gap (no hit) unless `ignorePadGap`.
  *  - Handles d3.pie's 12 o'clock wraparound (slice that crosses 0). */
 export function sliceAt<Meta>(
     layout: PieLayout<Meta>,
     cursor: { x: number; y: number },
-    { outerSlack = 0 }: SliceAtOptions = {}
+    { outerSlack = 0, ignorePadGap = false }: SliceAtOptions = {}
 ): number {
     if (layout.slices.length === 0) {
         return -1
@@ -68,7 +72,7 @@ export function sliceAt<Meta>(
         return -1
     }
     const a = cursorOffsetToAngle(dx, dy)
-    const halfPad = layout.padAngle / 2
+    const halfPad = ignorePadGap ? 0 : layout.padAngle / 2
     for (let i = 0; i < layout.slices.length; i++) {
         const s = layout.slices[i]
         let start = s.startAngle + halfPad
