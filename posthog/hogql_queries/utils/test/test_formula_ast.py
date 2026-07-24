@@ -1,5 +1,9 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
 
@@ -67,3 +71,16 @@ class TestFormulaAST(APIBaseTest):
         formula = self._get_formula_ast()
         response = formula.call("+A")
         self.assertListEqual([1, 2, 3, 4], response)
+
+    @parameterized.expand(
+        [
+            ("function_call", "avg(A)"),
+            ("boolean_op", "A and B"),
+            ("tuple", "A, B"),
+            ("comparison", "A > B"),
+        ]
+    )
+    def test_unsupported_syntax_raises_exposed_error(self, _name: str, formula: str):
+        # Unsupported constructs should surface a friendly ExposedHogQLError, not a raw TypeError.
+        with self.assertRaises(ExposedHogQLError):
+            self._get_formula_ast().call(formula)

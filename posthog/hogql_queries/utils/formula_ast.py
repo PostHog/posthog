@@ -91,4 +91,7 @@ class FormulaAST:
                     f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
                 )
 
-        raise TypeError(f"Unsupported operation: {node.__class__.__name__}")
+        raise ExposedHogQLError(
+            f"Unsupported formula syntax: {node.__class__.__name__}. "
+            f"Formulas support series references (A, B, C…), numbers, and the operators + - * / % **."
+        )
