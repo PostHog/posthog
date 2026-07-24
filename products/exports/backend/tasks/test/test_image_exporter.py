@@ -774,6 +774,53 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
 
+@override_settings(BROWSERLESS_RENDER_MAX_ATTEMPTS=3, BROWSERLESS_RENDER_RETRY_BACKOFF_MS=0)
+class TestRenderWithBrowserlessRetries(SimpleTestCase):
+    def test_transient_browserless_failure_recovers_on_retry(self) -> None:
+        # A dropped session on the first attempt must recover in-process on a fresh
+        # connection, without the failure ever escaping to the caller.
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter._screenshot_asset_browserless",
+                side_effect=[BrowserlessUnavailable("Target page, context or browser has been closed"), None],
+            ) as mock_screenshot,
+            patch("products.exports.backend.tasks.image_exporter.time.sleep") as mock_sleep,
+        ):
+            image_exporter._render_with_browserless_retries("p", "u", 800, ".replayer-wrapper")
+
+        assert mock_screenshot.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_persistent_browserless_failure_raises_after_max_attempts(self) -> None:
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter._screenshot_asset_browserless",
+                side_effect=BrowserlessUnavailable("Target page, context or browser has been closed"),
+            ) as mock_screenshot,
+            patch("products.exports.backend.tasks.image_exporter.time.sleep"),
+        ):
+            with self.assertRaises(BrowserlessUnavailable):
+                image_exporter._render_with_browserless_retries("p", "u", 800, ".replayer-wrapper")
+
+        assert mock_screenshot.call_count == 3
+
+    def test_non_browserless_error_is_not_retried(self) -> None:
+        # Selector/render timeouts and other errors are handled separately and must not be
+        # retried on a fresh connection here — that is the Temporal activity's job.
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter._screenshot_asset_browserless",
+                side_effect=PlaywrightTimeoutError("Timeout while waiting for the page to load"),
+            ) as mock_screenshot,
+            patch("products.exports.backend.tasks.image_exporter.time.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(PlaywrightTimeoutError):
+                image_exporter._render_with_browserless_retries("p", "u", 800, ".replayer-wrapper")
+
+        assert mock_screenshot.call_count == 1
+        mock_sleep.assert_not_called()
+
+
 class TestDimensionHelpers(SimpleTestCase):
     @parameterized.expand(
         [

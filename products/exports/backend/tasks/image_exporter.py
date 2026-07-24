@@ -56,6 +56,11 @@ IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "Image export render failures by backend and classified failure type",
     labelnames=["backend", "failure_type"],
 )
+IMAGE_EXPORT_RENDER_RETRY_COUNTER = Counter(
+    "image_export_render_retry_total",
+    "Transient Browserless render failures retried in-process (did not reach a terminal failure)",
+    labelnames=["backend"],
+)
 
 
 def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
@@ -273,7 +278,7 @@ def _export_to_png(
 
         render_start = time.perf_counter()
         try:
-            _screenshot_asset_browserless(
+            _render_with_browserless_retries(
                 image_path,
                 url_to_render,
                 screenshot_width,
@@ -388,6 +393,52 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         posthoganalytics.tag("image_path", image_path)
     except Exception:
         pass
+
+
+def _render_with_browserless_retries(
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
+    screenshot_height: int = 600,
+    max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
+) -> None:
+    """Render via Browserless, retrying transient session drops on a fresh connection.
+
+    Browserless intermittently drops the CDP connection or closes the page/browser
+    mid-render — surfacing as BrowserlessUnavailable, most often while waiting for the
+    target selector (e.g. `.replayer-wrapper` on replay exports). These recover on a fresh
+    connection within seconds, so we retry here before letting the failure bubble up to the
+    much slower Temporal activity retry. A retry that succeeds in-process never reaches
+    capture_exception, so transient blips stop polluting error tracking and the export SLO.
+    """
+    max_attempts = max(1, settings.BROWSERLESS_RENDER_MAX_ATTEMPTS)
+    backoff_seconds = settings.BROWSERLESS_RENDER_RETRY_BACKOFF_MS / 1000
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _screenshot_asset_browserless(
+                image_path,
+                url_to_render,
+                screenshot_width,
+                wait_for_css_selector,
+                screenshot_height,
+                max_height_pixels,
+                page_load_timeout,
+            )
+            return
+        except BrowserlessUnavailable as e:
+            if attempt >= max_attempts:
+                raise
+            IMAGE_EXPORT_RENDER_RETRY_COUNTER.labels(backend="browserless").inc()
+            logger.warning(
+                "image_exporter.browserless_retry",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                url_to_render=url_to_render,
+                error=str(e),
+            )
+            time.sleep(backoff_seconds * attempt)
 
 
 def _screenshot_asset_browserless(
