@@ -3,6 +3,7 @@ name: signals-scout-general
 description: >
   Cross-product Signals scout. Looks for cross-product correlations and explores the surfaces
   the per-product specialist scouts don't cover.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
   scratchpad-remember/forget) + signal_scout_report:write (for emit-report/edit-report,

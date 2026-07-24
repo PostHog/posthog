@@ -5,6 +5,7 @@ description: >
   churn-risk shapes — engagement cliffs, dormancy, champion departure — and the expansion
   inverse, weighted by commercial ownership, and files each validated risk as a report in the
   inbox.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the customer-analytics tools

@@ -1,6 +1,6 @@
 ---
 name: exploring-llm-clusters
-description: 'Investigate AI observability clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
+description: 'Investigate AI observability clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters. Use when the user asks about LLM/AI traffic clusters in PostHog AI observability.'
 ---
 
 # Exploring LLM clusters

@@ -5,6 +5,7 @@ description: >
   anomalies — bursts, drops, flat-lines, and trend breaks scored against each insight's own
   seasonality-matched baseline. Files each anomaly as a finished 1:1 inbox report on the
   report channel (emit_report / edit_report) rather than a weak signal.
+  Use when running as an automated Signals scout in a PostHog sandbox with signal_scout MCP access. DO NOT invoke interactively or in coding sessions.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes
   plus signal_scout_internal:write (scratchpad), signal_scout_report:write (the report
