@@ -21,6 +21,7 @@ from posthog.schema import (
 from posthog.models.utils import uuid7
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
     RevenueExampleEventsQueryRunner,
 )
@@ -279,6 +280,41 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert purchase_c[4] == CurrencyCode.JPY.value
         assert purchase_c[5] == Decimal("11.3165930643")  # 1800 JPY -> 11.31 EUR
         assert purchase_c[6] == CurrencyCode.EUR.value
+
+    def test_revenue_currency_property_numeric_value_does_not_crash(self):
+        # Regression: when the currency property is typed as Numeric (user misconfigured it to point
+        # at a numeric field), the currency expression used to build upper(<Float64>), which crashes
+        # ClickHouse with "Illegal type Float64 of argument of function upper". The query should now
+        # run and fall back to no conversion (unknown currency -> converted amount 0).
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="currency_b",
+            property_type=PropertyType.Numeric,
+        )
+
+        s1 = str(uuid7("2023-12-02"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 4300, 99.99)]),
+            ],
+            event="purchase_b",
+        )
+
+        self.team.base_currency = CurrencyCode.EUR.value
+        self.team.revenue_analytics_config.events = [
+            REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_B.model_copy(
+                update={"revenueCurrencyProperty": RevenueCurrencyPropertyConfig(property="currency_b")}
+            ).model_dump()
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        results = self._run_revenue_example_events_query().results
+
+        assert len(results) == 1
+        assert results[0][1] == "purchase_b"
+        assert results[0][5] == Decimal("0")  # unknown currency -> no rate -> 0, instead of a crash
 
     def test_revenue_currency_property_without_smallest_unit_divider(self):
         s1 = str(uuid7("2023-12-02"))

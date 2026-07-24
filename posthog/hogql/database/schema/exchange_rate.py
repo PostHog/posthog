@@ -60,9 +60,17 @@ def currency_expression_for_events(team: "Team", event_config: "RevenueAnalytics
         return ast.Constant(value=team.base_currency)
 
     if event_config.revenueCurrencyProperty.property:
+        # Coerce to string first: if the chosen property is typed as Numeric (misconfigured to point
+        # at a numeric field), upper() would receive a Float64 and ClickHouse raises "Illegal type
+        # Float64 of argument of function upper". toString is a no-op for the normal string case.
         return ast.Call(
             name="upper",
-            args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
+            args=[
+                ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
+                )
+            ],
         )
 
     if event_config.revenueCurrencyProperty.static:
