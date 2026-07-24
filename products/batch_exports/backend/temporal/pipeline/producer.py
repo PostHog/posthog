@@ -1,6 +1,5 @@
 import typing
 import asyncio
-import collections
 import dataclasses
 
 from django.conf import settings
@@ -31,17 +30,20 @@ class S3FileResumeState:
 
     Used to resume from the last record batch boundary when retrying a failed
     read, instead of re-reading (and re-emitting) the whole file.
+
+    Attributes:
+        offset: Absolute byte offset of the next unread IPC message.
+        schema: Cached schema, so a resumed stream (which lacks the schema
+            message) can be parsed.
+        object_size: Full object size.
+        etag: Object ETag so a resumed range GET can assert (via IfMatch) it is
+            reading the same object, and fail loudly with a 412 if not.
     """
 
-    # Absolute byte offset of the next unread IPC message.
-    offset: int = 0
-    # Cached schema, so a resumed stream (which lacks the schema message) can be parsed.
-    schema: pa.Schema | None = None
-    # Full object size, from the first (non-ranged) GET.
-    object_size: int | None = None
-    # ETag from the first GET, so a resumed range GET can assert (via IfMatch) it is
-    # reading the same object and fail loudly with a 412 if not.
-    etag: str | None = None
+    offset: int
+    schema: pa.Schema | None
+    object_size: int
+    etag: str
 
 
 class Producer:
@@ -145,44 +147,51 @@ class Producer:
         self.logger.info(f"Producer found {len(keys)} files in S3 stage, with prefix '{stage_folder}'")
         return keys
 
-    async def _open_staging_file(
+    async def _resume_staging_file(
         self, s3_client: "S3Client", key: str, state: S3FileResumeState
     ) -> StreamingBody | None:
-        """Open the S3 staging file for `key`, resuming from `state` if a previous attempt made progress.
+        """Resume the S3 staging file for `key` from `state`.
 
-        Returns the byte stream to read, or `None` if the file was already fully consumed.
+        Returns the remaining byte stream to read resuming from `state` as
+        returned by `_open_staging_file` or `None` if the `state` indicates that
+        the file was already fully consumed.
         """
-        if state.offset > 0:
-            assert state.schema is not None and state.object_size is not None and state.etag is not None
+        if state.offset >= state.object_size:
+            # Defensive: a previous attempt consumed every batch (e.g. the file lacks
+            # an EOS marker); a range GET here would fail with 416 InvalidRange.
+            self.logger.info("Stream already fully consumed, nothing to resume", key=key, offset=state.offset)
+            return None
 
-            if state.offset >= state.object_size:
-                # Defensive: a previous attempt consumed every batch (e.g. the file lacks
-                # an EOS marker); a range GET here would fail with 416 InvalidRange.
-                self.logger.info("Stream already fully consumed, nothing to resume", key=key, offset=state.offset)
-                return None
-
-            self.logger.info("Resuming stream after retryable failure", key=key, offset=state.offset)
-            # `IfMatch` guards against the object changing under us: staging files are write-once
-            # today, but if that ever changes, ranging into a different object fails with a 412
-            # instead of silently yielding the wrong data.
-            s3_ob = await s3_client.get_object(
-                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
-                Key=key,
-                Range=f"bytes={state.offset}-",
-                IfMatch=state.etag,
-            )
-        else:
-            self.logger.info("Starting stream", key=key)
-            s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+        self.logger.info("Resuming stream after retryable failure", key=key, offset=state.offset)
+        # `IfMatch` guards against the object changing under us: staging files are write-once
+        # today, but if that ever changes, ranging into a different object fails with a 412
+        # instead of silently yielding the wrong data.
+        s3_ob = await s3_client.get_object(
+            Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+            Key=key,
+            Range=f"bytes={state.offset}-",
+            IfMatch=state.etag,
+        )
 
         assert "Body" in s3_ob, "Body not found in S3 object"
 
-        if state.offset == 0:
-            # On a range GET, `ContentLength` is the length of the range, not the object.
-            state.object_size = s3_ob["ContentLength"]
-            state.etag = s3_ob["ETag"]
-
         return s3_ob["Body"]
+
+    async def _open_staging_file(self, s3_client: "S3Client", key: str) -> tuple[StreamingBody, S3FileResumeState]:
+        """Open the S3 staging file for `key`.
+
+        Returns the full byte stream to read, as well as the initial state
+        required to eventually resume this byte stream in case we fail part way
+        through.
+        """
+        self.logger.info("Starting stream", key=key)
+        s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+
+        assert "Body" in s3_ob, "Body not found in S3 object"
+
+        return s3_ob["Body"], S3FileResumeState(
+            offset=0, schema=None, object_size=s3_ob["ContentLength"], etag=s3_ob["ETag"]
+        )
 
     async def _stream_record_batches_from_s3(
         self,
@@ -194,20 +203,30 @@ class Producer:
     ):
         # Per-key resume state, surviving across retries of `stream_from_s3_file` so a retry
         # continues from the last fully-enqueued record batch instead of re-emitting duplicates.
-        resume_states: dict[str, S3FileResumeState] = collections.defaultdict(S3FileResumeState)
+        resume_states: dict[str, S3FileResumeState] = {}
 
-        async def stream_from_s3_file(key):
+        async def stream_from_s3_file(key: str) -> None:
+            is_starting = key not in resume_states or resume_states[key].offset == 0
+
+            if is_starting:
+                stream, new_state = await self._open_staging_file(s3_client, key)
+                resume_states[key] = new_state
+
+            else:
+                maybe_stream = await self._resume_staging_file(s3_client, key, resume_states[key])
+                if maybe_stream is None:
+                    return
+
+                stream = maybe_stream
+
             state = resume_states[key]
             base_offset = state.offset
 
-            stream = await self._open_staging_file(s3_client, key, state)
-            if stream is None:
-                return
-
-            # read in 128KB chunks of data from S3. On a resumed read `state.schema` is set (it is
-            # only cached once `state.offset` advances past 0), so the reader skips the schema message.
             reader = asyncpa.AsyncRecordBatchReader(
-                stream.iter_chunks(chunk_size=128 * 1024),
+                stream.iter_chunks(chunk_size=128 * 1024),  # 128 KiB
+                # Schema will be set on the state if we managed to fully read and
+                # enqueue at least one batch before failing and retrying. This is
+                # required as the schema message is only present at the start.
                 schema=state.schema,
             )
 
@@ -220,7 +239,8 @@ class Producer:
 
                 # Only advance the resume point once every slice of this batch is enqueued.
                 state.offset = base_offset + reader.bytes_consumed
-                state.schema = reader.schema
+                if not state.schema:
+                    state.schema = reader.schema
 
             self.logger.info("Finished stream", key=key)
 

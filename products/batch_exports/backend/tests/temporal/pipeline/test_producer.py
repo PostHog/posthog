@@ -200,7 +200,7 @@ async def test_stream_record_batches_from_s3_resumes_across_multiple_failures():
     ]
 
 
-async def test_open_staging_file_short_circuits_when_fully_consumed():
+async def test_resume_staging_file_short_circuits_when_fully_consumed():
     key = "batch-export-data/file_0.arrow"
     _, ipc_bytes = generate_arrow_ipc_file(total_batches=1)
     fake_s3_client = FakeS3Client({key: ipc_bytes})
@@ -215,7 +215,7 @@ async def test_open_staging_file_short_circuits_when_fully_consumed():
     )
     # keep mypy happy
     s3_client = typing.cast("S3Client", fake_s3_client)
-    stream = await producer._open_staging_file(s3_client, key, state)
+    stream = await producer._resume_staging_file(s3_client, key, state)
 
     assert stream is None
     assert fake_s3_client.get_object_requests == []
