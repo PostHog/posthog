@@ -26,4 +26,5 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = "error_tracking_fingerprint_issue_state
 ACCOUNT_TAGS = "account_tags"
 ACCOUNT_NOTEBOOKS = "account_notebooks"
 ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
+ACCOUNT_CUSTOM_PROPERTIES_HISTORY = "account_custom_properties_history"
 ACCOUNT_RELATIONSHIPS = "account_relationships"

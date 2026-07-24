@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
@@ -543,6 +543,47 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(values_by_id[str(account.id)], "enterprise")
         # An account with no value for the definition aggregates to NULL/empty.
         self.assertFalse(values_by_id[str(other.id)])
+
+    def test_custom_property_history_returns_ordered_writes_within_horizon(self):
+        account = create_account(team_id=self.team.id, name="A")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        text_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=text_definition, value_str="enterprise"
+        )
+        now = timezone.now()
+        for value, is_deleted, written_at in [
+            (99.0, True, now - timedelta(days=200)),
+            (10.0, True, now - timedelta(days=10)),
+            (33.0, False, now - timedelta(days=5)),
+        ]:
+            row = CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=account, definition=definition, value_num=value, is_deleted=is_deleted
+            )
+            CustomPropertyValue.objects.unscoped().filter(id=row.id).update(created_at=written_at)
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    f"accounts.custom_properties_history.values.`{definition.id}` AS numeric_history",
+                    f"accounts.custom_properties_history.values.`{text_definition.id}` AS text_history",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 1)
+        result_row = response.results[0]
+
+        numeric_history = result_row[runner.columns.index("numeric_history")]
+        # The 200-day-old write falls outside the fetch horizon; the two in-horizon writes come
+        # back oldest first, superseded row included.
+        self.assertEqual([point[1] for point in numeric_history], [10.0, 33.0])
+        timestamps = [point[0] for point in numeric_history]
+        self.assertEqual(timestamps, sorted(timestamps))
+        self.assertFalse(result_row[runner.columns.index("text_history")])
 
     def test_numeric_custom_property_aggregates_in_metrics_mode(self):
         # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.

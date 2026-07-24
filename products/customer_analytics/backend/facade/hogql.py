@@ -9,9 +9,9 @@ product's Postgres tables is import-visible (tach) and facade-gated (CI): core
 hardcoding the product's table and column names.
 
 The raw federated junction tables (`_account_tagged_items`, `_account_resource_notebooks`,
-`_account_custom_property_values`) have no `team_id` column and should not be reachable
-directly from the SQL editor — they exist only so the lazy join subqueries below can be
-resolved by the planner.
+`_account_custom_property_values`, `_account_custom_property_values_history`) have no
+`team_id` column and should not be reachable directly from the SQL editor — they exist only
+so the lazy join subqueries below can be resolved by the planner.
 """
 
 from posthog.hogql import ast
@@ -19,6 +19,7 @@ from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     ACCOUNT_CUSTOM_PROPERTIES,
+    ACCOUNT_CUSTOM_PROPERTIES_HISTORY,
     ACCOUNT_NOTEBOOKS,
     ACCOUNT_RELATIONSHIPS,
     ACCOUNT_TAGS,
@@ -127,6 +128,26 @@ account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPost
 )
 
 
+account_custom_property_values_history: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+    name="_account_custom_property_values_history",
+    postgres_table_name="customer_analytics_custompropertyvalue",
+    description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
+        "definition_id": UUIDDatabaseField(
+            name="definition_id", description="Custom property definition this value is for."
+        ),
+        "account_id": UUIDDatabaseField(
+            name="account_id", nullable=True, description="Account the value belongs to; join to `system.accounts.id`."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the value was written."),
+        "value_num": FloatDatabaseField(
+            name="value_num", nullable=True, description="Numeric value, if a numeric type."
+        ),
+    },
+)
+
+
 def _account_tags_select() -> ast.SelectQuery | ast.SelectSetQuery:
     return parse_select(
         """
@@ -199,6 +220,53 @@ def _account_custom_properties_select(fields_accessed: dict[str, list[str | int]
         select_from=ast.JoinExpr(table=ast.Field(chain=["system", "_account_custom_property_values"]), alias="cpv"),
         where=parse_expr("NOT cpv.is_deleted"),
         group_by=[ast.Field(chain=["cpv", "account_id"])],
+    )
+
+
+def _account_custom_properties_history_select(fields_accessed: dict[str, list[str | int]]) -> ast.SelectQuery:
+    r"""Aggregate each account's numeric custom property value writes into ordered histories.
+
+    Inner select: one row per (account, definition) with the sorted array of
+    (unix timestamp, value) points — active and superseded rows alike, since every write is
+    a data point. Outer select: each requested key
+    (`accounts.custom_properties_history.values.\`<id>\``, arriving as `values___<id>`) is
+    materialized as its own column via `anyIf` — a lazy-join subquery can't JSON-extract
+    after the fact.
+    """
+    inner = parse_select(
+        # The 180-day horizon caps the federated scan; UI look-back presets top out at 90 days.
+        """
+        SELECT
+            cpv.account_id AS account_id,
+            toString(cpv.definition_id) AS definition_key,
+            arraySort(groupArray(tuple(toUnixTimestamp(cpv.created_at), cpv.value_num))) AS points
+        FROM system._account_custom_property_values_history AS cpv
+        WHERE isNotNull(cpv.value_num) AND cpv.created_at >= now() - INTERVAL 180 DAY
+        GROUP BY cpv.account_id, cpv.definition_id
+        """
+    )
+    select: list[ast.Expr] = [parse_expr("account_id AS account_id")]
+    for name, chain in fields_accessed.items():
+        if chain == ["account_id"]:
+            continue
+        if len(chain) >= 2 and chain[0] == "values":
+            select.append(
+                ast.Alias(
+                    alias=name,
+                    expr=parse_expr(
+                        "anyIf(points, definition_key = {key})",
+                        placeholders={"key": ast.Constant(value=str(chain[1]))},
+                    ),
+                )
+            )
+        elif chain == ["values"]:
+            select.append(
+                parse_expr("toJSONString(mapFromArrays(groupArray(definition_key), groupArray(points))) AS values")
+            )
+    return ast.SelectQuery(
+        select=select,
+        select_from=ast.JoinExpr(table=inner),
+        group_by=[ast.Field(chain=["account_id"])],
     )
 
 
@@ -326,6 +394,39 @@ class _AccountCustomPropertiesTable(LazyTable):
         return "account_custom_properties"
 
 
+class _AccountCustomPropertiesHistoryTable(LazyTable):
+    description: str = (
+        "Internal aggregating table backing `system.accounts.custom_properties_history`: each "
+        "account's numeric custom property write history, keyed by definition id."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(
+            name="account_id", description="Account this history belongs to; join to `system.accounts.id`."
+        ),
+        "values": StringJSONDatabaseField(
+            name="values",
+            description=(
+                "JSON object keyed by custom property definition id; each value is the property's "
+                "write history over the last 180 days as [unix timestamp, value] pairs sorted "
+                "ascending — numeric properties only. Read one property with "
+                "accounts.custom_properties_history.values.`<definition_id>` (backtick-quote the id). "
+                "Get definition ids and names from system.custom_property_definitions."
+            ),
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _account_custom_properties_history_select(table_to_add.fields_accessed)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_custom_properties_history"
+
+    def to_printed_hogql(self) -> str:
+        return "account_custom_properties_history"
+
+
 class _AccountRelationshipsTable(LazyTable):
     description: str = (
         "Internal aggregating table backing `system.accounts.relationships`: a JSON object of each "
@@ -394,6 +495,14 @@ def account_custom_properties_join(
     return _join_on_account_id(_account_custom_properties_select(join_to_add.fields_accessed), join_to_add)
 
 
+def account_custom_properties_history_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.custom_properties_history`")
+    return _join_on_account_id(_account_custom_properties_history_select(join_to_add.fields_accessed), join_to_add)
+
+
 def account_relationships_join(
     join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
@@ -418,6 +527,12 @@ account_custom_properties_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountCustomPropertiesTable(),
     resolver=ACCOUNT_CUSTOM_PROPERTIES,
+)
+
+account_custom_properties_history_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountCustomPropertiesHistoryTable(),
+    resolver=ACCOUNT_CUSTOM_PROPERTIES_HISTORY,
 )
 
 
@@ -541,6 +656,7 @@ accounts: PostgresTable = PostgresTable(
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
         "custom_properties": account_custom_properties_lazy_join,
+        "custom_properties_history": account_custom_properties_history_lazy_join,
         "relationships": account_relationships_lazy_join,
     },
 )

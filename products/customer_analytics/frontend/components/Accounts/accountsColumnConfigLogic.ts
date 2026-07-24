@@ -102,6 +102,38 @@ export function relationshipAlias(id: string): string {
     return `rel_${id.replace(/-/g, '')}`
 }
 
+export type AccountColumnDisplayMode = 'sparkline' | 'trend'
+
+export interface AccountColumnDisplayConfig {
+    mode: AccountColumnDisplayMode
+    window_days: number
+}
+
+// Keyed by custom property definition id (not alias) so the config survives column
+// removal/re-add and matches how saved views key custom-property filters.
+export type AccountColumnDisplayState = Record<string, AccountColumnDisplayConfig>
+
+export const COLUMN_DISPLAY_WINDOW_OPTIONS = [7, 14, 30, 90] as const
+export const DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS = 7
+
+const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS (cp_[0-9a-fA-F]+)$/
+
+// Sparkline/trend columns select the write history instead of the current value. The swap
+// happens at query-build time so the stored column string (saved views, shared URLs) stays
+// in the stable scalar form.
+export function applyColumnDisplayToSelect(columns: string[], columnDisplay: AccountColumnDisplayState): string[] {
+    if (Object.keys(columnDisplay).length === 0) {
+        return columns
+    }
+    return columns.map((column) => {
+        const match = column.match(CUSTOM_PROPERTY_COLUMN_REGEX)
+        if (!match || !columnDisplay[match[1]]) {
+            return column
+        }
+        return `accounts.custom_properties_history.values.\`${match[1]}\` AS ${match[2]}`
+    })
+}
+
 function relationshipExpression(definition: AccountRelationshipDefinitionApi, alias: string): string {
     return `accounts.relationships.values.\`${definition.id}\` AS ${alias}`
 }
@@ -321,6 +353,7 @@ export interface accountsColumnConfigLogicValues {
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
     columnConfiguratorVisible: boolean
+    columnDisplay: AccountColumnDisplayState
     customPropertyDefinitions: CustomPropertyDefinitionApi[]
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
     customPropertyDefinitionsLoading: boolean
@@ -329,6 +362,9 @@ export interface accountsColumnConfigLogicValues {
         property_type: PropertyType
     })[]
     defaultSelectColumns: string[]
+    displayByAlias: AccountColumnDisplayState
+    editingColumn: string | null
+    editingColumnIndex: number | null
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
     relationshipDefinitionsLoaded: boolean
@@ -396,6 +432,19 @@ export interface accountsColumnConfigLogicActions {
     selectColumn: (column: string) => {
         column: string
     }
+    setColumnDisplay: (
+        definitionId: string,
+        config: AccountColumnDisplayConfig | null
+    ) => {
+        config: AccountColumnDisplayConfig | null
+        definitionId: string
+    }
+    setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
+        config: AccountColumnDisplayState
+    }
+    setEditingColumnIndex: (index: number | null) => {
+        index: number | null
+    }
     setSelectColumns: (columns: string[]) => {
         columns: string[]
     }
@@ -404,6 +453,13 @@ export interface accountsColumnConfigLogicActions {
     }
     unselectColumn: (column: string) => {
         column: string
+    }
+    updateColumnExpression: (
+        index: number,
+        expression: string
+    ) => {
+        expression: string
+        index: number
     }
 }
 
@@ -418,7 +474,8 @@ export interface accountsColumnConfigLogicMeta {
             selectColumns: string[],
             roleKeyToDefinition: Partial<
                 Record<'account_executive' | 'account_owner' | 'csm', AccountRelationshipDefinitionApi>
-            >
+            >,
+            columnDisplay: AccountColumnDisplayState
         ) => string[]
         visibleColumnNames: (querySelectColumns: string[]) => string[]
         accountsColumnGroups: (
@@ -430,6 +487,8 @@ export interface accountsColumnConfigLogicMeta {
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
+        editingColumn: (selectColumns: string[], editingColumnIndex: any) => string | null
+        displayByAlias: (columnDisplay: AccountColumnDisplayState) => AccountColumnDisplayState
         aliasToDefinition: (
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
         ) => Record<string, CustomPropertyDefinitionApi>
@@ -479,6 +538,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         resetColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
+        setColumnDisplay: (definitionId: string, config: AccountColumnDisplayConfig | null) => ({
+            definitionId,
+            config,
+        }),
+        setColumnDisplayConfig: (config: AccountColumnDisplayState) => ({ config }),
+        setEditingColumnIndex: (index: number | null) => ({ index }),
+        updateColumnExpression: (index: number, expression: string) => ({ index, expression }),
     }),
     reducers({
         selectColumns: [
@@ -498,6 +564,27 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     return next
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+                updateColumnExpression: (state, { index, expression }) => {
+                    const next = expression.trim()
+                    if (!next || index < 0 || index >= state.length || state[index] === ACCOUNTS_NAME_COLUMN) {
+                        return state
+                    }
+                    return state.map((column, i) => (i === index ? next : column))
+                },
+            },
+        ],
+        // Which visible-column row the configurator's edit section targets. Any action that
+        // reshuffles or replaces the column list closes the editor so the index can't go stale.
+        editingColumnIndex: [
+            null as number | null,
+            {
+                setEditingColumnIndex: (_, { index }) => index,
+                updateColumnExpression: () => null,
+                setSelectColumns: () => null,
+                unselectColumn: () => null,
+                moveColumn: () => null,
+                resetColumns: () => null,
+                hideColumnConfigurator: () => null,
             },
         ],
         columnConfiguratorVisible: [
@@ -505,6 +592,19 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
+            },
+        ],
+        columnDisplay: [
+            {} as AccountColumnDisplayState,
+            {
+                setColumnDisplay: (state, { definitionId, config }) => {
+                    if (!config) {
+                        const { [definitionId]: _removed, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [definitionId]: config }
+                },
+                setColumnDisplayConfig: (_, { config }) => config,
             },
         ],
         // Queries wait for this so the list fetches once with its final columns,
@@ -563,11 +663,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         // names resolved through the relationships lazy join (or dropped when the
         // matching definition doesn't exist). Row cells align to THIS list.
         querySelectColumns: [
-            (s) => [s.selectColumns, s.roleKeyToDefinition],
+            (s) => [s.selectColumns, s.roleKeyToDefinition, s.columnDisplay],
             (
                 selectColumns: string[],
-                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
-            ): string[] => translateSelectColumns(selectColumns, roleKeyToDefinition),
+                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>,
+                columnDisplay: AccountColumnDisplayState
+            ): string[] =>
+                applyColumnDisplayToSelect(translateSelectColumns(selectColumns, roleKeyToDefinition), columnDisplay),
         ],
         visibleColumnNames: [
             (s) => [s.querySelectColumns],
@@ -592,6 +694,23 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (s) => [s.customPropertyDefinitions],
             (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
                 Object.fromEntries(customPropertyDefinitions.map((definition) => [definition.id, definition])),
+        ],
+        editingColumn: [
+            (s) => [s.selectColumns, s.editingColumnIndex],
+            (selectColumns: string[], editingColumnIndex: number | null): string | null =>
+                editingColumnIndex !== null ? (selectColumns[editingColumnIndex] ?? null) : null,
+        ],
+        // Re-keyed by the cp_<id> column alias so cell renderers can look up their
+        // display mode by visible column name.
+        displayByAlias: [
+            (s) => [s.columnDisplay],
+            (columnDisplay: AccountColumnDisplayState): AccountColumnDisplayState =>
+                Object.fromEntries(
+                    Object.entries(columnDisplay).map(([definitionId, config]) => [
+                        customPropertyAlias(definitionId),
+                        config,
+                    ])
+                ),
         ],
         // The same map re-keyed by the cp_<id> column alias — resolves visible column
         // names back to their definition (table header, configurator labels).
