@@ -3,11 +3,12 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
     IconCode,
+    IconCollapse45,
     IconColumns,
     IconCopy,
     IconDownload,
@@ -29,6 +30,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -83,6 +85,10 @@ import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
+
+// Lazy to break the OutputPane ⇄ BuilderCanvas import cycle (BuilderPreview renders
+// InternalDataTableVisualization, which lives here).
+const BuilderCanvas = lazy(() => import('./insightBuilder/BuilderCanvas').then((m) => ({ default: m.BuilderCanvas })))
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -534,6 +540,7 @@ interface OutputActionsProps {
     settingsOpen: boolean
     onShareTab?: () => void
     onToggleChartSettingsPanel: () => void
+    builderLayout?: boolean
 }
 
 function OutputActions({
@@ -547,8 +554,13 @@ function OutputActions({
     settingsOpen,
     onShareTab,
     onToggleChartSettingsPanel,
+    builderLayout,
 }: OutputActionsProps): JSX.Element | null {
     if (activeTab === OutputTab.Visualization) {
+        // The builder canvas owns chart type (Setup column) and settings (Format column)
+        if (builderLayout) {
+            return null
+        }
         return (
             <VisualizationActions
                 hasColumns={hasColumns}
@@ -585,7 +597,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
+        useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -597,10 +610,19 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const insightBuilderEnabled = useFeatureFlag('BI_SQL_INSIGHT_EDITOR')
+    const { fullscreen } = useValues(outputPaneLogic)
+    const { toggleFullscreen } = useActions(outputPaneLogic)
+
+    // The Visualization tab hosts the builder canvas when the flag is on. Legacy SQL insights
+    // (saved without a builder config) keep the classic Visualization panel so their chart still renders.
+    const builderLayout = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
+    // The builder canvas replaces the split view; force a single active tab there.
+    const effectiveTab = builderLayout && activeTab === OutputTab.Both ? OutputTab.Visualization : activeTab
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
-    const splitView = activeTab === OutputTab.Both
+    const splitView = effectiveTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -793,6 +815,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
+        builderLayout,
+        tabId,
     }
     const sharedActionsProps = {
         response,
@@ -804,6 +828,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         settingsOpen: isChartSettingsPanelOpen,
         onShareTab,
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
+        builderLayout,
     }
 
     const outputContent = splitView ? (
@@ -850,24 +875,35 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         <>
             {showToolbar ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        {splitToggle}
+                    <div className="flex min-h-[41px] items-center gap-2 ml-2">
+                        {builderLayout ? (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={fullscreen ? <IconCollapse45 /> : <IconExpand45 />}
+                                onClick={() => toggleFullscreen()}
+                                tooltip={fullscreen ? 'Exit fullscreen' : 'Expand to fullscreen'}
+                                data-attr="sql-editor-output-fullscreen"
+                            />
+                        ) : (
+                            splitToggle
+                        )}
                         {outputTabs.map((tab) => (
                             <OutputTabLabel
                                 key={tab.key}
                                 tab={tab}
-                                active={tab.key === activeTab}
+                                active={tab.key === effectiveTab}
                                 onClick={() => setActiveTab(tab.key)}
                             />
                         ))}
                     </div>
                     <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={activeTab} {...sharedActionsProps} />
+                        <OutputActions activeTab={effectiveTab} {...sharedActionsProps} />
                     </div>
                 </div>
             ) : null}
             <div className="flex flex-1 min-h-0 relative bg-dark">
-                <Content activeTab={activeTab} {...sharedContentProps} />
+                <Content activeTab={effectiveTab} {...sharedContentProps} />
             </div>
         </>
     )
@@ -893,7 +929,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     )
 }
 
-function InternalDataTableVisualization(
+export function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { showSettingsPanel: boolean }
 ): JSX.Element | null {
     const {
@@ -976,16 +1012,16 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
-            <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2 min-w-0">
+            <div className="relative w-full flex flex-col gap-4 flex-1 min-w-0">
+                <div className="flex flex-1 flex-row overflow-auto hide-scrollbar min-w-0">
                     {props.showSettingsPanel && (
                         <>
                             <SideBar />
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
+                    <div className={clsx('w-full h-full flex-1 overflow-auto min-w-0')}>{component}</div>
                 </div>
             </div>
         </div>
@@ -1106,6 +1142,8 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
+    builderLayout,
+    tabId,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1136,6 +1174,19 @@ const Content = ({
         })
     }, [rows, sortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    // The builder canvas stays mounted on query errors — the preview column surfaces the error
+    // inline so stale fields can be fixed from the wells. min-w-0 + overflow-hidden stop a wide
+    // table/heatmap from inflating the canvas past the viewport (flex min-width:auto).
+    if (activeTab === OutputTab.Visualization && builderLayout) {
+        return (
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-t">
+                <Suspense fallback={<LoadingBar />}>
+                    <BuilderCanvas tabId={tabId} />
+                </Suspense>
+            </div>
+        )
+    }
 
     if (hasError) {
         return (

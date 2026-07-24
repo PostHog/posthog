@@ -1297,12 +1297,79 @@ export interface SharingConfigurationSettings {
     showInspector?: boolean
 }
 
+export type InsightBuilderDateGrain = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
+
+export type InsightBuilderAggregation =
+    | 'sum'
+    | 'avg'
+    | 'min'
+    | 'max'
+    | 'count'
+    | 'count_distinct'
+    | 'median'
+    | 'p90'
+    | 'p95'
+    | 'p99'
+
+export interface InsightBuilderDimension {
+    /** Column name from the base query's result set */
+    column: string
+    /** Date bucketing applied to DATE/DATETIME columns */
+    dateGrain?: InsightBuilderDateGrain
+    /** Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain. */
+    numericBinWidth?: number
+}
+
+export interface InsightBuilderMeasure {
+    /** Column name from the base query's result set. '*' is only valid with the `count` aggregation. */
+    column: string
+    aggregation: InsightBuilderAggregation
+    /** Display label; the SQL alias is always machine-generated */
+    label?: string
+}
+
+export type InsightBuilderFilterOperator =
+    | 'eq'
+    | 'neq'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'contains'
+    | 'not_contains'
+    | 'is_set'
+    | 'is_not_set'
+
+export interface InsightBuilderFilter {
+    /** Column name from the base query's result set */
+    column: string
+    operator: InsightBuilderFilterOperator
+    /** Comparison value; unused for is_set / is_not_set */
+    value?: string
+}
+
+export interface InsightBuilderConfig {
+    /** When true, the SQL editor opens this insight in the builder and treats source.query as compiled output */
+    enabled: boolean
+    /** Base SQL (the editor content). Compiled as FROM (baseQuery) unless baseView is set. */
+    baseQuery: string
+    /** Saved view name. When set, compiles FROM <view> so the insight tracks view updates. */
+    baseView?: string
+    rows: InsightBuilderDimension[]
+    columns: InsightBuilderDimension[]
+    values: InsightBuilderMeasure[]
+    /** Conditions on the base query's columns, applied before grouping */
+    filters?: InsightBuilderFilter[]
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
+    /** BI-builder well configuration. source.query always holds the compiled SQL. */
+    builder?: InsightBuilderConfig
 }
 
 export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'

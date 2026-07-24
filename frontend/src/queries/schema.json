@@ -16972,6 +16972,10 @@
         "DataVisualizationNode": {
             "additionalProperties": false,
             "properties": {
+                "builder": {
+                    "$ref": "#/definitions/InsightBuilderConfig",
+                    "description": "BI-builder well configuration. source.query always holds the compiled SQL."
+                },
                 "chartSettings": {
                     "$ref": "#/definitions/ChartSettings"
                 },
@@ -26882,6 +26886,117 @@
                     "type": "array"
                 }
             },
+            "type": "object"
+        },
+        "InsightBuilderAggregation": {
+            "enum": ["sum", "avg", "min", "max", "count", "count_distinct", "median", "p90", "p95", "p99"],
+            "type": "string"
+        },
+        "InsightBuilderConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "baseQuery": {
+                    "description": "Base SQL (the editor content). Compiled as FROM (baseQuery) unless baseView is set.",
+                    "type": "string"
+                },
+                "baseView": {
+                    "description": "Saved view name. When set, compiles FROM <view> so the insight tracks view updates.",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/InsightBuilderDimension"
+                    },
+                    "type": "array"
+                },
+                "enabled": {
+                    "description": "When true, the SQL editor opens this insight in the builder and treats source.query as compiled output",
+                    "type": "boolean"
+                },
+                "filters": {
+                    "description": "Conditions on the base query's columns, applied before grouping",
+                    "items": {
+                        "$ref": "#/definitions/InsightBuilderFilter"
+                    },
+                    "type": "array"
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/definitions/InsightBuilderDimension"
+                    },
+                    "type": "array"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/InsightBuilderMeasure"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["enabled", "baseQuery", "rows", "columns", "values"],
+            "type": "object"
+        },
+        "InsightBuilderDateGrain": {
+            "enum": ["hour", "day", "week", "month", "quarter", "year"],
+            "type": "string"
+        },
+        "InsightBuilderDimension": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "description": "Column name from the base query's result set",
+                    "type": "string"
+                },
+                "dateGrain": {
+                    "$ref": "#/definitions/InsightBuilderDateGrain",
+                    "description": "Date bucketing applied to DATE/DATETIME columns"
+                },
+                "numericBinWidth": {
+                    "description": "Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain.",
+                    "type": "number"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
+        "InsightBuilderFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "description": "Column name from the base query's result set",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/InsightBuilderFilterOperator"
+                },
+                "value": {
+                    "description": "Comparison value; unused for is_set / is_not_set",
+                    "type": "string"
+                }
+            },
+            "required": ["column", "operator"],
+            "type": "object"
+        },
+        "InsightBuilderFilterOperator": {
+            "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "not_contains", "is_set", "is_not_set"],
+            "type": "string"
+        },
+        "InsightBuilderMeasure": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/InsightBuilderAggregation"
+                },
+                "column": {
+                    "description": "Column name from the base query's result set. '*' is only valid with the `count` aggregation.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Display label; the SQL alias is always machine-generated",
+                    "type": "string"
+                }
+            },
+            "required": ["column", "aggregation"],
             "type": "object"
         },
         "InsightFilter": {

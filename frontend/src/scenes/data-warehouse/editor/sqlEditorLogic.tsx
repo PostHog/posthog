@@ -720,6 +720,9 @@ export interface sqlEditorLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
+    setFullscreen: (fullscreen: boolean) => {
+        fullscreen: boolean
+    } // outputPaneLogic
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
@@ -1107,7 +1110,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
-            ['setActiveTab'],
+            ['setActiveTab', 'setFullscreen'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
@@ -1735,7 +1738,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else if (view) {
                     actions.setQueryInput(view.query?.query ?? '')
                 } else if (insightVisualizationQuery) {
-                    actions.setQueryInput(insightVisualizationQuery.source.query || '')
+                    actions.setQueryInput(
+                        insightVisualizationQuery.builder?.enabled
+                            ? insightVisualizationQuery.builder.baseQuery
+                            : insightVisualizationQuery.source.query || ''
+                    )
                 }
 
                 // Focus the editor after creating a new tab
@@ -2253,16 +2260,41 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     editMode: true,
                 })?.values.effectiveVisualizationType
 
-                const defaultDisplay = getDisplayTypeToSaveInsight(
-                    values.outputActiveTab,
-                    currentVisualizationQuery.display,
-                    effectiveVisualizationType
-                )
+                // Builder insights: display comes from the builder's chart picker, and the save
+                // candidates (derived from the Monaco base SQL) must not replace the compiled SQL
+                const isBuilderInsight = !!currentVisualizationQuery.builder?.enabled
+
+                const defaultDisplay = isBuilderInsight
+                    ? (currentVisualizationQuery.display ?? ChartDisplayType.ActionsTable)
+                    : getDisplayTypeToSaveInsight(
+                          values.outputActiveTab,
+                          currentVisualizationQuery.display,
+                          effectiveVisualizationType
+                      )
 
                 const candidates = resolveSaveCandidates()
                 const selectedRef = {
-                    current: candidates.queries[candidates.initialIndex],
+                    current: isBuilderInsight ? undefined : candidates.queries[candidates.initialIndex],
                 }
+
+                const insightPreview = (query: string): JSX.Element => (
+                    <div className="bg-bg-light max-h-[60vh] overflow-auto">
+                        <Suspense fallback={<Spinner />}>
+                            <LazyQuery
+                                readOnly
+                                embedded
+                                query={{
+                                    ...currentVisualizationQuery,
+                                    source: {
+                                        ...currentVisualizationQuery.source,
+                                        query,
+                                    },
+                                    display: defaultDisplay,
+                                }}
+                            />
+                        </Suspense>
+                    </div>
+                )
 
                 LemonDialog.openForm({
                     title: 'Save as new insight',
@@ -2278,31 +2310,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     autoFocus
                                 />
                             </LemonField>
-                            <SaveTargetCycler
-                                candidates={candidates}
-                                onChange={(q) => {
-                                    selectedRef.current = q
-                                }}
-                            >
-                                {(query) => (
-                                    <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                        <Suspense fallback={<Spinner />}>
-                                            <LazyQuery
-                                                readOnly
-                                                embedded
-                                                query={{
-                                                    ...currentVisualizationQuery,
-                                                    source: {
-                                                        ...currentVisualizationQuery.source,
-                                                        query,
-                                                    },
-                                                    display: defaultDisplay,
-                                                }}
-                                            />
-                                        </Suspense>
-                                    </div>
-                                )}
-                            </SaveTargetCycler>
+                            {isBuilderInsight ? (
+                                insightPreview(currentVisualizationQuery.source.query)
+                            ) : (
+                                <SaveTargetCycler
+                                    candidates={candidates}
+                                    onChange={(q) => {
+                                        selectedRef.current = q
+                                    }}
+                                >
+                                    {(query) => insightPreview(query)}
+                                </SaveTargetCycler>
+                            )}
                         </>
                     ),
                     errors: {
@@ -2320,17 +2339,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     editMode: true,
                 })?.values.effectiveVisualizationType
 
-                const display = getDisplayTypeToSaveInsight(
-                    values.outputActiveTab,
-                    currentVisualizationQuery.display,
-                    effectiveVisualizationType
-                )
+                // A save-candidate override would replace the compiled SQL with the base SQL
+                const isBuilderInsight = !!currentVisualizationQuery.builder?.enabled
+                const effectiveQueryOverride = isBuilderInsight ? undefined : queryOverride
+
+                const display = isBuilderInsight
+                    ? (currentVisualizationQuery.display ?? ChartDisplayType.ActionsTable)
+                    : getDisplayTypeToSaveInsight(
+                          values.outputActiveTab,
+                          currentVisualizationQuery.display,
+                          effectiveVisualizationType
+                      )
 
                 const sourceQueryToSave: DataVisualizationNode = {
                     ...currentVisualizationQuery,
                     source: {
                         ...currentVisualizationQuery.source,
-                        query: queryOverride ?? currentVisualizationQuery.source.query,
+                        query: effectiveQueryOverride ?? currentVisualizationQuery.source.query,
                     },
                     display,
                 }
@@ -2901,6 +2926,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 sourceQuery: DataVisualizationNode,
                 splitRanges: QueryRange[]
             ) => {
+                // Builder insights: queryInput holds the base SQL while source.query holds the
+                // compiled SQL, so compare the compiled texts instead of the Monaco buffer
+                if (sourceQuery.builder?.enabled) {
+                    return (lastRunQuery?.source.query ?? '').trim() === (sourceQuery.source.query ?? '').trim()
+                }
                 const lastRunQueryText = (lastRunQuery?.source.query ?? sourceQuery.source.query ?? '').trim()
                 if ((queryInput ?? '').trim() === lastRunQueryText) {
                     return true
@@ -3183,12 +3213,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const insightVisualizationQuery = toDataVisualizationNode(insight.query)
                     const query = insightVisualizationQuery?.source.query ?? ''
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : query
+                    // Builder insights hold compiled SQL in source.query — the Monaco buffer gets
+                    // the base query, and runs go through the compiled text explicitly
+                    const isBuilderInsight =
+                        !!insightVisualizationQuery?.builder?.enabled &&
+                        !!values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]
+                    const queryToOpen = searchParams.open_query
+                        ? searchParams.open_query
+                        : isBuilderInsight
+                          ? insightVisualizationQuery.builder!.baseQuery
+                          : query
+                    const builderRunOverride = isBuilderInsight ? query : undefined
 
                     if (insightVisualizationQuery) {
                         actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
                     actions.editInsight(queryToOpen, insight)
+                    if (isBuilderInsight) {
+                        // Editing an existing builder insight opens straight into the expanded
+                        // canvas (query pane and tree collapsed) rather than the split editor
+                        actions.setFullscreen(true)
+                    }
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }
@@ -3202,10 +3247,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         const responseLoading = mountedDataLogic?.values.responseLoading ?? false
 
                         if (!responseLoading && !response) {
-                            actions.runQuery()
+                            actions.runQuery(builderRunOverride)
                         }
                     } else {
-                        actions.runQuery()
+                        actions.runQuery(builderRunOverride)
                     }
 
                     tabAdded = true

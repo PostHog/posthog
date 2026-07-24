@@ -231,7 +231,7 @@ export const convertTableValue = (
     return value
 }
 
-const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+export const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
     if (!type) {
         return 'UNKNOWN'
     }
@@ -267,7 +267,7 @@ const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar =>
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: ColumnScalar): boolean => {
+export const isNumericalType = (type: ColumnScalar): boolean => {
     if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
@@ -1828,6 +1828,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 JSON.stringify(values.tabularColumnSettings)
             )
 
+            // Builder queries: axes and breakdown are compiled from the wells into chartSettings on
+            // every change, and every change also produces new SQL (new columns). Clearing here
+            // would wipe the just-written settings the moment the response lands — skip the classic
+            // "new columns → reset chart config" heuristic entirely.
+            const isBuilderQuery = !!values.query?.builder?.enabled
+
             const currentColumnNames = new Set(value.map((column) => column.name))
             const hasInvalidSelectedXAxis =
                 values.selectedXAxis !== null && !currentColumnNames.has(values.selectedXAxis)
@@ -1841,11 +1847,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return !column || !column.type.isNumerical
                 }) ?? false
 
-            if (hasInvalidSelectedXAxis || hasInvalidSelectedYAxis) {
-                actions.clearAxis()
-            } else if (oldValue && oldValue.length) {
-                if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
+            if (!isBuilderQuery) {
+                if (hasInvalidSelectedXAxis || hasInvalidSelectedYAxis) {
                     actions.clearAxis()
+                } else if (oldValue && oldValue.length) {
+                    if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
+                        actions.clearAxis()
+                    }
                 }
             }
 

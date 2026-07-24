@@ -8,6 +8,7 @@ import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -104,8 +105,13 @@ export function SQLEditor({
     const databaseTreeRef = useRef(null)
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
+    const insightBuilderEnabled = useFeatureFlag('BI_SQL_INSIGHT_EDITOR')
+    const { fullscreen: outputFullscreen } = useValues(outputPaneLogic({ tabId: tabId || '' }))
+    // Builder fullscreen gives the output pane the whole scene: the query pane and database tree collapse
+    const builderFullscreen = insightBuilderEnabled && outputFullscreen
+
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
-    const showQueryPanel = panel !== SQLEditorPanel.Output
+    const showQueryPanel = panel !== SQLEditorPanel.Output && !builderFullscreen
     const showOutputPanel = panel !== SQLEditorPanel.Query
     const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
     const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree

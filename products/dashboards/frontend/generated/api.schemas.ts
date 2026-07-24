@@ -7635,6 +7635,88 @@ export interface DataTableNodeApi {
     version?: number | null
 }
 
+export type InsightBuilderDateGrainApi = (typeof InsightBuilderDateGrainApi)[keyof typeof InsightBuilderDateGrainApi]
+
+export const InsightBuilderDateGrainApi = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface InsightBuilderDimensionApi {
+    /** Column name from the base query's result set */
+    column: string
+    /** Date bucketing applied to DATE/DATETIME columns */
+    dateGrain?: InsightBuilderDateGrainApi | null
+    /** Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) * binWidth. Mutually exclusive with dateGrain. */
+    numericBinWidth?: number | null
+}
+
+export type InsightBuilderFilterOperatorApi =
+    (typeof InsightBuilderFilterOperatorApi)[keyof typeof InsightBuilderFilterOperatorApi]
+
+export const InsightBuilderFilterOperatorApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Contains: 'contains',
+    NotContains: 'not_contains',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface InsightBuilderFilterApi {
+    /** Column name from the base query's result set */
+    column: string
+    operator: InsightBuilderFilterOperatorApi
+    /** Comparison value; unused for is_set / is_not_set */
+    value?: string | null
+}
+
+export type InsightBuilderAggregationApi =
+    (typeof InsightBuilderAggregationApi)[keyof typeof InsightBuilderAggregationApi]
+
+export const InsightBuilderAggregationApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Min: 'min',
+    Max: 'max',
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Median: 'median',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export interface InsightBuilderMeasureApi {
+    aggregation: InsightBuilderAggregationApi
+    /** Column name from the base query's result set. '*' is only valid with the `count` aggregation. */
+    column: string
+    /** Display label; the SQL alias is always machine-generated */
+    label?: string | null
+}
+
+export interface InsightBuilderConfigApi {
+    /** Base SQL (the editor content). Compiled as FROM (baseQuery) unless baseView is set. */
+    baseQuery: string
+    /** Saved view name. When set, compiles FROM <view> so the insight tracks view updates. */
+    baseView?: string | null
+    columns: InsightBuilderDimensionApi[]
+    /** When true, the SQL editor opens this insight in the builder and treats source.query as compiled output */
+    enabled: boolean
+    /** Conditions on the base query's columns, applied before grouping */
+    filters?: InsightBuilderFilterApi[] | null
+    rows: InsightBuilderDimensionApi[]
+    values: InsightBuilderMeasureApi[]
+}
+
 export interface HeatmapGradientStopApi {
     color: string
     value: number
@@ -7822,6 +7904,8 @@ export interface TableSettingsApi {
 }
 
 export interface DataVisualizationNodeApi {
+    /** BI-builder well configuration. source.query always holds the compiled SQL. */
+    builder?: InsightBuilderConfigApi | null
     chartSettings?: ChartSettingsApi | null
     display?: ChartDisplayTypeApi | null
     kind: DataVisualizationNodeApiKind

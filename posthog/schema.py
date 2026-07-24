@@ -132,6 +132,9 @@ from posthog.schema_enums import (
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
     InlineCohortCalculation as InlineCohortCalculation,
+    InsightBuilderAggregation as InsightBuilderAggregation,
+    InsightBuilderDateGrain as InsightBuilderDateGrain,
+    InsightBuilderFilterOperator as InsightBuilderFilterOperator,
     InsightFilterProperty as InsightFilterProperty,
     InsightNodeKind as InsightNodeKind,
     InsightThresholdType as InsightThresholdType,
@@ -1522,6 +1525,38 @@ class HogQueryResponse(BaseModel):
     coloredBytecode: list | None = None
     results: Any
     stdout: str | None = None
+
+
+class InsightBuilderDimension(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str = Field(..., description="Column name from the base query's result set")
+    dateGrain: InsightBuilderDateGrain | None = Field(
+        default=None, description="Date bucketing applied to DATE/DATETIME columns"
+    )
+    numericBinWidth: float | None = Field(
+        default=None,
+        description=(
+            "Fixed-width numeric bucketing for numeric columns: floor(col / binWidth) *"
+            " binWidth. Mutually exclusive with dateGrain."
+        ),
+    )
+
+
+class InsightBuilderMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: InsightBuilderAggregation
+    column: str = Field(
+        ...,
+        description=("Column name from the base query's result set. '*' is only valid with the `count` aggregation."),
+    )
+    label: str | None = Field(
+        default=None,
+        description="Display label; the SQL alias is always machine-generated",
+    )
 
 
 class InsightsThresholdBounds(BaseModel):
@@ -5158,6 +5193,15 @@ class DayItem(BaseModel):
     )
     label: str
     value: str | AwareDatetime | int
+
+
+class InsightBuilderFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str = Field(..., description="Column name from the base query's result set")
+    operator: InsightBuilderFilterOperator
+    value: str | None = Field(default=None, description="Comparison value; unused for is_set / is_not_set")
 
 
 class InsightThreshold(BaseModel):
@@ -15986,6 +16030,33 @@ class InsightActorsQueryBase(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class InsightBuilderConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseQuery: str = Field(
+        ...,
+        description=("Base SQL (the editor content). Compiled as FROM (baseQuery) unless baseView is set."),
+    )
+    baseView: str | None = Field(
+        default=None,
+        description=("Saved view name. When set, compiles FROM <view> so the insight tracks view updates."),
+    )
+    columns: list[InsightBuilderDimension]
+    enabled: bool = Field(
+        ...,
+        description=(
+            "When true, the SQL editor opens this insight in the builder and treats source.query as compiled output"
+        ),
+    )
+    filters: list[InsightBuilderFilter] | None = Field(
+        default=None,
+        description="Conditions on the base query's columns, applied before grouping",
+    )
+    rows: list[InsightBuilderDimension]
+    values: list[InsightBuilderMeasure]
+
+
 class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
     root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
@@ -24407,6 +24478,10 @@ class Response15(BaseModel):
 class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    builder: InsightBuilderConfig | None = Field(
+        default=None,
+        description=("BI-builder well configuration. source.query always holds the compiled SQL."),
     )
     chartSettings: ChartSettings | None = None
     display: ChartDisplayType | None = None
