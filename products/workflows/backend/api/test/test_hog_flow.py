@@ -126,6 +126,41 @@ class TestHogFlowAPI(APIBaseTest):
         assert "actions" in web_response.json()["results"][0]
         assert secret in web_response.content.decode()
 
+    def test_mcp_update_rejects_graph_replacement(self):
+        # A partial actions list through a plain update silently drops every step it omits -
+        # an agent doing this wiped a live graph in production. MCP graph edits must go
+        # through the id-addressed patch endpoint; the web builder keeps full-save semantics.
+        flow_id = self._create_simple_flow()
+
+        # A structurally valid partial list (trigger only) passes serializer validation and would
+        # silently drop the webhook step - exactly the production wipe.
+        trigger_only = [
+            {
+                "id": "trigger_node",
+                "name": "trigger_1",
+                "type": "trigger",
+                "config": {
+                    "type": "event",
+                    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                },
+            }
+        ]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": trigger_only},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 400, response.json()
+        assert "workflows-patch-graph" in response.json()["detail"]
+
+        # Metadata stays editable over MCP, and the web builder keeps sending full graphs.
+        mcp_rename = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"}, HTTP_X_POSTHOG_CLIENT="mcp"
+        )
+        assert mcp_rename.status_code == 200, mcp_rename.json()
+        web_actions = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": trigger_only})
+        assert web_actions.status_code == 200, web_actions.json()
+
     def test_invalid_action_input_error_carries_the_field_message(self):
         # A programmatic caller sending a broken function input must get back the validator's
         # actual message (what is wrong with which field), not a bare code: agents retry blind

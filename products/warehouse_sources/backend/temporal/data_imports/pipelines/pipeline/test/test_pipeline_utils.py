@@ -15,9 +15,12 @@ import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     NULL_NUMERICAL_PARTITION,
+    BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -1457,3 +1460,9 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     partitioned_table, resolved_mode, _, _ = result
     assert resolved_mode == mode
     assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+
+
+def test_billing_limit_exception_is_non_reportable_error():
+    # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
+    # error tracking (the activity interceptor re-raises these without capturing them).
+    assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)

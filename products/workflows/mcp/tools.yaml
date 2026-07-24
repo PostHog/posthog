@@ -405,15 +405,17 @@ tools:
         enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
-            Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally
-            validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch
-            can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when
-            you can't get workflows-patch-graph to land a change. On an active workflow, content fields stage a draft
-            (published with workflows-publish) while name/description apply immediately; a rejection saying active
-            workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means
-            recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.
+            Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
+            trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
+            drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
+            content fields stage a draft (published with workflows-publish) while name/description apply immediately; a
+            rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet -
+            then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable
+            / workflows-archive.
         exclude_params:
             - status
+            - actions
+            - edges
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
