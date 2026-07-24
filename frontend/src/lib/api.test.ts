@@ -1,7 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
-import type { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -16,7 +15,12 @@ describe('API helper', () => {
 
     beforeEach(() => {
         fakeFetch = jest.fn()
-        fakeFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve(FAKE_FETCH_RESULT) })
+        fakeFetch.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(FAKE_FETCH_RESULT),
+            text: () => Promise.resolve(JSON.stringify(FAKE_FETCH_RESULT)),
+        })
         window.fetch = fakeFetch
 
         jest.spyOn(posthog, 'capture').mockImplementation(() => {
@@ -204,41 +208,59 @@ describe('API helper', () => {
     })
 
     describe('successful response body parsing', () => {
-        const jsonRejects = (): Promise<any> => Promise.reject(new SyntaxError('Unexpected end of JSON input'))
         const fakeResponse = ({
             status = 200,
-            json,
-            headers = {},
+            text,
         }: {
             status?: number
-            json: () => Promise<any>
-            headers?: Record<string, string>
-        }): any => ({
-            ok: true,
-            status,
-            json,
-            headers: { get: (key: string) => headers[key.toLowerCase()] ?? null },
+            text: () => Promise<string>
+        }): any => ({ ok: true, status, text })
+        const bodyOf =
+            (body: string): (() => Promise<string>) =>
+            (): Promise<string> =>
+                Promise.resolve(body)
+
+        it.each([
+            ['an HTML error page from a proxy/CDN', '<html><body>Bad gateway</body></html>'],
+            // No content-length header involved: detection must work for chunked/compressed responses
+            ['truncated JSON from a response cut mid-stream', '{"results": [1, 2'],
+        ])('rejects with a status-less, request-scoped ApiError when the body is %s', async (_desc, body) => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body) }))
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            // Method + path so occurrences are triageable in error tracking
+            expect(error.message).toContain('[GET /api/environments/2/insights]')
+            expect(error.message).toContain('status 200')
+            // No `status`: a 2xx on an ApiError would make retry/recovery checks
+            // (`status === undefined || status >= 500`) treat this transient failure as a client error
+            expect(error.status).toBeUndefined()
+        })
+
+        it('carries the actual request method in the malformed-body error', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
+            const error = await api.create('api/environments/2/insights', {}).catch((e) => e)
+            expect(error.message).toContain('[POST /api/environments/2/insights]')
+        })
+
+        it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.status).toBeUndefined()
         })
 
         it.each([
-            ['a non-JSON (HTML) content-type', { 'content-type': 'text/html' }],
-            ['a non-empty content-length', { 'content-length': '42' }],
-        ])('throws instead of returning null when the body was %s', async (_desc, headers) => {
-            fakeFetch.mockResolvedValue(fakeResponse({ json: jsonRejects, headers }))
-            await expect(api.get('api/environments/2/insights')).rejects.toThrow('malformed')
-        })
-
-        it.each([
-            ['a 204 No Content response', { status: 204, headers: {} }],
-            ['an empty body with no content headers', { status: 200, headers: {} }],
-        ])('resolves to null for %s', async (_desc, { status, headers }) => {
-            fakeFetch.mockResolvedValue(fakeResponse({ status, json: jsonRejects, headers }))
+            ['a 204 No Content response', 204, ''],
+            ['an empty 200 body', 200, ''],
+            ['a whitespace-only body', 200, ' \n '],
+        ])('resolves to null for %s', async (_desc, status, body) => {
+            fakeFetch.mockResolvedValue(fakeResponse({ status, text: bodyOf(body) }))
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
-            fakeFetch.mockResolvedValue(fakeResponse({ json: () => Promise.reject(abortError) }))
+            fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
         })
     })
