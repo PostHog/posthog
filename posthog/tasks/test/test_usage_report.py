@@ -4613,7 +4613,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # PostHog Code event — should appear only in posthog_code credits
+        # PostHog Desktop event — should appear only in posthog_code credits
         _create_event(
             event="$ai_generation",
             team=analytics_team,
@@ -4665,7 +4665,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     ) -> None:
         """A traceless posthog_code generation bills via the empty-trace fallback only when billable.
 
-        PostHog Code never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
+        PostHog Desktop never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
         empty-trace fallback is what makes posthog_code billable at all — but only for $ai_billable=true.
         """
         from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period

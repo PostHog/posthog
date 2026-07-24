@@ -318,7 +318,7 @@ export const IntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).'
+            'Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop).'
         ),
     installation_id: zod
         .string()

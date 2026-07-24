@@ -50,6 +50,7 @@ const options = {
     maxBytes: 1e9,
     scrubConcurrency: 4,
     maxBatchScrubMs: 30_000,
+    dedupMaxRefs: 1000,
 }
 
 describe('ImageBatcher', () => {
@@ -169,6 +170,219 @@ describe('ImageBatcher', () => {
 
         expect(slowStore.writes.flat()).toHaveLength(6)
         expect(offsets.stored).toBe(slowStore.writes.length)
+    })
+
+    it('scrubs each ref once: duplicates in and across batches skip the sidecar but still advance offsets', async () => {
+        // The topic is keyed by ref, so duplicate produces (per-mirror-pod producer dedup misses
+        // cross-pod repeats) are partition-affine; losing this dedup silently re-burns sidecar CPU
+        // per duplicate and writes duplicate shard entries.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const countingClient = {
+            scrub: (b: Buffer) => {
+                scrubs += 1
+                return Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, countingClient, options, 0)
+
+        const sprite = Buffer.from('sprite')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite), msg(0, 1, pt(1), sprite)], 1)
+        await batcher.handleBatch([msg(0, 2, pt(1), sprite)], 2)
+
+        expect(scrubs).toBe(1)
+        expect(store.writes.flat()).toHaveLength(1)
+        // The all-duplicate second batch still advances offsets, or the duplicates replay forever.
+        expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 3 }])
+    })
+
+    it.each([0, 1000])(
+        'scrubs the distinct images of a duplicate-heavy batch at full concurrency (dedupMaxRefs %p)',
+        async (dedupMaxRefs) => {
+            // Duplicates have to collapse before the batch is chunked. Left in, they occupy
+            // concurrency slots, so a chunk finishes as soon as its one distinct image does and the
+            // batch serializes behind the chunk barriers — the lane then runs one image in flight
+            // instead of scrubConcurrency, regardless of how many pods it has. Consecutive repeats
+            // are the realistic shape: one sprite recurs across a session's snapshots.
+            const store = new FakeStore()
+            let inFlight = 0
+            let maxInFlight = 0
+            let scrubs = 0
+            const trackingClient = {
+                scrub: async (b: Buffer) => {
+                    scrubs += 1
+                    inFlight += 1
+                    maxInFlight = Math.max(maxInFlight, inFlight)
+                    await new Promise((resolve) => setImmediate(resolve))
+                    inFlight -= 1
+                    return b
+                },
+            } as unknown as ScrubClient
+            const batcher = new ImageBatcher(
+                store as unknown as ImageShardStore,
+                new FakeOffsets(),
+                trackingClient,
+                { ...options, dedupMaxRefs },
+                0
+            )
+
+            const batch: Message[] = []
+            for (let sprite = 0; sprite < 4; sprite++) {
+                for (let repeat = 0; repeat < 8; repeat++) {
+                    batch.push(msg(0, batch.length, pt(1), Buffer.from(`sprite-${sprite}`)))
+                }
+            }
+            await batcher.handleBatch(batch, 1)
+
+            expect(scrubs).toBe(4)
+            expect(maxInFlight).toBe(4)
+            expect(store.writes.flat()).toHaveLength(4)
+        }
+    )
+
+    it('rescrubs an image whose batch failed rather than pod-deduping the replay away', async () => {
+        // A ref is marked seen only once its image is buffered. Marking it at plan time, or inside
+        // scrubOne, reads as a harmless simplification and silently drops the image instead: the
+        // replay is pod-deduped, its offset advances, and nothing ever writes it. No error, no
+        // counter, and every other test still green.
+        let attempts = 0
+        const flakyClient = {
+            scrub: (b: Buffer) => {
+                attempts += 1
+                return attempts === 1 ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            flakyClient,
+            options,
+            0
+        )
+        const sprite = Buffer.from('sprite')
+
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)).rejects.toThrow('sidecar down')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 2)
+
+        expect(store.writes.flat()).toHaveLength(1)
+    })
+
+    it('advances every partition past the duplicates it skipped, not just the one it scrubbed on', async () => {
+        // The span walk is the one place that can commit an offset for a message it never processed,
+        // and that failure is silent permanent loss. Both partitions here end on a duplicate, so the
+        // trailing skips are only covered if the final recordOffsets spans the whole batch.
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            offsets,
+            scrubClient,
+            options,
+            0
+        )
+        const a = Buffer.from('a')
+        const b = Buffer.from('b')
+
+        await batcher.handleBatch(
+            [msg(0, 100, pt(1), a), msg(1, 200, pt(1), b), msg(0, 101, pt(1), a), msg(1, 201, pt(1), b)],
+            1
+        )
+
+        expect(offsets.received.at(-1)).toEqual(
+            expect.arrayContaining([
+                { topic: 'session_replay_image_scrub', partition: 0, offset: 102 },
+                { topic: 'session_replay_image_scrub', partition: 1, offset: 202 },
+            ])
+        )
+    })
+
+    it('leaves both partitions replayable when a chunk fails after a mid-batch flush', async () => {
+        // A mid-batch flush commits offsets for the prefix it persisted, and everything after it has
+        // to stay replayable. Multi-partition is where that can quietly go wrong, because each
+        // partition carries its own maximum and only one of them appears in a given chunk's span.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const failLateClient = {
+            scrub: (b: Buffer) => {
+                scrubs += 1
+                return scrubs > 2 ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            failLateClient,
+            { ...options, maxImages: 2, scrubConcurrency: 2 },
+            0
+        )
+
+        await expect(
+            batcher.handleBatch(
+                [
+                    msg(0, 10, pt(1), Buffer.from('a')),
+                    msg(1, 20, pt(1), Buffer.from('b')),
+                    msg(0, 11, pt(1), Buffer.from('c')),
+                    msg(1, 21, pt(1), Buffer.from('d')),
+                ],
+                1
+            )
+        ).rejects.toThrow('sidecar down')
+
+        expect(offsets.received).toHaveLength(1)
+        expect(offsets.received[0]).toHaveLength(2)
+        expect(offsets.received[0]).toEqual(
+            expect.arrayContaining([
+                { topic: 'session_replay_image_scrub', partition: 0, offset: 11 },
+                { topic: 'session_replay_image_scrub', partition: 1, offset: 21 },
+            ])
+        )
+    })
+
+    it('stops re-sending an image the sidecar permanently rejected', async () => {
+        // A 422/413 is a verdict on the content, so every later copy would earn the same rejection.
+        // Without marking it, the most broken images are the ones that keep costing sidecar calls.
+        let calls = 0
+        const rejectingClient = {
+            scrub: () => {
+                calls += 1
+                return Promise.resolve(null)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            rejectingClient,
+            options,
+            0
+        )
+        const broken = Buffer.from('broken')
+
+        await batcher.handleBatch([msg(0, 0, pt(1), broken)], 1)
+        await batcher.handleBatch([msg(0, 1, pt(1), broken)], 2)
+
+        expect(calls).toBe(1)
+    })
+
+    it('dedupMaxRefs 0 disables the cross-batch cache but never intra-batch dedup', async () => {
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            scrubClient,
+            { ...options, dedupMaxRefs: 0 },
+            0
+        )
+
+        const sprite = Buffer.from('sprite')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
+        await batcher.handleBatch([msg(0, 1, pt(1), sprite)], 2)
+        expect(store.writes.flat()).toHaveLength(2)
+
+        // Intra-batch dedup keeps no state between batches, so turning the cache off cannot reach it.
+        await batcher.handleBatch([msg(0, 2, pt(1), sprite), msg(0, 3, pt(1), sprite)], 3)
+        expect(store.writes.flat()).toHaveLength(3)
     })
 
     test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {

@@ -8360,7 +8360,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     def test_command_no_control_verb_telemetry_for_non_posthog_ai(self, mock_post, mock_capture):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
-        # USER_CREATED task (e.g. PostHog Code) — the generic relay must not emit PostHog AI funnels.
+        # USER_CREATED task (e.g. PostHog Desktop) — the generic relay must not emit PostHog AI funnels.
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 

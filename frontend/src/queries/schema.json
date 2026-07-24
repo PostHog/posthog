@@ -45274,6 +45274,7 @@
                 "canvases:write",
                 "channels:manage",
                 "commands",
+                "files:read",
                 "files:write",
                 "im:history",
                 "mpim:history",

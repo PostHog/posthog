@@ -2,7 +2,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "base_version": {
-            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
             "minimum": 1,
             "type": "number"
         },
@@ -37,6 +36,6 @@
             "type": "string"
         }
     },
-    "required": ["prompt_name"],
+    "required": ["prompt_name", "base_version"],
     "type": "object"
 }

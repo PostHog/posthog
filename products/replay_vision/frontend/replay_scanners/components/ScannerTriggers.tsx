@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -25,7 +25,7 @@ import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playli
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -45,6 +45,17 @@ const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.SessionProperties,
 ]
+
+// True when any leaf in the group is an event *property* filter (type 'event'), not an event entity or person property.
+// Used to surface a hint, since a key present on both the event and the person (e.g. a plan tier) matches nothing as an
+// event property when it's only ever set on the person.
+function groupHasEventProperty(group: UniversalFiltersGroup): boolean {
+    return group.values.some((value) =>
+        isUniversalGroupFilterLike(value)
+            ? groupHasEventProperty(value)
+            : 'type' in value && value.type === PropertyFilterType.Event
+    )
+}
 
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
@@ -148,6 +159,14 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     size="small"
                                 />
                             </div>
+                            {groupHasEventProperty(universal.filter_group) && (
+                                <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
+                                    <span className="text-xs">
+                                        Some attributes are stored on the person, not the event. If an event property
+                                        filter returns no recordings, try the same attribute under Person properties.
+                                    </span>
+                                </LemonBanner>
+                            )}
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
