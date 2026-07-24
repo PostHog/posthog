@@ -3665,6 +3665,7 @@ class SlackIntegrationScopeInReview(StrEnum):
     COMMANDS = "commands"
     FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
+    MPIM_HISTORY = "mpim:history"
     MPIM_READ = "mpim:read"
 
 
