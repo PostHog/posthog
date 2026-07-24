@@ -200,7 +200,7 @@ async def test_stream_record_batches_from_s3_resumes_across_multiple_failures():
     ]
 
 
-async def test_open_staging_file_short_circuits_when_fully_consumed():
+async def test_resume_staging_file_short_circuits_when_fully_consumed():
     key = "batch-export-data/file_0.arrow"
     _, ipc_bytes = generate_arrow_ipc_file(total_batches=1)
     fake_s3_client = FakeS3Client({key: ipc_bytes})
@@ -209,13 +209,15 @@ async def test_open_staging_file_short_circuits_when_fully_consumed():
     # Resume state that has already consumed the whole object: a range GET would 416.
     state = S3FileResumeState(
         offset=len(ipc_bytes),
-        schema=pa.schema([("id", pa.int64()), ("text", pa.string())]),
+        # Mypy takes the common suppertype of StringType and Int64Type, which is not
+        # datatype but object, so this fails. Until the stub is fixed, just ignore
+        schema=pa.schema([("id", pa.int64()), ("text", pa.string())]),  # type: ignore
         object_size=len(ipc_bytes),
         etag=FAKE_ETAG,
     )
     # keep mypy happy
     s3_client = typing.cast("S3Client", fake_s3_client)
-    stream = await producer._open_staging_file(s3_client, key, state)
+    stream = await producer._resume_staging_file(s3_client, key, state)
 
     assert stream is None
     assert fake_s3_client.get_object_requests == []
