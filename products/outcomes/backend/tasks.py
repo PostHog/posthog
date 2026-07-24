@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import with_team_scope
 
 from products.outcomes.backend.evaluation import evaluate_outcome
@@ -22,8 +22,8 @@ def schedule_outcome_calculations() -> None:
 @with_team_scope()
 def calculate_outcome(outcome_id: str, team_id: int) -> None:
     """Evaluate a single outcome definition against its team's events, latching and emitting new facts."""
-    tag_queries(team_id=team_id, product=Product.OUTCOMES, feature=Feature.ENRICHMENT)
     definition = OutcomeDefinition.objects.filter(id=outcome_id, team_id=team_id).first()
     if definition is None:
         return
-    evaluate_outcome(definition)
+    with tags_context(team_id=team_id, product=Product.OUTCOMES, feature=Feature.ENRICHMENT):
+        evaluate_outcome(definition)
