@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -141,6 +143,18 @@ class TestFilters(BaseTest):
             "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    @parameterized.expand(["from", "to"])
+    def test_date_range_placeholder_outside_comparison_raises_query_error(self, side: str):
+        # Nesting the placeholder in a function call with no enclosing comparison used to
+        # crash with an uncaught IndexError; it must surface as a catchable QueryError instead.
+        select = self._parse_select(f"SELECT toString({{filters.dateRange.{side}}}) FROM events")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            f"The `{{filters.dateRange.{side}}}` placeholder can only be used as one side of a comparison",
+        ):
+            replace_filters(select, None, self.team)
 
     def test_replace_filters_event_property(self):
         select = replace_filters(
