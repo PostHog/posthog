@@ -1581,8 +1581,9 @@ function QuickstartFocusedInstall(): JSX.Element {
             <div>
                 <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
                 <p className="text-secondary mb-0">
-                    Install the PostHog SDK and data starts flowing within minutes. The setup wizard does it for you –
-                    pick how you'd like to run it:
+                    Install the PostHog SDK and data starts flowing within minutes. Our setup wizard – an agent that
+                    reads your codebase and writes the integration for you – can handle it. Run it on your repo or in
+                    your terminal:
                 </p>
             </div>
 
