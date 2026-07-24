@@ -9,6 +9,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError, UnexpectedPacketFromServerError
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
 
@@ -35,10 +37,24 @@ from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
 
+logger = structlog.get_logger(__name__)
+
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
 # Floor for the team-wide unfiltered earliest timestamp: events before 2015 are treated as corrupt.
 UNFILTERED_EARLIEST_TIMESTAMP_FLOOR = datetime.fromisoformat("2015-01-01T00:00:00Z")
+
+# Connection-level ClickHouse failures that are NOT ServerExceptions, so wrap_clickhouse_query_error
+# passes them through unwrapped and sync_execute never retries them. The driver raises a bare
+# EOFError from its buffered reader when the server closes the socket mid-read (query killed, timeout,
+# OOM, network hiccup), plus these transient transport errors. Left uncaught, a single drop surfaces
+# as a failed insight load.
+_TRANSIENT_CONNECTION_ERRORS: tuple[type[BaseException], ...] = (
+    EOFError,
+    NetworkError,
+    SocketTimeoutError,
+    UnexpectedPacketFromServerError,
+)
 
 
 def _get_data_warehouse_earliest_timestamp_query(
@@ -179,6 +195,28 @@ def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
     return tags_context(**overrides)
 
 
+def _execute_earliest_timestamp_query(query: SelectQuery, team: Team, user: Optional[User] = None) -> Optional[Any]:
+    """Run an earliest-timestamp resolution query, retrying once on a dropped ClickHouse connection.
+
+    Returns the query result, or ``None`` if the connection drops on both attempts so the caller can
+    fall back to a sensible default instead of letting a raw driver ``EOFError`` bubble up as a failed
+    insight load. Only connection-level errors are swallowed; real query errors still propagate.
+    """
+    last_error: Optional[BaseException] = None
+    for _attempt in range(2):
+        try:
+            with _earliest_timestamp_query_tags():
+                return execute_hogql_query(query=query, team=team, user=user)
+        except _TRANSIENT_CONNECTION_ERRORS as e:
+            last_error = e
+    logger.warning(
+        "earliest_timestamp_query_connection_dropped",
+        team_id=team.pk,
+        error=str(last_error),
+    )
+    return None
+
+
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
@@ -211,9 +249,13 @@ def _get_earliest_timestamp_from_node(
     else:
         query = _get_event_earliest_timestamp_query(team, node)
 
+    result = _execute_earliest_timestamp_query(query, team, user)
+    if result is None:
+        # Connection dropped on both attempts. Degrade to a bounded default and skip the cache so the
+        # next request re-attempts rather than pinning the fallback for the full TTL.
+        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, user=user)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
@@ -292,8 +334,7 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
         limit=ast.Constant(value=1),
     )
 
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
+    result = _execute_earliest_timestamp_query(query, team)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
         # Only cache real results: a team with no events yet should keep re-checking rather than
@@ -301,6 +342,8 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
         cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
         return earliest_timestamp
 
+    # No events, or the ClickHouse connection dropped on both attempts: fall back to a bounded
+    # default rather than surfacing a raw driver EOFError as a failed insight load.
     return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from dateutil import parser
 from parameterized import parameterized
 
@@ -390,6 +391,49 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         assert get_earliest_timestamp_unfiltered(self.team) == earliest_timestamp
+
+    @parameterized.expand(
+        [
+            ("eof", EOFError("Unexpected EOF while reading bytes")),
+            ("network", NetworkError("connection reset")),
+            ("socket_timeout", SocketTimeoutError("timed out")),
+        ]
+    )
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_falls_back_on_dropped_connection(self, _name, error):
+        # A dropped ClickHouse connection raises a bare EOFError (or driver transport error) that
+        # isn't a ServerException, so it isn't wrapped or retried by sync_execute. It must degrade to
+        # the now - DEFAULT_EARLIEST_TIME_DELTA fallback instead of surfacing as a failed insight load.
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=error,
+        ):
+            assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(2021, 1, 14, tzinfo=datetime.UTC)
+
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_retries_once_then_succeeds(self):
+        # The first attempt drops the connection; the retry succeeds. We must return the real value,
+        # not the fallback, proving the retry actually re-runs the query.
+        real_result = MagicMock()
+        real_result.results = [[datetime.datetime(2020, 1, 4, 14, 10, tzinfo=datetime.UTC)]]
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=[EOFError("Unexpected EOF while reading bytes"), real_result],
+        ):
+            assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(
+                2020, 1, 4, 14, 10, tzinfo=datetime.UTC
+            )
+
+    @freeze_time("2021-01-21")
+    def test_series_earliest_timestamp_falls_back_on_dropped_connection(self):
+        # The per-series path shares the same resilience: a dropped connection degrades to the
+        # bounded fallback rather than crashing the insight.
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=EOFError("Unexpected EOF while reading bytes"),
+        ):
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
+        assert earliest_timestamp == datetime.datetime(2021, 1, 14, tzinfo=datetime.UTC)
 
     @parameterized.expand(
         [
