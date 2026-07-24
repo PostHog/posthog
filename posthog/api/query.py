@@ -50,7 +50,7 @@ from posthog.clickhouse.client.execute_async import cancel_query, get_query_stat
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3Error, ExposedCHQueryError, InternalCHQueryError, clickhouse_error_type
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -332,7 +332,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")
+            raise self._clickhouse_error_response(e)
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
@@ -461,6 +461,34 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                     match.group(0) + ". Note: While in beta, not all column types may be fully supported"
                 )
         return
+
+    @staticmethod
+    def _clickhouse_error_response(error: InternalCHQueryError) -> APIException:
+        """Turn a non-user-safe ClickHouse error into an actionable response without leaking infra internals.
+
+        Data warehouse S3 read failures (the common re-syncing case) become friendly user errors; everything
+        else keeps the generic message but now carries the ClickHouse error type/code so users and support can
+        triage instead of getting a bare "ClickHouse error" wall.
+        """
+        message = getattr(error, "message", "") or ""
+        if isinstance(error, CHQueryErrorS3Error):
+            if re.search(r"requested range is not satisfiable|invalidrange", message, re.IGNORECASE):
+                return ValidationError(
+                    "Couldn't read part of your data warehouse tables. The underlying files may still be syncing. "
+                    "Wait for the sync to finish, then run the query again.",
+                    code="warehouse_data_resyncing",
+                )
+            return ValidationError(
+                "Couldn't read your data warehouse data. This can happen while tables are being re-synced, "
+                "so try again shortly.",
+                code="warehouse_read_error",
+            )
+
+        error_type = clickhouse_error_type(error)
+        code = getattr(error, "code", None)
+        detail = f"ClickHouse error while executing query ({error_type}"
+        detail += f", code {code})." if code is not None else ")."
+        return APIException(detail)
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is None:
