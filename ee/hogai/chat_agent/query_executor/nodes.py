@@ -4,6 +4,8 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallMessage, FailureMessage
 
+from posthog.exceptions_capture import capture_exception
+
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.node import AssistantNode
@@ -36,8 +38,12 @@ class QueryExecutorNode(AssistantNode):
                 insight_id=artifact.artifact_id,
             )
             formatted_query_result = await context.execute_and_format()
-        except MaxToolRetryableError as err:
-            # Handle known query execution errors (exposed to users)
+        except Exception as err:
+            # Surface query-execution failures as a graceful assistant message instead of letting them bubble
+            # up to the generic Max failure. MaxToolRetryableError is the known/expected case (already
+            # user-safe); anything else is unexpected, so capture it for observability while still recovering.
+            if not isinstance(err, MaxToolRetryableError):
+                capture_exception(err)
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(content=f"There was an error running this query: {str(err)}", id=str(uuid4()))
