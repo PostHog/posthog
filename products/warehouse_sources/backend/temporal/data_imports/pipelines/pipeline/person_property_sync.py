@@ -46,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_access import (
     delta_storage_options,
 )
 

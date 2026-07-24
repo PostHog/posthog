@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    get_schema_if_exists,
     process_incremental_value,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -45,7 +46,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ResumableSource,
+    SimpleSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
+    is_fanout_warehouse_reuse_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -56,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -94,6 +103,64 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+async def _ensure_required_parents_synced(
+    source: AnySource, schema: ExternalDataSchema, source_id: uuid.UUID, team_id: int
+) -> bool:
+    """Hard gate for fan-out children that read their parent from the warehouse.
+
+    The child streams parent rows from the parent schema's Delta table, so the parent must be
+    enabled and have completed an initial sync. Failing with NonRetryableException marks the
+    job failed with an actionable message without burning activity retries; the next scheduled
+    sync re-evaluates. The gate messages intentionally match no schema-pausing error patterns —
+    the child stays enabled and recovers on its own once the parent has synced.
+
+    Returns whether warehouse parent reuse is active for this schema (the single feature-flag
+    evaluation for the run — sources consume it via `SourceInputs.fanout_warehouse_reuse`).
+    """
+    required_parents = source.get_required_parent_schemas(schema.name)
+    if not required_parents:
+        return False
+    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
+        return False
+
+    for parent_name in required_parents:
+        parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
+        if parent is None or not parent.should_sync:
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' must be enabled before '{schema.name}' can sync. "
+                f"Enable '{parent_name}' in the source's schema settings."
+            )
+        if parent.is_append:
+            # Append parents accumulate duplicate rows per sync; the warehouse reader streams
+            # the table as-is (no dedupe state), so the child would fan out once per duplicate.
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' uses append sync, so '{schema.name}' can't fan out "
+                f"from its table. Switch '{parent_name}' to incremental or full refresh."
+            )
+        if not parent.initial_sync_complete:
+            raise NonRetryableException(
+                f"Parent schema '{parent_name}' must complete an initial sync before '{schema.name}' can sync. "
+                f"This schema will sync automatically on its next schedule once '{parent_name}' has synced."
+            )
+        # A full-refresh parent rewrites its table chunk by chunk (overwrite + appends), so a
+        # child reading mid-rewrite would fan out over a partial snapshot and, with replace
+        # disposition, silently shrink its own table. Parent and child schedules fire together,
+        # making this routine, not rare. Deliberately retryable (plain Exception): the parent
+        # finishing resolves it — either a retry attempt or the next schedule succeeds.
+        parent_running = await database_sync_to_async_pool(
+            ExternalDataJob.objects.filter(
+                team_id=team_id, schema_id=parent.id, status=ExternalDataJob.Status.RUNNING
+            ).exists
+        )()
+        if parent_running:
+            raise Exception(
+                f"Parent schema '{parent_name}' is currently syncing; '{schema.name}' reads its table "
+                f"and would see a partial snapshot. This run will retry and the next schedule re-evaluates."
+            )
+
+    return True
 
 
 @activity.defn
@@ -204,6 +271,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
 
+            fanout_warehouse_reuse = await _ensure_required_parents_synced(
+                new_source, schema, inputs.source_id, inputs.team_id
+            )
+            # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
+            # child took, and doubles as rollout-adoption telemetry. Only fan-out children
+            # (schemas with required parents) log it; every other schema stays quiet.
+            if new_source.get_required_parent_schemas(schema.name):
+                await logger.ainfo(
+                    "data_imports.fanout_parent_source",
+                    schema=schema.name,
+                    parent_source="warehouse" if fanout_warehouse_reuse else "api",
+                    source_type=source_type,
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -227,6 +308,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                fanout_warehouse_reuse=fanout_warehouse_reuse,
             )
 
             try:

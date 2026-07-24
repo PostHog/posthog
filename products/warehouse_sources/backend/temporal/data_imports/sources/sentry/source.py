@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
@@ -34,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REQUIRED_SENTRY_SCOPES,
+    SENTRY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,6 +121,13 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
         }
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # issue_tag_values fans out over issues through its custom two-level iterator, so it
+        # carries no DependentEndpointConfig to derive the dependency from.
+        if schema_name == "issue_tag_values":
+            return ["issues"]
+        return required_parents_from_endpoint_configs(SENTRY_ENDPOINTS, schema_name)
+
     def get_schemas(
         self,
         config: SentrySourceConfig,
@@ -138,6 +149,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
                     supports_incremental=supports_incremental,
                     supports_append=supports_incremental,
                     incremental_fields=incremental_fields,
+                    requires=self.get_required_parent_schemas(endpoint),
                 )
             )
         return schemas
@@ -185,4 +197,6 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )

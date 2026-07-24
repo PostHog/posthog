@@ -45,16 +45,21 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
+    FanoutParentDependencyError,
+    FanoutParentState,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    is_fanout_warehouse_reuse_enabled,
+    resolve_fanout_parent_action,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -65,6 +70,45 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _registered_source_impl(source: ExternalDataSource) -> AnySource | None:
+    try:
+        return SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+    except ValueError:
+        return None
+
+
+def _enabled_fanout_dependents(schema: ExternalDataSchema, source_impl: AnySource) -> list[str]:
+    """Names of enabled sibling schemas that fan out from `schema`'s warehouse table.
+
+    values_list keeps this cheap for large SQL sources (hundreds of tables): the per-name
+    dependency check is a static config lookup, so the rows' JSON columns are never loaded.
+    """
+    sibling_names = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=schema.team_id, source_id=schema.source_id, should_sync=True)
+        .exclude(id=schema.id)
+        .values_list("name", flat=True)
+    )
+    return sorted(name for name in sibling_names if schema.name in source_impl.get_required_parent_schemas(name))
+
+
+def _refuse_when_fanout_dependents(schema: ExternalDataSchema, source_impl: AnySource | None, action: str) -> None:
+    """Shared refusal for anything that would strand enabled warehouse-fanout children:
+    disabling, deleting, or switching their parent to append sync. Flag evaluation is remote,
+    so it only runs after the cheap dependents lookup proves there is something to protect."""
+    if source_impl is None:
+        return
+    dependent_children = _enabled_fanout_dependents(schema, source_impl)
+    if not dependent_children:
+        return
+    if not is_fanout_warehouse_reuse_enabled(schema.team_id):
+        return
+    raise ValidationError(
+        f"'{schema.name}' can't be {action} while {', '.join(repr(c) for c in dependent_children)} "
+        f"sync using its data. Disable those schemas first."
+    )
 
 
 def source_supports_column_selection(source_type: str) -> bool:
@@ -520,6 +564,79 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     )
         return attrs
 
+    def _enforce_fanout_parent_dependencies(
+        self, instance: ExternalDataSchema, source: ExternalDataSource, should_sync: bool | None
+    ) -> None:
+        """Hard parent→child dependency for fan-out schemas that read their parent from the warehouse.
+
+        Enabling a child auto-enables its already-configured parents (a parent with no sync type
+        yet can't be silently enabled — the caller is told to set it up). Disabling a parent that
+        an enabled child depends on is refused. The feature-flag evaluation is remote, so it runs
+        only after a cheap config lookup proves a dependency edge exists.
+        """
+        if should_sync is None or bool(should_sync) == instance.should_sync:
+            return
+        source_impl = _registered_source_impl(source)
+        if source_impl is None:
+            return
+
+        if not should_sync:
+            _refuse_when_fanout_dependents(instance, source_impl, "disabled")
+            return
+
+        required_parents = source_impl.get_required_parent_schemas(instance.name)
+        if not required_parents:
+            return
+        if not is_fanout_warehouse_reuse_enabled(instance.team_id):
+            return
+        siblings_by_name = {
+            sibling.name: sibling
+            for sibling in ExternalDataSchema.objects.exclude(deleted=True).filter(
+                team_id=instance.team_id, source_id=instance.source_id, name__in=required_parents
+            )
+        }
+        for parent_name in required_parents:
+            parent = siblings_by_name.get(parent_name)
+            parent_state = (
+                None
+                if parent is None
+                else FanoutParentState(
+                    enabled=parent.should_sync,
+                    is_append=parent.is_append,
+                    has_sync_type=parent.sync_type is not None,
+                )
+            )
+            try:
+                action = resolve_fanout_parent_action(
+                    instance.name,
+                    parent_name,
+                    parent_state,
+                    requires_sync_type=source.supports_scheduled_sync,
+                )
+            except FanoutParentDependencyError as e:
+                raise ValidationError(str(e))
+            if action == "enable":
+                assert parent is not None  # "enable" implies the parent exists
+
+                # In the bulk path update() runs inside a per-schema transaction; update_should_sync
+                # does Temporal RPCs, so defer it post-commit — no idle-in-transaction network I/O,
+                # and no Temporal schedule surviving a rolled-back request.
+                def _enable_parent(parent_id: str = str(parent.id)) -> None:
+                    try:
+                        update_should_sync(schema_id=parent_id, team_id=instance.team_id, should_sync=True)
+                    except Exception:
+                        # update_should_sync commits should_sync before touching the schedule, so a
+                        # failed RPC would leave the parent "enabled" with no schedule — and the
+                        # child's run-time gate, seeing an enabled and already-initialized parent,
+                        # would keep fanning out over a table that never syncs again. Put the flag
+                        # back so the child fails loudly instead of going quietly stale.
+                        ExternalDataSchema.objects.filter(id=parent_id, team_id=instance.team_id).update(
+                            should_sync=False
+                        )
+                        raise
+
+                self._run_temporal_side_effect(_enable_parent)
+
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
@@ -945,6 +1062,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"]["reset_pipeline"] = True
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
+
+        # Switching a depended-on fan-out parent to append would accumulate duplicate rows its
+        # children then fan out over — refuse, mirroring the disable/delete protection.
+        if (
+            "sync_type" in data
+            and sync_type == ExternalDataSchema.SyncType.APPEND
+            and instance.sync_type != ExternalDataSchema.SyncType.APPEND
+        ):
+            _refuse_when_fanout_dependents(instance, _registered_source_impl(source), "switched to append sync")
+
+        # After the instance's own enable validations (sync type, CDC primary key, xmin billing):
+        # auto-enabling a parent is a committed side effect, so it must not run on a request that
+        # a later check would 400.
+        self._enforce_fanout_parent_dependencies(instance, source, should_sync)
 
         # When re-enabling a webhook schema, request a pipeline reset so a gap from the
         # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
@@ -1374,6 +1505,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
+
+        # Deleting a fan-out parent outright would strand enabled children that sync from its
+        # warehouse table — same protection as refusing to disable a depended-on parent.
+        _refuse_when_fanout_dependents(instance, _registered_source_impl(instance.source), "deleted")
 
         if instance.table:
             instance.table.soft_delete()

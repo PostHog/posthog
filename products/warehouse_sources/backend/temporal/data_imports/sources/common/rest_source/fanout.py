@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -30,6 +30,24 @@ class DependentEndpointConfig:
     include_from_parent: list[str]
     parent_field_renames: dict[str, str] = field(default_factory=dict)
     parent_params: dict[str, Any] = field(default_factory=dict)
+    # "api" re-fetches the parent endpoint each child sync (legacy behavior). "warehouse"
+    # drives the child from the parent schema's already-synced Delta table instead — the
+    # parent must then be a selectable schema with a completed initial sync (enforced at
+    # selection time and by the run-time gate in `import_data_activity_sync`).
+    parent_source: Literal["api", "warehouse"] = "api"
+
+
+def required_parents_from_endpoint_configs(endpoint_configs: Mapping[str, Any], schema_name: str) -> list[str]:
+    """Parents a schema needs synced first, derived from its fan-out config.
+
+    Generic wiring for `get_required_parent_schemas` overrides: returns the parent for
+    endpoints whose fan-out reads the parent from the warehouse, `[]` otherwise.
+    """
+    config = endpoint_configs.get(schema_name)
+    fanout = getattr(config, "fanout", None)
+    if fanout is not None and fanout.parent_source == "warehouse":
+        return [fanout.parent_name]
+    return []
 
 
 def rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -66,9 +84,13 @@ def build_dependent_resource(
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
+
+    warehouse_parent = fanout.parent_source == "warehouse" and use_warehouse_parent
 
     # page_size_param=None is for APIs whose list endpoints take no page-size param at all
     # (unpaginated, full-collection responses) — sending one would be an undocumented param.
@@ -98,6 +120,28 @@ def build_dependent_resource(
         "table_format": "delta",
     }
 
+    if warehouse_parent:
+        if not source_id:
+            raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
+        # noqa reason: keeps deltalake/pyarrow off the import path of every source module —
+        # the reader stack loads only when a warehouse-parent fan-out actually runs.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            iter_parent_pages_from_warehouse,
+            resolve_parent_table_ref,
+        )
+
+        # Resolve the parent's table now, while we're in sync source-build context — the
+        # iterator itself runs later on executor threads where ad-hoc ORM reads are fragile.
+        # This also pins the Delta version the whole fan-out reads.
+        parent_table = resolve_parent_table_ref(team_id, source_id, fanout.parent_name)
+        parent_columns = list(dict.fromkeys([fanout.resolve_field, *fanout.include_from_parent]))
+        parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
+            table=parent_table,
+            parent_name=fanout.parent_name,
+            columns=parent_columns,
+            page_size=parent_config.page_size,
+        )
+
     child_path = child_config.path
     for key, value in path_format_values.items():
         child_path = child_path.replace(f"{{{key}}}", value)
@@ -124,6 +168,12 @@ def build_dependent_resource(
                 "The child resolve/page-size params are managed by build_dependent_resource."
             )
         child_endpoint_config.update(child_endpoint_extra)
+
+    if warehouse_parent and "response_actions" not in child_endpoint_config:
+        # The warehouse snapshot can contain parents deleted upstream since the parent's
+        # last sync (incremental parents accumulate); their child fetch 404s. A fresh API
+        # parent pull would simply not list them, so treat 404 as an empty child.
+        child_endpoint_config["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
     use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
     if use_merge:

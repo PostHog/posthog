@@ -73,6 +73,7 @@ def _make_source(error: Exception, non_retryable: dict[str, str | None]):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_non_retryable_errors.return_value = non_retryable
+    source.get_required_parent_schemas.return_value = []
     source.source_for_pipeline.side_effect = error
     return source
 
@@ -321,3 +322,140 @@ async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.api_version == expected
+
+
+def _fanout_child_schema() -> mock.MagicMock:
+    schema = mock.MagicMock()
+    schema.name = "issue_events"
+    return schema
+
+
+def _fanout_source() -> mock.MagicMock:
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_required_parent_schemas.return_value = ["issues"]
+    return source
+
+
+def _parent(should_sync: bool, initial_sync_complete: bool, is_append: bool = False) -> mock.MagicMock:
+    parent = mock.MagicMock()
+    parent.should_sync = should_sync
+    parent.initial_sync_complete = initial_sync_complete
+    parent.is_append = is_append
+    return parent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "parent,expected_error",
+    [
+        (None, "must be enabled"),
+        ("disabled", "must be enabled"),
+        ("never_synced", "must complete an initial sync"),
+        ("append_mode", "append sync"),
+    ],
+)
+async def test_parent_gate_blocks_child_until_parent_ready(parent, expected_error):
+    parent_obj = None
+    if parent == "disabled":
+        parent_obj = _parent(should_sync=False, initial_sync_complete=True)
+    elif parent == "never_synced":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=False)
+    elif parent == "append_mode":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, is_append=True)
+
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(module, "get_schema_if_exists", return_value=parent_obj),
+    ):
+        with pytest.raises(NonRetryableException, match=expected_error):
+            await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+
+
+def _patch_parent_job_running(running: bool):
+    jobs_manager = mock.MagicMock()
+    jobs_manager.filter.return_value.exists.return_value = running
+    return mock.patch.object(module.ExternalDataJob, "objects", jobs_manager)
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_passes_when_parent_synced():
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(
+            module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
+        ),
+        _patch_parent_job_running(False),
+    ):
+        result = await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_retries_while_parent_job_running():
+    # A mid-rewrite parent table is a partial snapshot; the gate must refuse — but retryably
+    # (plain Exception, not NonRetryableException): the parent finishing resolves it.
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(
+            module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
+        ),
+        _patch_parent_job_running(True),
+    ):
+        with pytest.raises(Exception, match="currently syncing") as exc_info:
+            await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+
+    assert not isinstance(exc_info.value, NonRetryableException)
+
+
+@pytest.mark.asyncio
+async def test_fanout_gate_result_threaded_into_source_inputs():
+    # The gate's decision must reach the source via SourceInputs — if this wiring drops,
+    # every child silently falls back to re-pulling the parent API with the flag on.
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.get_required_parent_schemas.return_value = ["issues"]
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    source.resolve_api_version = lambda p: p or "v1"
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(
+            module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
+        ),
+        _patch_parent_job_running(False),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.fanout_warehouse_reuse is True
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_inert_when_flag_disabled():
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
+        mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
+    ):
+        result = await module._ensure_required_parents_synced(_fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1)
+
+    assert result is False
+    schema_lookup.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_inert_for_sources_without_requirements():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_required_parent_schemas.return_value = []
+
+    with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
+        result = await module._ensure_required_parents_synced(source, _fanout_child_schema(), uuid.uuid4(), 1)
+
+    assert result is False
+    flag_check.assert_not_called()

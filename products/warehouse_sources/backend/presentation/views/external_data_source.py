@@ -124,6 +124,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSourceConfig,
     DocsFetchError,
     ExternalWebhookInfo,
+    FanoutParentDependencyError,
+    FanoutParentState,
     FieldType,
     IntegrationAccountListingError,
     MySQLSource,
@@ -144,7 +146,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    is_fanout_warehouse_reuse_enabled,
     repair_cdc_source,
+    resolve_fanout_parent_action,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -2308,6 +2312,47 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # source type. None for non-direct-capable sources.
         direct_engine_adapter = get_direct_query_engine(new_source_model.direct_engine)
 
+        # Fan-out children that read their parent from the warehouse can only sync when the
+        # parent schema syncs too. Mirror the schema-update API: auto-enable a parent whose
+        # payload entry is configured, refuse when it can't be enabled. The feature-flag
+        # evaluation is remote, so it only runs once a dependency edge actually exists.
+        # (`requires` in the database_schema payload lets the wizard pre-select parents.)
+        required_parents_by_child: dict[str, list[str]] = {}
+        for schema in payload_schemas:
+            if not schema.get("should_sync", False):
+                continue
+            child_name = str(schema.get("name"))
+            required_parents = source.get_required_parent_schemas(child_name)
+            if required_parents:
+                required_parents_by_child[child_name] = required_parents
+        if required_parents_by_child and is_fanout_warehouse_reuse_enabled(self.team_id):
+            schema_entries_by_name = {schema.get("name"): schema for schema in payload_schemas}
+            for child_name, required_parents in required_parents_by_child.items():
+                for parent_name in required_parents:
+                    parent_entry = schema_entries_by_name.get(parent_name)
+                    parent_state = (
+                        None
+                        if parent_entry is None
+                        else FanoutParentState(
+                            enabled=bool(parent_entry.get("should_sync", False)),
+                            is_append=parent_entry.get("sync_type") == "append",
+                            has_sync_type=parent_entry.get("sync_type") is not None,
+                        )
+                    )
+                    try:
+                        parent_action = resolve_fanout_parent_action(
+                            child_name,
+                            parent_name,
+                            parent_state,
+                            requires_sync_type=new_source_model.supports_scheduled_sync,
+                        )
+                    except FanoutParentDependencyError as e:
+                        new_source_model.delete()
+                        return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+                    if parent_action == "enable":
+                        assert parent_entry is not None  # "enable" implies the parent entry exists
+                        parent_entry["should_sync"] = True
+
         # Create all ExternalDataSchema objects and enable syncing for active schemas
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
@@ -3078,6 +3123,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "detected_primary_keys": schema.detected_primary_keys,
                 "permission_error": endpoint_permissions.get(schema.name),
                 "rls_warning": schema.rls_warning,
+                "requires": schema.requires,
             }
             for schema in schemas
         ]

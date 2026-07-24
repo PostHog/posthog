@@ -5065,6 +5065,7 @@ class TestExternalDataSource(APIBaseTest):
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
                     "rls_warning": None,
+                    "requires": [],
                 }
             ]
 
@@ -5143,6 +5144,7 @@ class TestExternalDataSource(APIBaseTest):
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
                     "rls_warning": None,
+                    "requires": [],
                 }
             ]
 
@@ -13048,3 +13050,117 @@ class TestGithubMultiRepoPatch(APIBaseTest):
 
         removed_webhook_row.refresh_from_db()
         assert removed_webhook_row.deleted is True or removed_webhook_row.should_sync is False
+
+
+class TestFanoutParentCreationEnforcement(APIBaseTest):
+    """Source-creation counterpart of TestFanoutParentEnforcement: the payload pre-pass must
+    auto-enable a configured warehouse-fanout parent and refuse un-enableable ones, deleting
+    the half-created source on refusal."""
+
+    def _post_sentry_source(self, schemas: list[dict], flag_enabled: bool = True):
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source.SentrySource.validate_credentials",
+                return_value=(True, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.is_fanout_warehouse_reuse_enabled",
+                return_value=flag_enabled,
+            ),
+        ):
+            return self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Sentry",
+                    "created_via": "web",
+                    "payload": {
+                        "auth_token": "token",
+                        "organization_slug": "acme",
+                        "schemas": schemas,
+                    },
+                },
+            )
+
+    def test_create_auto_enables_configured_parent(self):
+        response = self._post_sentry_source(
+            [
+                {"name": "issues", "should_sync": False, "sync_type": "full_refresh"},
+                {"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"},
+            ]
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        should_sync_by_name = {
+            schema.name: schema.should_sync
+            for schema in ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.id)
+        }
+        assert should_sync_by_name["issues"] is True
+        assert should_sync_by_name["issue_events"] is True
+
+    @parameterized.expand(
+        [
+            (
+                "unconfigured_parent",
+                {"name": "issues", "should_sync": False},
+                "Set up and enable 'issues' first",
+            ),
+            (
+                "append_parent",
+                {"name": "issues", "should_sync": True, "sync_type": "append"},
+                "'issues' can't use append sync",
+            ),
+            (
+                "missing_parent",
+                None,
+                "this source has no 'issues' schema",
+            ),
+        ]
+    )
+    def test_create_refuses_child_without_usable_parent_and_deletes_source(self, _name, parent_entry, expected_message):
+        schemas = [{"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"}]
+        if parent_entry is not None:
+            schemas.insert(0, parent_entry)
+
+        response = self._post_sentry_source(schemas)
+
+        assert response.status_code == 400
+        assert expected_message in response.json()["message"]
+        # Refusal must not leave the half-created source (or its schemas) behind.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk).count() == 0
+
+    def test_create_inert_when_flag_disabled(self):
+        # Rollback guarantee: with the flag off, a child without a usable parent still creates.
+        response = self._post_sentry_source(
+            [
+                {"name": "issues", "should_sync": False},
+                {"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"},
+            ],
+            flag_enabled=False,
+        )
+
+        assert response.status_code == 201, response.json()
+
+    def test_database_schema_surfaces_requires_for_fanout_children(self):
+        # `requires` is what lets the wizard pre-select parents; dropping it regresses to a
+        # post-submit 400 at creation.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source.SentrySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Sentry",
+                    "auth_token": "token",
+                    "organization_slug": "acme",
+                },
+            )
+
+        assert response.status_code == 200, response.json()
+        requires_by_table = {entry["table"]: entry.get("requires") for entry in response.json()}
+        assert requires_by_table["issue_events"] == ["issues"]
+        assert requires_by_table["issue_hashes"] == ["issues"]
+        assert requires_by_table["issue_tag_values"] == ["issues"]
+        assert requires_by_table["issues"] == []

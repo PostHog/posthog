@@ -579,6 +579,27 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 
 **Custom iterator only when fan-out is 2+ levels deep.** Reuse the same pagination/retry helpers as elsewhere.
 
+### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
+
+By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
+Opt a child endpoint into warehouse parent reuse by setting `parent_source="warehouse"` on its `DependentEndpointConfig`:
+the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
+Reference implementation: Sentry (`issue_events` / `issue_hashes` via the config flag, `issue_tag_values` via the custom iterator calling the reader directly).
+
+Requirements and behavior:
+
+- **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
+- **Hard dependency, enforced twice.** Declare it by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints) and populate `SourceSchema.requires` in `get_schemas`.
+  The schema API then refuses to enable a child without its parent (and auto-enables a configured parent), and `import_data_activity_sync` fails a child run with an actionable error until the parent has `should_sync=True` and `initial_sync_complete=True`.
+- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
+- **Append-mode parents are refused, not deduped.** Append parents accumulate one row per sync per parent, and streaming dedupe would need unbounded state — so the dependency gates (schema API, source creation, run-time gate) reject an append parent with a switch-to-incremental message. Merge and full-refresh parents are unique per key by construction.
+- **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
+- **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
+- **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
+- **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
+- **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(...)` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
+
 ## OAuth configuration
 
 Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
