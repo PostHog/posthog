@@ -11,6 +11,7 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "load_or_mint_dev_oidc_rsa_key",
     "str_to_bool",
 ]
 
@@ -46,6 +47,57 @@ def generate_rsa_private_key_pem() -> str:
         encryption_algorithm=serialization.NoEncryption(),
     )
     return pem.decode("utf-8")
+
+
+def load_or_mint_dev_oidc_rsa_key() -> str:
+    """Return a persistent RSA private key for local dev OIDC signing.
+
+    First launch mints an ephemeral key and writes it to disk; subsequent Django
+    restarts read the same key back. Keeps client OAuth sessions valid across
+    dev-server reloads. Path defaults to <real-home>/.posthog-dev/oidc-rsa.pem
+    (dedicated dir; doesn't collide with the CLI's ~/.posthog/). Override with
+    DEV_OIDC_RSA_KEY_PATH.
+
+    Resolves the real home via `pwd.getpwuid(os.getuid())` rather than `HOME`,
+    since some launchers (debugpy from IDE debug sessions, sandboxed dev-server
+    supervisors) don't propagate HOME to the child process and `Path.expanduser`
+    would resolve `~` to the wrong place — silently minting a fresh key every
+    restart.
+
+    Any I/O failure (unwriteable path, weird ACL, race with a sibling worker)
+    falls back to an ephemeral key with a stderr warning. That trades OAuth
+    session stability for keeping Django bootable — the alternative is a
+    crash-loop that blocks all local dev.
+    """
+    import pwd  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    override = os.getenv("DEV_OIDC_RSA_KEY_PATH")
+    if override:
+        path = Path(override).expanduser()
+    else:
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        path = Path(home) / ".posthog-dev" / "oidc-rsa.pem"
+    try:
+        if path.is_file():
+            return path.read_text()
+    except OSError:
+        # Unreadable path (perms, symlink loop) — fall through to mint + write.
+        pass
+    pem = generate_rsa_private_key_pem()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(pem)
+        path.chmod(0o600)
+    except OSError as e:
+        # Never crash-loop Django on a dev-only convenience: log to stderr and
+        # return the ephemeral key. OAuth sessions may rotate on the next
+        # restart until the user fixes the path.
+        print(  # noqa: T201
+            f"[settings] WARNING: could not persist dev OIDC key to {path}: {e}. "
+            f"Falling back to ephemeral — client OAuth sessions will invalidate on Django restart.",
+        )
+    return pem
 
 
 def get_from_env(
