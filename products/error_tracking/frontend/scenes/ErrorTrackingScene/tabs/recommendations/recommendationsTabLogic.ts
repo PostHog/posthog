@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -193,6 +194,12 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             try {
                 const response = await api.errorTracking.listRecommendations()
                 actions.setRecommendations(response.results)
+                posthog.capture('error_tracking_recommendations_viewed', {
+                    open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
+                    completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
+                    dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
+                    total_count: response.results.length,
+                })
             } finally {
                 actions.setRecommendationsLoading(false)
             }
@@ -220,6 +227,9 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         dismissRecommendation: async ({ id }) => {
             const updated = await api.errorTracking.dismissRecommendation(id)
             actions.upsertRecommendation(updated)
+            posthog.capture('error_tracking_recommendation_dismissed', {
+                recommendation_type: updated.type,
+            })
         },
         restoreRecommendation: async ({ id }) => {
             const updated = await api.errorTracking.restoreRecommendation(id)
@@ -227,6 +237,9 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         },
         suppressIssue: async ({ issueId }) => {
             await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
+            posthog.capture('error_tracking_long_running_issue_suppressed', {
+                issue_id: issueId,
+            })
             const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
             if (!longRunning) {
                 return
