@@ -68,13 +68,23 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     deduped and gets processed again.
     """
 
-    def __init__(self) -> None:
-        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+    @workflow.init
+    def __init__(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         self._processing = False
         # Dedup for Slack event redeliveries: signals have no server-side
         # dedup the way per-message workflow IDs did. A dict, not a set, so
         # iteration order stays deterministic for the continue_as_new carry-over.
-        self._seen_keys: dict[str, None] = {}
+        #
+        # Seed the queue and dedup keys from the continue_as_new carry-over here,
+        # not in run(): @workflow.init runs before any signal handler, so a
+        # new_message signal buffered into the same first workflow task cannot be
+        # processed before these keys exist. Seeding in run() left a race where a
+        # redelivered event slipped past dedup and got queued.
+        self._seen_keys: dict[str, None] = dict.fromkeys(inputs.processed_event_keys)
+        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+        for message in inputs.pending_messages:
+            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
+            self._queue.append(message)
 
     @workflow.signal
     async def new_message(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
@@ -158,12 +168,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
-        for key in inputs.processed_event_keys:
-            self._seen_keys[key] = None
-        for message in inputs.pending_messages:
-            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
-            self._queue.append(message)
-
+        # State is seeded from inputs in __init__ (@workflow.init), before any
+        # signal handler can run.
         while True:
             try:
                 await workflow.wait_condition(
