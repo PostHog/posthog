@@ -6,6 +6,8 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -443,6 +445,40 @@ class TestS3Table(BaseTest):
             res
             == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
         )
+
+    @parameterized.expand(
+        [
+            # Our own bucket, local: rewritten to http so chdb/CH don't hang on TLS against the
+            # plain-HTTP objectstorage.
+            (
+                "local_our_bucket_rewritten",
+                True,
+                "objectstorage:19000",
+                "https://objectstorage:19000/file_uploads/team_1/abc/data.parquet",
+                "http://objectstorage:19000/file_uploads/team_1/abc/data.parquet",
+            ),
+            # A customer's own bucket must never be rewritten, even locally — that would break the read.
+            (
+                "local_customer_bucket_untouched",
+                True,
+                "objectstorage:19000",
+                "https://customer-bucket.s3.amazonaws.com/exports/data.parquet",
+                "https://customer-bucket.s3.amazonaws.com/exports/data.parquet",
+            ),
+            # Prod: our bucket stays https (the whole point of gating on USE_LOCAL_SETUP).
+            (
+                "prod_our_bucket_stays_https",
+                False,
+                "cdn.posthog.example",
+                "https://cdn.posthog.example/file_uploads/team_1/abc/data.parquet",
+                "https://cdn.posthog.example/file_uploads/team_1/abc/data.parquet",
+            ),
+        ]
+    )
+    def test_s3_build_function_call_local_bucket_scheme(self, _name, use_local, domain, url, expected_url):
+        with override_settings(USE_LOCAL_SETUP=use_local, DATAWAREHOUSE_BUCKET_DOMAIN=domain):
+            res = build_function_call(url, DataWarehouseTable.TableFormat.Parquet, None, "key", "secret", None, None)
+        assert res == f"s3('{expected_url}', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_with_debug_disabled(self):
         with (
