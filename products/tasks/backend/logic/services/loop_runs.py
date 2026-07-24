@@ -27,7 +27,10 @@ from products.tasks.backend.loop_service import pause_loop_schedules, signal_loo
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
-from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
+from products.tasks.backend.temporal.process_task.utils import (
+    get_default_model_for_runtime_adapter,
+    get_supported_reasoning_efforts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,13 @@ LOOP_RATE_CAP_PER_DAY = 100
 LOOP_TEAM_RATE_CAP_PER_DAY = 500
 LOOP_AUTO_PAUSE_THRESHOLD = 5
 TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
+
+# Stored on Loop.disabled_reason when the kill-switch pauses a loop, so clients can render the
+# cause (and a billing CTA for usage_limited) instead of a bare "Paused". Lifecycle pause codes
+# (owner deactivated/removed, GitHub disconnected) live in loop_lifecycle.py; re-enabling clears
+# the field in facade/loops.py::update_loop either way.
+DISABLED_REASON_USAGE_LIMITED = "usage_limited"
+DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -63,6 +73,21 @@ LOOP_FRAMING_BLOCK = (
     "you are still working or waiting; leaving the run idle just wastes the sandbox "
     "until it times out."
 )
+
+
+def render_loop_run_message(loop_instructions: str, execution_context: str) -> str:
+    # PostHog Code strips this established wrapper from user-message bubbles while still sending
+    # its contents to the agent, keeping run-only guidance out of the user's saved prompt.
+    escaped_execution_context = execution_context.replace(
+        "</user_custom_instructions>", "&lt;/user_custom_instructions&gt;"
+    )
+    hidden_context = (
+        "<user_custom_instructions>\n"
+        "The following system-generated instructions apply to this unattended loop run. Follow them.\n\n"
+        f"{escaped_execution_context}\n"
+        "</user_custom_instructions>"
+    )
+    return f"{hidden_context}\n\n{loop_instructions}"
 
 
 # Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
@@ -279,7 +304,9 @@ def fire_loop(
     # advisory lock across it would stall every other fire for the team.
     gate_owner_id = loop.created_by_id
     if _usage_gate_blocked(loop):
-        _increment_consecutive_failures_and_maybe_pause(loop, error="cloud usage limit exceeded")
+        _increment_consecutive_failures_and_maybe_pause(
+            loop, error="cloud usage limit exceeded", disabled_reason=DISABLED_REASON_USAGE_LIMITED
+        )
         observe_loop_fire(reason="gate_blocked")
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
@@ -481,6 +508,150 @@ def _team_rate_capped(loop: Loop) -> bool:
     return fire_count >= LOOP_TEAM_RATE_CAP_PER_DAY
 
 
+def _seed_skill_bundles_and_dispatch(
+    *,
+    task_run: TaskRun,
+    team_id: int,
+    user_id: int | None,
+    task_id: str,
+    run_id: str,
+    create_pr: bool,
+    posthog_mcp_scopes: PosthogMcpScopes,
+) -> None:
+    """Post-commit tail of a fire: seed the run's snapshotted skill bundles, then
+    dispatch the Temporal workflow. Seeding copies S3 objects, and
+    ``_fire_loop_committed`` holds the team-wide advisory lock for its whole transaction
+    — an external call under that lock would serialize every fire for the team behind S3
+    latency (the same reason the usage gate runs before the lock and dispatch runs after
+    commit). Post-commit there is no rollback to lean on, so a failed seed compensates
+    instead: the run is terminalized as failed (feeding the loop's failure bookkeeping)
+    and the workflow is never dispatched, so the agent can't run with silently missing
+    skills."""
+    try:
+        _seed_skill_bundle_artifacts(task_run)
+    except Exception as exc:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"task_run_id": run_id, "error": str(exc)},
+        )
+        from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — breaks the temporal.client -> loop_runs import cycle
+            _terminalize_unstarted_task_run,
+        )
+
+        _terminalize_unstarted_task_run(run_id, "Failed to stage the loop's skill bundles for this run")
+        return
+
+    _execute_task_processing_workflow_for_loop(
+        team_id=team_id,
+        user_id=user_id,
+        task_id=task_id,
+        run_id=run_id,
+        create_pr=create_pr,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+    )
+
+
+def ensure_loop_skill_bundles_seeded(task_run: TaskRun) -> bool:
+    """Idempotently seed a loop run's skill bundles ahead of an out-of-band dispatch.
+
+    The orphaned-QUEUED reconciler recovers runs whose create-time ``on_commit`` callback
+    was lost — the same callback that seeds skill bundles — so re-dispatching without this
+    check would silently start the run with its skills missing. Seeds strictly from the
+    snapshot captured on the run at fire time, never from the live loop: the loop's
+    bundles (and its owner) may have changed since, and the run executes with the
+    credentials captured at fire time. Returns False when seeding was needed but failed;
+    the caller must not dispatch (the next sweep retries)."""
+    task = task_run.task
+    if task.origin_product != Task.OriginProduct.LOOP or task.loop_id is None:
+        return True
+    already_seeded = any(
+        isinstance(entry, dict) and entry.get("type") == "skill_bundle" for entry in (task_run.artifacts or [])
+    )
+    if already_seeded:
+        return True
+    try:
+        _seed_skill_bundle_artifacts(task_run)
+    except Exception:
+        logger.exception(
+            "loop_run.skill_bundle_seed_failed",
+            extra={"task_run_id": str(task_run.id)},
+        )
+        return False
+    return True
+
+
+def _snapshot_skill_bundle_seeds(loop: Loop) -> list[dict]:
+    """The bundle entries a fire freezes onto its run's state. Seeding always reads this
+    snapshot rather than the loop row, so a later replace or ownership takeover can't
+    swap which skills an already-created run installs."""
+    return [entry for entry in (loop.skill_bundles or []) if isinstance(entry, dict) and entry.get("storage_path")]
+
+
+def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
+    """Copy the run's snapshotted skill bundles into place: S3 objects under the run's
+    artifact prefix plus matching ``skill_bundle`` manifest entries, so the sandbox
+    agent-server installs them exactly like bundles a client uploaded at task creation.
+    Raises on a failed copy; the caller compensates. Already-copied objects are deleted
+    best-effort before re-raising, since nothing would ever reference them."""
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    seeds = state.get("skill_bundle_seeds")
+    bundles = [entry for entry in (seeds or []) if isinstance(entry, dict) and entry.get("storage_path")]
+    if not bundles:
+        return
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    # `state` is a client-PATCHable surface (the seeds key is server-protected, but this
+    # copy primitive must not trust it anyway): every source path has to sit under the
+    # owning loop's own bundle prefix, and the target segments are re-sanitized, or a
+    # forged entry would read or write arbitrary bucket keys via the recovery path.
+    loop_id = task_run.task.loop_id
+    if loop_id is None:
+        raise ValueError("skill bundle seeds on a run without a loop")
+    loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, loop_id)}/"
+
+    run_prefix = task_run.get_artifact_s3_prefix()
+    manifest = list(task_run.artifacts or [])
+    copied_paths: list[str] = []
+    try:
+        for bundle in bundles:
+            entry = dict(bundle)
+            source_path = str(entry["storage_path"])
+            if not source_path.startswith(loop_prefix):
+                raise ValueError("skill bundle seed escapes the loop's storage prefix")
+            entry_id = str(entry["id"])
+            if not re.fullmatch(r"[0-9a-f]{8,64}", entry_id):
+                raise ValueError("skill bundle seed has a malformed id")
+            entry["name"] = get_safe_artifact_name(str(entry["name"]))
+            target_path = f"{run_prefix}/{entry_id[:8]}_{entry['name']}"
+            object_storage.copy(source_path, target_path)
+            copied_paths.append(target_path)
+            try:
+                object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})
+            except Exception as exc:
+                logger.warning(
+                    "loop_run.skill_bundle_tag_failed",
+                    extra={"task_run_id": str(task_run.id), "storage_path": target_path, "error": str(exc)},
+                )
+            entry["storage_path"] = target_path
+            manifest.append(entry)
+
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+    except Exception:
+        if copied_paths:
+            try:
+                object_storage.delete_objects(copied_paths)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "loop_run.skill_bundle_seed_cleanup_failed",
+                    extra={"task_run_id": str(task_run.id), "paths": copied_paths, "error": str(cleanup_exc)},
+                )
+        raise
+
+
 def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_context: str) -> tuple[Task, TaskRun]:
     repository: str | None = None
     github_integration_id: int | None = None
@@ -494,9 +665,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
-    description = "\n\n".join(
-        part for part in [LOOP_FRAMING_BLOCK, loop.instructions, context_block, trigger_context] if part
-    )
+    execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
+    pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
     feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
 
@@ -504,7 +674,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         team_id=loop.team_id,
         created_by_id=loop.created_by_id,
         title=title,
-        description=description,
+        description=loop.instructions,
         origin_product=Task.OriginProduct.LOOP,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -520,16 +690,23 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "repositories": loop.repositories,
         "context_target": context_target,
     }
+    # A loop with no pinned model deliberately stays unset on the row; the
+    # default is resolved per fire so it can improve over time. A stored effort
+    # the resolved model doesn't support (a default change can shrink the
+    # supported set under existing loops) falls back to auto rather than
+    # launching a run the runtime would reject.
+    effective_model = loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter)
+    supported_efforts = {e.value for e in get_supported_reasoning_efforts(loop.runtime_adapter, effective_model)}
+    reasoning_effort = loop.reasoning_effort if loop.reasoning_effort in supported_efforts else None
     extra_state: dict[str, Any] = {
         "loop_id": str(loop.id),
         "loop_trigger_id": str(trigger.id) if trigger is not None else None,
         "trigger_context": trigger_context,
         "runtime_adapter": loop.runtime_adapter,
-        # A loop with no pinned model deliberately stays unset on the row; the
-        # default is resolved per fire so it can improve over time.
-        "model": loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter),
-        "reasoning_effort": loop.reasoning_effort,
+        "model": effective_model,
+        "reasoning_effort": reasoning_effort,
         "config_snapshot": config_snapshot,
+        "pending_user_message": pending_user_message,
     }
     # Carries the loop's sandbox secrets/network policy into the run the same way a
     # regular task's sandbox_environment_id flows through Task._build_task.
@@ -562,6 +739,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "slack_thread_context": None,
         "workflow_id_prefix": None,
     }
+    # Freeze the bundle set on the run itself: seeding (post-commit and reconciler
+    # recovery alike) reads only this snapshot, so a later replace or ownership takeover
+    # can't change which skills this run installs under its captured credentials.
+    bundle_seeds = _snapshot_skill_bundle_seeds(loop)
+    if bundle_seeds:
+        extra_state["skill_bundle_seeds"] = bundle_seeds
+
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
     team_id = loop.team_id
@@ -570,7 +754,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     run_id = str(task_run.id)
 
     transaction.on_commit(
-        lambda: _execute_task_processing_workflow_for_loop(
+        lambda: _seed_skill_bundles_and_dispatch(
+            task_run=task_run,
             team_id=team_id,
             user_id=user_id,
             task_id=task_id,
@@ -614,7 +799,7 @@ def _execute_task_processing_workflow_for_loop(
     )
 
 
-def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -> None:
+def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, disabled_reason: str) -> None:
     should_pause = False
     with transaction.atomic():
         locked_loop = Loop.objects.for_team(loop.team_id, canonical=True).select_for_update().get(id=loop.id)
@@ -623,7 +808,8 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -
         update_fields = ["consecutive_failures", "last_error", "updated_at"]
         if locked_loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and locked_loop.enabled:
             locked_loop.enabled = False
-            update_fields.append("enabled")
+            locked_loop.disabled_reason = disabled_reason
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         locked_loop.save(update_fields=update_fields)
 
@@ -672,7 +858,8 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
         if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
-            update_fields.append("enabled")
+            loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
 

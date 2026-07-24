@@ -1076,6 +1076,41 @@ class TestTicketAssignment(APIBaseTest):
         returned_ids = {result["id"] for result in response.json()["results"]}
         self.assertEqual(returned_ids, {str(tickets[key].id) for key in expected_keys})
 
+    def test_filter_by_me_resolves_to_requesting_user(self):
+        """The dynamic `me` token filters to whoever is making the request."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        other_user = User.objects.create_and_join(self.organization, "other-me@posthog.com", None)
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+        TicketAssignment.objects.create(ticket=other_ticket, user=other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_by_me_combined_with_unassigned(self):
+        """`me` composes with other assignee entries in a match-any list."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        unassigned_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="unassigned-session",
+            distinct_id="unassigned-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me,unassigned")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(self.ticket.id), str(unassigned_ticket.id)})
+
     def test_assignment_logs_activity(self):
         """Test that assignment changes are logged in activity log."""
         response = self.client.patch(
@@ -1624,6 +1659,52 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
             index_info = get_index_from_explain(subquery, index_name)
             assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFilter(APIBaseTest):
+    """Tests the `emails` query param used by the previous-tickets panel to match related tickets."""
+
+    def _create_ticket(self, distinct_id, email_from=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    def _numbers(self, response):
+        return {r["ticket_number"] for r in response.json()["results"]}
+
+    def test_filter_by_email_matches_email_from_case_insensitively(self, mock_on_commit):
+        match = self._create_ticket(distinct_id="did-1", email_from="Alice@Example.com")
+        self._create_ticket(distinct_id="did-2", email_from="bob@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=alice@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {match.ticket_number}
+
+    def test_filter_by_distinct_ids_or_emails_returns_union(self, mock_on_commit):
+        by_did = self._create_ticket(distinct_id="did-1", email_from="unrelated@example.com")
+        by_email = self._create_ticket(distinct_id="did-2", email_from="alice@example.com")
+        self._create_ticket(distinct_id="did-3", email_from="bob@example.com")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?distinct_ids=did-1&emails=alice@example.com"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
+
+    def test_filter_by_email_no_match_returns_empty(self, mock_on_commit):
+        self._create_ticket(distinct_id="did-1", email_from="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=nobody@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 0
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

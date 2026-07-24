@@ -369,6 +369,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 child_exprs.append(self._build_step_query(child, table_entity))
             if step_entity.operator == FilterLogicalOperator.OR_:
                 event_expr = ast.Or(exprs=child_exprs)
+            else:
+                raise ValidationError(
+                    f"Funnel step event groups only support the OR operator, got {step_entity.operator}"
+                )
         elif step_entity.event is None:
             # all events
             if isinstance(table_entity, FunnelsDataWarehouseNode):
@@ -543,10 +547,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if isinstance(table_entity, FunnelsDataWarehouseNode):
                 if field == "uuid":
                     resolved_field = self.get_warehouse_field(table_entity.table_name, table_entity.id_field)
-                    if isinstance(resolved_field, UUIDDatabaseField):
+                    # Only non-nullable UUID columns may skip the null guard below
+                    if isinstance(resolved_field, UUIDDatabaseField) and not resolved_field.is_nullable():
                         return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
                     else:
-                        # Handle non-UUID fields:
+                        # Handle nullable or non-UUID fields:
                         # 1. Throw if we're encountering a null value.
                         # 2. Try to cast strings to UUID directly.
                         # 3. As a last resort, create a UUID by hashing the value with a table prefix.

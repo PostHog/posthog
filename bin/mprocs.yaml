@@ -482,6 +482,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    personhog-identity:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-identity
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
     personhog-etcd-init:
         shell: |-
             bin/wait-for-docker && \

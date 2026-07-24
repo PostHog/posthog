@@ -25,10 +25,8 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,
@@ -56,8 +54,6 @@ import {
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-
-const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -118,7 +114,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         deleteTable,
         loadJobs,
     } = useActions(sourceSettingsLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
@@ -295,30 +290,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     showMetrics={showMetrics}
                 />
             )}
-            {source?.source_type &&
-                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
-                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            className="mt-2"
-                            tooltip="This source is feeding data into our Revenue analytics product - currently in alpha."
-                            onClick={() => {
-                                addProductIntentForCrossSell({
-                                    from: ProductKey.DATA_WAREHOUSE,
-                                    to: ProductKey.REVENUE_ANALYTICS,
-                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                                })
-                                router.actions.push(urls.revenueAnalytics())
-                            }}
-                        >
-                            See data in Revenue analytics
-                            <LemonTag className="ml-2" type="danger" size="small">
-                                ALPHA
-                            </LemonTag>
-                        </LemonButton>
-                    </div>
-                )}
         </>
     )
 }

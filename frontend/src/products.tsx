@@ -191,7 +191,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
-    '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/code_review': ['CodeReview', 'codeReview'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
@@ -769,12 +768,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    RevenueAnalytics: {
-        name: 'Revenue Analytics',
-        projectBased: true,
-        iconType: 'revenue_analytics',
-        description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
-    },
     CodeReview: {
         name: 'Code review',
         projectBased: true,
@@ -965,7 +958,8 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-    customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+    customerAnalyticsConfiguration: (tab?: string): string =>
+        `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
@@ -1293,7 +1287,6 @@ export const productUrls = {
     replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
-    revenueAnalytics: (): string => '/revenue_analytics',
     codeReview: (): string => '/code_review',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
@@ -1450,13 +1443,6 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.productTour(ref),
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'product_tour',
-    },
-    revenue: {
-        name: 'Revenue',
-        iconType: 'revenue_analytics' as FileSystemIconType,
-        href: () => urls.revenueAnalytics(),
-        iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
-        filterKey: 'revenue',
     },
     session_recording_playlist: {
         name: 'Replay playlist',
@@ -2175,17 +2161,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
     {
-        path: 'Revenue analytics',
-        intents: [ProductKey.REVENUE_ANALYTICS],
-        category: ProductItemCategory.ANALYTICS,
-        href: urls.revenueAnalytics(),
-        type: 'revenue',
-        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
-        tags: ['alpha'],
-        sceneKey: 'RevenueAnalytics',
-        sceneKeys: ['RevenueAnalytics'],
-    },
-    {
         path: 'SQL editor',
         intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
         category: ProductItemCategory.ANALYTICS,
@@ -2510,8 +2485,8 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Schema',
         iconType: 'revenue_analytics_metadata' as FileSystemIconType,
         href: urls.revenueSettings(),
-        sceneKey: 'RevenueAnalytics',
-        sceneKeys: ['RevenueAnalytics'],
+        sceneKey: 'DataManagement',
+        sceneKeys: [],
     },
     { path: 'SQL variables', category: 'Schema', href: urls.variables(), sceneKeys: ['SqlVariableEdit'] },
     {

@@ -408,6 +408,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 entry = raw_entry.strip()
                 if entry.lower() == "unassigned":
                     include_unassigned = True
+                elif entry.lower() == "me":
+                    # Dynamic per-viewer token: resolve to the requesting user so a
+                    # shared saved view scoped to "me" means each viewer's own tickets.
+                    if self.request.user and self.request.user.is_authenticated:
+                        user_ids.append(self.request.user.id)
                 elif entry.startswith("user:"):
                     try:
                         user_ids.append(int(entry[5:]))
@@ -440,11 +445,29 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
+        # Related-ticket matching: a ticket belongs to the same customer if it shares one of the
+        # person's merged distinct_ids OR the same email address. Email widens the match to tickets
+        # whose distinct_id was never merged into the person (a separate anonymous session, or an
+        # email-only ticket). The two params OR together when both are supplied.
+        match_q = Q()
+
         distinct_ids_param = self.request.query_params.get("distinct_ids")
         if distinct_ids_param:
             ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
             if ids:
-                queryset = queryset.filter(distinct_id__in=ids)
+                match_q |= Q(distinct_id__in=ids)
+
+        emails_param = self.request.query_params.get("emails")
+        if emails_param:
+            emails = [e.strip() for e in emails_param.split(",") if e.strip()][:100]
+            email_q = Q()
+            for email in emails:
+                email_q |= Q(email_from__iexact=email)
+            if email_q:
+                match_q |= email_q
+
+        if match_q:
+            queryset = queryset.filter(match_q)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
@@ -690,7 +713,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 description=(
                     "Filter by assignee. Accepts a single value or a comma-separated list "
                     "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
-                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
+                    "`me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, "
+                    "e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(
@@ -713,6 +737,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "emails",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of email addresses to filter by, matched case-insensitively "
+                    "against `email_from` (max 100). When combined with `distinct_ids`, tickets matching "
+                    "either the distinct_ids or the emails are returned (OR)."
+                ),
             ),
             OpenApiParameter(
                 "search",
