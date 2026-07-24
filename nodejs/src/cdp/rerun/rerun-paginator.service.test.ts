@@ -42,7 +42,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer')
  * collapse query all line up.
  */
 describe('RerunPaginatorService integration', () => {
-    jest.setTimeout(60_000)
+    jest.setTimeout(180_000)
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
@@ -81,6 +81,12 @@ describe('RerunPaginatorService integration', () => {
             invocation_id: string
             status: 'running' | 'succeeded' | 'failed'
             error?: Error
+            // Stable error_kind stamped on the row (e.g. 'janitor_poison_pill').
+            // When omitted it is derived from the error message, as before.
+            errorKind?: string
+            // Prior rerun count → the row's `attempts` column, for exercising the
+            // max_attempts filter. Defaults to 0.
+            rerunAttempts?: number
             scheduledAt?: Date
         }>
     ): Promise<void> => {
@@ -100,6 +106,7 @@ describe('RerunPaginatorService integration', () => {
                     globals: globals as any,
                     timings: [],
                     attempts: 0,
+                    rerunAttempts: r.rerunAttempts,
                 },
                 teamId: team.id,
                 functionId: hogFunction.id,
@@ -108,9 +115,10 @@ describe('RerunPaginatorService integration', () => {
                 queuePriority: 0,
                 queueScheduledAt: r.scheduledAt ? ({ toJSDate: () => r.scheduledAt } as any) : undefined,
             }
-            seedingService.queueLifecycleRow(invocation, r.status, { error: r.error })
+            seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
         // test waits for *all* rows (rather than trivially passing on the
@@ -118,6 +126,10 @@ describe('RerunPaginatorService integration', () => {
         seededCount += rows.length
         const expected = seededCount
 
+        // Seed visibility rides the shared Kafka -> ClickHouse pipe, whose consumer may still be
+        // chewing a backlog from whichever suite the shard ran just before this one (run order
+        // shifts whenever sibling files change size). The deadline is sized for that worst case;
+        // waitForExpect polls, so a healthy pipe still completes in seconds.
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
                 `SELECT count() AS c FROM hog_invocation_results
@@ -125,7 +137,7 @@ describe('RerunPaginatorService integration', () => {
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 30_000)
+        }, 90_000)
     }
 
     // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
@@ -171,7 +183,7 @@ describe('RerunPaginatorService integration', () => {
                  WHERE team_id = ${team.id} AND invocation_id = '${invocationId}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
-        }, 30_000)
+        }, 90_000)
     }
 
     beforeAll(async () => {
@@ -481,6 +493,64 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(0)
             expect(next.progress.done).toBe(true)
             expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('max_attempts filter (poison-pill autodrain path)', () => {
+        // Regression guard for the aggregate-inside-aggregate ClickHouse error: with
+        // max_attempts set, fetchPage adds `argMax(attempts, version) < {max_attempts}`
+        // to HAVING. If the SELECT alias is named `attempts` it shadows the raw column,
+        // so `attempts` inside the HAVING argMax resolves to the alias (itself an
+        // aggregate) → ClickHouse rejects every page. No other test sets max_attempts
+        // (the manual-rerun UI leaves it unset), so this whole clause was dormant until
+        // the autodrain became the first caller to set it unconditionally.
+        it('runs a valid query and honours the cap when max_attempts is set', async () => {
+            await seedRows([
+                {
+                    invocation_id: 'pp-under-cap',
+                    status: 'failed',
+                    error: new Error('poison pill'),
+                    errorKind: 'janitor_poison_pill',
+                    rerunAttempts: 1,
+                },
+                {
+                    invocation_id: 'pp-over-cap',
+                    status: 'failed',
+                    error: new Error('poison pill'),
+                    errorKind: 'janitor_poison_pill',
+                    rerunAttempts: 5,
+                },
+            ])
+
+            // The exact filter the autodrain enqueues.
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        status: ['failed'],
+                        error_kind: ['janitor_poison_pill'],
+                        max_attempts: 3,
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            // The query executed — without the alias fix this is the CH
+            // aggregate-inside-aggregate error and every page fails here.
+            expect(next.progress.last_error).toBeUndefined()
+
+            // Under the cap is re-enqueued; over the cap is filtered by the HAVING clause.
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id)).toEqual(['pp-under-cap'])
+            expect(next.progress.queued).toBe(1)
+            expect(next.progress.done).toBe(true)
         })
     })
 

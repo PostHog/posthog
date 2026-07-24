@@ -38,7 +38,7 @@ def stamphog_github_webhook(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return HttpResponse(status=405)
 
-    secret = getattr(settings, "STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+    secret = getattr(settings, "STAMPHOG_GITHUB_APP_WEBHOOK_SECRET", "")
     if not secret:
         logger.error("stamphog_webhook_not_configured")
         return HttpResponse("Webhook not configured", status=500)

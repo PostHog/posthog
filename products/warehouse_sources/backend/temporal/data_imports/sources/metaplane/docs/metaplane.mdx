@@ -1,0 +1,68 @@
+---
+title: Linking Metaplane as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Metaplane
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/metaplane.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Metaplane by Datadog](https://www.metaplane.dev) is a data observability platform that monitors the
+tables and columns in your warehouse for anomalies (row counts, freshness, nullness, and more). Linking
+it as a source syncs your monitors and their full evaluation history into the PostHog Data warehouse, so
+you can report on data-quality SLAs, track when monitors ran, and analyze pass/fail rates and
+expected-vs-actual bounds over time.
+
+## Prerequisites
+
+To connect Metaplane, you need:
+
+- A paid Metaplane plan (API access is not available on the free tier).
+- An API key generated in your Metaplane account settings.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open Metaplane and generate an API key in your account settings.
+2. Copy the key and paste it into the **API key** field in PostHog.
+
+## Sync modes
+
+<SyncModes />
+
+The `monitor_evaluations` table supports **incremental** sync: each sync pulls only evaluations created
+since the last one, across all of your monitors. Monitors added after the initial sync are picked up
+from that point forward — run a full refresh if you need their complete history. The other tables
+(connections, monitors, and the latest sync status per connection) are small and sync as a full refresh.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+Tag endpoints aren't synced: Metaplane's API only returns tag data for tag names you already know, so
+there is no way to enumerate them.
+
+## Troubleshooting
+
+- **"Invalid Metaplane API key"** when connecting: the key is wrong or has been revoked, or your plan
+  doesn't include API access. Generate a new key in your Metaplane account settings and re-enter it.
+
+<TroubleshootingLink />

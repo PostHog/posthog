@@ -28,14 +28,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserUseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
+    BrowserUseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://docs.browser-use.com/cloud/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -94,29 +102,28 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # The Browser Use v3 list endpoints expose no server-side created/updated-since filter and
         # no sort parameter, so there is no reliable way to fetch only new rows. Every endpoint is
-        # therefore full-refresh only — declaring incremental would advertise a mode that still
-        # scans the whole list each run.
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = BROWSER_USE_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # therefore full-refresh only (no incremental fields declared) — declaring incremental
+        # would advertise a mode that still scans the whole list each run.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {},
+            names,
+            should_sync_default={
+                endpoint: endpoint_config.should_sync_default
+                for endpoint, endpoint_config in BROWSER_USE_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
-        self, config: BrowserUseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BrowserUseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_browser_use_credentials(config.api_key):
             return True, None
@@ -138,6 +145,7 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         return browser_use_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

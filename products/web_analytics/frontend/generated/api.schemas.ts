@@ -283,6 +283,13 @@ export interface PatchedSavedHeatmapRequestApi {
     block_consent_modals?: boolean
 }
 
+export interface HeatmapPrewarmRequestApi {
+    /** Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed. */
+    url: string
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
+    block_consent_modals?: boolean
+}
+
 /**
  * * `Up` - Up
  * * `Down` - Down

@@ -1,17 +1,20 @@
 import re
-import json
 import logging
 import threading
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import BaseModel, Field
 from temporalio import activity
 
 if TYPE_CHECKING:
     import modal
 
+    from posthog.llm.gateway_client import Product
+
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.tasks.backend.logic.services.image_spec import (
     SandboxImageSpec,
@@ -25,7 +28,8 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
 
-SCAN_JUDGE_MODEL = "claude-sonnet-4-6"
+SCAN_JUDGE_MODEL = "@cf/zai-org/glm-5.2"
+SCAN_JUDGE_PRODUCT: "Product" = "custom_image_scans"
 
 SCAN_JUDGE_SYSTEM_PROMPT = """You are a security judge reviewing a declarative sandbox image spec before it is built and published.
 
@@ -58,6 +62,7 @@ Hard severity rule: "unknown organization", "unfamiliar vendor", "unrelated to t
 class ImageBuildActivityInput:
     image_id: str
     team_id: int
+    refresh: bool = False
 
     def to_log_context(self) -> dict[str, Any]:
         return {"image_id": self.image_id, "team_id": self.team_id}
@@ -69,14 +74,39 @@ class ScanImageSpecOutput:
     findings: list[dict] = field(default_factory=list)
 
 
+class ScanFinding(BaseModel):
+    severity: Literal["high", "medium", "low"]
+    detail: str
+
+
+class ScanVerdict(BaseModel):
+    passed: bool
+    findings: list[ScanFinding] = Field(default_factory=list)
+
+
+def _parse_scan_verdict(content: str) -> ScanVerdict:
+    candidate = content.strip()
+    if candidate.startswith("```") and candidate.endswith("```"):
+        candidate = "\n".join(candidate.splitlines()[1:-1]).strip()
+
+    try:
+        return ScanVerdict.model_validate_json(candidate)
+    except ValueError:
+        object_start = candidate.find("{")
+        object_end = candidate.rfind("}")
+        if object_start == -1 or object_end <= object_start:
+            raise
+        return ScanVerdict.model_validate_json(candidate[object_start : object_end + 1])
+
+
 def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
     return SandboxCustomImage.objects.for_team(input.team_id).get(id=input.image_id)
 
 
-def _judge_spec_safety(spec_yaml: str, repository: str = "") -> ScanImageSpecOutput:
-    # Deferred: the llm client pulls google.genai; keep it off the django.setup() path.
-    from products.ai_observability.backend.llm.client import Client  # noqa: PLC0415
-    from products.ai_observability.backend.llm.types import CompletionRequest  # noqa: PLC0415
+def _judge_spec_safety(
+    spec_yaml: str, team_id: int, repository: str = "", gateway_token: str | None = None
+) -> ScanImageSpecOutput:
+    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the OpenAI SDK off startup paths
 
     repo_context = (
         f"This image is linked to the GitHub repository {repository}; the spec's purpose is to prepare "
@@ -84,37 +114,30 @@ def _judge_spec_safety(spec_yaml: str, repository: str = "") -> ScanImageSpecOut
         if repository
         else ""
     )
-    client = Client(distinct_id="sandbox-image-spec-scanner")
-    request = CompletionRequest(
+    client = get_llm_client(product=SCAN_JUDGE_PRODUCT, team_id=team_id, api_key=gateway_token)
+    response = client.chat.completions.create(
         model=SCAN_JUDGE_MODEL,
-        provider="anthropic",
-        system=SCAN_JUDGE_SYSTEM_PROMPT,
         messages=[
+            {"role": "system", "content": SCAN_JUDGE_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": f"{repo_context}Review this sandbox image spec:\n\n<image_spec>\n{spec_yaml}\n</image_spec>\n\nOutput the JSON verdict now:",
-            }
+            },
         ],
         temperature=0.0,
-        max_tokens=1024,
+        max_completion_tokens=1024,
+        response_format={"type": "json_object"},
+        user=f"team-{team_id}",
     )
-
-    response_text = ""
-    for chunk in client.stream(request):
-        if chunk.type == "text":
-            response_text += chunk.data.get("text", "")
-
-    text = response_text.strip()
-    if text.startswith("```"):
-        text = text.strip("`").removeprefix("json").strip()
+    content = response.choices[0].message.content
     try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError:
-        raise RuntimeError("Security scan returned an unparseable verdict; retry the build")
-    findings = verdict.get("findings") or []
-    if not isinstance(findings, list):
-        findings = []
-    return ScanImageSpecOutput(passed=verdict.get("passed") is True, findings=findings)
+        verdict = _parse_scan_verdict(content or "")
+    except ValueError as e:
+        raise RuntimeError("Security scan returned an invalid verdict; retry the build") from e
+    return ScanImageSpecOutput(
+        passed=verdict.passed,
+        findings=[finding.model_dump() for finding in verdict.findings],
+    )
 
 
 @activity.defn
@@ -126,7 +149,17 @@ def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
         image.save(update_fields=["status", "updated_at"])
 
         spec = parse_image_spec_json(image.spec)
-        result = _judge_spec_safety(spec.to_yaml(), repository=image.repository)
+        if image.created_by is None or not image.created_by.is_active:
+            raise RuntimeError("Custom image creator is unavailable; cannot authorize the security scan")
+        gateway_token = create_oauth_access_token_for_user(
+            image.created_by,
+            input.team_id,
+            scopes=["llm_gateway:read", "internal_run:read"],
+            include_internal_scopes=False,
+        )
+        result = _judge_spec_safety(
+            spec.to_yaml(), input.team_id, repository=image.repository, gateway_token=gateway_token
+        )
 
         image.scan_result = {"passed": result.passed, "findings": result.findings}
         if result.passed:
@@ -204,10 +237,13 @@ def _attach_repo_warm_layer(image: "modal.Image", spec: SandboxImageSpec):
     )
 
 
-def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: int) -> "tuple[modal.Image, modal.App]":
+def _compose_modal_image(
+    spec: SandboxImageSpec, *, repository: str, team_id: int
+) -> "tuple[modal.Image, modal.App, str | None]":
     from products.tasks.backend.logic.services.modal_sandbox import (  # noqa: PLC0415
         ModalSandbox,
         resolve_template_base_image,
+        resolve_template_base_image_reference,
     )
     from products.tasks.backend.logic.services.sandbox import SandboxTemplate, get_sandbox_class  # noqa: PLC0415
 
@@ -217,6 +253,7 @@ def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: in
 
     app = sandbox_cls._get_app_for_template(SandboxTemplate.VM_BASE)
     image = resolve_template_base_image(SandboxTemplate.VM_BASE)
+    base_image_reference = resolve_template_base_image_reference(SandboxTemplate.VM_BASE)
 
     # Clone the linked repo with the token FIRST, on the trusted base, before any spec-authored
     # layer can tamper with git to capture it. The warm step runs later, token-free.
@@ -234,7 +271,7 @@ def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: in
     if spec.repo_setup_commands:
         image = _attach_repo_warm_layer(image, spec)
 
-    return image, app
+    return image, app, base_image_reference
 
 
 BUILD_LOG_FLUSH_INTERVAL_SECONDS = 2.0
@@ -299,7 +336,9 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
         image.save(update_fields=["status", "build_log", "updated_at"])
 
         spec = parse_image_spec_json(image.spec)
-        modal_image, app = _compose_modal_image(spec, repository=image.repository, team_id=image.team_id)
+        modal_image, app, base_image_reference = _compose_modal_image(
+            spec, repository=image.repository, team_id=image.team_id
+        )
 
         log_stream = _BuildLogBuffer()
         stop_flusher = threading.Event()
@@ -321,9 +360,21 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
 
         image.version = image.version + 1
         image.modal_image_name = publish_name
+        image.base_image_reference = base_image_reference
+        image.base_image_refresh_reference = None
         image.status = SandboxCustomImage.Status.READY
         image.error = ""
-        image.save(update_fields=["version", "modal_image_name", "status", "error", "updated_at"])
+        image.save(
+            update_fields=[
+                "version",
+                "modal_image_name",
+                "base_image_reference",
+                "base_image_refresh_reference",
+                "status",
+                "error",
+                "updated_at",
+            ]
+        )
         observe_custom_image_build("succeeded")
 
         logger.info(
@@ -338,6 +389,7 @@ class MarkImageBuildFailedInput:
     image_id: str
     team_id: int
     error: str
+    refresh: bool = False
 
     def to_log_context(self) -> dict[str, Any]:
         return {"image_id": self.image_id, "team_id": self.team_id}
@@ -352,7 +404,13 @@ def mark_image_build_failed(input: MarkImageBuildFailedInput) -> None:
             logger.warning("mark_image_build_failed_image_gone", extra=input.to_log_context())
             return
         if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
-            image.status = SandboxCustomImage.Status.BUILD_FAILED
+            image.status = (
+                SandboxCustomImage.Status.READY
+                if input.refresh and image.modal_image_name
+                else SandboxCustomImage.Status.BUILD_FAILED
+            )
             image.error = input.error[:2000]
-            image.save(update_fields=["status", "error", "updated_at"])
+            if input.refresh:
+                image.base_image_refresh_reference = None
+            image.save(update_fields=["status", "error", "base_image_refresh_reference", "updated_at"])
             observe_custom_image_build("failed")

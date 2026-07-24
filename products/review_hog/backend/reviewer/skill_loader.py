@@ -41,6 +41,29 @@ class NoEnabledPerspectivesError(LookupError):
     """No enabled review perspective resolves to a live skill — there is nothing to review with."""
 
 
+def visible_skill_names(team_id: int, user_id: int, *, prefix: str, canonical_names: tuple[str, ...]) -> set[str]:
+    """Names of `<prefix>*` skills this user may see: the canonicals plus the customs they authored.
+
+    Skills are team-level rows with no owner dimension, so authorship is derived from the earliest
+    live version's `created_by` — every edit mints a new version stamped with the *editor*, so only
+    the first version identifies the author. Canonicals are visible to everyone by name, even when
+    team-edited (the edit doesn't change what they are; their seeded rows carry no `created_by`
+    anyway). A custom whose author is gone (`created_by` nulls on account deletion) is visible to
+    no one — archiving it from the team-level Skills page is the cleanup path. Only live rows count:
+    a name whose every version is archived and then recreated by someone else belongs to the new
+    author, not the old one.
+    """
+    authored = {
+        name
+        for name, author_id in LLMSkill.objects.filter(team_id=team_id, name__startswith=prefix, deleted=False)
+        .order_by("name", "version")
+        .distinct("name")
+        .values_list("name", "created_by_id")
+        if author_id == user_id
+    }
+    return set(canonical_names) | authored
+
+
 @dataclass(frozen=True)
 class LoadedPerspective:
     """A perspective resolved for one run: its per-run index, skill name, and pinned version."""
@@ -90,8 +113,11 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
     perspective on its `(pass_number, chunk_id)` resume key across same-`head_sha` runs; a shifted
     index would silently reuse another perspective's persisted review on resume. An enabled
     perspective with no live skill row (e.g. an archived custom) is skipped with a warning rather
-    than failing the run; restoring the skill resumes it. Raises `NoEnabledPerspectivesError` when
-    nothing resolves — zero enabled (min-1 floor) or every enabled name is dead.
+    than failing the run; restoring the skill resumes it. An enabled custom the acting user did not
+    author is skipped the same way — customs are visible/enableable only to their author (the
+    config API enforces it), so such a row can only be a leftover from before that rule; running it
+    invisibly would be undebuggable. Raises `NoEnabledPerspectivesError` when nothing resolves —
+    zero enabled (min-1 floor) or every enabled name is dead.
     """
     register_missing_perspective_configs(team_id, acting_user_id)
     # Prefix-scope: perspectives and validators share this table — read only perspective rows here.
@@ -113,6 +139,9 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
             is_latest=True,
         ).values_list("name", "version", "description")
     }
+    visible = visible_skill_names(
+        team_id, acting_user_id, prefix=REVIEW_HOG_PERSPECTIVE_PREFIX, canonical_names=CANONICAL_PERSPECTIVE_SKILL_NAMES
+    )
     loaded: list[LoadedPerspective] = []
     for slot, skill_name in enumerate(enabled_names, start=1):
         resolved = latest_by_name.get(skill_name)
@@ -122,6 +151,16 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
             logger.warning(
                 "review_hog: enabled perspective '%s' has no live skill on team %s; skipping it this run",
                 skill_name,
+                team_id,
+            )
+            continue
+        if skill_name not in visible:
+            # A leftover config for a custom the acting user did not author (enabled before
+            # visibility became author-only): skip it rather than run an invisible perspective.
+            logger.warning(
+                "review_hog: enabled perspective '%s' was not authored by user %s on team %s; skipping it this run",
+                skill_name,
+                acting_user_id,
                 team_id,
             )
             continue
@@ -179,9 +218,11 @@ def _load_single_active_skill(
     Reads the user's one enabled row for the prefix, falling back to the canonical when none is
     enabled — there is always a default, so no min-1 floor. A selected custom whose skill row is
     dead (e.g. archived from the Skills UI) also falls back to the canonical rather than failing
-    the run. Raises `error` only when the canonical itself has no live row (the sync recreates
-    archived canonicals, so this is a genuine seeding failure). The enabled set is single-active in
-    app code; `sorted(...)[0]` is only a deterministic tiebreak.
+    the run, as does a selected custom the acting user did not author (a leftover from before
+    visibility became author-only — the config API no longer allows such a selection). Raises
+    `error` only when the canonical itself has no live row (the sync recreates archived canonicals,
+    so this is a genuine seeding failure). The enabled set is single-active in app code;
+    `sorted(...)[0]` is only a deterministic tiebreak.
     """
     enabled_names = sorted(
         ReviewSkillConfig.objects.for_team(team_id)
@@ -189,6 +230,17 @@ def _load_single_active_skill(
         .values_list("skill_name", flat=True)
     )
     skill_name = enabled_names[0] if enabled_names else canonical_name
+    if skill_name != canonical_name and skill_name not in visible_skill_names(
+        team_id, acting_user_id, prefix=prefix, canonical_names=(canonical_name,)
+    ):
+        logger.warning(
+            "review_hog: selected skill '%s' was not authored by user %s on team %s; falling back to canonical '%s'",
+            skill_name,
+            acting_user_id,
+            team_id,
+            canonical_name,
+        )
+        skill_name = canonical_name
 
     def _live_version(name: str) -> int | None:
         return (

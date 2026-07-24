@@ -108,7 +108,13 @@ export interface dataWarehouseSettingsSceneLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
-    loadDatabase: ({ force }?: { force?: boolean }) => {
+    loadDatabase: (
+        args_0?:
+            | {
+                  force?: boolean
+              }
+            | undefined
+    ) => {
         force?: boolean
     } // databaseTableListLogic
     loadDatabaseFailure: (
@@ -120,9 +126,11 @@ export interface dataWarehouseSettingsSceneLogicActions {
     } // databaseTableListLogic
     loadDatabaseSuccess: (
         database: Required<DatabaseSchemaQueryResponse> | null,
-        payload?: {
-            force?: boolean
-        }
+        payload?:
+            | {
+                  force?: boolean
+              }
+            | undefined
     ) => {
         database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {

@@ -131,13 +131,15 @@ RUN set -eux; \
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so each build pulls @latest
+# Set up /scripts as a Node.js project and install @posthog/agent.
+# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
+# PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
+    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.

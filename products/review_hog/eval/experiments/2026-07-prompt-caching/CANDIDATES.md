@@ -4,7 +4,7 @@
 > Method: 4 lens-diverse generators produced 18 raw candidates, merged to 13, each adversarially audited by 2 independent
 > critics (caching mechanics + economics; quality + precedent). The audit killed 3; a user decision the same day
 > (see the locked constraints below) killed 3 more. 7 survive; kills are recorded in the graveyard so they are not re-proposed.
-> Candidate numbering (#1-#10) is stable across kills — `PLAN.md` and ARCHITECTURE.md reference it.
+> Candidate numbering (#1-#10) is stable across kills — `PLAN.md` and DECISIONS.md reference it.
 > Built so far: #1's instrument (2026-07-06, validated). Everything else is a spec; per-candidate status lines carry the truth.
 
 ## Locked constraints (user; 1-5 locked 2026-07-06, 6-9 late the same day, 5 amended 2026-07-07)

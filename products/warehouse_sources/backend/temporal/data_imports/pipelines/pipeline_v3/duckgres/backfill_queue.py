@@ -235,7 +235,10 @@ def retire_backfill_run(conn: psycopg.Connection[Any], *, run_uuid: str) -> None
     conn.execute(
         f"""
         INSERT INTO sourcebatchduckgresstatus (batch_id, job_state, attempt, error_response)
-        SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s, 'kind', %(kind)s)
+        -- jsonb_build_object is VARIADIC "any", so bare placeholders are
+        -- type-indeterminate to Postgres ("could not determine data type of
+        -- parameter"); cast the string args explicitly.
+        SELECT b.id, 'failed', 0, jsonb_build_object('error', %(reason)s::text, 'kind', %(kind)s::text)
         FROM {BATCH_TABLE} b
         LEFT JOIN sourcebatchduckgresapply a
             ON a.team_id = b.team_id AND a.schema_id = b.schema_id

@@ -47,6 +47,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -56,6 +57,7 @@ from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -494,6 +496,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
+    @parameterized.expand(
+        [
+            ("hit", True, None, True),
+            ("miss", False, None, True),
+            ("forced_refresh", False, "force_blocking", False),
+        ]
+    )
+    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_insight_records_cache_outcome(
+        self,
+        _name: str,
+        is_cached: bool,
+        refresh: str | None,
+        expect_recorded: bool,
+        mock_calculate: mock.MagicMock,
+        mock_record_outcome: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=is_cached,
+            timezone=self.team.timezone,
+        )
+
+        query_params = {"from_dashboard": str(dashboard.id)}
+        if refresh is not None:
+            query_params["refresh"] = refresh
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expect_recorded:
+            mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        else:
+            mock_record_outcome.assert_not_called()
+
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -511,9 +557,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
 
-        with patch(
-            "posthog.caching.calculate_results.calculate_for_query_based_insight"
-        ) as calculate_for_query_based_insight:
+        with (
+            patch(
+                "posthog.caching.calculate_results.calculate_for_query_based_insight"
+            ) as calculate_for_query_based_insight,
+            patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome") as record_outcome,
+        ):
             self.client.get(valid_url)
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
@@ -529,6 +578,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
                 allow_raw_results=False,
             )
+            record_outcome.assert_not_called()
 
         with patch(
             "posthog.caching.calculate_results.calculate_for_query_based_insight"
@@ -724,7 +774,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "favorited",
                 "filters",
                 "query",
-                "dashboards",
                 "dashboard_tiles",
                 "description",
                 "last_refresh",
@@ -1302,7 +1351,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.dashboard_api.update_dashboard(deleted_dashboard_id, {"deleted": True})
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         new_dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -1314,7 +1362,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboard_tiles(self) -> None:
@@ -1336,19 +1383,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tile.save()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == []
         assert insight_json["dashboard_tiles"] == []
 
         insight_by_short_id = self.client.get(
             f"/api/projects/{self.team.pk}/insights?short_id={insight_json['short_id']}"
         )
-        assert insight_by_short_id.json()["results"][0]["dashboards"] == []
         assert insight_by_short_id.json()["results"][0]["dashboard_tiles"] == []
 
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": False, "dashboard_id": dashboard_id}]
 
     def test_can_update_insight_with_inconsistent_dashboards(self) -> None:
@@ -1375,7 +1419,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert DashboardTile.objects_including_soft_deleted.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         # accidentally include a deleted dashboard
@@ -1387,7 +1430,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # confirm no updates happened
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_dashboards_relation_is_tile_soft_deletion_aware(self) -> None:
@@ -1408,18 +1450,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "dashboards": [dashboard_one_id],
             },
         )
-        assert on_update_insight_json["dashboards"] == [dashboard_one_id]
+        assert "dashboards" not in on_update_insight_json
         assert on_update_insight_json["dashboard_tiles"] == [
             {"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}
         ]
 
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_one_id]
         assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}]
 
         insights_list = self.dashboard_api.list_insights()
         assert insights_list["count"] == 1
-        assert [i["dashboards"] for i in insights_list["results"]] == [[dashboard_one_id]]
         assert [i["dashboard_tiles"] for i in insights_list["results"]] == [
             [
                 {
@@ -1678,7 +1718,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert original_tiles[0]["id"] == after_update_tiles[0]["id"]  # tile has not been recreated in DB
         assert after_update_tiles[0]["layouts"] is not None  # tile has not been recreated in DB
         assert original_tiles[0]["insight"]["id"] == after_update_tiles[0]["insight"]["id"]
-        assert sorted(original_tiles[0]["insight"]["dashboards"]) == sorted([dashboard_one_id, dashboard_two_id])
         assert sorted(t["dashboard_id"] for t in original_tiles[0]["insight"]["dashboard_tiles"]) == sorted(
             [dashboard_one_id, dashboard_two_id]
         )
@@ -3474,6 +3513,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected
@@ -4338,6 +4379,52 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         }
 
+    def test_tile_ignoring_dashboard_filters_keeps_insight_query_untouched(self) -> None:
+        # The tile opts out of dashboard filters entirely, so neither the dashboard's date range nor its
+        # properties may reach the returned query; the tile's own overrides still apply.
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-90d"},
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+        )
+        dashboard_filters = {
+            "date_from": "-7d",
+            "properties": [{"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}],
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        source = response["query"]["source"]
+        assert source["dateRange"]["date_from"] == "-90d"
+        assert self._collect_property_values(source.get("properties"), "$country") == []
+        assert self._collect_property_values(source.get("properties"), "$browser") == [["Firefox"]]
+        assert response["filter_override_context"] == {
+            "dashboard": None,
+            "tile": {
+                "ignoreDashboardFilters": True,
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}],
+            },
+            "overridden_dashboard": dashboard_filters,
+        }
+
     def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:
         # Insight and dashboard both filter $browser, no tile. The dashboard must win on that key —
         # over the insight's own filter — instead of AND-ing (Chrome AND Safari would return nothing).
@@ -4365,6 +4452,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
+
+    def test_grouped_dashboard_property_override_does_not_crash_retrieval(self) -> None:
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        country_filter = {"key": "$country", "type": "event", "operator": "exact", "value": ["US"]}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": str(dashboard.pk),
+                "filters_override": json.dumps(
+                    {"properties": {"type": "AND", "values": [{"type": "AND", "values": [country_filter]}]}}
+                ),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        country_values = self._collect_property_values(response.json()["query"]["source"].get("properties"), "$country")
+        assert country_values == [["US"]]
 
     def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
         self.organization.available_product_features = [

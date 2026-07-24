@@ -14,108 +14,19 @@ warns about this on every run.
 
 from __future__ import annotations
 
-import base64
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
-from uuid import uuid4
 
 import click
 import requests
 
-from hogli_commands.github_auth import github_headers, github_token
+from hogli_commands import pr_assets
+from hogli_commands.github_auth import github_token
 
-_REPO: Final = "PostHog/pr-assets"
 # svg is excluded: raw.githubusercontent.com serves it as text/plain, so GitHub won't inline it
 _ALLOWED_EXTS: Final = frozenset({"png", "jpg", "jpeg", "gif", "webp"})
 _MAX_MB: Final = 10  # GitHub caps image/gif attachments at 10 MB; larger is a video or wrong file
-_MAX_BYTES: Final = _MAX_MB * 1024 * 1024
 _COMMIT_MESSAGE: Final = "add screenshot"
-_PUBLIC_WARNING: Final = (
-    "⚠  PUBLIC + PERMANENT upload to PostHog/pr-assets.\n"
-    "   SHA-pinned URLs keep serving even after the file is deleted, so an upload cannot be taken back.\n"
-    "   Never upload customer data, secrets, tokens, or internal-only information."
-)
-
-
-def _make_key(ext: str) -> str:
-    """Object key for an upload: ``YYYY/MM/<uuid4>.<ext>`` in UTC.
-
-    Random names avoid collisions; the date dirs keep the tree browsable and prunable.
-    """
-    now = datetime.now(UTC)
-    return f"{now:%Y/%m}/{uuid4()}.{ext}"
-
-
-def _encode_base64(path: Path) -> str:
-    """Base64-encode the file as a single newline-free line.
-
-    The contents API wants raw base64 with no line breaks; ``b64encode`` (unlike
-    ``encodebytes``) never inserts them.
-    """
-    return base64.b64encode(path.read_bytes()).decode("ascii")
-
-
-def _put(session: requests.Session, url: str, token: str, body: dict[str, str]) -> requests.Response:
-    """PUT to the contents API, turning a network error into a friendly ClickException."""
-    try:
-        return session.put(url, headers=github_headers(token), json=body, timeout=120)
-    except requests.RequestException as exc:
-        raise click.ClickException(f"GitHub request failed: {exc}")
-
-
-def _upload(path: Path, key: str, token: str, session: requests.Session) -> str:
-    """PUT the file to the contents API, returning the created commit sha.
-
-    Retries once on HTTP 409 with the same key, since concurrent commits to the repo's
-    default branch can race.
-    """
-    url = f"https://api.github.com/repos/{_REPO}/contents/{key}"
-    body = {"message": _COMMIT_MESSAGE, "content": _encode_base64(path)}
-
-    resp = _put(session, url, token, body)
-    if resp.status_code == 409:
-        # a concurrent commit to the default branch raced us; retry once with the same key
-        resp = _put(session, url, token, body)
-
-    if resp.status_code in (403, 404):
-        raise click.ClickException(_denied_message(path))
-    if not resp.ok:
-        raise click.ClickException(f"upload of {path.name} failed (HTTP {resp.status_code})")
-    try:
-        return resp.json()["commit"]["sha"]
-    except (ValueError, KeyError, TypeError) as exc:
-        raise click.ClickException(f"GitHub returned an unexpected response uploading {path.name}: {exc}")
-
-
-def _denied_message(path: Path) -> str:
-    """Explain a 403/404: the token can't write to pr-assets (not an org member, or missing scope)."""
-    return (
-        f"upload of {path.name} was denied. Writing to {_REPO} needs write access to a public PostHog repo: "
-        "confirm your token is a PostHog org account with the `repo` scope "
-        "(gh users: `gh auth refresh -s repo`; or set GH_TOKEN to a PAT with the repo scope)."
-    )
-
-
-def _validate(path: Path) -> str:
-    """Return the lowercased extension, or raise on a symlink / unsupported type / oversized file."""
-    # Reject symlinks before any stat/read: a `screenshot.png` link pointing at `.env` would
-    # otherwise be followed and its target uploaded to the public repo.
-    if path.is_symlink():
-        raise click.ClickException(f"{path.name}: refusing to upload a symlink (it could point at a sensitive file)")
-    ext = path.suffix.lower().lstrip(".")
-    if ext not in _ALLOWED_EXTS:
-        allowed = ", ".join(sorted(_ALLOWED_EXTS))
-        raise click.ClickException(f"{path.name}: unsupported extension '.{ext}' (allowed: {allowed})")
-    size = path.stat().st_size
-    if size > _MAX_BYTES:
-        raise click.ClickException(f"{path.name}: {size / 1024 / 1024:.1f} MB exceeds the {_MAX_MB} MB limit")
-    return ext
-
-
-def _escape_alt(text: str) -> str:
-    """Escape the one markdown metacharacter that would truncate image alt text."""
-    return text.replace("]", "\\]")
 
 
 @click.command(name="pr:upload-image")
@@ -140,12 +51,12 @@ def upload_image(files: tuple[Path, ...], alt: str | None, yes: bool) -> None:
     permanent: SHA-pinned URLs keep serving even after the file is deleted. Never upload
     customer data, secrets, or internal-only information.
     """
-    click.secho(_PUBLIC_WARNING, fg="yellow", bold=True, err=True)
+    click.secho(pr_assets.PUBLIC_WARNING, fg="yellow", bold=True, err=True)
 
     if alt is not None and len(files) > 1:
         raise click.ClickException("--alt captions a single image; drop it to caption each file with its stem")
 
-    validated = [(path, _validate(path)) for path in files]
+    validated = [(path, pr_assets.validate(path, _ALLOWED_EXTS, _MAX_MB)) for path in files]
 
     # Deliberate speed bump: make the caller read the warning above and re-run to confirm.
     if not yes:
@@ -166,10 +77,10 @@ def upload_image(files: tuple[Path, ...], alt: str | None, yes: bool) -> None:
     session = requests.Session()
 
     for path, ext in validated:
-        key = _make_key(ext)
-        click.secho(f"Uploading {path.name} → {_REPO}/{key} …", fg="cyan", err=True)
-        sha = _upload(path, key, token, session)
+        key = pr_assets.make_key(ext)
+        click.secho(f"Uploading {path.name} → {pr_assets.REPO}/{key} …", fg="cyan", err=True)
+        sha = pr_assets.upload(path, key, token, session, message=_COMMIT_MESSAGE)
         caption = alt if alt is not None else path.stem
-        markdown = f"![{_escape_alt(caption)}](https://raw.githubusercontent.com/{_REPO}/{sha}/{key})"
+        markdown = f"![{pr_assets.escape_markdown_label(caption)}](https://raw.githubusercontent.com/{pr_assets.REPO}/{sha}/{key})"
         click.echo(markdown)  # stdout carries only the markdown, so callers can pipe it
         click.secho(f"✓ uploaded {path.name}", fg="green", err=True)

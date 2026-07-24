@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RssSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.rss import RssResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource

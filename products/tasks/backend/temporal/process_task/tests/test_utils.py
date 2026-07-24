@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     RunState,
     build_imported_mcp_server_configs,
+    build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_imported_mcp_server_configs,
@@ -26,6 +27,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
+    loop_mcp_installation_allowlist,
 )
 
 
@@ -363,6 +365,43 @@ class TestFetchUserMcpServerConfigs(TestCase):
                 headers=self._expected_user_headers(),
             )
         ]
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_allowlist_restricts_mounted_connectors(self, mock_facade, mock_api_url) -> None:
+        # A loop run snapshots the connectors its owner selected. Without enforcement the sandbox
+        # mounts every shared team connector; the allowlist must keep only the selected ones.
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [
+            self._make_installation(id="keep", name="Kept"),
+            self._make_installation(id="drop", name="Dropped"),
+        ]
+
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=["keep"])
+
+        assert [config.name for config in configs] == ["Kept"]
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_empty_allowlist_mounts_nothing(self, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [self._make_installation()]
+
+        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
+
+    @parameterized.expand(
+        [
+            ("no_state", None, None),
+            ("no_snapshot", {}, None),
+            # A loop snapshot with no/empty connectors fails closed to an empty allowlist, not None.
+            ("no_connectors_key", {"config_snapshot": {}}, []),
+            ("connectors_without_ids", {"config_snapshot": {"connectors": {}}}, []),
+            ("empty_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}, []),
+            ("with_ids", {"config_snapshot": {"connectors": {"mcp_installation_ids": ["a", "b"]}}}, ["a", "b"]),
+        ]
+    )
+    def test_loop_mcp_installation_allowlist(self, _name, state, expected) -> None:
+        assert loop_mcp_installation_allowlist(state) == expected
 
     @parameterized.expand(
         [
@@ -1028,3 +1067,61 @@ class TestGetRelayedMcpServerNames(TestCase):
         )
 
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
+
+
+class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+
+        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
+        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
+        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_omits_otel_config_without_logs_pair(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+
+        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
+
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_omits_otel_config_when_flag_disabled(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1)
+
+        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)

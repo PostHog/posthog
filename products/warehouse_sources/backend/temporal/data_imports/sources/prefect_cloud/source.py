@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PrefectCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
+    PrefectCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.prefect_cloud import (
     PrefectCloudResumeConfig,
     prefect_cloud_source,
@@ -37,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://docs.prefect.io/v3/api-ref/rest-api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -117,6 +121,7 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint in ("flow_runs", "task_runs"):
@@ -146,7 +151,11 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
         return schemas
 
     def validate_credentials(
-        self, config: PrefectCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PrefectCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_prefect_cloud_credentials(config.account_id, config.workspace_id, config.api_key)
@@ -175,7 +184,8 @@ Create an API key under [API keys in your profile settings](https://app.prefect.
             workspace_id=config.workspace_id,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

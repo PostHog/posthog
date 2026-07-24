@@ -28,12 +28,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CratesIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
+    CratesIOSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://doc.rust-lang.org/cargo/reference/registry-web-api.html"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -96,6 +101,7 @@ Each sync fetches the current data for every configured crate. crates.io has no 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -117,7 +123,11 @@ Each sync fetches the current data for every configured crate. crates.io has no 
         return schemas
 
     def validate_credentials(
-        self, config: CratesIOSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CratesIOSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_crates_io_credentials(config.crates)
 

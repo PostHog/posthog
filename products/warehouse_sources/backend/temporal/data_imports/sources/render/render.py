@@ -90,8 +90,10 @@ def _fetch_page(
         raise RenderRetryableError(f"Render API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        # 404 is expected during fan-out (a service deleted mid-sync) and handled by the caller.
-        log = logger.warning if response.status_code == 404 else logger.error
+        # 404 (a service deleted mid-sync) and 400 (a service type that can't own the child
+        # resource, e.g. custom domains on a cron job) are expected during fan-out and handled
+        # by the caller — log them as warnings. Anything else is a genuine error.
+        log = logger.warning if response.status_code in (400, 404) else logger.error
         log(f"Render API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
 
@@ -303,10 +305,15 @@ def _get_fan_out_rows(
                 if next_cursor:
                     resumable_source_manager.save_state(RenderResumeConfig(cursor=next_cursor, parent_id=parent_id))
         except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
             # A parent deleted between enumeration and this fetch 404s. Skip it rather than
             # failing the whole sync — the resource is genuinely gone.
-            if exc.response is not None and exc.response.status_code == 404:
+            if status == 404:
                 logger.warning(f"Render: {config.parent} {parent_id} not found while fetching {config.name}, skipping")
+            # Render 400s the child endpoint for parents that can't own the resource (custom
+            # domains on non-web/static services). Skip them instead of failing the sync.
+            elif status == 400 and config.skip_parent_on_bad_request:
+                logger.warning(f"Render: {config.parent} {parent_id} cannot have {config.name}, skipping")
             else:
                 raise
 

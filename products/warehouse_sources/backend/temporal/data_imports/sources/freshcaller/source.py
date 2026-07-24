@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
     validate_credentials as validate_freshcaller_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshcallerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
+    FreshcallerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, Calls, Call
@@ -47,6 +49,9 @@ _ERR_FORBIDDEN = "Your Freshcaller API key does not have permission for this res
 @SourceRegistry.register
 class FreshcallerSource(ResumableSource[FreshcallerSourceConfig, FreshcallerResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.freshcaller.com/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -115,6 +120,7 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +140,11 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
         return schemas
 
     def validate_credentials(
-        self, config: FreshcallerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshcallerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not _SUBDOMAIN_REGEX.match(normalize_subdomain(config.subdomain)):
             return False, "Freshcaller account name is invalid"
@@ -170,7 +180,8 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

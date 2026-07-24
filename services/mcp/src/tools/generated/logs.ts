@@ -244,6 +244,7 @@ const logsAlertsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
             query: {
+                created_by: params.created_by,
                 limit: params.limit,
                 offset: params.offset,
             },

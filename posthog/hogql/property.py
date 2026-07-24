@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AccountCustomPropertyFilter,
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -727,6 +728,7 @@ def property_to_expr(
         | EventMetadataPropertyFilter
         | PersonMetadataPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -877,6 +879,7 @@ def property_to_expr(
         or property.type == "span_attribute"
         or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
+        or property.type == "account_custom_property"
         or property.type == "workflow_variable"
     ):
         if (
@@ -885,6 +888,9 @@ def property_to_expr(
             or (scope != "event" and property.type == "event_metadata")
             or (scope == "revenue_analytics" and property.type != "revenue_analytics")
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
+            # Account custom properties resolve inside customer analytics queries only;
+            # no generic HogQL scope can join them, so fail loudly instead of no-oping.
+            or property.type == "account_custom_property"
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
 

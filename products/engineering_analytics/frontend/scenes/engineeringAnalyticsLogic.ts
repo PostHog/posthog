@@ -34,6 +34,7 @@ import {
 } from '../generated/api'
 import type {
     BrokenTestRowApi,
+    FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
@@ -43,6 +44,7 @@ import type {
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
+import { scopeToValue } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { BranchHealthParams } from './engineeringAnalyticsFiltersLogic'
 
@@ -52,7 +54,7 @@ export const PR_TABLE_LIMIT = 1000
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
-// Mirrors the endpoint's maximum so the UI can paginate every returned leaderboard row.
+// Mirrors the endpoint's maximum so the UI can paginate every returned queue row.
 export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -442,31 +444,29 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
-/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+/** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
 
 export interface FlakyTestRow {
-    /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
+    /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
     nodeid: string
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
-    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
-    rerunPassedCount: number
-    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
-    failedCount: number
-    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    classification: FlakyTestClassification
+    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
+    sameCommitRecoveryRunCount: number
+    failedRunCount: number
     failedPrCount: number
-    /** Failed/error spans on the default branch (master/main) — the "matters right now" signal. */
-    masterFailedCount: number
-    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
-    xfailedCount: number
-    lastSeenAt: string
+    masterFailedRunCount: number
+    quarantinedFailedRunCount: number
+    lastSignalAt: string
 }
 
 export interface FlakyTestsData {
     rows: FlakyTestRow[]
-    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    /** True when more tests qualified than the cap; rows are the highest-ranked `limit`. */
     truncated: boolean
     limit: number
 }
@@ -550,29 +550,28 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
-    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
     confirm?: boolean
 }
 
-/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+/** Data-backed quarantine reason from a queue row: the evidence is the reason; the
  *  cause is unknown until someone investigates, which is the tracking issue's job. */
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.rerunPassedCount > 0) {
-        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    if (row.sameCommitRecoveryRunCount > 0) {
+        parts.push(`recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
     }
-    if (row.failedCount > 0) {
-        parts.push(
-            row.failedPrCount > 0
-                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
-                : `failed ${row.failedCount}x`
-        )
+    if (row.failedRunCount > 0) {
+        parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
     }
-    if (row.xfailedCount > 0) {
-        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    if (row.failedPrCount > 0) {
+        parts.push(`hit ${pluralize(row.failedPrCount, 'PR')}`)
     }
-    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
+    if (row.masterFailedRunCount > 0) {
+        parts.push(`broke master in ${pluralize(row.masterFailedRunCount, 'run')}`)
+    }
+    return `CI evidence: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -674,7 +673,9 @@ export interface engineeringAnalyticsLogicValues {
     repo: string | null
     runFailureLogsByRun: Record<number, RunFailureLogsApi>
     runFailureLogsByRunLoading: boolean
+    scopeRepo: string | null
     search: string
+    selectedScope: string | null
     showPrOnlyBrokenTests: boolean
     sourceId: string | null
     sourceOptions: {
@@ -876,6 +877,13 @@ export interface engineeringAnalyticsLogicActions {
     setRepo: (repo: string | null) => {
         repo: string | null
     }
+    setScope: (
+        sourceId: string | null,
+        scopeRepo: string | null
+    ) => {
+        scopeRepo: string | null
+        sourceId: string | null
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -993,11 +1001,20 @@ export interface engineeringAnalyticsLogicMeta {
         hiddenBrokenTestCount: (brokenTests: BrokenTestRow[]) => number
         visibleBrokenTests: (brokenTests: BrokenTestRow[], showPrOnlyBrokenTests: boolean) => BrokenTestRow[]
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
-        activeSource: (githubSources: GitHubSourceApi[], sourceId: string | null) => GitHubSourceApi | null
+        activeSource: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: string | null
+        ) => GitHubSourceApi | null
         sourceOptions: (githubSources: GitHubSourceApi[]) => {
             label: string
             value: string
         }[]
+        selectedScope: (
+            githubSources: GitHubSourceApi[],
+            sourceId: string | null,
+            scopeRepo: string | null
+        ) => string | null
     }
 }
 
@@ -1030,6 +1047,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
+            // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
+            setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
             resetFilters: true,
             setQuarantineSearch: (search: string) => ({ search }),
             setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
@@ -1051,6 +1070,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCards: async (): Promise<CardsData> => {
                         const data = await engineeringAnalyticsCiCards(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             openPrs: data.open_prs,
@@ -1067,6 +1087,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadPullRequests: async (): Promise<PullRequestRow[]> => {
                         const response = await engineeringAnalyticsPullRequests(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return response.items.map(toPullRequestRow)
                     },
@@ -1081,6 +1102,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             date_to: values.dateTo ?? undefined,
                             ...values.branchHealthParams,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return items.map(
                             (it): WorkflowHealthRow => ({
@@ -1118,6 +1140,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: async (): Promise<QuarantineData> => {
                         const data = await engineeringAnalyticsQuarantine(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             available: data.available,
@@ -1152,18 +1175,20 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             date_from: values.flakyTestWindow,
                             limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             rows: data.items.map(
                                 (it): FlakyTestRow => ({
                                     nodeid: it.nodeid,
                                     selector: it.selector,
-                                    rerunPassedCount: it.rerun_passed_count,
-                                    failedCount: it.failed_count,
+                                    classification: it.classification,
+                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
+                                    failedRunCount: it.failed_run_count,
                                     failedPrCount: it.failed_pr_count,
-                                    masterFailedCount: it.master_failed_count,
-                                    xfailedCount: it.xfailed_count,
-                                    lastSeenAt: it.last_seen_at,
+                                    masterFailedRunCount: it.master_failed_run_count,
+                                    quarantinedFailedRunCount: it.quarantined_failed_run_count,
+                                    lastSignalAt: it.last_signal_at,
                                 })
                             ),
                             truncated: data.truncated,
@@ -1178,6 +1203,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadBrokenTests: async (): Promise<BrokenTestsData> => {
                         const data = await engineeringAnalyticsBrokenTests(projectId(), {
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return {
                             rows: data.rows.map(toBrokenTestRow),
@@ -1206,6 +1232,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const result = await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: runId,
                             source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
                         })
                         return { ...values.runFailureLogsByRun, [runId]: result }
                     },
@@ -1293,7 +1320,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 },
             ],
             // Which GitHub source to read; null = backend default (oldest connected). Synced to `?source=`.
-            sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
+            sourceId: [
+                null as string | null,
+                { setSourceId: (_, { sourceId }) => sourceId, setScope: (_, { sourceId }) => sourceId },
+            ],
+            // Repo scope of a multi-repo source. Cleared when the source changes on its own (the old repo
+            // belongs to the old source); the picker uses setScope to set both together.
+            scopeRepo: [null as string | null, { setScope: (_, { scopeRepo }) => scopeRepo, setSourceId: () => null }],
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -1339,7 +1372,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantineFailure: () => true,
                 },
             ],
-            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            // Test-health window; transient like the other lenses (no persisted UI in this phase).
             flakyTestWindow: [
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
@@ -1347,7 +1380,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Prototype panel hides the low-signal PR-only failures by default.
             showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
             flakyTestsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -1603,18 +1636,74 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (githubSources: GitHubSourceApi[]): boolean => githubSources.length > 1,
             ],
             // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
+            // Matched by (source, repo), not source alone: a multi-repo source's entries share one id,
+            // so headers and commit links reading activeSource.repo must reflect the picked repo, not
+            // the first entry with that id.
             activeSource: [
-                (s) => [s.githubSources, s.sourceId],
-                (githubSources: GitHubSourceApi[], sourceId: string | null): GitHubSourceApi | null =>
-                    (sourceId ? githubSources.find((source) => source.id === sourceId) : githubSources[0]) ?? null,
+                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): GitHubSourceApi | null => {
+                    if (!sourceId) {
+                        // A repo-only scope (?repo with no ?source) resolves across sources — label that
+                        // repo. Otherwise prefer the first *synced* repo, matching the repo the backend
+                        // resolves by default (it skips still-backfilling repos), else the first entry.
+                        return (
+                            (scopeRepo && githubSources.find((source) => source.repo === scopeRepo)) ||
+                            githubSources.find((source) => source.synced) ||
+                            githubSources[0] ||
+                            null
+                        )
+                    }
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
+                    // Explicit repo wins; otherwise (a bookmarked `?source=` with no `?repo`) prefer the
+                    // first synced repo of this source, matching the repo the backend resolves by default —
+                    // else the header names an unsynced repo the loaders never read.
+                    return (
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0] ||
+                        null
+                    )
+                },
             ],
+            // One option per selectable (source, repo). The value encodes both so a multi-repo source's
+            // repos are distinct entries; the label is the repo (falling back to prefix).
             sourceOptions: [
                 (s) => [s.githubSources],
                 (githubSources: GitHubSourceApi[]): { value: string; label: string }[] =>
                     githubSources.map((source) => ({
-                        value: source.id,
+                        value: scopeToValue(source.id, source.repo),
                         label: source.repo || source.prefix || `source ${source.id.slice(0, 8)}`,
                     })),
+            ],
+            // The picker's current value: the entry matching the picked (source, repo), else that source's
+            // first entry, else null (unpicked → placeholder + backend default).
+            selectedScope: [
+                (s) => [s.githubSources, s.sourceId, s.scopeRepo],
+                (
+                    githubSources: GitHubSourceApi[],
+                    sourceId: string | null,
+                    scopeRepo: string | null
+                ): string | null => {
+                    if (!sourceId) {
+                        // A repo-only scope (?repo, no ?source) highlights that repo across sources; an
+                        // unscoped page highlights nothing (placeholder shows the default label).
+                        const byRepo = scopeRepo && githubSources.find((source) => source.repo === scopeRepo)
+                        return byRepo ? scopeToValue(byRepo.id, byRepo.repo) : null
+                    }
+                    // Mirror activeSource: with no explicit repo, prefer the synced entry so the picker
+                    // highlights the repo the loaders actually read — else it shows an unsynced repo whose
+                    // selection would flip the page to not-connected.
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
+                    const match =
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0]
+                    return match ? scopeToValue(match.id, match.repo) : null
+                },
             ],
         }),
 
@@ -1629,6 +1718,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
+            setScope: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
@@ -1679,31 +1769,46 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
         })),
 
-        actionToUrl(() => ({
-            setSourceId: ({ sourceId }) => {
+        actionToUrl(() => {
+            // Write the (source, repo) scope onto the URL. A source change without a repo drops `?repo`
+            // (the old repo belonged to the old source); setScope writes both together.
+            const writeScope = (
+                sourceId: string | null,
+                scopeRepo: string | null
+            ): [string, Record<string, string>, Record<string, string>, { replace: boolean }] => {
                 const searchParams = { ...router.values.searchParams }
                 if (sourceId) {
                     searchParams.source = sourceId
                 } else {
                     delete searchParams.source
                 }
+                if (scopeRepo) {
+                    searchParams.repo = scopeRepo
+                } else {
+                    delete searchParams.repo
+                }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            },
-        })),
+            }
+            return {
+                setSourceId: ({ sourceId }) => writeScope(sourceId, null),
+                setScope: ({ sourceId, scopeRepo }) => writeScope(sourceId, scopeRepo),
+            }
+        }),
 
         urlToAction(({ actions, values }) => {
             // `?q=` (branch scope) is hydrated by engineeringAnalyticsFiltersLogic, not here.
-            const applySource = (source: string | undefined): void => {
-                const next = source ?? null
-                if (next !== values.sourceId) {
-                    actions.setSourceId(next)
+            const applyScope = (source: string | undefined, repo: string | undefined): void => {
+                const nextSource = source ?? null
+                const nextRepo = repo ?? null
+                if (nextSource !== values.sourceId || nextRepo !== values.scopeRepo) {
+                    actions.setScope(nextSource, nextRepo)
                 }
             }
             return {
-                [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsPullRequestList()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsTestHealth()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalytics()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
             }
         }),
 

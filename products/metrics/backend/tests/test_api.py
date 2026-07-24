@@ -42,6 +42,23 @@ class TestMetricsValuesApi(APIBaseTest):
         assert response.json()["attr"] == "limit"
 
 
+class TestMetricsFeatureFlagGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("enabled", True, status.HTTP_200_OK),
+            ("disabled", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_metrics_flag_gates_the_api(self, _name: str, flag_enabled: bool, expected_status: int) -> None:
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.metrics.backend.presentation.api.team_has_metrics", return_value=True),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == expected_status
+
+
 @pytest.mark.ee
 class TestMetricsAccessControl(APIBaseTest):
     def setUp(self) -> None:

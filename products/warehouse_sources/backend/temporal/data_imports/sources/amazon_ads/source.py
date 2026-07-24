@@ -26,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AmazonAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
+    AmazonAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -115,6 +117,7 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Entity lists have no updated-since filter; performance metrics ship
         # via the async reporting API (a follow-up).
@@ -135,7 +138,11 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         return schemas
 
     def validate_credentials(
-        self, config: AmazonAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AmazonAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_amazon_ads_credentials(config.region, config.client_id, config.client_secret, config.refresh_token):
             return True, None

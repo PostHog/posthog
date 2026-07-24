@@ -247,8 +247,20 @@ def validate_credentials(
             timeout=10,
             allow_redirects=False,
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    except requests.exceptions.SSLError:
+        return False, (
+            "Couldn't establish a secure connection to the WordPress site — its TLS certificate failed "
+            "verification. Install a publicly trusted certificate (not a self-signed one) on the site and try again."
+        )
+    except requests.exceptions.ConnectionError:
+        return False, "Couldn't connect to the WordPress site. Check the site URL is correct and the site is reachable."
+    except requests.exceptions.Timeout:
+        return False, "The WordPress site took too long to respond. Check that it's reachable and try again."
+    except requests.exceptions.RequestException:
+        return (
+            False,
+            "Couldn't reach the WordPress site. Check the site URL and that the site is online, then try again.",
+        )
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -265,11 +277,22 @@ def validate_credentials(
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
 
+    # A WordPress REST error carries a JSON `message` worth surfacing. Anything else — a WAF,
+    # reverse proxy, or load balancer answering with a bare status line like "Bad Request" — gives
+    # the user nothing to act on, so replace it with an actionable message naming the status code
+    # rather than leaking the raw body.
     try:
         body = response.json()
-        return False, body.get("message", response.text)
+        wp_message = body.get("message") if isinstance(body, dict) else None
     except Exception:
-        return False, response.text
+        wp_message = None
+
+    if wp_message:
+        return False, wp_message
+    return False, (
+        f"WordPress returned an unexpected response (HTTP {response.status_code}). "
+        "Check the site URL is correct and that the REST API is enabled and reachable, then try again."
+    )
 
 
 def _parse_retry_after(response: requests.Response) -> float | None:

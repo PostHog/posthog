@@ -239,3 +239,60 @@ class TestRoleAPI(APILicensedTest):
         results = res.json()
         self.assertEqual(results["count"], 2)
         self.assertNotContains(res, str(other_org.id))
+
+
+class TestRoleMemberVisibilityRestriction(APILicensedTest):
+    """When members_can_see_org_members is off, role endpoints must not disclose members the
+    requester can't see in the members list."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        self.mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        self.hidden = User.objects.create_and_join(self.organization, "hidden@posthog.com", None)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization, created_by=self.hidden)
+        for user in [self.mate, self.hidden]:
+            RoleMembership.objects.create(
+                role=self.role,
+                user=user,
+                organization_member=user.organization_memberships.get(organization=self.organization),
+            )
+        # Private project: explicit access for the requester and one project mate, none for `hidden`
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        for membership in [
+            self.organization_membership,
+            self.mate.organization_memberships.get(organization=self.organization),
+        ]:
+            AccessControl.objects.create(
+                team=self.team, resource="project", organization_member=membership, access_level="member"
+            )
+
+    def test_restricted_member_cannot_see_hidden_members_via_roles(self):
+        response = self.client.get("/api/organizations/@current/roles")
+        assert response.status_code == status.HTTP_200_OK
+        role = response.json()["results"][0]
+        assert {m["user"]["email"] for m in role["members"]} == {self.mate.email}
+        assert role["created_by"] is None
+
+    def test_restricted_member_cannot_see_hidden_members_via_role_memberships(self):
+        response = self.client.get(f"/api/organizations/@current/roles/{self.role.id}/role_memberships")
+        assert response.status_code == status.HTTP_200_OK
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.mate.email}
+
+    def test_admin_still_sees_all_role_members(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.get("/api/organizations/@current/roles")
+        role = response.json()["results"][0]
+        assert {m["user"]["email"] for m in role["members"]} == {self.mate.email, self.hidden.email}
+        assert role["created_by"]["email"] == self.hidden.email

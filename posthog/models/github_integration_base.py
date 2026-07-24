@@ -53,6 +53,20 @@ class GitHubCommitAuthor:
     login: str
     name: str | None
     commit_url: str
+    # GitHub caps the file listing at 300 entries.
+    file_paths: tuple[str, ...] = ()
+    is_bot: bool = False
+
+
+@dataclass(frozen=True)
+class GitHubCommitAttribution:
+    """GitHub's own commit→account attribution, from the commits listing."""
+
+    sha: str
+    login: str
+    is_bot: bool
+    # Git author display name — untrusted free text, for display only, never parse it.
+    name: str | None = None
 
 
 class GitHubIntegrationError(Exception):
@@ -111,7 +125,13 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = 10) -> requests.Response:
+    def client_request(
+        cls,
+        endpoint: str,
+        method: str = "GET",
+        timeout: float | None = 10,
+        json_body: dict[str, Any] | None = None,
+    ) -> requests.Response:
         """Make a request to the GitHub App API using a JWT.
 
         ``timeout`` defaults to 10s so callers in web request and token-refresh paths
@@ -154,6 +174,8 @@ class GitHubIntegrationBase:
             source=_OBSERVABILITY_SOURCE,
             headers={"Authorization": f"Bearer {jwt_token}"},
             timeout=timeout,
+            # requests omits the body entirely when json is None
+            json=json_body,
         )
 
     # --- App installation lifecycle (uninstall) ---
@@ -353,6 +375,56 @@ class GitHubIntegrationBase:
         }
         self._on_token_refreshed()
         self.integration.save()
+
+    def mint_scoped_installation_token(
+        self,
+        permissions: Mapping[str, str],
+        repositories: list[str] | None = None,
+    ) -> str:
+        """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
+        ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
+        (bare repo names, no owner prefix).
+
+        The token is returned to the caller and deliberately NOT persisted: the cached
+        ``sensitive_config`` token is the shared full-permission credential every other
+        flow reads, and overwriting it with a downscoped one would silently break them.
+        Scoped tokens expire like any installation token (~1h) and cannot be refreshed —
+        mint a new one instead. Requesting a permission the installation doesn't have
+        fails the mint (422), which surfaces as ``GitHubIntegrationError``.
+        """
+        installation_id = self.github_installation_id
+        if not installation_id:
+            raise GitHubIntegrationError("No GitHub App installation id on this integration")
+
+        body: dict[str, Any] = {"permissions": dict(permissions)}
+        if repositories:
+            body["repositories"] = repositories
+
+        response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        try:
+            data = response.json()
+        except ValueError:
+            self._mark_if_installation_gone(response)
+            raise GitHubIntegrationError(
+                f"Non-JSON response when minting scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            ) from None
+        if response.status_code != 201 or not data.get("token"):
+            self._mark_if_installation_gone(response)
+            raise GitHubIntegrationError(
+                f"Failed to mint scoped installation token: {response.text[:500]}",
+                status_code=response.status_code,
+            )
+        return data["token"]
+
+    def _mark_if_installation_gone(self, response: requests.Response) -> None:
+        """Persist the permanently-gone marker after a failed scoped mint (404 uninstalled /
+        403 suspended), so callers that check :meth:`installation_unavailable` stop re-minting a
+        dead installation on every run. Deliberately NOT the full ``_on_token_refresh_failed``
+        hook: that one also stamps ``errors`` on transient failures, which would exclude the
+        integration from team resolution over a passing GitHub 500."""
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:
@@ -611,7 +683,97 @@ class GitHubIntegrationBase:
         git_author = data.get("commit", {}).get("author", {})
         name = git_author.get("name") or author.get("login")
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
-        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
+        files = data.get("files")
+        file_paths = (
+            tuple(f["filename"] for f in files if isinstance(f, dict) and isinstance(f.get("filename"), str))
+            if isinstance(files, list)
+            else ()
+        )
+        return GitHubCommitAuthor(
+            login=author["login"],
+            name=name,
+            commit_url=commit_url,
+            file_paths=file_paths,
+            is_bot=author.get("type") == "Bot",
+        )
+
+    def list_commit_attributions(
+        self,
+        repository: str,
+        *,
+        since: datetime,
+        # The listing includes merge commits, so it must run deeper than the non-merge
+        # git log it joins against (posthog/posthog: ~11k listed entries per 90 days).
+        max_pages: int = 150,
+    ) -> list[GitHubCommitAttribution]:
+        """GitHub's commit→login attribution for default-branch commits since ``since``.
+
+        The listing endpoint carries no file data — callers join on sha against their own
+        source of changed paths (e.g. a local ``git log``). Commits GitHub cannot attribute
+        to an account (unrecognized author emails) are skipped. The first page failing
+        raises; later pages are best-effort so a long history returns what was fetched.
+        Rate limits raise ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        params: dict[str, str | int] = {
+            "per_page": 100,
+            "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        attributions: list[GitHubCommitAttribution] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self.api_request(
+                "GET",
+                f"/repos/{repository}/commits",
+                endpoint="/repos/{owner}/{repo}/commits",
+                params={**params, "page": page},
+            )
+            if response.status_code != 200:
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: commit listing failed for {repository}",
+                        status_code=response.status_code,
+                    )
+                logger.info(
+                    "GitHub API non-200 during commit listing pagination",
+                    status_code=response.status_code,
+                    repository=repository,
+                    page=page,
+                )
+                break
+            try:
+                body = response.json()
+                if not isinstance(body, list):
+                    raise ValueError(f"expected a list, got {type(body).__name__}")
+            except Exception as exc:
+                # Page 1 must raise like the non-200 branch — an empty result here would
+                # let callers write an empty attribution map as if it were real data.
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: malformed commit listing for {repository}",
+                        status_code=response.status_code,
+                    ) from exc
+                logger.warning(
+                    "GitHubIntegration: malformed commit listing page", repository=repository, page=page, exc_info=True
+                )
+                break
+            for entry in body:
+                if not isinstance(entry, dict):
+                    continue
+                sha = entry.get("sha")
+                author = entry.get("author")
+                if not isinstance(sha, str) or not isinstance(author, dict) or not author.get("login"):
+                    continue
+                git_author = (entry.get("commit") or {}).get("author") or {}
+                attributions.append(
+                    GitHubCommitAttribution(
+                        sha=sha,
+                        login=author["login"],
+                        is_bot=author.get("type") == "Bot",
+                        name=git_author.get("name") if isinstance(git_author.get("name"), str) else None,
+                    )
+                )
+            if len(body) < 100:
+                break
+        return attributions
 
     @staticmethod
     def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
@@ -827,7 +989,7 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          number title url state isDraft mergeable updatedAt headRefName
+          number title url state isDraft mergeable updatedAt headRefName headRefOid
           author { login }
           reviewDecision
           reviewRequests(first: 50) {
@@ -996,6 +1158,7 @@ class GitHubIntegrationBase:
             "mergeable": self._map_mergeable(pr.get("mergeable")),
             "author_login": author,
             "head_branch": pr.get("headRefName"),
+            "head_sha": pr.get("headRefOid"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
         }

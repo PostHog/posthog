@@ -1,0 +1,151 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS_URL = "https://api.corona-zahlen.org/docs/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "germany": {
+        "description": "Current nationwide COVID-19 snapshot for Germany, replaced on every sync.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "cases": "Cumulative reported COVID-19 cases in Germany.",
+            "deaths": "Cumulative reported COVID-19 deaths in Germany.",
+            "recovered": "Cumulative recovered COVID-19 cases in Germany.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants.",
+            "casesPer100k": "Cumulative cases per 100,000 inhabitants.",
+            "casesPerWeek": "New cases reported in the last 7 days.",
+            "deathsPerWeek": "New deaths reported in the last 7 days.",
+            "delta": "Day-over-day change in cases, deaths, recovered, and week incidence.",
+            "r": "Reproduction (R) value estimates with their reference dates.",
+            "hospitalization": "Current 7-day hospitalization cases and incidence.",
+            "meta": "API metadata, including the last update timestamp of the underlying RKI data.",
+        },
+    },
+    "germany_age_groups": {
+        "description": "Nationwide cases, deaths, and hospitalization broken down by age group and sex.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "age_group": "Age band the row describes (e.g. A00-A04, A80+).",
+            "casesMale": "Cumulative cases among males in this age group.",
+            "casesFemale": "Cumulative cases among females in this age group.",
+            "deathsMale": "Cumulative deaths among males in this age group.",
+            "deathsFemale": "Cumulative deaths among females in this age group.",
+            "casesMalePer100k": "Cumulative cases among males per 100,000 inhabitants of this age group.",
+            "casesFemalePer100k": "Cumulative cases among females per 100,000 inhabitants of this age group.",
+            "deathsMalePer100k": "Cumulative deaths among males per 100,000 inhabitants of this age group.",
+            "deathsFemalePer100k": "Cumulative deaths among females per 100,000 inhabitants of this age group.",
+            "hospitalization": "Current 7-day hospitalization cases and incidence for this age group.",
+        },
+    },
+    "germany_history_cases": {
+        "description": "Daily new reported COVID-19 cases for Germany.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Reporting day.",
+            "cases": "New cases reported on this day.",
+        },
+    },
+    "germany_history_incidence": {
+        "description": "Daily 7-day incidence per 100,000 inhabitants for Germany.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Reporting day.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants on this day.",
+        },
+    },
+    "germany_history_deaths": {
+        "description": "Daily new reported COVID-19 deaths for Germany.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Reporting day.",
+            "deaths": "New deaths reported on this day.",
+        },
+    },
+    "germany_history_recovered": {
+        "description": "Daily newly recovered COVID-19 cases for Germany.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Reporting day.",
+            "recovered": "Cases newly counted as recovered on this day.",
+        },
+    },
+    "germany_history_frozen_incidence": {
+        "description": "Daily 7-day incidence for Germany as originally published on each day, without retroactive corrections.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Publication day.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants as published on this day.",
+            "dataSource": "Origin of the value (official RKI report or calculated from the daily RKI dump).",
+        },
+    },
+    "germany_history_hospitalization": {
+        "description": "Daily 7-day hospitalization figures for Germany, including reporting-delay adjusted values.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Reporting day.",
+            "cases7Days": "Hospitalized COVID-19 cases reported in the trailing 7 days.",
+            "incidence7Days": "7-day hospitalization incidence per 100,000 inhabitants.",
+            "fixedCases7Days": "7-day hospitalization cases as fixed after the reporting delay.",
+            "updatedCases7Days": "7-day hospitalization cases updated with late reports.",
+            "adjustedCases7Days": "Reporting-delay adjusted (nowcast) 7-day hospitalization cases.",
+            "adjustedLowerCases7Days": "Lower bound of the adjusted 7-day hospitalization cases.",
+            "adjustedUpperCases7Days": "Upper bound of the adjusted 7-day hospitalization cases.",
+            "fixedIncidence7Days": "7-day hospitalization incidence as fixed after the reporting delay.",
+            "updatedIncidence7Days": "7-day hospitalization incidence updated with late reports.",
+            "adjustedIncidence7Days": "Reporting-delay adjusted (nowcast) 7-day hospitalization incidence.",
+            "adjustedLowerIncidence7Days": "Lower bound of the adjusted 7-day hospitalization incidence.",
+            "adjustedUpperIncidence7Days": "Upper bound of the adjusted 7-day hospitalization incidence.",
+        },
+    },
+    "states": {
+        "description": "Current COVID-19 snapshot per German federal state (Bundesland).",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Numeric state identifier used by the RKI.",
+            "abbreviation": "Two-letter state abbreviation (e.g. BY for Bayern).",
+            "name": "State name.",
+            "population": "State population.",
+            "cases": "Cumulative reported cases in the state.",
+            "deaths": "Cumulative reported deaths in the state.",
+            "recovered": "Cumulative recovered cases in the state.",
+            "casesPerWeek": "New cases reported in the last 7 days.",
+            "deathsPerWeek": "New deaths reported in the last 7 days.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants.",
+            "casesPer100k": "Cumulative cases per 100,000 inhabitants.",
+            "delta": "Day-over-day change in cases, deaths, recovered, and week incidence.",
+            "hospitalization": "Current 7-day hospitalization cases and incidence for the state.",
+        },
+    },
+    "districts": {
+        "description": "Current COVID-19 snapshot per German district (Landkreis / kreisfreie Stadt).",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "ags": "Official municipality key (Allgemeiner Gemeindeschlüssel) identifying the district.",
+            "name": "District name.",
+            "county": "Full district label including its type (LK/SK prefix).",
+            "state": "Name of the federal state the district belongs to.",
+            "stateAbbreviation": "Two-letter abbreviation of the federal state.",
+            "population": "District population.",
+            "cases": "Cumulative reported cases in the district.",
+            "deaths": "Cumulative reported deaths in the district.",
+            "recovered": "Cumulative recovered cases in the district.",
+            "casesPerWeek": "New cases reported in the last 7 days.",
+            "deathsPerWeek": "New deaths reported in the last 7 days.",
+            "weekIncidence": "7-day incidence per 100,000 inhabitants.",
+            "casesPer100k": "Cumulative cases per 100,000 inhabitants.",
+            "delta": "Day-over-day change in cases, deaths, recovered, and week incidence.",
+        },
+    },
+    "testing_history": {
+        "description": "Weekly PCR testing figures for Germany.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "calendarWeek": "Calendar week the figures cover, formatted as WW/YYYY.",
+            "performedTests": "PCR tests performed in this calendar week.",
+            "positiveTests": "Positive PCR tests in this calendar week.",
+            "positivityRate": "Share of performed tests that were positive (0-1).",
+            "laboratoryCount": "Number of laboratories that reported figures for this week.",
+        },
+    },
+}

@@ -359,18 +359,6 @@ export interface maxLogicMeta {
             activeStreamingThreads: number
         ) => Breadcrumb[]
     }
-    __keaTypeGenInternalReducerActions: {
-        'open side panel (scenes.navigation.sidepanel.sidePanelStateLogic)': (
-            tab: SidePanelTab,
-            options?: string
-        ) => {
-            payload: {
-                options: string | undefined
-                tab: SidePanelTab
-            }
-            type: 'open side panel (scenes.navigation.sidepanel.sidePanelStateLogic)'
-        }
-    }
 }
 
 export type maxLogicType = MakeLogicType<maxLogicValues, maxLogicActions, MaxLogicProps, maxLogicMeta>
@@ -897,6 +885,11 @@ export const maxLogic = kea<maxLogicType>([
                     actions.startNewConversation()
                 }
 
+                // kea-router coerces numeric-looking URL params to numbers
+                const askPrompt = String(search.ask)
+
+                // Consume any pending deep-link context up front, before the consent gate, so an
+                // unapproved link doesn't leave a stale entry behind for a later one to pick up.
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
@@ -912,11 +905,18 @@ export const maxLogic = kea<maxLogicType>([
                     // sessionStorage unavailable or data malformed, agent will handle it
                 }
 
+                if (!values.dataProcessingAccepted) {
+                    // Without AI data-processing consent, askMax silently no-ops and the prompt is lost.
+                    // Prefill the composer instead so the deep-linked prompt stays visible and the user's
+                    // manual submit runs it (which surfaces the consent flow).
+                    actions.setQuestion(askPrompt)
+                    return
+                }
+
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
                     // Pass context directly to askMax to avoid timing issues
-                    // kea-router coerces numeric-looking URL params to numbers
-                    actions.askMax(String(search.ask), true, uiContext)
+                    actions.askMax(askPrompt, true, uiContext)
                 }, 100)
                 return
             }

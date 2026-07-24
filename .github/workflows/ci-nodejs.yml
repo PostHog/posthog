@@ -1,7 +1,6 @@
 name: Node.js CI
 on:
     pull_request:
-    merge_group:
     push:
         branches:
             - master
@@ -61,7 +60,9 @@ jobs:
                         - 'nodejs/**'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
+                        - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        - '**/crosslang/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -87,7 +88,7 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
 
             - name: Decide whether Node.js checks should run
@@ -125,9 +126,9 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality (depot-ubuntu-latest)
+        name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -160,9 +161,9 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build (depot-ubuntu-latest)
+        name: Node.js Build (depot-ubuntu-24.04)
         needs: changes
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -193,9 +194,9 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-latest-4)
+        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30 # We know tests don't take this long
         strategy:
             fail-fast: false
@@ -288,8 +289,11 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack, SeaweedFS
+              # seaweedfs backs the blob-store integration tests; the profile-scoped
+              # stack launch above never starts it (it sits in the replay/agents
+              # profiles), so start it explicitly here — no profiles overlay in play.
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -402,10 +406,14 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: junit-results/junit-*.xml
@@ -421,7 +429,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure step
             # so a real failure still triggers it via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -434,9 +442,9 @@ jobs:
 
     rust_ingestion_e2e:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Rust ingestion consumer Node API e2e (depot-ubuntu-latest-4)
+        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
