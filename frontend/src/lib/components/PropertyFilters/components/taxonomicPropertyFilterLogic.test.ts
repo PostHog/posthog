@@ -170,9 +170,7 @@ describe('taxonomicPropertyFilterLogic', () => {
         })
 
         it('creates EventMetadata filter from a bare recent item stored without an id', () => {
-            const group = logic.values.taxonomicGroups.find(
-                (g) => g.type === TaxonomicFilterGroupType.EventMetadata
-            )!
+            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventMetadata)!
             logic.actions.selectItem(group, 'event', undefined, {
                 name: 'event',
                 _recentContext: {
