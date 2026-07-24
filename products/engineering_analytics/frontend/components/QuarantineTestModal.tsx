@@ -8,6 +8,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import {
     QuarantineModalState,
     QuarantineSubmitInput,
+    TestRunner,
     inferOwnerFromSelector,
 } from '../scenes/engineeringAnalyticsLogic'
 
@@ -47,6 +48,7 @@ export function QuarantineTestModal({
     const isExtend = modal?.action === 'extend'
 
     const [selector, setSelector] = useState('')
+    const [runner, setRunner] = useState<TestRunner>('pytest')
     // A picked category, or OTHER_REASON when the reason is free-text (held in customReason).
     const [reasonChoice, setReasonChoice] = useState('')
     const [customReason, setCustomReason] = useState('')
@@ -61,6 +63,7 @@ export function QuarantineTestModal({
             return
         }
         setSelector(modal.selector)
+        setRunner(modal.runner)
         // An existing reason that isn't one of the buckets falls into the 'Other' free-text path.
         const isKnown = REASON_OPTIONS.includes(modal.reason)
         setReasonChoice(modal.reason ? (isKnown ? modal.reason : OTHER_REASON) : '')
@@ -95,11 +98,12 @@ export function QuarantineTestModal({
         onSubmit({
             action: modal.action,
             selector: selector.trim(),
+            runner,
             reason,
             owner: owner.trim(),
             issue: modal.issue,
             expires: expires.format('YYYY-MM-DD'),
-            // Mode isn't editable here: new quarantines run as xfail; extend keeps the entry's mode.
+            // Mode isn't editable here: new quarantines tolerate failures; extend keeps the entry's mode.
             mode: modal.mode,
         })
     }
@@ -166,6 +170,10 @@ export function QuarantineTestModal({
                         </div>
                     </div>
                     <div>
+                        <div className="mb-1 text-sm font-medium">Test runner</div>
+                        <div className="text-sm">{runner}</div>
+                    </div>
+                    <div>
                         <div className="mb-1 text-sm font-medium">Reason</div>
                         <div className="text-sm text-secondary">{reason}</div>
                     </div>
@@ -182,6 +190,22 @@ export function QuarantineTestModal({
                 </div>
             ) : (
                 <div className="flex flex-col gap-4">
+                    {!isExtend && (
+                        <div>
+                            <label className="mb-1 block text-sm font-medium">Test runner</label>
+                            <LemonSelect<TestRunner>
+                                value={runner}
+                                onChange={(value) => value && setRunner(value)}
+                                options={[
+                                    { value: 'pytest', label: 'pytest' },
+                                    { value: 'jest', label: 'Jest' },
+                                    { value: 'playwright', label: 'Playwright' },
+                                ]}
+                                fullWidth
+                                data-attr="eng-analytics-quarantine-runner"
+                            />
+                        </div>
+                    )}
                     <div>
                         <label className="mb-1 block text-sm font-medium">Test selector</label>
                         {isExtend ? (

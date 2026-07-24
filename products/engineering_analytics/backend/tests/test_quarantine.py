@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     _canonical_entry,
     _lifecycle_for,
     _remove_entry,
+    _resolve_request_runner,
     _selector_kind,
     _upsert_entry,
     build_quarantine,
@@ -119,6 +120,7 @@ def _request(**overrides: Any) -> contracts.QuarantineRequest:
     fields: dict[str, Any] = {
         "operation": contracts.QuarantineRequestAction.QUARANTINE,
         "selector": "posthog/api/test/test_foo.py::TestFoo::test_bar",
+        "runner": contracts.QuarantineRunner.PYTEST,
         "repo": "PostHog/posthog",
         "reason": "flaky under shards",
         "owner": "@PostHog/team-foo",
@@ -470,6 +472,39 @@ class TestQuarantineRender(TestCase):
         result = _remove_entry([keep, drop], _entry()["id"])
         assert [e["id"] for e in result] == ["other"]
 
+    @parameterized.expand(
+        [
+            ("jest_extension", "frontend/src/x.test.ts::suite test", [], contracts.QuarantineRunner.JEST),
+            ("pytest_fallback", "product:surveys", [], contracts.QuarantineRunner.PYTEST),
+            (
+                "existing_entry",
+                "product:surveys",
+                [_canonical_entry(_entry(id="product:surveys", runner="jest"))],
+                contracts.QuarantineRunner.JEST,
+            ),
+        ]
+    )
+    def test_resolve_request_runner_for_older_clients(
+        self,
+        _name: str,
+        selector: str,
+        entries: list[dict],
+        expected: contracts.QuarantineRunner,
+    ) -> None:
+        request = _request(selector=selector, runner=None)
+        assert _resolve_request_runner(request, selector, entries) == expected
+
+    def test_resolve_request_runner_rejects_ambiguous_extend(self) -> None:
+        selector = "product:surveys"
+        entries = [
+            _canonical_entry(_entry(id=selector, runner="pytest")),
+            _canonical_entry(_entry(id=selector, runner="jest")),
+        ]
+        request = _request(operation=contracts.QuarantineRequestAction.EXTEND, selector=selector, runner=None)
+
+        with self.assertRaisesRegex(contracts.QuarantineWriteError, "multiple runners"):
+            _resolve_request_runner(request, selector, entries)
+
 
 class TestQuarantineRequest(BaseTest):
     def _install(self, github: mock.Mock, *, has_integration: bool = True, connected: bool = True) -> mock.Mock:
@@ -504,6 +539,7 @@ class TestQuarantineRequest(BaseTest):
         committed = github.update_file.call_args.args[2]
         entry = json.loads(committed)["entries"][0]
         assert entry["id"] == _request().selector
+        assert entry["runner"] == "pytest"
         assert entry["mode"] == "run"
         assert entry["expires"] == "2026-06-26"
         assert entry["issue"] == "https://github.com/PostHog/posthog/issues/4242"
@@ -516,6 +552,13 @@ class TestQuarantineRequest(BaseTest):
         request_quarantine(team=self.team, request=_request(mode=contracts.QuarantineMode.SKIP))
         entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
         assert entry["mode"] == "skip"
+
+    @freeze_time("2026-06-12")
+    def test_jest_runner_is_persisted(self) -> None:
+        github = self._install(_github_mock())
+        request_quarantine(team=self.team, request=_request(runner=contracts.QuarantineRunner.JEST))
+        entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
+        assert entry["runner"] == "jest"
 
     @freeze_time("2026-06-12")
     def test_extend_reuses_existing_issue_and_files_no_new_one(self) -> None:
