@@ -237,8 +237,10 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         },
         suppressIssue: async ({ issueId }) => {
             await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
-            posthog.capture('error_tracking_long_running_issue_suppressed', {
+            posthog.capture('error_tracking_issue_update_status', {
+                status: 'suppressed',
                 issue_id: issueId,
+                source: 'recommendations',
             })
             const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
             if (!longRunning) {
@@ -250,6 +252,11 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         },
         activateIssue: async ({ issueId }) => {
             await api.errorTracking.updateIssue(issueId, { status: 'active' })
+            posthog.capture('error_tracking_issue_update_status', {
+                status: 'active',
+                issue_id: issueId,
+                source: 'recommendations',
+            })
             const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
             if (!longRunning) {
                 return
