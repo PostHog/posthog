@@ -27,6 +27,12 @@ OBJECT_STORAGE_TRANSFER_ACCELERATION = get_from_env(
     "OBJECT_STORAGE_TRANSFER_ACCELERATION", False, type_cast=str_to_bool
 )
 OBJECT_STORAGE_EXPORTS_FOLDER = os.getenv("OBJECT_STORAGE_EXPORTS_FOLDER", "exports")
+# Exports fall back to storing their content in a Postgres bytea field when object storage is
+# disabled or unavailable. Postgres caps a single field at ~1 GiB (1073741824 bytes), so cap the
+# fallback well below that and fail fast with a user-facing error rather than a cryptic alloc error.
+EXPORT_ASSET_DB_FALLBACK_MAX_BYTES = get_from_env(
+    "EXPORT_ASSET_DB_FALLBACK_MAX_BYTES", 500 * 1024 * 1024, type_cast=int
+)
 OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER", "media_uploads")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
     "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"

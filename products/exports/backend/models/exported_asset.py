@@ -1,3 +1,4 @@
+import os
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -34,6 +35,14 @@ TWELVE_MONTHS = timedelta(days=365)
 
 def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
+
+
+class ExportContentTooLarge(Exception):
+    """Raised when an export is too large to store in the database fallback. Postgres caps a single
+    bytea field at ~1 GiB, so we fail fast with a user-facing message well below that limit rather
+    than letting Postgres raise a cryptic `invalid memory alloc request size` error on save."""
+
+    pass
 
 
 class ExportedAssetManager(models.Manager):
@@ -282,7 +291,20 @@ def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
         save_content_to_exported_asset(exported_asset, content)
 
 
+def _raise_if_db_fallback_too_large(content_size_bytes: int) -> None:
+    """Guard the Postgres DB fallback: a single bytea field caps at ~1 GiB, and reading a multi-GB
+    file into worker memory is wasteful anyway. Fail fast with a clear, user-facing message."""
+    max_bytes = settings.EXPORT_ASSET_DB_FALLBACK_MAX_BYTES
+    if content_size_bytes > max_bytes:
+        raise ExportContentTooLarge(
+            f"This export is too large to store ({content_size_bytes // (1024 * 1024)} MB, "
+            f"limit {max_bytes // (1024 * 1024)} MB). Reduce the date range or the number of rows "
+            f"or columns and try again."
+        )
+
+
 def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes) -> None:
+    _raise_if_db_fallback_too_large(len(content))
     exported_asset.content = content
     exported_asset.save(update_fields=["content"])
 
@@ -329,5 +351,8 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             exception=ose,
             exc_info=True,
         )
+    # Check the size on disk before reading so an oversized export never gets pulled into worker
+    # memory only to be rejected (or to blow up Postgres) on save.
+    _raise_if_db_fallback_too_large(os.path.getsize(file_path))
     with open(file_path, "rb") as f:
         save_content_to_exported_asset(exported_asset, f.read())
