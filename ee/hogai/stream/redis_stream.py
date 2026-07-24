@@ -201,8 +201,14 @@ class ConversationStreamSerializer:
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
-        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
-        return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
+        raw = data[bytes(self.serialization_key, "utf-8")]
+        # Migration Phase 1: read both formats. JSON (the new format) starts with '{';
+        # legacy pickle starts with 0x80. Once every writer emits JSON, the pickle
+        # branch is removed (Phase 3).
+        if raw[:1] == b"{":
+            return StreamEvent.model_validate_json(raw)
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (transitional legacy read, removed in migration Phase 3 once all writers emit JSON)
+        return pickle.loads(raw)
 
 
 class StreamError(Exception):
