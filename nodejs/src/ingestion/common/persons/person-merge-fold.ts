@@ -1,5 +1,5 @@
 import { buildIntegerMatcher } from '~/common/config/config'
-import { decideProcessPerson } from '~/common/utils/event'
+import { decideProcessPerson, isDistinctIdIllegal } from '~/common/persons/person-utils'
 import type { GroupPrescanFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, InternalPerson, Team } from '~/types'
@@ -116,6 +116,12 @@ function planRun<T extends MergeFoldScanItem>(run: { value: T }[]): void {
     for (const item of run) {
         const anonDistinctId = getFoldableAnonDistinctId(item.value)
         if (anonDistinctId === null || anonDistinctId === targetDistinctId || pairByAnonId.has(anonDistinctId)) {
+            continue
+        }
+        // An illegal anon id never merges; leaving its event off the plan
+        // sends it down the sequential path, which emits the per-event
+        // warning and keeps is_identified untouched, exactly as today.
+        if (isDistinctIdIllegal(anonDistinctId)) {
             continue
         }
         pairByAnonId.set(anonDistinctId, { anonDistinctId, eventUuid: item.value.event.uuid })

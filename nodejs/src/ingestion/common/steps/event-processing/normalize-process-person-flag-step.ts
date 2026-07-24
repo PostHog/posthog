@@ -1,4 +1,5 @@
-import { decideProcessPerson, normalizeProcessPerson } from '~/common/utils/event'
+import { decideProcessPerson } from '~/common/persons/person-utils'
+import { normalizeProcessPerson } from '~/common/utils/event'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'

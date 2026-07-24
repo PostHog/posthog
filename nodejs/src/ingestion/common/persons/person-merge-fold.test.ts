@@ -139,6 +139,21 @@ describe('createMergeFoldPrescan', () => {
         expect(items[3].mergeFoldPlan).toBeUndefined()
     })
 
+    it('excludes illegal anon distinct ids from the plan without splitting the run', () => {
+        const items = scan([identify('anon-1'), identify('anonymous'), identify('anon-2')])
+
+        const plan = items[0].mergeFoldPlan
+        expect(plan?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-1', 'anon-2'])
+        expect(items[1].mergeFoldPlan).toBeUndefined()
+        expect(items[2].mergeFoldPlan).toBe(plan)
+    })
+
+    it('skips planning when only illegal anon distinct ids are in the run', () => {
+        const items = scan([identify('anonymous'), identify('null')])
+
+        expect(items.every((item) => item.mergeFoldPlan === undefined)).toBe(true)
+    })
+
     it('excludes self-merges from the plan', () => {
         const items = scan([identify('user-1'), identify('anon-1'), identify('anon-2')])
 
