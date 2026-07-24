@@ -35,6 +35,20 @@ describe('TaxonomicBreakdownFilter', () => {
             const button = await waitForBreakdownButton()
             expect(button).toHaveAttribute('aria-disabled', 'false')
         })
+
+        it('keeps the picker open on a repeat click instead of toggling it shut', async () => {
+            // Regression guard: the button used to toggle (`setOpen(!open)`), so a second click
+            // while the taxonomic filter was still mounting would close it — the rage-click trap.
+            // It must now be open-only.
+            renderInsightPage({ query: buildTrendsQuery() })
+            const button = await waitForBreakdownButton()
+
+            await userEvent.click(button)
+            await screen.findByTestId('taxonomic-filter-searchfield')
+
+            await userEvent.click(button)
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
     })
 
     describe('at the trends 3-breakdown cap', () => {

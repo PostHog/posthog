@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { ReactElement, useState } from 'react'
+import { ReactElement, useEffect, useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -21,8 +21,20 @@ export function TaxonomicBreakdownButton({
     size,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
+    // Mounting the taxonomic filter is briefly expensive — it builds a list logic per group type,
+    // each kicking off requests. Defer the mount to a post-paint effect so the button's loading
+    // state renders on the click itself; otherwise the synchronous mount blocks the first frame and
+    // the click reads as unresponsive (a dead click).
+    const [opening, setOpening] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
+
+    useEffect(() => {
+        if (opening) {
+            setOpen(true)
+            setOpening(false)
+        }
+    }, [opening])
 
     return (
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
@@ -30,7 +42,15 @@ export function TaxonomicBreakdownButton({
                 type="secondary"
                 icon={<IconPlusSmall />}
                 data-attr="add-breakdown-button"
-                onClick={() => setOpen(!open)}
+                loading={opening}
+                // Open-only, never toggle: while the filter mounts, rapid follow-up clicks must keep
+                // it open rather than flip it shut — toggling on every click is what let users
+                // rage-click the picker closed before it had finished opening.
+                onClick={() => {
+                    if (!open && !opening) {
+                        setOpening(true)
+                    }
+                }}
                 sideIcon={null}
                 disabledReason={disabledReason}
                 disabledReasonInteractive={disabledReasonInteractive}
