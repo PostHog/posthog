@@ -73,16 +73,6 @@ export function ManageSubscriptions({
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
-                ) : !hasResourceSubs && !showAiPromptReportsLink ? (
-                    <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no subscriptions for this {subscriptionResourceNoun}</h3>
-
-                        <p>Once subscriptions are created they will display here. </p>
-
-                        <LemonButton type="primary" onClick={() => onSelect('new')}>
-                            Add subscription
-                        </LemonButton>
-                    </div>
                 ) : (
                     <div className="deprecated-space-y-4">
                         <div className="deprecated-space-y-2">
