@@ -454,7 +454,12 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             if (shouldPollSources()) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources()
+                        // Re-check at fire time: this shared logic stays mounted across navigation
+                        // and the timeout is only disposed on unmount, so skip the refresh if the
+                        // user has since left a page that displays the sources list.
+                        if (shouldPollSources()) {
+                            actions.loadSources()
+                        }
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -464,7 +469,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             if (shouldPollSources()) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources()
+                        if (shouldPollSources()) {
+                            actions.loadSources()
+                        }
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
