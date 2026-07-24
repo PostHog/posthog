@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -21,7 +22,7 @@ export function SharedMetricModal({
     onSave,
 }: {
     experiment: Experiment
-    onSave: (metrics: SharedMetric[], context: MetricContext) => void
+    onSave: (metrics: SharedMetric[], context: MetricContext) => void | Promise<void>
 }): JSX.Element | null {
     const {
         isModalOpen,
@@ -48,9 +49,26 @@ export function SharedMetricModal({
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
     const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
+    const [isSaving, setIsSaving] = useState(false)
 
     if (!compatibleSharedMetrics) {
         return null
+    }
+
+    const handleSave = async (): Promise<void> => {
+        const metrics = selectedMetricIds
+            .map((metricId) => compatibleSharedMetrics.find((m) => m.id === metricId))
+            .filter((metric): metric is SharedMetric => metric !== undefined)
+
+        setIsSaving(true)
+        try {
+            await onSave(metrics, context)
+            clearSelectedMetricIds()
+        } catch {
+            // Failure is surfaced via a toast by the caller; keep the selection to retry.
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     const addSharedMetricDisabledReason = (): string | undefined => {
@@ -82,20 +100,18 @@ export function SharedMetricModal({
             footer={
                 <div className="flex justify-between w-full">
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeModal} type="secondary">
+                        <LemonButton
+                            onClick={closeModal}
+                            disabledReason={isSaving ? 'Adding…' : undefined}
+                            type="secondary"
+                        >
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
                         {/* Only allow deletion for now */}
                         <LemonButton
-                            onClick={() => {
-                                const metrics = selectedMetricIds
-                                    .map((metricId) => compatibleSharedMetrics.find((m) => m.id === metricId))
-                                    .filter((metric): metric is SharedMetric => metric !== undefined)
-
-                                onSave(metrics, context)
-                                clearSelectedMetricIds()
-                            }}
+                            onClick={handleSave}
+                            loading={isSaving}
                             type="primary"
                             disabledReason={addSharedMetricDisabledReason()}
                         >

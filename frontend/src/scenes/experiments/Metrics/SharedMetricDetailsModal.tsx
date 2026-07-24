@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -65,13 +66,29 @@ function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | 
 export function SharedMetricDetailsModal({
     onDelete,
 }: {
-    onDelete: (sharedMetricId: number, context: MetricContext) => void
+    onDelete: (sharedMetricId: number, context: MetricContext) => Promise<void>
 }): JSX.Element | null {
     const { isModalOpen, sharedMetric, context } = useValues(sharedMetricDetailsModalLogic)
     const { closeSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
+    const [isRemoving, setIsRemoving] = useState(false)
 
     if (!sharedMetric || !sharedMetric.sharedMetricId) {
         return null
+    }
+
+    const handleRemove = async (): Promise<void> => {
+        if (!sharedMetric.sharedMetricId) {
+            return
+        }
+        setIsRemoving(true)
+        try {
+            await onDelete(sharedMetric.sharedMetricId, context)
+            closeSharedMetricDetailModal()
+        } catch {
+            // Failure is surfaced via a toast by the caller; keep the modal open to retry.
+        } finally {
+            setIsRemoving(false)
+        }
     }
 
     return (
@@ -84,23 +101,17 @@ export function SharedMetricDetailsModal({
                 <div className="flex justify-between w-full">
                     <div>
                         {sharedMetric && (
-                            <LemonButton
-                                status="danger"
-                                onClick={() => {
-                                    if (!sharedMetric.sharedMetricId) {
-                                        return
-                                    }
-                                    onDelete(sharedMetric.sharedMetricId, context)
-                                    closeSharedMetricDetailModal()
-                                }}
-                                type="secondary"
-                            >
+                            <LemonButton status="danger" onClick={handleRemove} loading={isRemoving} type="secondary">
                                 Remove from experiment
                             </LemonButton>
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeSharedMetricDetailModal} type="secondary">
+                        <LemonButton
+                            onClick={closeSharedMetricDetailModal}
+                            disabledReason={isRemoving ? 'Removing…' : undefined}
+                            type="secondary"
+                        >
                             Close
                         </LemonButton>
                     </div>
