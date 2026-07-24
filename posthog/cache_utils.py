@@ -7,10 +7,13 @@ from typing import Any, Generic, ParamSpec, TypeVar, cast
 from django.utils.timezone import now
 
 import orjson
+import structlog
 from django_redis.serializers.base import BaseSerializer
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.settings import TEST
+
+logger = structlog.get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -44,13 +47,27 @@ class CachedFunction(Generic[P, R]):
                 self._refreshing[key] = None
                 raise
 
+        def background_refresh():
+            # Runs in a detached thread with no caller to handle failures. A transient
+            # dependency blip (e.g. Redis briefly unreachable) would otherwise surface as
+            # an uncaught exception reported to error tracking, even though the last good
+            # cached value keeps being served. Log and degrade instead of re-raising.
+            try:
+                refresh()
+            except Exception:
+                logger.warning(
+                    "cache_utils_background_refresh_failed",
+                    fn=getattr(self._fn, "__qualname__", repr(self._fn)),
+                    exc_info=True,
+                )
+
         if key not in self._cache:
             refresh()
         elif current_time - self._cache[key][0] > self._cache_time:
             if self._background_refresh:
                 if not self._refreshing.get(key):
                     self._refreshing[key] = current_time
-                    t = threading.Thread(target=refresh)
+                    t = threading.Thread(target=background_refresh)
                     t.start()
             else:
                 refresh()
