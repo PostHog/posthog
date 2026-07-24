@@ -375,6 +375,46 @@ class TestAttributeFilters(APIBaseTest):
         self.assertNotIn("message__str", query_str)
         self.assertIn("in(resource_fingerprint", query_str)
 
+    def test_same_key_positive_and_negative_resource_attribute_filters(self):
+        # The facet rail emits an exact + is_not filter pair on the same key (include some values,
+        # exclude others) — both polarities must survive into their own fingerprint subquery.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="k8s.namespace.name",
+                                operator=PropertyOperator.EXACT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value=["argocd", "default"],
+                            ),
+                            LogPropertyFilter(
+                                key="k8s.namespace.name",
+                                operator=PropertyOperator.IS_NOT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value=["kube-system"],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("notIn(resource_fingerprint", query_str)
+        # the include subquery must survive alongside the exclude one
+        self.assertIn("in(resource_fingerprint", query_str.replace("notIn(resource_fingerprint", ""))
+        for value in ("argocd", "default", "kube-system"):
+            self.assertIn(value, query_str)
+
     def test_positive_and_negative_resource_attribute_filters(self):
         """Test combinations of log attributes and resource attributes"""
         query = LogsQuery(

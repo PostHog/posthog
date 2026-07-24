@@ -5,7 +5,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
-import { FacetSource, toggleResourceAttributeFilter } from './facets'
+import { FacetSource, cycleResourceAttributeFilter } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -106,8 +106,9 @@ export const facetRailLogic = kea<facetRailLogicType>([
         toggleFacetValue: ({ source, value }) => {
             const { severityLevels, serviceNames, filterGroup } = logsViewerFiltersLogic({ id: props.id }).values
             if (source.type === 'resourceAttribute') {
-                // Selection lives as a log_resource_attribute filter inside the group.
-                actions.setFilterGroup(toggleResourceAttributeFilter(filterGroup, source.key, value), false)
+                // Selection lives as log_resource_attribute filters inside the group; a click
+                // cycles the value included → excluded → cleared.
+                actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
             } else if (source.filterKey === 'severityLevels') {
                 actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
             } else if (source.filterKey === 'serviceNames') {
