@@ -49,7 +49,8 @@ How users **inside** the experiment are distributed across variants.
 
 - Array of `{key, name, rollout_percentage}`, where the `rollout_percentage` values must sum to 100
 - Minimum 2 variants, maximum 20
-- No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant
+- No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant.
+  Exception: web experiments (type `"web"`) must keep a variant keyed `"control"`, otherwise the call returns 400 (`Web experiments require a variant with key 'control'`)
 - Default: control 50% / test 50%
 
 If the user says "A/B/C test" without naming keys, key the baseline `"control"` (the convention) and create additional variants for the others; if they ask for specific keys, use them as-is with the baseline first.

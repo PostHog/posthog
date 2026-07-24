@@ -236,10 +236,11 @@ tools:
 
                     No specific variant key is required. The analysis baseline defaults to the variant keyed `control`
                     (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key.
-                    Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other
-                    natural-language pair without naming explicit keys, key the baseline `control` and keep their
-                    wording in the variant `name`. When the user asks for specific keys, use them as-is and put the
-                    baseline first.
+                    Exception: web experiments (type `web`) must keep a variant keyed `control`, otherwise the call
+                    returns 400 ("Web experiments require a variant with key 'control'"). Convention: when the user
+                    describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair
+                    without naming explicit keys, key the baseline `control` and keep their wording in the variant
+                    `name`. When the user asks for specific keys, use them as-is and put the baseline first.
         ui_app: experiment
         response:
             include:

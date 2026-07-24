@@ -34,7 +34,7 @@ For each action, the two key questions:
 
 Transitions draft → running. Activates the feature flag and sets `start_date`.
 
-- **Preconditions**: must be in draft, flag needs 2-20 multivariate variants (no specific key required; the baseline defaults to "control" when present, else the first variant)
+- **Preconditions**: must be in draft, flag needs 2-20 multivariate variants (no specific key required; the baseline defaults to "control" when present, else the first variant — except web experiments, which must keep a variant keyed "control")
 - **Pre-launch checklist**: has at least one metric? Variants correct? Flag implemented in code?
 - **Variants**: users start being bucketed into variants based on the configured split
 - **Analysis**: data collection begins from `start_date`
