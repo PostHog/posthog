@@ -27,6 +27,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconShare,
+    IconShield,
     IconScatter,
     IconSpotlight,
     IconToggle,
@@ -113,6 +114,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconListTree />
         case 'toolbar':
             return <IconToolbar />
+        case 'cookie_banner':
+            return <IconShield />
         default:
             return null
     }

@@ -118,6 +118,10 @@ _BANNER_CSS = """
 
 _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
     var STORAGE_KEY = '__ph_cookie_banner_consent';
+    // __Host- prefix: browsers only accept it with Secure, Path=/ and no Domain, so a
+    // sibling subdomain can't pre-seed consent. On http origins the cookie write is
+    // rejected and localStorage remains the only persistence.
+    var COOKIE_KEY = '__Host-' + STORAGE_KEY;
     var ART = __ART__;
     var CSS = __CSS__;
 
@@ -165,7 +169,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
             if (stored) { return stored; }
         } catch (e) {}
         try {
-            var match = document.cookie.match(new RegExp('(?:^|; ?)' + STORAGE_KEY + '=([^;]+)'));
+            var match = document.cookie.match(new RegExp('(?:^|; ?)' + COOKIE_KEY + '=([^;]+)'));
             if (match) { return parseChoice(decodeURIComponent(match[1])); }
         } catch (e) {}
         return null;
@@ -174,7 +178,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
     function storeChoice(choice) {
         var value = JSON.stringify(choice);
         try { window.localStorage.setItem(STORAGE_KEY, value); } catch (e) {}
-        try { document.cookie = STORAGE_KEY + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
+        try { document.cookie = COOKIE_KEY + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; SameSite=Lax; Secure'; } catch (e) {}
     }
 
     function dispatchConsent(choice, source) {
@@ -206,8 +210,9 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
     }
 
     function captureBannerEvent(name, properties) {
-        // posthog-js drops capture calls while the visitor is opted out, so no banner
-        // event leaves the browser without consent (or the cookieless fallback)
+        // Only ever called after the visitor's explicit choice: accept opts in first,
+        // decline is dropped by the opted-out SDK unless the (anonymous, in-memory)
+        // cookieless fallback is enabled.
         try { posthog.capture(name, properties); } catch (e) {}
     }
 
@@ -382,7 +387,9 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
 
         root.appendChild(banner);
         document.body.appendChild(host);
-        captureBannerEvent('cookie banner shown', { art_style: cfg.artStyle, position: cfg.position });
+        // Deliberately no capture here: posthog-js treats the pending (no stored consent)
+        // state as opted in on default-config sites, so a render-time event would leave
+        // the browser before the visitor consents. Analytics start at their choice.
     }
 
     if (document.body) {

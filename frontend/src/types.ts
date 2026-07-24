@@ -322,6 +322,7 @@ export enum AccessControlResourceType {
     Tracing = 'tracing',
     ReplayScanner = 'replay_scanner',
     Toolbar = 'toolbar',
+    CookieBanner = 'cookie_banner',
 }
 
 interface UserBaseType {

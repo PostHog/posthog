@@ -27,7 +27,7 @@ posthog.init('<your project API key>', {
 The banner is delivered through your existing PostHog snippet.
 No extra script tag is needed.
 
-Once a visitor makes a choice, it is stored in their browser (`localStorage` with a cookie fallback, key `__ph_cookie_banner_consent`) and the banner doesn't show again.
+Once a visitor makes a choice, it is stored in their browser (`localStorage` key `__ph_cookie_banner_consent`, with a `__Host-` prefixed cookie fallback on HTTPS) and the banner doesn't show again.
 
 You can also manage the banner through the [PostHog MCP](/docs/model-context-protocol) with the `cookie-banner-list`, `cookie-banner-create`, and `cookie-banner-partial-update` tools, or query it via SQL from the `system.cookie_banner_configs` table.
 
@@ -64,8 +64,9 @@ An exact match like `pt-BR` wins over a base-language match like `pt`; fields yo
 
 ## Banner analytics
 
-The banner captures its own events into your project — `cookie banner shown`, `cookie banner accepted`, and `cookie banner declined` (with the chosen categories and seconds to decision) — so you can chart accept rates.
-These events go through the normal posthog-js consent gate: nothing is captured from opted-out visitors, so with `opt_out_capturing_by_default: true` the `shown` and `declined` events only arrive when the cookieless fallback is enabled.
+The banner captures `cookie banner accepted` and `cookie banner declined` events into your project (with the chosen categories and seconds to decision) so you can chart accept rates.
+Nothing is captured before the visitor's explicit choice — there is deliberately no impression event, since it would have to be sent pre-consent.
+`declined` events go through the normal posthog-js consent gate, so they only arrive when the cookieless fallback is enabled.
 
 ## Removing the "Powered by PostHog" notice
 

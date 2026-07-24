@@ -35,6 +35,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.ReplayScanner]: FEATURE_FLAGS.REPLAY_VISION,
+    [AccessControlResourceType.CookieBanner]: FEATURE_FLAGS.COOKIE_BANNER,
 }
 
 export function isResourceRolledOut(
@@ -199,6 +200,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Toolbar,
                     AccessControlResourceType.Workflow,
                     AccessControlResourceType.Tracing,
+                    AccessControlResourceType.CookieBanner,
                 ]
 
                 return allResources.filter((resource) => {
