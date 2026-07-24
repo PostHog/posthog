@@ -199,6 +199,15 @@ describe('dashboardLogic', () => {
                         { ...dashboards[10] },
                     ],
                 },
+                '/api/environments/:team_id/data_color_themes/': [
+                    {
+                        id: 1,
+                        name: 'Default theme',
+                        colors: Array.from({ length: 15 }, (_, i) => `#0000${String(i).padStart(2, '0')}`),
+                        is_global: true,
+                    },
+                    { id: 123, name: 'Two-color theme', colors: ['#ff0000', '#00ff00'], is_global: false },
+                ],
                 '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
                 '/api/environments/:team_id/insights/:id/': ({ request, params }) => {
@@ -412,7 +421,11 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setBreakdownColorConfig({ breakdownValue: 'x', color: 'red' } as any)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
             }).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
@@ -425,7 +438,151 @@ describe('dashboardLogic', () => {
             expect(api.update).toHaveBeenCalledWith(
                 `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
-                    breakdown_colors: expect.any(Array),
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                })
+            )
+        })
+
+        it('discarding edit mode reverts unsaved color edits', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.effectiveBreakdownColors.some((c: { breakdownValue: string }) => c.breakdownValue === 'x')
+            ).toBe(true)
+            expect(logic.values.dataColorThemeId).toBe(123)
+            expect(logic.values.hasUnsavedColorChanges).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.effectiveBreakdownColors.some((c: { breakdownValue: string }) => c.breakdownValue === 'x')
+            ).toBe(false)
+            expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
+            expect(logic.values.hasUnsavedColorChanges).toBe(false)
+        })
+
+        it('auto-assigns breakdown colors only behind the dashboard colors flag', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            const insightWithBreakdowns = {
+                ...tileInsight,
+                dashboards: [5],
+                dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                result: [
+                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                ],
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { kind: NodeKind.TrendsQuery, series: [] },
+                } as InsightVizNode<TrendsQuery>,
+            }
+
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(insightWithBreakdowns)
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveBreakdownColors).toEqual([])
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            expect(logic.values.effectiveBreakdownColors).toEqual([
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+                expect.objectContaining({ breakdownValue: 'Firefox', colorToken: 'preset-2', source: 'auto' }),
+            ])
+        })
+
+        it('wraps auto-assigned colors at the active theme palette size', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...tileInsight,
+                    dashboards: [5],
+                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                    result: [
+                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                        { action: { order: 0 }, breakdown_value: ['Safari'] },
+                    ],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: { kind: NodeKind.TrendsQuery, series: [] },
+                    } as InsightVizNode<TrendsQuery>,
+                })
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveBreakdownColors).toEqual([
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1' }),
+                expect.objectContaining({ breakdownValue: 'Firefox', colorToken: 'preset-2' }),
+                // wraps at the two-color theme's palette size, not at the default 15
+                expect.objectContaining({ breakdownValue: 'Safari', colorToken: 'preset-1' }),
+            ])
+        })
+
+        it('saving while tiles load persists unsaved pins but neither materializes nor prunes auto colors', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...tileInsight,
+                    dashboards: [5],
+                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                    result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: { kind: NodeKind.TrendsQuery, series: [] },
+                    } as InsightVizNode<TrendsQuery>,
+                })
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'pinned',
+                    breakdownType: 'event',
+                    colorToken: 'preset-5',
+                })
+            }).toFinishAllListeners()
+
+            // hold a tile in a loading state, so the visible breakdown values are incomplete
+            logic.actions.setRefreshStatus(tileInsight.short_id, true)
+            expect(logic.values.itemsLoading).toBe(true)
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    // only the pin — no auto entry materialized from the partially loaded tiles
+                    breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
                 })
             )
         })
