@@ -6411,6 +6411,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter1 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6444,6 +6446,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter2 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6473,6 +6477,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter3 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -7566,9 +7572,9 @@ export namespace Schemas {
          *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-       *         callers (personal API keys, OAuth) only receive it when passing the
-       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+       *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+       *         must opt in the same way. Do not rely on it being present.
        *
          * @deprecated
          */
@@ -12566,6 +12572,8 @@ export namespace Schemas {
        *
        * * `email` - email */
       dedupe_key: DedupeKeyEnum | null;
+      /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
+      confirm_token: string;
     }
 
     /**
@@ -16159,6 +16167,8 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
+      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -27064,6 +27074,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion
+     */
+    export type SourceRoleEnum = typeof SourceRoleEnum[keyof typeof SourceRoleEnum];
+
+
+    export const SourceRoleEnum = {
+      Source: 'source',
+      Step: 'step',
+      Numerator: 'numerator',
+      Denominator: 'denominator',
+      RetentionStart: 'retention_start',
+      RetentionCompletion: 'retention_completion',
+    } as const;
+
+    /**
+     * One event/action source of a metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricSourceHit {
+      /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+       *
+       * * `source` - source
+       * * `step` - step
+       * * `numerator` - numerator
+       * * `denominator` - denominator
+       * * `retention_start` - retention_start
+       * * `retention_completion` - retention_completion */
+      source_role: SourceRoleEnum;
+      /** Display name of the source event or action. */
+      source_name: string;
+      /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+      source_index: number;
+      /** Total number of sources the metric is defined over. */
+      source_total: number;
+      /** Number of events in the session matching this source. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching this source. */
+      first_timestamp: string;
+      /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment metric with at least one matching event in a session recording.
      */
     export interface ExperimentSessionMetricHit {
@@ -27077,6 +27134,8 @@ export namespace Schemas {
       first_timestamp: string;
       /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
       timestamps: string[];
+      /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+      sources: ExperimentSessionMetricSourceHit[];
     }
 
     /**
@@ -32482,7 +32541,7 @@ export namespace Schemas {
       /** ID of the workflow this batch run belongs to. */
       hog_flow: string;
       /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
-      filters?: unknown;
+      readonly filters: unknown;
       /** Variable value overrides applied to this run. */
       variables?: unknown;
       readonly created_at: string;
@@ -36333,10 +36392,6 @@ export namespace Schemas {
       path: string;
       /** @maxLength 100 */
       content_type?: string;
-      /** Number of lines in the file content. */
-      line_count: number;
-      /** Number of characters in the file content. */
-      char_count: number;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -36389,7 +36444,7 @@ export namespace Schemas {
       readonly category: string;
       /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
       readonly owners: readonly UserBasic[];
-      /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
@@ -36698,65 +36753,6 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
-    }
-
-    export interface LLMSkillSearchError {
-      /** Explanation of why the skill search could not complete. */
-      detail: string;
-    }
-
-    /**
-     * * `name` - name
-     * * `description` - description
-     * * `body` - body
-     * * `file_path` - file_path
-     * * `file_content` - file_content
-     */
-    export type MatchedFieldEnum = typeof MatchedFieldEnum[keyof typeof MatchedFieldEnum];
-
-
-    export const MatchedFieldEnum = {
-      Name: 'name',
-      Description: 'description',
-      Body: 'body',
-      FilePath: 'file_path',
-      FileContent: 'file_content',
-    } as const;
-
-    export interface LLMSkillSearchMatch {
-      /** Skill field that matched the search query.
-       *
-       * * `name` - name
-       * * `description` - description
-       * * `body` - body
-       * * `file_path` - file_path
-       * * `file_content` - file_content */
-      matched_field: MatchedFieldEnum;
-      /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
-      path?: string;
-      /**
-         * One-based line containing the match when the result came from a body or bundled file.
-         * @minimum 1
-         */
-      line?: number;
-      /** Short excerpt showing why this skill matched. */
-      excerpt: string;
-    }
-
-    export interface LLMSkillSearchResult {
-      /** Unique skill name. */
-      name: string;
-      /** What this skill does and when to use it. */
-      description: string;
-      /** Up to two locations that matched the search query, ordered by field relevance. */
-      matches: LLMSkillSearchMatch[];
-    }
-
-    export interface LLMSkillSearchResponse {
-      /** Number of matching skills returned, capped at 10. */
-      count: number;
-      /** Matching ordinary skills in relevance order. */
-      results: LLMSkillSearchResult[];
     }
 
     export interface LLMTaggerConfig {
@@ -48711,6 +48707,8 @@ export namespace Schemas {
     }
 
     export interface PatchedHogFlowGraphUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
       /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
       operations?: HogFlowGraphOperation[];
     }
@@ -48968,9 +48966,9 @@ export namespace Schemas {
          *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-       *         callers (personal API keys, OAuth) only receive it when passing the
-       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+       *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+       *         must opt in the same way. Do not rely on it being present.
        *
          * @deprecated
          */
@@ -77268,15 +77266,6 @@ export namespace Schemas {
      * Exact skill version UUID to resolve.
      */
     version_id?: string;
-    };
-
-    export type LlmSkillsSearchRetrieveParams = {
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query: string;
     };
 
     export type LogsAlertsListParams = {

@@ -11035,7 +11035,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",
@@ -11287,7 +11287,7 @@
         }
     },
     "workflows-publish": {
-        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Publish workflow draft",
@@ -11315,7 +11315,7 @@
         }
     },
     "workflows-run-batch": {
-        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count AND the confirm_token from that same workflows-blast-radius preview; the API rejects dispatch without the token, on audience drift, over the cap, or after 15 minutes.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Run batch workflow",
@@ -11385,7 +11385,7 @@
         }
     },
     "workflows-update": {
-        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet - then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
