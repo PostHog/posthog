@@ -42,6 +42,11 @@ logger = structlog.get_logger(__name__)
 
 VercelItemType = Literal["flag", "experiment"]
 
+# Frameworks only expose an env var to client-side bundles if it carries their own prefix, so the
+# same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
+# original contract for already-installed users.
+CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
+
 
 class VercelSSOError(Exception):
     pass
@@ -554,15 +559,14 @@ class VercelIntegration:
 
     @staticmethod
     def _build_secrets(team: Team) -> list[dict[str, str]]:
+        values = {
+            "POSTHOG_PROJECT_TOKEN": team.api_token,
+            "POSTHOG_HOST": absolute_uri(),
+        }
         return [
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                "value": team.api_token,
-            },
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                "value": absolute_uri(),
-            },
+            {"name": f"{prefix}{name}", "value": value}
+            for prefix in CLIENT_ENV_PREFIXES
+            for name, value in values.items()
         ]
 
     @staticmethod
@@ -608,12 +612,12 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
+            logger.info("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.debug(
+            logger.info(
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,
