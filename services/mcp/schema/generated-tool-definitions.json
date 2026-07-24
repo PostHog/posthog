@@ -6170,6 +6170,21 @@
             "readOnlyHint": true
         }
     },
+    "logs-config-get": {
+        "description": "Read the project's logs correlation configuration: which log attribute keys carry cross-product identity, so log queries can pivot to and from other products. `logs_distinct_id_attribute_key` (single key, default `posthogDistinctId`) holds a PostHog person's distinct ID — filter on it to scope logs to a person. `logs_session_id_attribute_keys` (ordered list, default `[\"posthogSessionId\"]`) holds the PostHog session ID — filter on any of these keys (OR across the list, operator `exact`, type `log_attribute`) to scope logs to one session, e.g. the `$session_id` of an error tracking exception or a session replay recording. Traces don't need this config: log rows carry native `trace_id`/`span_id` columns. Call this before building any person- or session-scoped log filter; never guess the attribute keys.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Get logs correlation config",
+        "title": "Get logs correlation config",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Attribute keys linking logs to persons, sessions, errors, and replay"
+    },
     "logs-count": {
         "description": "Return a scalar count of log entries matching a filter set. Use this as a cheap pre-flight before `query-logs` — if the count exceeds `query-logs`'s max `limit` of 1000, narrow the filters before pulling rows.\n\nAll parameters must be nested inside a `query` object.\n\n# When to use\n\n- Before `query-logs`, to confirm the filter set returns a tractable number of rows. If the count is above `query-logs`'s max `limit` of 1000, narrow the filters.\n- When the user asks \"how many X logs are there?\" and you don't need to see individual rows.\n- To check whether a filter combination matches anything at all before committing to a full query.\n\nTo find **when** the volume is concentrated within the window (rather than just the total), follow up with `logs-count-ranges` — it returns time-bucketed counts with explicit `date_from`/`date_to` per bucket so you can drill into a sub-range without reasoning about interval width.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the count. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names. Unlike `query-logs`, this tool does NOT require `serviceNames` — an unfiltered count is cheap and often useful for sizing up a filter before narrowing.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.searchTerm\n\nFull-text search across log bodies.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n# Examples\n\n## Count errors in a service over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Confirm a k8s namespace is producing logs at all\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1h\" },\n    \"filterGroup\": [\n      { \"key\": \"k8s.namespace.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"payments\" }\n    ]\n  }\n}\n```",
         "category": "Logs",

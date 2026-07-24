@@ -26,6 +26,7 @@ import {
     LogsServicesCreateBody,
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
+    OrganizationsProjectsLogsConfigRetrieveParams,
 } from '@/generated/logs/api'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -482,6 +483,21 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas
     },
 })
 
+const LogsConfigGetSchema = OrganizationsProjectsLogsConfigRetrieveParams.omit({ organization_id: true })
+
+const logsConfigGet = (): ToolBase<typeof LogsConfigGetSchema, Schemas.TeamLogsConfig> => ({
+    name: 'logs-config-get',
+    schema: LogsConfigGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsConfigGetSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.TeamLogsConfig>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/logs_config/`,
+        })
+        return result
+    },
+})
+
 const LogsCountSchema = LogsCountCreateBody
 
 const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountResponse> => ({
@@ -676,6 +692,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
+    'logs-config-get': logsConfigGet,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
