@@ -330,4 +330,4 @@ tasks:
       probe:
           tool: execute-sql
           args:
-              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%churn%'"
+              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%churn%' OR description ILIKE '%churn%'"
