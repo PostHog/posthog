@@ -371,8 +371,8 @@
             any(session.$is_bounce) AS is_bounce
      FROM events
      WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1)
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+     GROUP BY session_id)
+  WHERE or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false)
   LIMIT 50000
   '''
   
@@ -398,8 +398,8 @@
             any(session.$is_bounce) AS is_bounce
      FROM events
      WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), equals(properties.$pathname, '/pricing'))
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+     GROUP BY session_id)
+  WHERE or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false)
   LIMIT 50000
   '''
   
@@ -425,8 +425,8 @@
             any(session.$is_bounce) AS is_bounce
      FROM events
      WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), equals(session.$channel_type, 'Direct'))
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+     GROUP BY session_id)
+  WHERE or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false)
   LIMIT 50000
   '''
   

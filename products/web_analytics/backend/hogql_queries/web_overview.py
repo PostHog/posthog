@@ -437,6 +437,12 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
+        # The session start period filter lives in ``outer_select``'s WHERE, not a HAVING here.
+        # Filtering here would need ``HAVING <period>(min(session.$start_timestamp))``, and referencing
+        # that aggregate alias makes ClickHouse re-derive the aggregate's column name unquoted
+        # (``min(...$start_timestamp)``) while the SELECT registers it backtick-quoted, so the two no
+        # longer match and the query fails with "Not found column". The outer WHERE reads the already
+        # aggregated ``start_timestamp`` as a plain subquery column instead.
         parsed_select = parse_select(
             """
 SELECT
@@ -451,13 +457,11 @@ WHERE and(
     {all_properties},
 )
 GROUP BY session_id
-HAVING {inside_start_timestamp_period}
         """,
             placeholders={
                 "all_properties": self.all_properties(),
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
-                "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
                 "events_session_id": self.events_session_property,
             },
         )
@@ -580,7 +584,11 @@ HAVING {inside_start_timestamp_period}
             select.extend(metric_pair("avg", "session_duration", "avg_duration_s"))
             select.extend(metric_pair("avg", "is_bounce", "bounce_rate"))
 
-        return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=self.inner_select),
+            where=self._periods_expression("start_timestamp"),
+        )
 
 
 def to_data(

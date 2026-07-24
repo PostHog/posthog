@@ -973,6 +973,35 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # UTC should be used when convertToProjectTimezone=False
         assert utc_date_range.date_from().tzinfo.key == "UTC"
 
+    @parameterized.expand([("no_compare", False), ("with_compare", True)])
+    def test_session_start_period_filter_is_not_aggregate_having_on_sessions_v3(self, _name, compare):
+        # On the events↔sessions join path, filtering by session start must land in the outer query's
+        # WHERE against the plain ``start_timestamp`` column — never as ``HAVING <period>(min(session.
+        # $start_timestamp))`` in the inner aggregation. Referencing that aggregate alias in a HAVING makes
+        # ClickHouse re-derive the aggregate's column name without backticks (min(...$start_timestamp)) while
+        # the SELECT registers it backtick-quoted, so the two stop matching and the query fails with
+        # "Not found column". Sessions v3 is what's live in production, so pin the shape there.
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-15"),
+            properties=[],
+            compareFilter=CompareFilter(compare=compare),
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        )
+        sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        # The aggregate alias is still computed on the join path...
+        assert "min(events__session.`$start_timestamp`) AS start_timestamp" in sql
+        # ...but the period predicate reads it as a plain subquery column in the outer WHERE,
+        # and never as an aggregate filter in the inner HAVING.
+        assert "GROUP BY session_id) WHERE " in sql
+        assert "GROUP BY session_id HAVING" not in sql
+
     def test_compare_to_date_range_respects_convertToProjectTimezone(self):
         self.team.timezone = "Asia/Tokyo"
         self.team.save()
