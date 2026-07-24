@@ -885,6 +885,81 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0054, 6)
         })
 
+        it('extracts and prices Anthropic mixed-TTL cache writes with custom rates', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_input_token_price = 0.000003
+            event.properties!.$ai_output_token_price = 0.000015
+            event.properties!.$ai_cache_write_token_price = 0.000004
+            event.properties!.$ai_cache_write_1h_token_price = 0.000007
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_creation_input_tokens = 300
+            event.properties!.$ai_usage = {
+                usage: {
+                    inputTokens: {
+                        total: 1300,
+                        noCache: 1000,
+                        cacheRead: 0,
+                        cacheWrite: 300,
+                    },
+                    outputTokens: { total: 100, text: 100, reasoning: 0 },
+                    raw: {
+                        cache_creation_input_tokens: 300,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 100,
+                            ephemeral_1h_input_tokens: 200,
+                        },
+                    },
+                },
+                providerMetadata: {
+                    anthropic: {
+                        usage: {
+                            cache_creation_input_tokens: 300,
+                            cache_creation: {
+                                ephemeral_5m_input_tokens: 100,
+                                ephemeral_1h_input_tokens: 200,
+                            },
+                        },
+                    },
+                },
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_cache_creation_5m_input_tokens).toBe(100)
+            expect(result.properties!.$ai_cache_creation_1h_input_tokens).toBe(200)
+            expect(result.properties!.$ai_usage).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0048, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0063, 8)
+        })
+
+        it('extracts and prices Vercel Bedrock mixed-TTL cache writes', () => {
+            event.properties!.$ai_model = 'anthropic/claude-sonnet-4'
+            event.properties!.$ai_provider = 'bedrock'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_creation_input_tokens = 300
+            const bedrockUsage = {
+                cacheDetails: [
+                    { ttl: 'T5M', inputTokens: 100 },
+                    { ttl: 'T1H', inputTokens: 200 },
+                ],
+            }
+            event.properties!.$ai_usage = {
+                providerMetadata: {
+                    amazonBedrock: { usage: bedrockUsage },
+                },
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.004575, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.006075, 8)
+            expect(result.properties!.$ai_cache_creation_5m_input_tokens).toBe(100)
+            expect(result.properties!.$ai_cache_creation_1h_input_tokens).toBe(200)
+            expect(result.properties!.$ai_usage).toBeUndefined()
+        })
+
         it('falls back to multipliers when cache prices not provided', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001

@@ -39,6 +39,14 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
     return provider === 'gateway' && framework === 'vercel'
 }
 
+const hasNumericProperty = (event: PluginEvent, key: string): boolean => {
+    const value = event.properties?.[key]
+    return (
+        (typeof value === 'number' && Number.isFinite(value)) ||
+        (typeof value === 'string' && value.length > 0 && Number.isFinite(Number(value)))
+    )
+}
+
 export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     if (!event.properties) {
         return false
@@ -177,12 +185,28 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const cachedTextTokens = cacheReadTokens - cachedAudioInputTokens
 
     if (matchProvider(event, 'anthropic')) {
-        const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+        const aggregateCacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+        const cacheWrite5mTokens = numericProperty(event, '$ai_cache_creation_5m_input_tokens')
+        const cacheWrite1hTokens = numericProperty(event, '$ai_cache_creation_1h_input_tokens')
+        const hasCacheWriteBreakdown =
+            hasNumericProperty(event, '$ai_cache_creation_5m_input_tokens') &&
+            hasNumericProperty(event, '$ai_cache_creation_1h_input_tokens')
+        const cacheWriteTokens = hasCacheWriteBreakdown
+            ? cacheWrite5mTokens + cacheWrite1hTokens
+            : aggregateCacheWriteTokens
 
-        const writeCost =
-            cost.cost.cache_write_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_write_token, cacheWriteTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+        const cacheWrite5mRate = cost.cost.cache_write_token ?? bigDecimal.multiply(cost.cost.prompt_token, 1.25)
+        const cacheWrite1hRate =
+            cost.cost.cache_write_1h_token ??
+            (cost.provider === 'custom' && cost.cost.cache_write_token !== undefined
+                ? cost.cost.cache_write_token
+                : bigDecimal.multiply(cost.cost.prompt_token, 2))
+        const writeCost = hasCacheWriteBreakdown
+            ? bigDecimal.add(
+                  bigDecimal.multiply(cacheWrite5mRate, cacheWrite5mTokens),
+                  bigDecimal.multiply(cacheWrite1hRate, cacheWrite1hTokens)
+              )
+            : bigDecimal.multiply(cacheWrite5mRate, cacheWriteTokens)
 
         const cacheReadCost =
             cost.cost.cache_read_token !== undefined

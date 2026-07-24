@@ -3,6 +3,7 @@ export interface ModelCost {
     completion_token: number
     cache_read_token?: number
     cache_write_token?: number
+    cache_write_1h_token?: number
     request?: number
     web_search?: number
     image?: number

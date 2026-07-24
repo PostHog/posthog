@@ -151,6 +151,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -187,6 +203,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
@@ -4546,6 +4570,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -4582,6 +4622,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
