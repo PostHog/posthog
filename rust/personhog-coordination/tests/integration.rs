@@ -1494,6 +1494,105 @@ async fn handoff_delete_drains_stash_to_current_owner() {
     cancel.cancel();
 }
 
+/// A leader that restarts under the same pod name at a new address while
+/// keeping its assignments produces no handoff — the router must learn
+/// the new address from the pod registration watch, or every dial keeps
+/// hitting the dead address until the next rebalance.
+#[tokio::test]
+async fn pod_re_registration_refreshes_router_addresses_without_a_handoff() {
+    let store = test_store("addr-refresh").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+    let _pod = common::start_pod_with_address(
+        Arc::clone(&store),
+        "writer-0",
+        10,
+        Some("10.0.0.1:50053".to_string()),
+        cancel.clone(),
+    );
+
+    // Settle: all partitions assigned to writer-0, addresses learned.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.1:50053")
+        }
+    })
+    .await;
+
+    // Same pod name re-registers at a new address (a restart that kept
+    // its IP-independent identity) — no pod-set change, so no handoff.
+    let lease = store.grant_lease(10).await.unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    store
+        .register_pod(
+            &personhog_coordination::types::RegisteredPod {
+                pod_name: "writer-0".to_string(),
+                generation: String::new(),
+                status: personhog_coordination::types::PodStatus::Ready,
+                registered_at: now,
+                last_heartbeat: now,
+                controller: None,
+                advertise_address: Some("10.0.0.2:50053".to_string()),
+            },
+            lease,
+        )
+        .await
+        .unwrap();
+
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.2:50053")
+        }
+    })
+    .await;
+
+    // The refresh came from the registration watch alone: ownership never
+    // moved and the persisted assignments still carry the old snapshot.
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert!(handoffs.is_empty(), "no handoff may be involved");
+    let assignments = store.list_assignments().await.unwrap();
+    assert!(
+        assignments
+            .iter()
+            .all(|a| a.owner == "writer-0"
+                && a.advertise_address.as_deref() == Some("10.0.0.1:50053"))
+    );
+
+    cancel.cancel();
+}
+
 /// When the routing table sees a handoff Complete, it should update the
 /// table to point at the new owner inline. This proves the inline routing
 /// update inside `handle_handoff_put` runs (the assignment watch is gone).

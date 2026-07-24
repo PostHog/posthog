@@ -11,7 +11,7 @@ use assignment_coordination::store::parse_watch_value;
 
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
-use crate::types::{HandoffPhase, HandoffState, RegisteredRouter, RouterFreezeAck};
+use crate::types::{HandoffPhase, HandoffState, RegisteredPod, RegisteredRouter, RouterFreezeAck};
 use crate::util;
 
 /// Trait for the router-side stash handler. Implementations are responsible
@@ -137,6 +137,13 @@ impl RoutingTable {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
+        // Anchor the pod watch before the initial load: a pod
+        // re-registering during bootstrap lands in the snapshot, the
+        // watch, or both — address inserts are idempotent overwrites, so
+        // double delivery is harmless and nothing can be missed.
+        let pods_anchor = self.store.current_revision().await? + 1;
+        let pods_stream = self.store.watch_pods_from(pods_anchor).await?;
+
         let snapshot_revision = self.load_initial(&handler).await?;
 
         // Anchor the handoff watch to the snapshot's revision: every event
@@ -158,6 +165,14 @@ impl RoutingTable {
             let token = cancel.child_token();
             tasks.spawn(async move {
                 util::run_lease_keepalive(store, lease_id, interval, token).await
+            });
+        }
+
+        {
+            let addresses = Arc::clone(&self.addresses);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::watch_pod_addresses_loop(addresses, token, pods_stream).await
             });
         }
 
@@ -264,12 +279,22 @@ impl RoutingTable {
         }
 
         let assignments = self.store.list_assignments().await?;
+        // Live registrations overlay assignment-carried addresses: an
+        // assignment's address is a snapshot from the handoff that
+        // installed the owner, and the owner may have re-registered at a
+        // new address since (same pod name, new IP) without any handoff.
+        let pods = self.store.list_pods().await?;
         let mut table = self.table.write().await;
         {
             let mut addresses = self.addresses.write().expect("addresses lock poisoned");
             for a in &assignments {
                 if let Some(address) = &a.advertise_address {
                     addresses.insert(a.owner.clone(), address.clone());
+                }
+            }
+            for pod in pods {
+                if let Some(address) = pod.advertise_address {
+                    addresses.insert(pod.pod_name, address);
                 }
             }
         }
@@ -280,6 +305,47 @@ impl RoutingTable {
         drop(table);
 
         Ok(snapshot_revision)
+    }
+
+    /// Keep the address map current with pod registrations. Ownership is
+    /// untouched — routing still moves only on handoff events — but a pod
+    /// that re-registers under the same name at a new address (a restart
+    /// that kept its assignments) must refresh where the router dials, or
+    /// every dial keeps hitting the dead address until the next handoff.
+    /// Deletes are ignored: a lease expiry precedes either a re-register
+    /// (which overwrites) or a handoff away (after which the entry is
+    /// never consulted).
+    async fn watch_pod_addresses_loop(
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
+        cancel: CancellationToken,
+        mut stream: WatchStream,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    for event in resp.events() {
+                        if event.event_type() != EventType::Put {
+                            continue;
+                        }
+                        let pod: RegisteredPod = match parse_watch_value(event) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::error!(error = %e, "failed to parse pod event");
+                                continue;
+                            }
+                        };
+                        if let Some(address) = pod.advertise_address {
+                            addresses
+                                .write()
+                                .expect("addresses lock poisoned")
+                                .insert(pod.pod_name, address);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
