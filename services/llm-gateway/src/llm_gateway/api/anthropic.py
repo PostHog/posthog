@@ -26,6 +26,8 @@ from llm_gateway.bedrock import (
     map_to_bedrock_model,
     supports_bedrock_runtime_count_tokens,
 )
+from llm_gateway.budget_guard import evaluate_request as evaluate_budget
+from llm_gateway.cache_ttl import upgrade_cache_ttl
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.cloudflare import (
     cloudflare_litellm_model,
@@ -33,6 +35,7 @@ from llm_gateway.cloudflare import (
     is_cloudflare_model,
 )
 from llm_gateway.config import get_settings
+from llm_gateway.cost_controls import cost_controls_enabled
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.glm_routing import send_glm_anthropic_messages
 from llm_gateway.metrics.prometheus import (
@@ -51,6 +54,7 @@ from llm_gateway.request_context import (
     apply_posthog_context_from_headers,
     extract_posthog_provider_from_headers,
     extract_posthog_use_bedrock_fallback_from_headers,
+    get_posthog_flags,
 )
 
 logger = structlog.get_logger(__name__)
@@ -520,6 +524,16 @@ async def _handle_anthropic_messages(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
+    # Alpha cost control: extend cache TTL on the stable prefix so idle gaps don't
+    # force a full cache rewrite. Bedrock strips cache_control, so skip it there.
+    if cost_controls_enabled(get_posthog_flags(), debug=get_settings().debug) and provider != "bedrock":
+        upgrade_cache_ttl(data, product=product)
+        # Budget guard: deny if the user's self-set monthly cap is exceeded.
+        # monthly_budget_usd / scoped_spend_usd come from user settings once the
+        # PostHog Code billing API is wired — pass None for now (fail-open).
+        guard = evaluate_budget(monthly_budget_usd=None, scoped_spend_usd=None)
+        if not guard.allow:
+            raise HTTPException(status_code=429, detail={"error": {"message": guard.reason, "type": "budget_exceeded"}})
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     # `@cf/` models are served by the GLM routing layer (Cloudflare, or Modal during the ramp), so
@@ -855,7 +869,7 @@ async def anthropic_count_tokens_with_product(
     request: Request,
     breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any]:
-    validate_product(product)
+    product = validate_product(product)
     return await _handle_count_tokens(body, user, request, breaker, product=product)
 
 
@@ -878,6 +892,6 @@ async def anthropic_messages_with_product(
     request: Request,
     breaker: AnthropicCircuitBreakerDep,
 ) -> dict[str, Any] | StreamingResponse:
-    validate_product(product)
+    product = validate_product(product)
     apply_posthog_context_from_headers(request)
     return await _handle_anthropic_messages(body, user, request, breaker, product=product)

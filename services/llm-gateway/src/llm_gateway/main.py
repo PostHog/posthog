@@ -24,6 +24,7 @@ from llm_gateway.api.routes import router
 from llm_gateway.callbacks import init_callbacks
 from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker, publish_anthropic_breaker_gauges_loop
 from llm_gateway.config import Settings, get_settings
+from llm_gateway.cost_controls import cost_controls_enabled
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
 from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
@@ -217,6 +218,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         },
         user_cost_limits_disabled=settings.user_cost_limits_disabled,
     )
+
+    if cost_controls_enabled(debug=settings.debug):
+        logger.warning("cost_controls_dev_override_active", env="COST_CONTROLS_ENABLED=true")
 
     init_callbacks()
 
