@@ -12,6 +12,12 @@ from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import create_batch_export_run
 from products.batch_exports.backend.temporal.batch_exports import StartBatchExportRunInputs
 
+# Guards against a workflow that never settles. Deliberately a real-time bound rather than a Temporal
+# `execution_timeout`: the time-skipping environment charges both real activity time and fast-forwarded
+# idle waits (retry backoffs) against a workflow deadline, so a workflow deadline expires for reasons
+# unrelated to the behavior under test, reporting `TimeoutError` in place of the error being asserted on.
+WORKFLOW_REAL_TIME_LIMIT_SECONDS = 60
+
 
 @activity.defn(name="start_batch_export_run")
 async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> str:
