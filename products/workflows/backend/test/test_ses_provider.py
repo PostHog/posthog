@@ -9,7 +9,9 @@ from django.test import override_settings
 import boto3
 import dns.name
 import dns.resolver
+from botocore.exceptions import ClientError
 from parameterized import parameterized
+from rest_framework import exceptions
 
 from products.workflows.backend.providers.ses import SESProvider
 
@@ -337,6 +339,20 @@ class TestSESProvider(TestCase):
         for token in ("token1", "token2", "token3"):
             expected = "success" if token in present_tokens else "pending"
             assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
+
+    def test_update_mail_from_subdomain_translates_client_error(self):
+        # SES rejecting the MAIL FROM domain used to bubble up as an unhandled 500 in the
+        # sender modal ("A server error occurred"). It must become a user-facing ValidationError
+        # that surfaces SES's own message.
+        provider = SESProvider()
+        error = ClientError(
+            {"Error": {"Code": "InvalidParameterValue", "Message": "Invalid MAIL FROM domain."}},
+            "SetIdentityMailFromDomain",
+        )
+        with patch.object(provider.ses_client, "set_identity_mail_from_domain", side_effect=error):
+            with self.assertRaises(exceptions.ValidationError) as ctx:
+                provider.update_mail_from_subdomain(TEST_DOMAIN, mail_from_subdomain="feedback")
+        assert "Invalid MAIL FROM domain." in str(ctx.exception.detail)
 
 
 class TestSESResponseShapeContract(TestCase):

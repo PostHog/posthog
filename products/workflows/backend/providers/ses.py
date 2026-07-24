@@ -333,9 +333,16 @@ class SESProvider:
                 BehaviorOnMXFailure="UseDefaultValue",
             )
             logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
-        except (ClientError, BotoCoreError) as e:
+        except ClientError as e:
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
-            raise
+            # Surface SES's own message (e.g. an invalid MAIL FROM domain) instead of a generic 500.
+            message = e.response.get("Error", {}).get("Message") or "Please check the subdomain and try again."
+            raise exceptions.ValidationError(f"Couldn't update the email sender's MAIL FROM subdomain. {message}")
+        except BotoCoreError as e:
+            logger.exception(f"SES API error updating MAIL FROM domain: {e}")
+            raise exceptions.ValidationError(
+                "Couldn't update the email sender's MAIL FROM subdomain. Please try again."
+            )
 
     def delete_identity(self, identity: str):
         """
