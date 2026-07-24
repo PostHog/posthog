@@ -57,11 +57,16 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
    ```sql
    SELECT id, name, status, is_drifted, description FROM system.information_schema.metrics WHERE status = 'proposed';
-   SELECT id, source_table, source_column, target_table, target_column, confidence, reasoning
+   SELECT id, source_table, source_column, target_table, target_column, field_name, configuration, evidence, confidence, reasoning
    FROM system.information_schema.relationship_proposals;
-   SELECT id, target_name, target_kind, status, notes
+   SELECT id, target_name, target_id, target_kind, status, notes
    FROM system.information_schema.certifications WHERE status = 'proposed';
    ```
+
+   Surface the full payload before asking for confirmation: for a join, the `field_name` and
+   `configuration` are copied verbatim into the real join on accept, and `evidence` holds the sampling
+   match rates and sample values to summarize; for a certification, `target_id` disambiguates which
+   physical table the mark applies to when two live tables share a name.
 
    Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
    without this skill never mistakes an unreviewed item for an approved one:

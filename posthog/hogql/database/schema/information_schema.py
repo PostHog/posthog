@@ -857,6 +857,7 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
 _CERTIFICATIONS_COLUMNS: list[tuple[str, str]] = [
     ("id", _STRING),
     ("target_name", _STRING),
+    ("target_id", _STRING),
     ("target_kind", _STRING),
     ("status", _STRING),
     ("notes", _NULLABLE_STRING),
@@ -877,6 +878,9 @@ _RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
     ("source_column", _STRING),
     ("target_table", _STRING),
     ("target_column", _STRING),
+    ("field_name", _STRING),
+    ("configuration", _NULLABLE_STRING),
+    ("evidence", _NULLABLE_STRING),
     ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("created_at", _STRING),
@@ -1160,6 +1164,9 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
                     proposal.source_table_key,
                     proposal.joining_table_name,
                     proposal.joining_table_key,
+                    proposal.field_name,
+                    json.dumps(proposal.configuration) if proposal.configuration else None,
+                    json.dumps(proposal.evidence) if proposal.evidence else None,
                     proposal.confidence,
                     proposal.reasoning or None,
                     proposal.created_at.isoformat(),
@@ -1199,9 +1206,11 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
         for cert in certs:
             if cert.table_id is not None:
                 target_name = cert.table.name if cert.table else None
+                target_id = str(cert.table_id)
                 target_kind = "table"
             else:
                 target_name = cert.saved_query.name if cert.saved_query else None
+                target_id = str(cert.saved_query_id)
                 target_kind = "view"
             if target_name is None or not _catalog_table_visible(context, target_name):
                 continue
@@ -1209,6 +1218,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
                 [
                     str(cert.id),
                     target_name,
+                    target_id,
                     target_kind,
                     cert.status,
                     cert.notes or None,
@@ -1520,8 +1530,15 @@ class InformationSchemaMetricsTable(LazyTable):
 class InformationSchemaCertificationsTable(LazyTable):
     description: str = _CERTIFICATIONS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
-        "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate/revoke tools."),
+        "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate tools."),
         "target_name": _string_field("target_name", description="Name of the certified table or view."),
+        "target_id": _string_field(
+            "target_id",
+            description=(
+                "UUID of the certified resource (warehouse table id or saved-query id). Disambiguates the "
+                "target when two live tables share a name, since table names are not unique per team."
+            ),
+        ),
         "target_kind": _string_field(
             "target_kind", description="Whether the target is a 'table' (warehouse table) or a 'view'."
         ),
@@ -1567,11 +1584,25 @@ class InformationSchemaRelationshipProposalsTable(LazyTable):
         "source_column": _string_field("source_column", description="Key expression on the source table."),
         "target_table": _string_field("target_table", description="Table the proposed join points to."),
         "target_column": _string_field("target_column", description="Key expression on the target table."),
+        "field_name": _string_field(
+            "field_name",
+            description="Accessor the join would add to the source table; copied verbatim into the real join on accept.",
+        ),
+        "configuration": _string_field(
+            "configuration",
+            nullable=True,
+            description="Extra join configuration as JSON (e.g. field mapping); copied verbatim into the real join on accept. NULL when empty.",
+        ),
+        "evidence": _string_field(
+            "evidence",
+            nullable=True,
+            description="Sampling evidence as JSON (match rates, sample values) backing the proposal — summarize this for the human reviewer. NULL when empty.",
+        ),
         "confidence": FloatDatabaseField(
             name="confidence", nullable=True, description="Discovery confidence in the proposed join, 0-1."
         ),
         "reasoning": _string_field(
-            "reasoning", nullable=True, description="Why the join was proposed; sampling evidence and review context."
+            "reasoning", nullable=True, description="Why the join was proposed; review context."
         ),
         "created_at": _string_field("created_at", description="ISO timestamp when the proposal was created."),
     }
