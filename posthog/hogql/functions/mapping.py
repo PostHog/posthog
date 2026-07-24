@@ -191,8 +191,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
-    "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
-    "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
+    "least": HogQLFunctionMeta("least", 2, None, case_sensitive=False),
+    "greatest": HogQLFunctionMeta("greatest", 2, None, case_sensitive=False),
     "indexHint": HogQLFunctionMeta("indexHint", 1, 1),
     "extractIPv4Substrings": HogQLFunctionMeta("extractIPv4Substrings", 1, 1),
     # time window
