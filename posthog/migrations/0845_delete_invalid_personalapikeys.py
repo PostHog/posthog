@@ -11,10 +11,8 @@ def purge_null_secure_values(apps, schema_editor):
 
     base_query = PersonalAPIKey.objects.filter(secure_value__isnull=True)
 
-    # get ids that will be deleted
-    ids = []
-    for pk in base_query.values_list("id", flat=True).iterator(chunk_size=1000):
-        ids.append(pk)
+    # get ids that will be deleted (single client-side fetch; no server-side cursor)
+    ids = list(base_query.values_list("id", flat=True))
 
     ids_str = ", ".join(str(i) for i in ids)
     logger.debug(f"Deleting {len(ids)} rows: {ids_str}")

@@ -8,6 +8,7 @@ from django.db.models import Q
 from posthog.schema import InsightVizNode
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.migration_helpers import chunked_queryset_iterator
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def migrate_insight_filters_to_query(apps, schema_editor):
     insights = Insight.objects.filter(Q(filters__insight__isnull=False) & Q(query__kind__isnull=True))
     migrated_at = datetime.now()
 
-    for insight in insights.iterator(chunk_size=100):
+    for insight in chunked_queryset_iterator(insights, chunk_size=100):
         try:
             source = filter_to_query(insight.filters)
             query = InsightVizNode(source=source)

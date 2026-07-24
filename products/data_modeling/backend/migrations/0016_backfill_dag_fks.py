@@ -1,5 +1,7 @@
 from django.db import connection, migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def backfill_node_dag_fks(apps, _schema_editor):
     DAG = apps.get_model("data_modeling", "DAG")
@@ -11,7 +13,7 @@ def backfill_node_dag_fks(apps, _schema_editor):
         dag_lookup[(dag.team_id, dag.name)] = dag.id
 
     nodes_to_update = []
-    for node in Node.objects.filter(dag_fk__isnull=True).iterator(chunk_size=batch_size):
+    for node in chunked_queryset_iterator(Node.objects.filter(dag_fk__isnull=True), chunk_size=batch_size):
         dag_id = dag_lookup.get((node.team_id, node.dag_id_text))
         if dag_id is None:
             continue

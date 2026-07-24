@@ -2,6 +2,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 1000
@@ -28,7 +30,7 @@ def backfill_endpoint_edges(apps, _):
         return
 
     failed = 0
-    for i, node in enumerate(endpoint_nodes_without_edges.iterator(chunk_size=BATCH_SIZE)):
+    for i, node in enumerate(chunked_queryset_iterator(endpoint_nodes_without_edges, chunk_size=BATCH_SIZE)):
         try:
             if node.saved_query:
                 sync_saved_query_to_dag(node.saved_query, extra_properties={"endpoint_edges_backfilled": True})

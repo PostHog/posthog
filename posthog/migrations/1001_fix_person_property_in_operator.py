@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def fix_person_property_in_operators(apps, schema_editor):
     """
@@ -20,7 +22,7 @@ def fix_person_property_in_operators(apps, schema_editor):
 
     flags_to_update = []
 
-    for flag in FeatureFlag.objects.filter(deleted=False).iterator(chunk_size=1000):
+    for flag in chunked_queryset_iterator(FeatureFlag.objects.filter(deleted=False), chunk_size=1000):
         if not flag.filters:
             continue
 

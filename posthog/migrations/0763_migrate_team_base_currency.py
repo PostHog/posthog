@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def migrate_revenue_base_currency(apps, schema_editor):
     """
@@ -12,7 +14,7 @@ def migrate_revenue_base_currency(apps, schema_editor):
 
     teams_updated = 0
 
-    for team in Team.objects.iterator():
+    for team in chunked_queryset_iterator(Team.objects.all()):
         try:
             revenue_config = TeamRevenueAnalyticsConfig.objects.get(team=team)
             if hasattr(revenue_config, "base_currency") and revenue_config.base_currency:

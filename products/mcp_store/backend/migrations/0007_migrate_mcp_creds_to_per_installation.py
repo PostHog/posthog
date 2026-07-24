@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 # The curated set of MCP servers we seed as inactive templates.
 CURATED_TEMPLATES = [
     {
@@ -231,7 +233,7 @@ def seed_templates_and_backfill_installations(apps, schema_editor):
     # (and force a reconnect so it stops using the shared DCR client) or migrate
     # the shared server's creds onto the installation itself.
     curated_urls = set(templates_by_url.keys())
-    for installation in MCPServerInstallation.objects.select_related("server").iterator():
+    for installation in chunked_queryset_iterator(MCPServerInstallation.objects.select_related("server")):
         sensitive = dict(installation.sensitive_configuration or {})
 
         if installation.url in curated_urls:

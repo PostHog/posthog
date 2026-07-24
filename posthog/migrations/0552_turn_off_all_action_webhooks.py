@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def disable_all_action_webhooks(apps, schema_editor):
     Action = apps.get_model("posthog", "Action")
@@ -22,7 +24,7 @@ def disable_all_action_webhooks(apps, schema_editor):
     processed_count = 0
 
     # Use iterator() to fetch records in batches
-    for action in query.iterator(chunk_size=batch_size):
+    for action in chunked_queryset_iterator(query, chunk_size=batch_size):
         action.post_to_slack = False
         actions_to_update.append(action)
         processed_count += 1

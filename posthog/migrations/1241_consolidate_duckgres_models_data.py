@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def merge_catalog_into_server(apps, schema_editor):
     """Copy each DuckLakeCatalog's connection + bucket onto its org's DuckgresServer.
@@ -13,7 +15,7 @@ def merge_catalog_into_server(apps, schema_editor):
     DuckgresServer = apps.get_model("posthog", "DuckgresServer")
 
     servers_by_org = {server.organization_id: server for server in DuckgresServer.objects.all()}
-    for catalog in DuckLakeCatalog.objects.all().iterator():
+    for catalog in chunked_queryset_iterator(DuckLakeCatalog.objects.all()):
         server = servers_by_org.get(catalog.organization_id)
         if server is None:
             # No server for this org — nothing to merge onto (none in prod).
@@ -43,7 +45,7 @@ def merge_backfill_into_server_team(apps, schema_editor):
     DuckgresServerTeam = apps.get_model("posthog", "DuckgresServerTeam")
 
     links_by_team = {link.team_id: link for link in DuckgresServerTeam.objects.all()}
-    for backfill in DuckLakeBackfill.objects.all().iterator():
+    for backfill in chunked_queryset_iterator(DuckLakeBackfill.objects.all()):
         link = links_by_team.get(backfill.team_id)
         if link is None:
             continue

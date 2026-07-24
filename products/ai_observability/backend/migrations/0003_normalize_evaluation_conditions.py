@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 # Keys the EvaluationConditionSerializer accepts, plus the bytecode keys that
 # Evaluation.save() writes onto each condition. Anything else (e.g. a legacy
 # `sampling_rate`) is dropped during normalization.
@@ -69,7 +71,7 @@ def normalize_evaluation_conditions(apps, schema_editor):
 
     batch_size = 500
     updates = []
-    for evaluation in Evaluation.objects.all().iterator(chunk_size=batch_size):
+    for evaluation in chunked_queryset_iterator(Evaluation.objects.all(), chunk_size=batch_size):
         conditions = evaluation.conditions
         if not _conditions_need_fix(conditions):
             continue

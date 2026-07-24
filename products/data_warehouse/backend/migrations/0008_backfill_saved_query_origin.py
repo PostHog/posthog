@@ -2,6 +2,8 @@ from django.db import migrations
 
 from posthog.schema import DataWarehouseSavedQueryOrigin
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 CHUNK_SIZE = 1000
 
 
@@ -9,8 +11,8 @@ def forwards_func(apps, schema_editor):
     SavedQuery = apps.get_model("data_warehouse", "DataWarehouseSavedQuery")
 
     chunk = []
-    for query in (
-        SavedQuery.objects.filter(managed_viewset__isnull=False).only("id", "origin").iterator(chunk_size=CHUNK_SIZE)
+    for query in chunked_queryset_iterator(
+        SavedQuery.objects.filter(managed_viewset__isnull=False).only("id", "origin"), chunk_size=CHUNK_SIZE
     ):
         query.origin = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
         chunk.append(query)
@@ -23,8 +25,8 @@ def forwards_func(apps, schema_editor):
         SavedQuery.objects.bulk_update(chunk, ["origin"])
 
     chunk = []
-    for query in (
-        SavedQuery.objects.filter(managed_viewset__isnull=True).only("id", "origin").iterator(chunk_size=CHUNK_SIZE)
+    for query in chunked_queryset_iterator(
+        SavedQuery.objects.filter(managed_viewset__isnull=True).only("id", "origin"), chunk_size=CHUNK_SIZE
     ):
         query.origin = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
         chunk.append(query)

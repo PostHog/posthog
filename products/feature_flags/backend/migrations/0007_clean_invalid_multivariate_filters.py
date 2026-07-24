@@ -3,6 +3,8 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 500
@@ -27,7 +29,7 @@ def clean_invalid_multivariate_filters(apps, schema_editor):
     total = 0
     batch: list = []
 
-    for flag in candidates.iterator(chunk_size=BATCH_SIZE):
+    for flag in chunked_queryset_iterator(candidates, chunk_size=BATCH_SIZE):
         if not isinstance(flag.filters, dict):
             continue
 

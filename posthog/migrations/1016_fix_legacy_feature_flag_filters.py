@@ -3,6 +3,8 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 300
@@ -22,7 +24,7 @@ def fix_legacy_feature_flag_filters(apps, schema_editor):
 
     total = 0
     batch: list = []
-    for flag in queryset.iterator(chunk_size=BATCH_SIZE):
+    for flag in chunked_queryset_iterator(queryset, chunk_size=BATCH_SIZE):
         existing = dict(flag.filters) if isinstance(flag.filters, dict) else {}
         properties = existing.pop("properties", [])
         flag.filters = {

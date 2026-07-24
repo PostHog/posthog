@@ -2,6 +2,8 @@
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 # Bulk update every CHUNK_SIZE items
 CHUNK_SIZE = 500
 
@@ -20,7 +22,7 @@ def migrate_playlist_types(apps, schema_editor):
     )
 
     chunk = []
-    for playlist in saved_filters_with_no_type.iterator(chunk_size=CHUNK_SIZE):
+    for playlist in chunked_queryset_iterator(saved_filters_with_no_type, chunk_size=CHUNK_SIZE):
         playlist.type = "filters"
         chunk.append(playlist)
 

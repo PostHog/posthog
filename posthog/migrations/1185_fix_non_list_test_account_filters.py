@@ -7,6 +7,8 @@ from django.db.models import CharField, F, Func
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 BULK_BATCH_SIZE = 500
@@ -54,7 +56,7 @@ def fix_non_list_test_account_filters(apps, schema_editor):
 
     batch: list = []
     fixed = 0
-    for team in bad_teams.iterator(chunk_size=BULK_BATCH_SIZE):
+    for team in chunked_queryset_iterator(bad_teams, chunk_size=BULK_BATCH_SIZE):
         team.test_account_filters = _coerce_to_filter_list(team.test_account_filters)
         batch.append(team)
         if len(batch) >= BULK_BATCH_SIZE:

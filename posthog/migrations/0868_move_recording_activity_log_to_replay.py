@@ -4,6 +4,8 @@ from django.db import migrations
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -15,7 +17,9 @@ def migrate_recording_scope_to_replay(apps, schema_editor):
 
     # Only update ActivityLog records where scope='recording'
     # This specifically targets comment-related activity logs
-    for log in ActivityLog.objects.filter(scope="recording").only("id", "scope").iterator(chunk_size=batch_size // 5):
+    for log in chunked_queryset_iterator(
+        ActivityLog.objects.filter(scope="recording").only("id", "scope"), chunk_size=batch_size // 5
+    ):
         try:
             log.scope = "Replay"
             logs_to_migrate.append(log)

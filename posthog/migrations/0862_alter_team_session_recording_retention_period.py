@@ -2,6 +2,8 @@ from django.db import migrations, models
 
 import structlog
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 logger = structlog.get_logger(__name__)
 
 
@@ -11,10 +13,11 @@ def migrate_replay_retention_period(apps, schema_editor):
     teams_to_migrate = []
     batch_size = 100
 
-    for team in (
-        Team.objects.filter(session_recording_retention_period="legacy")
-        .only("id", "session_recording_retention_period")
-        .iterator(chunk_size=batch_size)
+    for team in chunked_queryset_iterator(
+        Team.objects.filter(session_recording_retention_period="legacy").only(
+            "id", "session_recording_retention_period"
+        ),
+        chunk_size=batch_size,
     ):
         try:
             team.session_recording_retention_period = "30d"

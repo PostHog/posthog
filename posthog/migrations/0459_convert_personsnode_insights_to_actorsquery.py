@@ -5,13 +5,15 @@ from django.db import migrations
 
 from posthog.schema import ActorsQuery, CohortPropertyFilter, DataTableNode, NodeKind, PersonsNode
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def convert_insights(apps, schema_editor):
     Insight = apps.get_model("posthog", "Insight")
 
     insights = Insight.objects.filter(query__kind=NodeKind.DATA_TABLE_NODE, query__source__kind=NodeKind.PERSONS_NODE)
 
-    for insight in insights.iterator(chunk_size=100):
+    for insight in chunked_queryset_iterator(insights, chunk_size=100):
         try:
             query_dict = insight.query.copy()
             query = DataTableNode(**query_dict)

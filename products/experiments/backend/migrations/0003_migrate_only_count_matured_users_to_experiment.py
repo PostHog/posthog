@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def migrate_metric_field_to_experiment(apps, schema_editor):
     """Move only_count_matured_users from per-metric JSON to experiment-level field.
@@ -9,7 +11,7 @@ def migrate_metric_field_to_experiment(apps, schema_editor):
     """
     Experiment = apps.get_model("experiments", "Experiment")
 
-    for experiment in Experiment.objects.all().iterator(chunk_size=1000):
+    for experiment in chunked_queryset_iterator(Experiment.objects.all(), chunk_size=1000):
         found = False
         modified = False
         for metrics_field in ("metrics", "metrics_secondary"):

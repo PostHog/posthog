@@ -1,3 +1,4 @@
+from posthog.migration_helpers.chunked_iterator import chunked_queryset_iterator
 from posthog.migration_helpers.concurrent_index import (
     CreateIndexConcurrently,
     DropIndexConcurrently,
@@ -16,4 +17,5 @@ __all__ = [
     "SafeRemoveIndexConcurrently",
     "ValidateConstraint",
     "ValidateForeignKey",
+    "chunked_queryset_iterator",
 ]

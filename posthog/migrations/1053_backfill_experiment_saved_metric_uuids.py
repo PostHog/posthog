@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from django.db import migrations
 
+from posthog.migration_helpers import chunked_queryset_iterator
+
 
 def backfill_experiment_saved_metric_uuids(apps, schema_editor):
     Experiment = apps.get_model("posthog", "Experiment")
@@ -13,7 +15,7 @@ def backfill_experiment_saved_metric_uuids(apps, schema_editor):
     saved_metrics_to_update = []
     generated_uuids_by_metric_id = {}
 
-    for saved_metric in ExperimentSavedMetric.objects.filter(query__uuid__isnull=True).iterator():
+    for saved_metric in chunked_queryset_iterator(ExperimentSavedMetric.objects.filter(query__uuid__isnull=True)):
         query = dict(saved_metric.query or {})
         if query.get("uuid"):
             continue
@@ -30,9 +32,9 @@ def backfill_experiment_saved_metric_uuids(apps, schema_editor):
         return
 
     experiment_links = list(
-        ExperimentToSavedMetric.objects.filter(saved_metric_id__in=generated_uuids_by_metric_id)
-        .values("experiment_id", "saved_metric_id", "metadata")
-        .iterator()
+        ExperimentToSavedMetric.objects.filter(saved_metric_id__in=generated_uuids_by_metric_id).values(
+            "experiment_id", "saved_metric_id", "metadata"
+        )
     )
 
     experiment_ids = {link["experiment_id"] for link in experiment_links}

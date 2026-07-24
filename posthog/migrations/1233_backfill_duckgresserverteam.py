@@ -17,7 +17,7 @@ def backfill_duckgres_server_teams(apps, schema_editor):
     if not servers_by_org:
         return
 
-    for row in DuckLakeBackfill.objects.values("team_id", "team__organization_id").iterator():
+    for row in DuckLakeBackfill.objects.values("team_id", "team__organization_id"):
         server = servers_by_org.get(row["team__organization_id"])
         if server is None:
             continue
