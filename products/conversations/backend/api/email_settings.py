@@ -224,7 +224,7 @@ class EmailConnectView(APIView):
 
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
-            logger.error("email_connect_inbound_domain_not_configured", team_id=team.id)
+            logger.warning("email_connect_inbound_domain_not_configured", team_id=team.id, domain=domain)
             return Response(
                 {
                     "error": "Inbound email isn't configured on this instance. An admin needs to set the inbound email domain."
@@ -337,7 +337,7 @@ class EmailVerifyDomainView(APIView):
         try:
             mg_result = mailgun_verify_domain(config.domain)
         except MailgunNotConfigured:
-            logger.exception("email_verify_domain_not_configured", team_id=team.id, domain=config.domain)
+            logger.warning("email_verify_domain_not_configured", team_id=team.id, domain=config.domain)
             return Response(
                 {
                     "error": "Email sending isn't configured on this instance. An admin needs to set up the Mailgun API key."
