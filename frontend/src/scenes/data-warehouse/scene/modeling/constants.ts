@@ -1,4 +1,4 @@
-export const PAGE_SIZE = 40
+export const PAGE_SIZE = 25
 export const NODE_WIDTH = 180
 export const NODE_HEIGHT = 120
 
