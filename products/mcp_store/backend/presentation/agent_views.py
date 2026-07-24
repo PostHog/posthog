@@ -11,6 +11,7 @@ agent's own scope.
 """
 
 from collections.abc import Iterable
+from datetime import timedelta
 from typing import Any, cast
 
 from django.http import HttpResponse
@@ -80,7 +81,9 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         )
 
     def _touch(self, account: MCPServiceAccount) -> None:
-        MCPServiceAccount.objects.unscoped().filter(pk=account.pk).update(last_active_at=timezone.now())
+        now = timezone.now()
+        if account.last_active_at is None or now - account.last_active_at > timedelta(hours=1):
+            MCPServiceAccount.objects.unscoped().filter(pk=account.pk).update(last_active_at=now)
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The agent's server catalog: every enabled server it has access to,

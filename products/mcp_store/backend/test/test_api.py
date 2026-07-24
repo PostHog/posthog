@@ -1190,6 +1190,30 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
+    def test_agent_endpoint_throttles_last_active_updates(self, _mock_is_limited) -> None:
+        account = self._active_posthog_ai_account()
+        client = self._agent_client(account)
+        recent_active_at = timezone.now()
+        MCPServiceAccount.objects.for_team(self.team.id).filter(pk=account.pk).update(last_active_at=recent_active_at)
+
+        recent_response = client.get("/api/mcp_store/gateway/servers/")
+        account.refresh_from_db()
+
+        assert recent_response.status_code == status.HTTP_200_OK
+        assert account.last_active_at == recent_active_at
+
+        stale_active_at = timezone.now() - timedelta(minutes=61)
+        MCPServiceAccount.objects.for_team(self.team.id).filter(pk=account.pk).update(last_active_at=stale_active_at)
+        before_stale_request = timezone.now()
+        stale_response = client.get("/api/mcp_store/gateway/servers/")
+        after_stale_request = timezone.now()
+        account.refresh_from_db()
+
+        assert stale_response.status_code == status.HTTP_200_OK
+        assert account.last_active_at is not None
+        assert before_stale_request <= account.last_active_at <= after_stale_request
+
+    @patch("products.mcp_store.backend.agents.is_team_limited", return_value=False)
     def test_agent_endpoint_rechecks_pause_and_product_availability_after_mint(self, _mock_is_limited) -> None:
         account = self._active_posthog_ai_account()
         token = create_gateway_agent_token(account)
