@@ -23,18 +23,6 @@ def build_function_call(
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
 ) -> str:
-    # The local objectstorage (SeaweedFS) serves the data warehouse bucket over plain HTTP on :19000,
-    # but url_pattern is built with an https:// prefix (correct for prod). chdb and ClickHouse then
-    # hang doing a TLS handshake against the local HTTP port until the read times out. Rewrite the
-    # scheme to http only for our own bucket host and only locally, so customer buckets, Azure URLs,
-    # and all of prod are untouched.
-    if (
-        settings.USE_LOCAL_SETUP
-        and settings.DATAWAREHOUSE_BUCKET_DOMAIN
-        and url.startswith(f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/")
-    ):
-        url = f"http://{url.removeprefix('https://')}"
-
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET

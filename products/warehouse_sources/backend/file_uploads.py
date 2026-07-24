@@ -76,14 +76,21 @@ def build_file_upload_s3_uri(team_id: int, upload_id: str, filename: str) -> str
 
 
 def build_file_upload_url_pattern(team_id: int, upload_id: str, filename: str) -> str:
-    """``https://`` URL used as the self-managed table's ``url_pattern``.
+    """The URL used as the self-managed table's ``url_pattern``, the form
+    `DataWarehouseTable.get_columns` builds its ClickHouse s3 table function from.
 
-    This is the form `DataWarehouseTable.get_columns` builds its ClickHouse s3 table function from.
+    Mirrors how synced tables build theirs (``ExternalDataJob.url_pattern_by_schema``): the bucket is
+    the first path segment — ClickHouse addresses the store path-style — and the scheme is http on the
+    local objectstorage (plain HTTP on :19000, which chdb/ClickHouse would otherwise hang doing TLS
+    against) but https everywhere else.
+
     The object lives in PostHog's own bucket, so the table carries no credential and reads fall back
     to the node role — never a user-supplied key. Built server-side from the source's own team, so a
     client-supplied ``upload_id`` can only ever resolve inside that team's folder.
     """
-    return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{build_file_upload_s3_key(team_id, upload_id, filename)}"
+    scheme = "http" if settings.USE_LOCAL_SETUP else "https"
+    key = build_file_upload_s3_key(team_id, upload_id, filename)
+    return f"{scheme}://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.DATAWAREHOUSE_BUCKET}/{key}"
 
 
 class ExcelConversionError(Exception):
