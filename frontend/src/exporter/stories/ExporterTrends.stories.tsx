@@ -144,9 +144,13 @@ export const TrendsNumberInsight: Story = {
 }
 
 /** The Metric sparkline is SVG/canvas, so it captures cleanly and guards against the exported card
- * collapsing to a fixed-height sparkline that floats mid-card instead of filling and hugging the bottom. */
+ * collapsing to a fixed-height sparkline that floats mid-card instead of filling and hugging the bottom.
+ * The fixed-width wrapper mirrors the backend's 600px metric export viewport — the test runner's
+ * shrink-to-fit root would otherwise collapse the aspect-ratio card to its text width, leaving the
+ * filling sparkline no height at all. */
 export const TrendsMetricInsight: Story = {
     args: { insight: __trendsMetric as any },
+    decorators: [(StoryFn): JSX.Element => <div className="w-[600px]">{StoryFn()}</div>],
     parameters: {
         mockDate: '2022-04-01',
         testOptions: {
