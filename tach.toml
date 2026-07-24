@@ -87,6 +87,7 @@ depends_on = [
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
+    "products.billing_alerts",
     "products.business_knowledge",
     "products.cdp",
     "products.conversations",
@@ -437,6 +438,13 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.billing_alerts"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
