@@ -62,7 +62,6 @@ import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsMod
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
-import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
@@ -150,7 +149,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating } = useValues(flagLogic)
-    const { updateFeatureFlag, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
+    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -246,48 +245,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         >
                             <LemonButton
                                 data-attr={`feature-flag-${featureFlag.key}-switch`}
-                                onClick={() => {
-                                    const newValue = !featureFlag.active
-                                    const applyUpdate = (payload: Partial<FeatureFlagType>): void => {
-                                        featureFlag.id && updateFeatureFlag({ id: featureFlag.id, payload })
-                                    }
-                                    const openControlDialog = (onConfirm?: () => void, onCancel?: () => void): void => {
-                                        LemonDialog.open({
-                                            title: `${newValue ? 'Enable' : 'Disable'} this flag?`,
-                                            description: `This flag will be immediately ${
-                                                newValue ? 'rolled out to' : 'rolled back from'
-                                            } the users matching the release conditions.`,
-                                            primaryButton: {
-                                                children: 'Confirm',
-                                                type: 'primary',
-                                                onClick: onConfirm ?? (() => applyUpdate({ active: newValue })),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                                onClick: onCancel,
-                                            },
-                                        })
-                                    }
-                                    if (newValue) {
-                                        openControlDialog()
-                                        return
-                                    }
-                                    openFeatureFlagDisableDialog({
-                                        source: 'feature-flags-list',
-                                        onDisable: () => applyUpdate({ active: false }),
-                                        onDisableAndArchive: () =>
-                                            featureFlag.id &&
-                                            updateFeatureFlagArchived({
-                                                id: featureFlag.id,
-                                                archived: true,
-                                                via: 'disable-confirmation',
-                                            }),
-                                        openControlDialog,
-                                    })
-                                }}
+                                onClick={() =>
+                                    featureFlag.id && toggleFeatureFlagActive(featureFlag.id, !featureFlag.active)
+                                }
                                 id={`feature-flag-${featureFlag.id}-switch`}
                                 fullWidth
                                 loading={isUpdating}
