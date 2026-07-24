@@ -579,6 +579,74 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
 
+    @parameterized.expand(["test_account_filter", "exposure_event_property"])
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_query_with_non_boolean_hogql_filter(self, filter_location):
+        # A hogql property filter is emitted verbatim, so a String-typed expression used as a
+        # test-account filter or a custom exposure-event property filter would make ClickHouse
+        # reject the whole exposures query with "Illegal type (String) of ... function and".
+        # Coercing these predicates to boolean must keep the query runnable instead of throwing.
+        ff_property = f"$feature/{self.feature_flag.key}"
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        if filter_location == "test_account_filter":
+            self.experiment.exposure_criteria = {"filterTestAccounts": True}
+            self.team.test_account_filters = [{"type": "hogql", "key": "person.properties.email"}]
+            self.team.save()
+        else:
+            exposure_config = ExperimentEventExposureConfig(
+                event="$feature_flag_called",
+                properties=[{"type": "hogql", "key": "properties.$feature_flag_response"}],
+            )
+            self.experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+        self.experiment.save()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        # Previously raised a ValidationError every load; the query must now complete.
+        response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertIsInstance(response.total_exposures, dict)
+        self.assertIsInstance(response.timeseries, list)
+        # The String expression coerces to NULL for these values, so no entity passes the filter.
+        self.assertEqual(sum(response.total_exposures.values()), 0)
+
     @parameterized.expand(
         [
             ("pageview_direct", "$pageview", False),
