@@ -629,6 +629,17 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1 == null"), "0")
         self.assertEqual(self._expr("1 != null"), "1")
 
+    def test_compare_mismatched_type_constants_falls_through_to_sql(self):
+        # Constants of different types aren't comparable in Python, so the constant-folding
+        # shortcut must not crash — it should emit SQL and let ClickHouse coerce.
+        self.assertEqual(self._expr("'foo' < 5"), "less(%(hogql_val_0)s, 5)")
+        self.assertEqual(self._expr("5 < 'foo'"), "less(5, %(hogql_val_0)s)")
+        self.assertEqual(self._expr("'foo' > 5"), "greater(%(hogql_val_0)s, 5)")
+        self.assertEqual(self._expr("5 >= 'foo'"), "greaterOrEquals(5, %(hogql_val_0)s)")
+        # Same-type constants still fold to a literal result.
+        self.assertEqual(self._expr("1 < 2"), "1")
+        self.assertEqual(self._expr("'b' < 'a'"), "0")
+
     def test_fields_and_properties(self):
         self.assertEqual(
             self._expr("properties.bla"),
