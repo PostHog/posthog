@@ -12,6 +12,7 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -111,6 +112,8 @@ export function SubscriptionsScene(): JSX.Element {
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const { currentOrganization } = useValues(organizationLogic)
+    const aiSubscriptionsAvailable = aiSubscriptionsEnabled && !!currentOrganization?.is_ai_data_processing_approved
 
     const isFiltered =
         Boolean(search.trim()) ||
@@ -123,7 +126,7 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Mine, label: 'My subscriptions' },
         { key: SubscriptionsTab.Dashboard, label: 'Dashboard' },
         { key: SubscriptionsTab.Insight, label: 'Insight' },
-        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.AI, label: 'Prompt' }] : []),
+        ...(aiSubscriptionsAvailable ? [{ key: SubscriptionsTab.AI, label: 'AI prompt' }] : []),
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
@@ -135,7 +138,7 @@ export function SubscriptionsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    aiSubscriptionsEnabled ? (
+                    aiSubscriptionsAvailable ? (
                         <LemonButton
                             type="primary"
                             data-attr="new-subscription-button"
