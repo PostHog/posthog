@@ -296,8 +296,8 @@ CONSTANCE_CONFIG = {
     ),
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS": (
         get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=21600, type_cast=int),
-        "How long the fleet-wide demand selection is cached in Redis. Warming replays the cached "
-        "shape list every run; the expensive query_log scan only re-runs once this expires (default 6h).",
+        "How long the fleet-wide demand selection is cached in object storage. Warming replays the "
+        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 6h).",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (

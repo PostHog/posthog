@@ -1,6 +1,7 @@
 import re
 import gzip
 import json
+import time
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor
@@ -25,8 +26,8 @@ from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
-from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.storage import object_storage
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
@@ -344,31 +345,51 @@ def queries_to_keep_fresh(
 # cached shape list and the scan only re-runs once the cache expires
 # (WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS). This is what lets the lookback
 # window grow to weeks without multiplying the scan by the warming cadence.
-# Keying on the selection parameters means a settings change takes effect on the
-# next run instead of waiting out the TTL of a list built with the old values.
-_WARMABLE_QUERIES_CACHE_PREFIX = "web_analytics:warmable_queries:v1"
+#
+# The payload is stored in object storage rather than Redis: at the default cap
+# it is already ~34 MiB uncompressed (~890 bytes per shape × max_shapes) and
+# grows linearly as max_shapes is raised for coverage, which is a poor fit for a
+# single Redis value. The cached blob embeds the selection parameters and a
+# timestamp so a settings change or an entry older than the TTL is treated as a
+# miss — object storage has no per-key expiry of its own.
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v1.json.gz"
 
 
-def _warmable_queries_cache_key(days: int, minimum_query_count: int, max_shapes: int) -> str:
-    return f"{_WARMABLE_QUERIES_CACHE_PREFIX}:{days}:{minimum_query_count}:{max_shapes}"
-
-
-def _read_cached_warmable_queries(cache_key: str) -> Optional[list[dict]]:
-    # Fail open: any Redis or decode problem is treated as a miss so warming
+def _read_cached_warmable_queries(
+    days: int, minimum_query_count: int, max_shapes: int, ttl_seconds: int
+) -> Optional[list[dict]]:
+    # Fail open: any storage or decode problem is treated as a miss so warming
     # falls back to a fresh scan rather than erroring.
     try:
-        raw = get_client().get(cache_key)
+        raw = object_storage.read_bytes(_WARMABLE_QUERIES_STORAGE_KEY, missing_ok=True)
         if raw is None:
             return None
-        return json.loads(gzip.decompress(raw))
+        payload = json.loads(gzip.decompress(raw))
     except Exception:
         logger.warning("web_analytics_warming_cache_read_failed", exc_info=True)
         return None
 
+    params_match = (payload.get("days"), payload.get("minimum_query_count"), payload.get("max_shapes")) == (
+        days,
+        minimum_query_count,
+        max_shapes,
+    )
+    is_fresh = time.time() - payload.get("generated_at", 0) < ttl_seconds
+    if not params_match or not is_fresh:
+        return None
+    return payload["queries"]
 
-def _write_cached_warmable_queries(cache_key: str, queries: list[dict], ttl_seconds: int) -> None:
+
+def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shapes: int, queries: list[dict]) -> None:
+    payload = {
+        "days": days,
+        "minimum_query_count": minimum_query_count,
+        "max_shapes": max_shapes,
+        "generated_at": time.time(),
+        "queries": queries,
+    }
     try:
-        get_client().set(cache_key, gzip.compress(json.dumps(queries).encode()), ex=ttl_seconds)
+        object_storage.write(_WARMABLE_QUERIES_STORAGE_KEY, gzip.compress(json.dumps(payload).encode()))
     except Exception:
         logger.warning("web_analytics_warming_cache_write_failed", exc_info=True)
 
@@ -380,14 +401,13 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
     ttl_seconds = get_instance_setting("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS")
 
-    cache_key = _warmable_queries_cache_key(days, minimum_query_count, max_shapes)
-    queries = _read_cached_warmable_queries(cache_key)
+    queries = _read_cached_warmable_queries(days, minimum_query_count, max_shapes, ttl_seconds)
     from_cache = queries is not None
     if queries is None:
         queries = queries_to_keep_fresh(
             context, days=days, minimum_query_count=minimum_query_count, max_shapes=max_shapes
         )
-        _write_cached_warmable_queries(cache_key, queries, ttl_seconds)
+        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
 
     team_count = len({q["team_id"] for q in queries})
 

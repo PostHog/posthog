@@ -226,25 +226,24 @@ class TestFleetQuerySelection(BaseTest):
         self.assertEqual(result, [])
 
 
-class _FakeRedis:
+class _FakeObjectStorage:
     def __init__(self) -> None:
         self.store: dict[str, bytes] = {}
 
-    def get(self, key: str) -> bytes | None:
+    def read_bytes(self, key: str, bucket: str | None = None, *, missing_ok: bool = False) -> bytes | None:
         return self.store.get(key)
 
-    def set(self, key: str, value: bytes, ex: int | None = None) -> None:
-        self.store[key] = value
+    def write(self, key: str, content: bytes, extras: dict | None = None, bucket: str | None = None) -> None:
+        self.store[key] = content
 
 
 class TestWarmableQueriesCaching(BaseTest):
-    @patch("products.web_analytics.dags.cache_warming.get_client")
+    @patch("products.web_analytics.dags.cache_warming.object_storage", new_callable=_FakeObjectStorage)
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
-    def test_second_run_reuses_cached_selection(self, mock_exec: MagicMock, mock_get_client: MagicMock) -> None:
+    def test_second_run_reuses_cached_selection(self, mock_exec: MagicMock, _storage: _FakeObjectStorage) -> None:
         # The whole reason this cache exists: the fleet-wide query_log scan is
         # terabytes. If the cache read regresses, the scan runs every warming run
         # again — this fails when the second run re-hits ClickHouse.
-        mock_get_client.return_value = _FakeRedis()
         mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
 
         first = get_warmable_queries_op(dagster.build_op_context())
@@ -254,11 +253,11 @@ class TestWarmableQueriesCaching(BaseTest):
         self.assertEqual(first, second)
         self.assertEqual(first[0]["team_id"], 101)
 
-    @patch("products.web_analytics.dags.cache_warming.get_client")
+    @patch("products.web_analytics.dags.cache_warming.object_storage")
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
-    def test_redis_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_get_client: MagicMock) -> None:
-        # Redis being down must degrade to a fresh scan, not break warming.
-        mock_get_client.side_effect = Exception("redis unavailable")
+    def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
+        # Object storage being unavailable must degrade to a fresh scan, not break warming.
+        mock_storage.read_bytes.side_effect = Exception("storage unavailable")
         mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
 
         result = get_warmable_queries_op(dagster.build_op_context())
