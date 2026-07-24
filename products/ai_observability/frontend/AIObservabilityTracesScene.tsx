@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -336,6 +336,31 @@ const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
+// The input/output previews are lazily fetched per row, so each cell swaps a
+// placeholder for its message once the batch resolves. Reserving a fixed height
+// keeps the row from reflowing on that swap — an unreserved swap was the
+// dominant layout-shift (CLS) source on the traces list, since every visible
+// row grew at once. Overflow is clipped; the full message is in the trace view.
+const TRACE_MESSAGE_PREVIEW_CELL_CLASS = 'h-16 overflow-hidden'
+
+function TraceMessagePreviewCell({ children }: { children: ReactNode }): JSX.Element {
+    return <div className={TRACE_MESSAGE_PREVIEW_CELL_CLASS}>{children}</div>
+}
+
+// Multi-line skeleton that fills the reserved height, so the loading state
+// occupies the same space the resolved message will.
+function TraceMessagePreviewSkeleton(): JSX.Element {
+    return (
+        <TraceMessagePreviewCell>
+            <div className="flex flex-col gap-1">
+                <LemonSkeleton className="h-4 w-40" />
+                <LemonSkeleton className="h-4 w-32" />
+                <LemonSkeleton className="h-4 w-24" />
+            </div>
+        </TraceMessagePreviewCell>
+    )
+}
+
 // `undefined` = cache miss (still loading). Checking the cached record
 // directly avoids a one-frame dash flash before a separate loading reducer
 // catches up on the first render.
@@ -354,7 +379,7 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
     if (messages === undefined) {
-        return <LemonSkeleton className="h-4 w-40" />
+        return <TraceMessagePreviewSkeleton />
     }
     // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
     const inputMessage =
@@ -362,9 +387,13 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         pickLastInputMessage(messages?.lastInputFallback) ??
         pickLastInputMessage(messages?.lastInput)
     if (!inputMessage) {
-        return <>–</>
+        return <TraceMessagePreviewCell>–</TraceMessagePreviewCell>
     }
-    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
+    return (
+        <TraceMessagePreviewCell>
+            <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
+        </TraceMessagePreviewCell>
+    )
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
@@ -377,14 +406,16 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         : false
     if (errorEventFound) {
         return (
-            <LemonTag type="danger" className="font-mono max-w-50 truncate">
-                {formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)}
-            </LemonTag>
+            <TraceMessagePreviewCell>
+                <LemonTag type="danger" className="font-mono max-w-50 truncate">
+                    {formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)}
+                </LemonTag>
+            </TraceMessagePreviewCell>
         )
     }
 
     if (messages === undefined) {
-        return <LemonSkeleton className="h-4 w-40" />
+        return <TraceMessagePreviewSkeleton />
     }
 
     const lastOutput =
@@ -392,9 +423,13 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         pickLastOutputMessage(messages?.lastOutputFallback) ??
         pickLastOutputMessage(messages?.lastOutput)
     if (!lastOutput) {
-        return <>–</>
+        return <TraceMessagePreviewCell>–</TraceMessagePreviewCell>
     }
-    return <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
+    return (
+        <TraceMessagePreviewCell>
+            <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
+        </TraceMessagePreviewCell>
+    )
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
