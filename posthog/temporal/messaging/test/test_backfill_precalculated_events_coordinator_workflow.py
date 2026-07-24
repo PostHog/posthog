@@ -109,7 +109,7 @@ class TestCheckDayAlreadyBackfilledActivity:
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with patch(
-            "posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow.get_client",
+            "posthog.temporal.messaging.clickhouse_concurrency.get_client",
             return_value=mock_client,
         ):
             result = await check_day_already_backfilled_activity(inputs)
@@ -131,7 +131,7 @@ class TestCheckDayAlreadyBackfilledActivity:
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with patch(
-            "posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow.get_client",
+            "posthog.temporal.messaging.clickhouse_concurrency.get_client",
             return_value=mock_client,
         ):
             await check_day_already_backfilled_activity(inputs)

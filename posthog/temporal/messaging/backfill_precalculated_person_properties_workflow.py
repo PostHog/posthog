@@ -22,9 +22,9 @@ from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.clickhouse_concurrency import get_messaging_client
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
 from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 from posthog.temporal.messaging.types import PersonPropertyFilter
@@ -584,7 +584,7 @@ async def backfill_precalculated_person_properties_activity(
             query_type="person_properties_backfill",
         ):
             logger.info("Acquiring ClickHouse client connection", team_id=inputs.team_id)
-            async with get_client(team_id=inputs.team_id) as client:
+            async with get_messaging_client(team_id=inputs.team_id) as client:
                 logger.info(
                     "ClickHouse client connection established, starting query execution",
                     team_id=inputs.team_id,

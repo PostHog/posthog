@@ -1,12 +1,15 @@
 import os
+from types import TracebackType
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
+    RealtimeCohortCalculationWorkflowInputs,
     _batch_update_cohort_metrics,
     build_final_query,
     flush_kafka_batch,
+    process_realtime_cohort_calculation_activity,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     CohortSelectionActivityInput,
@@ -1744,3 +1747,79 @@ class TestFinalQueryMembershipStatuses:
 
         # Unchanged member: present in both → WHERE filters it out entirely
         assert passes_where(pid, pid) is False
+
+
+class _AsyncClientContextManager:
+    def __init__(self, client: Mock) -> None:
+        self.client = client
+
+    async def __aenter__(self) -> Mock:
+        return self.client
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class _NoopHeartbeater:
+    def __init__(self, details: tuple[str, ...] = (), factor: int = 120) -> None:
+        self.details = details
+
+    async def __aenter__(self) -> "_NoopHeartbeater":
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class TestRealtimeCohortConcurrencyGate:
+    @pytest.mark.asyncio
+    async def test_activity_opens_clickhouse_client_through_gated_wrapper(self):
+        # Guards the concurrency cap for the one gated site the other six tests don't execute:
+        # if this activity's ClickHouse access stops flowing through get_messaging_client (the exact
+        # way the production 202 could recur), clickhouse_concurrency.get_client is no longer the
+        # symbol invoked and this assertion fails.
+        # `yield` after `return` never runs, but its presence makes this an async generator that
+        # streams zero rows — matching stream_query_as_jsonl's shape.
+        async def empty_stream(*args, **kwargs):
+            return
+            yield
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *args, **kwargs: empty_stream()
+
+        cohort = Mock()
+        cohort.pk = 10
+        cohort.team_id = 1
+        cohort.team = Mock()
+        cohort.name = "realtime cohort"
+
+        cohort_model = Mock()
+        cohort_model.objects.filter.return_value.select_related.return_value = [cohort]
+
+        get_client_mock = Mock(return_value=_AsyncClientContextManager(mock_client))
+        module = "posthog.temporal.messaging.realtime_cohort_calculation_workflow"
+
+        with (
+            patch("posthog.temporal.messaging.clickhouse_concurrency.get_client", get_client_mock),
+            patch(f"{module}.Cohort", cohort_model),
+            patch(f"{module}.HogQLRealtimeCohortQuery"),
+            patch(f"{module}.prepare_and_print_ast", return_value=("SELECT 1", {})),
+            patch(f"{module}.get_producer", return_value=Mock()),
+            patch(f"{module}.Heartbeater", _NoopHeartbeater),
+            patch(f"{module}._batch_update_cohort_metrics", AsyncMock(return_value=0)),
+            patch(f"{module}.get_cohort_calculation_success_metric", return_value=Mock()),
+            patch(f"{module}.get_cohort_calculation_failure_metric", return_value=Mock()),
+        ):
+            await process_realtime_cohort_calculation_activity(RealtimeCohortCalculationWorkflowInputs(cohort_id=10))
+
+        get_client_mock.assert_called_once_with(team_id=1)
