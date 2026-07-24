@@ -123,6 +123,12 @@ describe('supportLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
         }
 
+        // Flag state leaks between tests through the window app context, so flag-off tests must
+        // disable explicitly rather than rely on the default
+        const disableConversationsFlag = (): void => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: false })
+        }
+
         beforeEach(() => {
             fetchMock = jest.fn(() =>
                 Promise.resolve({
@@ -286,6 +292,7 @@ describe('supportLogic', () => {
 
         it('captures posthog_ai_support_ticket_created on the Zendesk fallback path with the zendesk ticket id', async () => {
             // Flag off and no conversations extension → Zendesk path; fetchMock returns request id 123
+            disableConversationsFlag()
             await logic.asyncActions.submitSupportTicket({
                 ...FORM_FIELDS,
                 ai_conversation_id: 'conv-2',
