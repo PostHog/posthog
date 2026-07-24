@@ -4,8 +4,11 @@ from typing import TypedDict
 
 import pytest
 
+from django.test import override_settings
+
 import temporalio.worker
 from temporalio import activity, workflow
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -72,6 +75,33 @@ async def test_weekly_digest_workflow():
 
     assert _test_state["generate_called"], "Generate workflow should have been called"
     assert _test_state["send_called"], "Send workflow should have been called"
+
+
+@pytest.mark.asyncio
+async def test_weekly_digest_workflow_fails_loudly_without_redis_host():
+    """An unconfigured Redis host must fail the run, not silently fall back to localhost."""
+    _test_state["generate_called"] = False
+    _test_state["send_called"] = False
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[WeeklyDigestWorkflow, MockGenerateDigestDataWorkflow, MockSendWeeklyDigestWorkflow],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(WEEKLY_DIGEST_REDIS_HOST=None):
+                with pytest.raises(WorkflowFailureError):
+                    await env.client.execute_workflow(
+                        WeeklyDigestWorkflow.run,
+                        WeeklyDigestInput(dry_run=True),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue_name,
+                    )
+
+    assert not _test_state["generate_called"], "Generate workflow should not run when Redis is unconfigured"
+    assert not _test_state["send_called"], "Send workflow should not run when Redis is unconfigured"
 
 
 @pytest.mark.asyncio
