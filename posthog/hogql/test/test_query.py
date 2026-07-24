@@ -13,6 +13,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+from clickhouse_driver import errors as clickhouse_driver_errors
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -2191,3 +2192,34 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("eof", EOFError("Unexpected EOF while reading bytes")),
+            ("network", clickhouse_driver_errors.NetworkError("Connection reset")),
+            ("unexpected_packet", clickhouse_driver_errors.UnexpectedPacketFromServerError("Unexpected packet")),
+        ]
+    )
+    def test_transient_connection_error_is_retried_once(self, _name, transient_error):
+        with (
+            patch(
+                "posthog.hogql.query.sync_execute", side_effect=[transient_error, ([(1,)], [("1", "UInt8")])]
+            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            response = execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(response.results, [(1,)])
+        self.assertEqual(mock_sync_execute.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    def test_transient_connection_error_raises_after_retry_fails(self):
+        transient_error = EOFError("Unexpected EOF while reading bytes")
+        with (
+            patch("posthog.hogql.query.sync_execute", side_effect=transient_error) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep"),
+        ):
+            with self.assertRaises(EOFError):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 2)
