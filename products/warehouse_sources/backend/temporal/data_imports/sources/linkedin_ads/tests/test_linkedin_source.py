@@ -50,6 +50,31 @@ class TestLinkedInAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            'LinkedIn API error (retryable, 500): {"message":"Internal Server Error","status":500}',
+            'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
+            'LinkedIn API error (retryable, 503): {"message":"Service Unavailable"}',
+            "LinkedIn API returned a malformed (non-JSON) response: Expecting value: line 1 column 1 (char 0)",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_transient_failures(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND"}',
+            'LinkedIn daily rate limit reached (429): {"message":"throttled"}',
+            "Connection reset by peer",
+        ],
+    )
+    def test_retryable_errors_does_not_match_unrelated(self, other_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable_errors)
+
     def test_defaults_new_sources_to_202606(self):
         assert self.source.default_version == LINKEDIN_ADS_VERSION_202606
         assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606}
