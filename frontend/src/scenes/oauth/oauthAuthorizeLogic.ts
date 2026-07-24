@@ -384,21 +384,32 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         createNewProject: (name: string) => ({ name }),
         setNewProjectLoading: (loading: boolean) => ({ loading }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         allTeams: [
             null as TeamBasicType[] | null,
             {
                 loadAllTeams: async () => {
-                    const user = userLogic.values.user
-                    if (!user?.organizations?.length) {
-                        return await api.loadPaginatedResults('api/projects')
-                    }
-                    const results = await Promise.all(
-                        user.organizations.map((org) =>
-                            api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
+                    // A transient network failure here (offline, dropped connection, the user
+                    // navigating away mid-request) must degrade gracefully — letting the raw
+                    // `TypeError: Failed to fetch` propagate uncaught lands it in error tracking
+                    // as noise on an otherwise core auth flow. Mirror the fallback `loadResourceScopes`
+                    // already does, keeping any teams we'd previously loaded so a failed refetch
+                    // (e.g. after creating a project) doesn't wipe the list.
+                    try {
+                        const user = userLogic.values.user
+                        if (!user?.organizations?.length) {
+                            return await api.loadPaginatedResults('api/projects')
+                        }
+                        const results = await Promise.all(
+                            user.organizations.map((org) =>
+                                api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
+                            )
                         )
-                    )
-                    return results.flat()
+                        return results.flat()
+                    } catch (e) {
+                        console.warn('Failed to load teams for OAuth authorize screen:', e)
+                        return values.allTeams
+                    }
                 },
             },
         ],
@@ -414,7 +425,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 },
             },
         ],
-    }),
+    })),
     listeners(({ values, actions }) => ({
         cancel: async () => {
             actions.setCanceling(true)

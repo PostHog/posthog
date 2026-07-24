@@ -1,5 +1,8 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -291,5 +294,22 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setRequiredAccessLevel('team')
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    it('degrades gracefully when loading teams fails at the network level', async () => {
+        // A raw fetch rejection (offline, dropped connection, navigating away mid-request)
+        // must not propagate uncaught into error tracking — the loader catches it and
+        // resolves via Success rather than the Failure path that surfaces the exception.
+        useMocks({
+            get: {
+                '/api/organizations/:id/projects': () => HttpResponse.error(),
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadAllTeams()
+        })
+            .toDispatchActions(['loadAllTeams', 'loadAllTeamsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllTeamsFailure'])
+        expect(logic.values.allTeams).toBeNull()
     })
 })
