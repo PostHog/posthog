@@ -898,6 +898,29 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = uac.get_user_access_level(self.organization)
         assert access_level == "admin"
 
+    def test_project_object_without_request_team_returns_default(self):
+        # Creating a project via the org-scoped viewset builds a team-less UserAccessControl, then
+        # serializes the new Team. A non-admin, non-creator member with access controls supported used
+        # to hit AttributeError on the missing team; it should resolve to the project default instead.
+        uac = UserAccessControl(user=self.user_with_no_role, organization_id=self.organization.id)
+        assert uac._team is None
+
+        assert uac.get_user_access_level(self.team) == "admin"
+
+    def test_project_object_without_request_team_honors_explicit_rows(self):
+        # The team-less fallback must still find the project's own access-control rows (keyed by the
+        # project's team id) so an explicit grant isn't silently ignored.
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=self.organization_membership,
+        )
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
+        assert uac._team is None
+
+        assert uac.get_user_access_level(self.team) == "member"
+
     def test_no_organization_membership_returns_none(self):
         """Test that users without org membership get None access level"""
         # Create user without org membership
