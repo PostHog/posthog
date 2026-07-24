@@ -173,9 +173,16 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 if (!values.currentProjectId) {
                     return null
                 }
-                const response = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId))
-                breakpoint()
-                return response
+                try {
+                    const response = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId))
+                    breakpoint()
+                    return response
+                } catch {
+                    // A slow or timing-out aggregation query (500) or other transient
+                    // failure — the view keeps its last data instead of surfacing a
+                    // generic server error to error tracking on every 60s poll.
+                    return null
+                }
             },
         },
     })),
