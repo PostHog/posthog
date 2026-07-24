@@ -62,6 +62,29 @@ export const Grouped: Story = {
     },
 }
 
+const LONG_CATEGORY_LABELS = [
+    '/api/projects/alpha/insights/daily-active-users',
+    '/api/projects/beta/insights/weekly-retention',
+    '/api/projects/gamma/insights/conversion-funnel',
+]
+const LONG_CATEGORY_SERIES: Series[] = [{ key: 'requests', label: 'Requests', data: [420, 315, 510] }]
+
+export const RotatedCategoryLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={420}>
+                <TimeSeriesBarChart
+                    series={LONG_CATEGORY_SERIES}
+                    labels={LONG_CATEGORY_LABELS}
+                    theme={theme}
+                    config={{ xAxis: { tickLabelRotation: -45 }, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
 // Grouped bars whose series span very different magnitudes — each is scaled against its own
 // y-axis (`yAxisId`) so all three stay individually legible instead of the small series being
 // flattened against the large one. Mirrors the legacy "show multiple y-axes" trends option.

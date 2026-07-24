@@ -246,6 +246,8 @@ export interface ChartConfig {
 
     /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
     xTickFormatter?: (value: string, index: number) => string | null
+    /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
+    xTickLabelRotation?: number
     /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
