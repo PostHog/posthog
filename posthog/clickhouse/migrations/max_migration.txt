@@ -1,1 +1,1 @@
-0290_trace_spans_and_attributes
+0291_add_ai_assistant_channel_types
