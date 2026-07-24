@@ -28,6 +28,15 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    // When set, the service exports its own `metrics::` facade output into the
+    // metrics Kafka topic under this project token (fanout alongside the
+    // Prometheus scrape endpoint, which is unchanged). Unset = disabled.
+    #[envconfig(from = "INTERNAL_METRICS_TOKEN")]
+    pub internal_metrics_token: Option<String>,
+
+    #[envconfig(from = "INTERNAL_METRICS_INTERVAL_SECS", default = "60")]
+    pub internal_metrics_interval_secs: u64,
 }
 
 impl Config {

@@ -1904,6 +1904,7 @@ dependencies = [
  "jsonwebtoken",
  "limiters",
  "metrics",
+ "metrics-util",
  "opentelemetry-proto 0.29.0",
  "prost 0.13.5",
  "rdkafka",
@@ -2539,6 +2540,7 @@ dependencies = [
  "axum 0.7.9",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "tokio",
 ]
 
