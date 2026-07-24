@@ -7,7 +7,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.data_warehouse.backend.hogql_fixer_ai import _get_schema_description, _get_system_prompt, _get_user_prompt
+from products.data_warehouse.backend.max_tools import _get_schema_description, _get_system_prompt, _get_user_prompt
 
 
 @pytest.mark.django_db

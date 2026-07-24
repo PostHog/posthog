@@ -10,13 +10,39 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
     from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)
+
+
+def loop_owner_eligible_for_credentials(user_id: int | None, team: Team) -> bool:
+    """Fresh eligibility for issuing a loop run's credentials: the owner must be an active user with
+    current effective access to the loop's *team* (org membership plus any project access control),
+    not merely an org member — a user whose private-project access was revoked must stop too.
+
+    Locks the owner row and the org-membership row, so call inside a transaction that stays open
+    through credential creation: deactivation and org offboarding then serialize against the mint
+    rather than slipping between a stale check and issuance. Team access is otherwise read fresh
+    (project-level access-control rows aren't locked here, so a revocation committed after this read
+    but before an external token round-trip is a residual the async run cancellation still covers)."""
+    if user_id is None:
+        return False
+    owner = User.objects.select_for_update().filter(id=user_id).first()
+    if owner is None or not owner.is_active:
+        return False
+    # Lock the membership row (if any) so a concurrent org removal can't commit between this check and
+    # the caller's token creation within the same transaction.
+    OrganizationMembership.objects.select_for_update().filter(
+        user_id=user_id, organization_id=team.organization_id
+    ).first()
+    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
 def is_slack_interaction_state(state: dict[str, Any] | None) -> bool:
@@ -92,3 +118,16 @@ def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None
 
 def get_actor_distinct_id(actor: User) -> str:
     return actor.distinct_id or f"user_{actor.id}"
+
+
+def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
+    """Run-state updates recording the Slack user currently steering a run.
+
+    The keys are load-bearing: credential resolution reads
+    ``slack_actor_user_id`` and reply tagging reads
+    ``slack_actor_slack_user_id`` — every writer must build them here.
+    """
+    updates: dict[str, Any] = {"slack_actor_user_id": user_id}
+    if slack_user_id:
+        updates["slack_actor_slack_user_id"] = slack_user_id
+    return updates

@@ -7,11 +7,14 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconFlask,
     IconHome,
+    IconList,
     IconLive,
     IconListTree,
     IconLlmAnalytics,
+    IconLlmPromptManagement,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -21,8 +24,11 @@ import {
     IconPulse,
     IconRewindPlay,
     IconRocket,
+    IconShare,
+    IconScatter,
     IconSpotlight,
     IconToggle,
+    IconToolbar,
     IconTrends,
     IconWarning,
 } from '@posthog/icons'
@@ -65,6 +71,10 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconTrends />
         case 'llm_analytics':
             return <IconLlmAnalytics />
+        case 'llm_skill':
+            return <IconLlmPromptManagement />
+        case 'ai_observability_clusters':
+            return <IconScatter />
         case 'live_debugger':
             return <IconBug />
         case 'logs':
@@ -77,18 +87,26 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconSpotlight />
         case 'property_definition':
             return <IconApps />
+        case 'replay_scanner':
+            return <IconEye />
         case 'revenue_analytics':
             return <IconPiggyBank />
         case 'session_recording':
             return <IconRewindPlay />
+        case 'sharing_configuration':
+            return <IconShare />
         case 'survey':
             return <IconMessage />
+        case 'tagger':
+            return <IconList />
         case 'task':
             return <IconBug />
         case 'web_analytics':
             return <IconPieChart />
         case 'tracing':
             return <IconListTree />
+        case 'toolbar':
+            return <IconToolbar />
         default:
             return null
     }

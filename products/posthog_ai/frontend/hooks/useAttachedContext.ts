@@ -13,7 +13,7 @@ export interface UseAttachedContextOptions {
 
 /**
  * Registers `items` into the global `attachedContextLogic` under a stable per-mount provider id, so
- * the PostHog AI surface picks them up as `<posthog_context>` at send time. Re-registers when the
+ * the PostHog AI surface picks them up as context blocks at send time. Re-registers when the
  * items change (memoized on their JSON shape), and deregisters on unmount or when `active: false`.
  */
 export function useAttachedContext(items: AttachedContextItem[] | null, options?: UseAttachedContextOptions): void {

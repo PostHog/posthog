@@ -11,7 +11,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import BooleanField, Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import BooleanField, Case, CharField, F, Q, QuerySet, Value, When
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
@@ -48,8 +48,6 @@ from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
@@ -77,7 +75,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
-    holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
@@ -93,8 +90,11 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_edit_flag,
 )
-from products.feature_flags.backend.facade.filters import restrict_groups_to_cohort, strip_group_cohort_restriction
-from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.facade.filters import (
+    restrict_groups_to_cohort,
+    set_holdout,
+    strip_group_cohort_restriction,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -592,15 +592,6 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
-    }
-
-    ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
-        "created_at",
-        "-created_at",
-        "key",
-        "-key",
-        "name",
-        "-name",
     }
 
     @classmethod
@@ -1231,7 +1222,7 @@ class ExperimentService:
 
         if existing_flag:
             self._validate_existing_flag(existing_flag)
-            variants = existing_flag.filters.get("multivariate", {}).get("variants", list(DEFAULT_VARIANTS))
+            variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
 
         config = feature_flag_config or {}
@@ -1251,13 +1242,16 @@ class ExperimentService:
         # prompt experiments map each variant to {"prompt_name": ..., "prompt_version": ...})
         # and any future key — is applied as-is so nothing the serializer accepted is
         # silently dropped.
-        feature_flag_filters = {
-            "aggregation_group_type_index": None,
-            **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
-            "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
-            "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-            **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
-        }
+        feature_flag_filters = set_holdout(
+            {
+                "aggregation_group_type_index": None,
+                **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
+                "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
+                "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+            },
+            holdout_id=holdout.id if holdout else None,
+            exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+        )
 
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
@@ -2380,7 +2374,9 @@ class ExperimentService:
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
-                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                    # A concurrent reset may have already returned the experiment to draft —
+                    # only attach the pointer while it is still ended.
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id, end_date__isnull=False).update(
                         flag_cleanup_task_id=created.task_id
                     )
                     # on_commit runs before the view serializes the response — reflect the id on the
@@ -2524,6 +2520,9 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
+        # The cleanup task belongs to the ended run — keeping the pointer would resurrect a
+        # stale "Cleanup PR opened" line after the experiment is re-ended without opting in.
+        experiment.flag_cleanup_task_id = None
 
         experiment.save()
 
@@ -2556,11 +2555,10 @@ class ExperimentService:
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
-            # FeatureFlagSerializer needs a real request for its context; for non-HTTP callers
-            # write directly — flag caches still refresh via model save signals, only the flag's
-            # activity-log entry is skipped.
-            flag.filters = stripped_filters
-            flag.save(update_fields=["filters"])
+            # Non-HTTP callers have no acting user: a system write (user=None) skips the
+            # approval gate — this runs inside the caller's transaction, where an
+            # ApprovalRequired could never surface as a 409/change request anyway.
+            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=None)
 
         flag.refresh_from_db()
         experiment.feature_flag = flag
@@ -3081,13 +3079,16 @@ class ExperimentService:
             # merged, and variants always resolve against the flag); every other validated filters
             # key is merged as-is over the flag's current filters, so nothing the serializer
             # accepted is silently dropped.
-            new_filters = {
-                **existing_filters,
-                **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
-                "groups": new_groups,
-                "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
-                **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
-            }
+            new_filters = set_holdout(
+                {
+                    **existing_filters,
+                    **{k: v for k, v in config_filters.items() if k not in ("groups", "multivariate")},
+                    "groups": new_groups,
+                    "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
+                },
+                holdout_id=holdout.id if holdout else None,
+                exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+            )
 
             flag_update_data: dict[str, Any] = {"filters": new_filters}
             if "ensure_experience_continuity" in feature_flag_config:
@@ -3098,12 +3099,11 @@ class ExperimentService:
             update_flag(
                 feature_flag,
                 {
-                    "filters": {
-                        **feature_flag.filters,
-                        **holdout_filters_for_flag(
-                            holdout.id if holdout else None, holdout.filters if holdout else None
-                        ),
-                    }
+                    "filters": set_holdout(
+                        feature_flag.filters,
+                        holdout_id=holdout.id if holdout else None,
+                        exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+                    )
                 },
                 team=self.team,
                 user=self.user,
@@ -3712,115 +3712,6 @@ class ExperimentService:
             queryset = queryset.order_by("-created_at")
 
         return queryset
-
-    # ------------------------------------------------------------------
-    # Eligible feature flags
-    # ------------------------------------------------------------------
-
-    def get_eligible_feature_flags(
-        self,
-        *,
-        limit: int = 20,
-        offset: int = 0,
-        excluded_flag_ids: list[int] | set[int] | None = None,
-        search: str | None = None,
-        active: str | bool | None = None,
-        created_by_id: str | int | None = None,
-        order: str | None = None,
-        evaluation_runtime: str | None = None,
-        has_evaluation_contexts: str | bool | None = None,
-    ) -> dict[str, Any]:
-        """Get feature flags eligible for use in experiments."""
-        queryset = self._get_eligible_feature_flags_queryset(
-            excluded_flag_ids=excluded_flag_ids,
-            search=search,
-            active=active,
-            created_by_id=created_by_id,
-            order=order,
-            evaluation_runtime=evaluation_runtime,
-            has_evaluation_contexts=has_evaluation_contexts,
-        )
-
-        return {
-            "results": queryset[offset : offset + limit],
-            "count": queryset.count(),
-        }
-
-    def _get_eligible_feature_flags_queryset(
-        self,
-        *,
-        excluded_flag_ids: list[int] | set[int] | None,
-        search: str | None,
-        active: str | bool | None,
-        created_by_id: str | int | None,
-        order: str | None,
-        evaluation_runtime: str | None,
-        has_evaluation_contexts: str | bool | None,
-    ) -> QuerySet[FeatureFlag]:
-        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id).eligible_for_experiment()
-
-        # This action is experiment-scoped, so the flag resource's object-level access
-        # controls are not applied by the viewset — filter here like the flag list
-        # endpoint does, so private flags don't leak through the eligible-flags listing.
-        if isinstance(self.user, User):
-            queryset = UserAccessControl(user=self.user, team=self.team).filter_queryset_by_access_level(
-                queryset, include_all_if_admin=True
-            )
-        else:
-            queryset = queryset.none()
-
-        if excluded_flag_ids:
-            queryset = queryset.exclude(id__in=excluded_flag_ids)
-
-        if search:
-            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
-
-        if active is not None:
-            active_bool = active if isinstance(active, bool) else str(active).lower() == "true"
-            queryset = queryset.filter(active=active_bool)
-
-        if created_by_id:
-            user_ids = parse_created_by_ids(created_by_id)
-            if user_ids:
-                queryset = queryset.filter(created_by_id__in=user_ids)
-
-        if evaluation_runtime:
-            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
-
-        if has_evaluation_contexts is not None:
-            filter_value = (
-                has_evaluation_contexts
-                if isinstance(has_evaluation_contexts, bool)
-                else str(has_evaluation_contexts).lower() in ("true", "1", "yes")
-            )
-            queryset = queryset.annotate(eval_context_count=Count("flag_evaluation_contexts"))
-            if filter_value:
-                queryset = queryset.filter(eval_context_count__gt=0)
-            else:
-                queryset = queryset.filter(eval_context_count=0)
-
-        if order and order not in self.ELIGIBLE_FLAGS_ORDER_ALLOWLIST:
-            raise ValidationError(f"Invalid order field: '{order}'")
-
-        queryset = queryset.order_by(order or "-created_at")
-
-        return queryset.prefetch_related(
-            Prefetch(
-                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
-            ),
-            "features",
-            "analytics_dashboards",
-            "surveys_linked_flag",
-            Prefetch(
-                "flag_evaluation_contexts",
-                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-            ),
-            Prefetch(
-                "team__cohort_set",
-                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                to_attr="available_cohorts",
-            ),
-        ).select_related("created_by", "last_modified_by")
 
     # ------------------------------------------------------------------
     # Timeseries

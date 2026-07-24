@@ -13,7 +13,7 @@ from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.synthesize import synthesize_brief
 from products.pulse.backend.models import ProductBrief
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
@@ -25,6 +25,13 @@ logger = structlog.get_logger(__name__)
 
 # Fallback lookback for a since_last_run brief with no prior run, and the default day count.
 _DEFAULT_LOOKBACK_DAYS = 7
+
+# Priority-aware truncation before the MAX_ITEMS payload cap: a chatty low-priority source can't
+# crowd out actionable items. The assert fails loudly at import if a new SourceItemKind lacks a
+# priority (same import-time enum-coverage guard the KIND_DESCRIPTIONS assert uses) — it would
+# otherwise silently sort last.
+KIND_PRIORITY: dict[str, int] = {SourceItemKind.HEALTH: 0, SourceItemKind.MOVEMENT: 1, SourceItemKind.CONTEXT: 2}
+assert set(KIND_PRIORITY) == set(SourceItemKind)
 
 
 @dataclasses.dataclass
@@ -96,13 +103,36 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     )
     resolved = resolve_period(inputs.period, dt.datetime.now(dt.UTC), last_run)
     user_access_control = UserAccessControl(user=brief.created_by, team=team)
+    sources = get_sources()
     items: list[SourceItem] = []
-    for source in get_sources():
-        gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
-            team, config, resolved.lookback_days, user_access_control
-        )
+    failed_sources = 0
+    for source in sources:
+        try:
+            gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
+                team, config, resolved.lookback_days, user_access_control
+            )
+        except Exception as exc:
+            # One broken source must not kill the brief; the other sources still contribute. Capture
+            # to error tracking too, matching the per-item isolation in the movement scoring strategy.
+            logger.exception("pulse_source_gather_failed", team_id=team.id, source=source.name)
+            capture_exception(exc, {"team_id": team.id, "source": source.name, "product": "pulse"})
+            failed_sources += 1
+            continue
         items.extend(gathered)
-    # Keep the activity payload small — well under Temporal's ~2 MiB cap.
+    if sources and failed_sources == len(sources):
+        # Every source broke: that's a failure to retry. Partial failure in a quiet week is not.
+        raise ApplicationError(f"brief gather failed: all {failed_sources} source(s) failed")
+    # Stable sort by kind priority so the highest-priority kinds survive the MAX_ITEMS payload cap.
+    items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
+    if len(items) > MAX_ITEMS:
+        # Priority-based dropping is load-bearing — record it so a "missing item" report is diagnosable.
+        logger.info(
+            "pulse_gather_items_capped",
+            team_id=team.id,
+            total=len(items),
+            kept=MAX_ITEMS,
+            dropped=len(items) - MAX_ITEMS,
+        )
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
 
 

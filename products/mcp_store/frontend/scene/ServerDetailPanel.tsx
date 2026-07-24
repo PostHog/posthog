@@ -256,7 +256,8 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
     const name = installation?.name ?? template?.name ?? ''
     const description = installation?.description ?? template?.description ?? ''
     const docsUrl = template?.docs_url ?? ''
-    const iconKey = installation?.icon_key ?? template?.icon_key ?? null
+    const iconDomain = installation?.icon_domain ?? template?.icon_domain ?? null
+    const serverUrl = installation?.url ?? template?.url ?? null
     const authType = installation?.auth_type ?? template?.auth_type
 
     const goBack = (): void => {
@@ -271,7 +272,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
             </LemonButton>
 
             <div className="flex gap-4 items-center">
-                <ServerIcon iconKey={iconKey} size={56} />
+                <ServerIcon iconDomain={iconDomain} serverUrl={serverUrl} size={56} />
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="mb-0">{name}</h1>

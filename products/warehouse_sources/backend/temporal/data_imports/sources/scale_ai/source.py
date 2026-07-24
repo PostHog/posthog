@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScaleAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleai import (
+    ScaleAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.scale_ai import (
     ScaleAIResumeConfig,
     scale_ai_source,
@@ -95,6 +97,7 @@ You can find your API key in the [Scale dashboard](https://dashboard.scale.com/)
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "batches":
@@ -124,7 +127,11 @@ You can find your API key in the [Scale dashboard](https://dashboard.scale.com/)
         return schemas
 
     def validate_credentials(
-        self, config: ScaleAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ScaleAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_scale_ai_credentials(config.api_key):
             return True, None
@@ -143,7 +150,8 @@ You can find your API key in the [Scale dashboard](https://dashboard.scale.com/)
         return scale_ai_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

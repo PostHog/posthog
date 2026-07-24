@@ -19,7 +19,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
@@ -331,10 +330,6 @@ async def _relay_loop(
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
     # Brackets turn_started / turn_completed signals to the parent.
     slack_turn_active: list[bool] = [False]
-    # The agent's in-progress closing message for the current turn. Chunks
-    # accumulate; a new tool call or user message resets it, so at end-of-turn
-    # it holds the prose after the last tool call — what the thread update posts.
-    final_message_parts: list[str] = []
     # ACP emits one tool_call + N tool_call_update per id; only render the start.
     emitted_tool_call_ids: set[str] = set()
     # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
@@ -409,22 +404,6 @@ async def _relay_loop(
                                     # does sync Redis (cache.add) and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
-                                if task_run is not None and task_run.mode != "interactive":
-                                    # Background run finished a turn — post its closing message
-                                    # into the task's thread so teammates following it see the
-                                    # outcome without a client open. Guards (flag, channel,
-                                    # cooldown) live in the facade; same thread hop as above
-                                    # for its sync I/O.
-                                    asyncio.create_task(
-                                        asyncio.to_thread(
-                                            tasks_facade.post_turn_complete_thread_update,
-                                            str(task_run.id),
-                                            str(task_run.task_id),
-                                            task_run.team_id,
-                                            message="".join(final_message_parts).strip() or None,
-                                        )
-                                    )
-                                final_message_parts.clear()
                                 if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
                                     slack_turn_active[0] = False
                                     # Awaited in order: the final prose must be recorded before
@@ -434,9 +413,6 @@ async def _relay_loop(
                                     await _signal_safely(workflow_handle, "turn_completed")
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
-
-                            if task_run is not None and task_run.mode != "interactive":
-                                _track_final_message(event_data, final_message_parts)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
@@ -500,7 +476,6 @@ async def _relay_loop(
                 reconnect_count += 1
                 # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
                 agent_active[0] = False
-                final_message_parts.clear()
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
                 logger.warning(
@@ -524,7 +499,6 @@ async def _relay_loop(
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
-                final_message_parts.clear()
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
                 logger.warning(
@@ -539,7 +513,6 @@ async def _relay_loop(
             except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
-                final_message_parts.clear()
                 # Drop un-flushed partial prose — the agent replays events on reconnect.
                 pending_text_parts.clear()
                 logger.warning(
@@ -671,20 +644,6 @@ def _tool_args_preview(raw_input: Any) -> str | None:
     return one_line
 
 
-def _track_final_message(event_data: dict, parts: list[str]) -> None:
-    """Accumulate agent_message_chunk text; a new tool call or user message resets,
-    so `parts` ends the turn holding only the agent's closing prose."""
-    text = _extract_agent_message_text(event_data)
-    if text:
-        parts.append(text)
-        return
-    if not _is_session_update(event_data):
-        return
-    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
-    if update.get("sessionUpdate") in ("tool_call", "user_message", "user_message_chunk"):
-        parts.clear()
-
-
 def _extract_agent_message_text(event_data: dict) -> str | None:
     """Text delta from an ACP agent_message_chunk session/update, else None."""
     notification = event_data.get("notification", {})
@@ -811,38 +770,17 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
-    """Answer a sandbox permission request from the run's permission mode, or escalate to a human.
-
-    A broker failure falls through to the prompt path so a broker bug degrades to
-    human approval instead of a stalled agent.
-    """
+    """Auto-allow a Slack-origin run's sandbox permission request (see permission_broker)."""
     try:
-        # The relay holds `task_run` from its start, but the permission mode can be
-        # changed mid-run from the Slack card — re-read state per request so a mode
-        # downgrade stops auto-approving immediately. A failed refresh falls through
-        # to the human prompt rather than answering from stale state. The
-        # close_old_connections guard mirrors event_ingest: this thread's pooled
+        # The close_old_connections guard mirrors event_ingest: this thread's pooled
         # connection is never health-checked by Django (gated off in tests, where
         # it would close the test transaction's connection).
         if not settings.TEST:
             close_old_connections()
-        task_run.refresh_from_db(fields=["state"])
-        if try_auto_respond_permission_request(task_run, permission_request):
-            return
+        try_auto_respond_permission_request(task_run, permission_request)
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",
-            run_id=str(task_run.id),
-            exc_info=True,
-        )
-
-    try:
-        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
-
-        post_slack_permission_request_for_task_run(task_run, permission_request)
-    except Exception:
-        logger.warning(
-            "relay_sandbox_events_slack_permission_prompt_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

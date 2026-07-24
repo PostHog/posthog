@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.source import ZepSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep import ZepResumeConfig

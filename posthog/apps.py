@@ -73,6 +73,17 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
+        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
+        # the metrics API and ignores this attr; once posthoganalytics is bumped to
+        # >=7.23 it's picked up by setup(), so metrics get a real service.name
+        # instead of 'unknown_service'.
+        posthoganalytics.metrics = {  # type: ignore[attr-defined]
+            # Same fallback as the OTel trace resource (otel_instrumentation.py) —
+            # metrics and traces from one process must share a service identity.
+            "service_name": settings.OTEL_SERVICE_NAME or "posthog-django-default",
+            "service_version": os.getenv("COMMIT_SHA"),
+            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
+        }
 
         if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
             posthoganalytics.capture_exception_code_variables = False

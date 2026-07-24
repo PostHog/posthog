@@ -121,6 +121,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     await engineeringAnalyticsWorkflowRun(projectId(), {
                         run_id: props.runId,
                         source_id: props.sourceId ?? undefined,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                     }),
             },
         ],
@@ -134,6 +135,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                         run_id: props.runId,
                         run_attempt: values.run?.run_attempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
+                        repo: `${props.repoOwner}/${props.repoName}`,
                     }),
             },
         ],
@@ -146,6 +148,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                         return await engineeringAnalyticsRunFailureLogs(projectId(), {
                             run_id: props.runId,
                             source_id: props.sourceId ?? undefined,
+                            repo: `${props.repoOwner}/${props.repoName}`,
                         })
                     } catch {
                         return 'unavailable'

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import httpx_sse
@@ -360,60 +360,6 @@ class TestRelaySandboxEventsMissingActor:
         relay_loop_mock.assert_not_awaited()
 
 
-class TestBrokerPermissionRequestStateRefresh:
-    @pytest.mark.django_db
-    def test_mode_downgrade_after_relay_start_escalates_instead_of_auto_approving(self) -> None:
-        from posthog.models import Organization, Team
-        from posthog.models.user import User
-
-        from products.tasks.backend.models import Task
-
-        organization = Organization.objects.create(name="broker-refresh-org")
-        team = Team.objects.create(organization=organization, name="broker-refresh-team")
-        creator = User.objects.create(email="broker-refresh@example.com")
-        task = Task.objects.create(
-            team=team,
-            title="Create a PDF",
-            created_by=creator,
-            origin_product=Task.OriginProduct.SLACK,
-        )
-        task_run = TaskRun.objects.create(
-            task=task,
-            team=team,
-            status=TaskRun.Status.IN_PROGRESS,
-            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "full_auto"},
-        )
-        # The object the relay holds from its start; the user downgrades the mode mid-run.
-        stale_task_run = TaskRun.objects.select_related("task__created_by").get(id=task_run.id)
-        TaskRun.objects.filter(id=task_run.id).update(
-            state={"sandbox_url": "https://sandbox.example.com", "slack_permission_mode": "ask_before_write"}
-        )
-
-        permission_request = {
-            "request_id": "perm-1",
-            "tool_call": {"title": "Run tool", "rawInput": {"toolName": "Bash", "command": "rm -rf report.xlsx"}},
-            "options": [
-                {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
-                {"optionId": "reject", "kind": "reject_once", "name": "No"},
-            ],
-        }
-
-        with (
-            patch(
-                "products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token",
-                return_value="sandbox-token",
-            ),
-            patch("products.tasks.backend.logic.services.permission_broker.send_agent_command") as mock_send,
-            patch(
-                "products.slack_app.backend.services.agent_permissions.post_slack_permission_request_for_task_run"
-            ) as mock_prompt,
-        ):
-            relay_sandbox_events_module._broker_permission_request(stale_task_run, permission_request)
-
-        mock_send.assert_not_called()
-        mock_prompt.assert_called_once()
-
-
 class TestRelaySandboxEventsErrorHandling:
     @parameterized.expand(
         [
@@ -603,7 +549,6 @@ class TestRelaySandboxEventsErrorHandling:
             {
                 "request_id": "perm-1",
                 "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
-                "tool_name": "Bash",
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )

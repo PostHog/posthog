@@ -255,6 +255,18 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_request")
         self.assertEqual(response.json()["error_description"], "Missing client_id parameter.")
 
+    @parameterized.expand(["client_id", "response_type", "redirect_uri", "scope", "state"])
+    def test_authorize_rejects_duplicate_param(self, param):
+        # Duplicate OAuth params (HTTP parameter pollution) must be rejected as fatal errors,
+        # so a proxy/parser reading first-vs-last can't route a victim's code elsewhere.
+        url = f"{self.base_authorization_url}&{param}=dup_one&{param}=dup_two"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], f"Duplicate {param} parameter.")
+
     def test_authorize_invalid_client_id(self):
         url = self.base_authorization_url
 
@@ -2668,13 +2680,87 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
 
-    def test_authorize_wildcard_rejected_when_app_ceiling_set(self):
-        self._set_ceiling("experiment:read")
-        response = self.client.get(f"{self.base_authorization_url}&scope=*")
+    def _create_first_party_app_with_ceiling(self, *scopes: str) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name="First Party App",
+            client_id="first_party_narrow_client_id",
+            client_secret="first_party_narrow_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=True,
+            scopes=list(scopes),
+        )
+
+    def _first_party_authorize_grant(self, app: OAuthApplication, scope: str) -> OAuthGrant:
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+        response = self.client.get(f"{url}&scope={scope}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        location = response.get("Location")
-        assert location
-        self.assertIn("error=invalid_scope", location)
+        location = response["Location"]
+        self.assertNotIn("error=invalid_scope", location)
+        self.assertIn("code=", location)
+        code = parse_qs(urlparse(location).query)["code"][0]
+        return OAuthGrant.objects.get(code=code)
+
+    def test_authorize_wildcard_narrowed_to_seeded_ceiling(self):
+        # A `*` request against a seeded ceiling is narrowed to the resolved ceiling
+        # rather than rejected. First-party apps skip consent, so the grant is the
+        # cleanest place to observe the narrowed scope set.
+        app = self._create_first_party_app_with_ceiling("experiment:read", "dashboard:read")
+        grant = self._first_party_authorize_grant(app, "*")
+        self.assertEqual(set(grant.scope.split()), {"experiment:read", "dashboard:read"})
+        self.assertNotIn("*", grant.scope.split())
+
+    def test_authorize_wildcard_narrowed_ceiling_includes_privileged_scope(self):
+        # A `@default` ceiling with a privileged extra: narrowing grants the extra too.
+        app = self._create_first_party_app_with_ceiling("@default", "llm_gateway:read")
+        grant = self._first_party_authorize_grant(app, "*")
+        granted = set(grant.scope.split())
+        self.assertIn("llm_gateway:read", granted)
+        self.assertIn("insight:read", granted)
+        self.assertNotIn("*", granted)
+        self.assertNotIn("@default", granted)
+
+    def test_authorize_wildcard_never_grants_star_listed_in_ceiling(self):
+        # A ceiling that literally lists `*` must not grant `*` back on a `*` request:
+        # `*` is never grantable under an explicit ceiling. Only the real scopes remain.
+        app = self._create_first_party_app_with_ceiling("experiment:read", "*")
+        grant = self._first_party_authorize_grant(app, "*")
+        granted = set(grant.scope.split())
+        self.assertNotIn("*", granted)
+        self.assertEqual(granted, {"experiment:read"})
+
+    def test_authorize_wildcard_narrowing_captures_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
+            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+                response = self.client.get(f"{self.base_authorization_url}&scope=*")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        narrowed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_wildcard_scopes_narrowed"]
+        self.assertEqual(len(narrowed), 1)
+        props = narrowed[0].kwargs["properties"]
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+        self.assertEqual(props["narrowed_scope_count"], 1)
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
+
+    def test_authorize_wildcard_empty_ceiling_does_not_narrow_or_capture(self):
+        # Empty ceiling keeps the legacy `*` grandfathering: `*` is accepted verbatim
+        # and no narrowing event fires. POST grants it directly.
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
+            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+                get_response = self.client.get(f"{self.base_authorization_url}&scope=*")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        narrowed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_wildcard_scopes_narrowed"]
+        self.assertEqual(narrowed, [])
+
+        post_response = self._authorize_post("*")
+        self.assertEqual(post_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("error=invalid_scope", post_response.json()["redirect_to"])
 
     def test_authorize_get_passes_wildcard_read_scopes_to_consent_page(self):
         with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:

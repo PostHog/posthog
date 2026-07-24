@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -70,6 +71,28 @@ from posthog.uuidt import UUIDT
 USE_GLOBAL_JOINS = False
 
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# ClickHouse's canonical UUID text form; it rejects anything else when parsing a compared literal.
+# Checked with fullmatch — a `$` anchor would let a trailing newline through.
+_UUID_LITERAL_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+_UUID_GUARDED_COMPARE_OPS = (
+    ast.CompareOperationOp.Eq,
+    ast.CompareOperationOp.NotEq,
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+)
+
+
+def _string_constants(node: ast.Expr) -> list[ast.Constant]:
+    if isinstance(node, ast.Constant):
+        return [node] if isinstance(node.value, str) else []
+    if isinstance(node, (ast.Tuple, ast.Array)):
+        return [expr for expr in node.exprs if isinstance(expr, ast.Constant) and isinstance(expr.value, str)]
+    return []
+
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
@@ -2252,6 +2275,7 @@ class Resolver(CloningVisitor):
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType(nullable=False)
+        self._raise_on_invalid_uuid_literal(node)
 
         if (
             USE_GLOBAL_JOINS
@@ -2275,6 +2299,36 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    def _raise_on_invalid_uuid_literal(self, node: ast.CompareOperation) -> None:
+        """A malformed string literal compared against a UUID column (events.uuid, person ids,
+        warehouse UUID columns) would fail the whole query at execution time with ClickHouse's
+        CANNOT_PARSE_UUID — reject it here instead, naming the bad value. Only ClickHouse-bound
+        queries are guarded: other target dialects (postgres, snowflake, ...) accept UUID text
+        forms ClickHouse doesn't, so rejecting the canonical-form mismatch there would be wrong."""
+        if self.dialect not in ("clickhouse", "hogql"):
+            return
+        if node.op not in _UUID_GUARDED_COMPARE_OPS:
+            return
+        for uuid_side, literal_side in ((node.left, node.right), (node.right, node.left)):
+            if not self._resolves_to_uuid(uuid_side):
+                continue
+            for constant in _string_constants(literal_side):
+                if not _UUID_LITERAL_RE.fullmatch(constant.value):
+                    field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
+                    subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
+                    raise QueryError(
+                        f"'{constant.value}' is not a valid UUID, so it can never match {subject}. "
+                        f"Use the full UUID, for example '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
+                    )
+
+    def _resolves_to_uuid(self, node: ast.Expr) -> bool:
+        if node.type is None or isinstance(node, ast.Constant):
+            return False
+        try:
+            return isinstance(node.type.resolve_constant_type(self.context), ast.UUIDType)
+        except Exception:
+            return False
 
     def _get_scope(self):
         if len(self.scopes) > 0:

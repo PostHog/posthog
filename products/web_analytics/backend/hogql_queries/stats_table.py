@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     get_property_key,
     get_property_operator,
@@ -26,9 +26,11 @@ from posthog.hogql.property import (
     get_property_value,
     property_to_expr,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
@@ -36,8 +38,11 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     FrustrationMetricsStrategy,
     NoJoinPathBounceAvgTimeStrategy,
     NoJoinPathBounceStrategy,
+    NoJoinSimpleBreakdownStrategy,
     PathBounceAvgTimeStrategy,
     PathBounceStrategy,
+    SessionIdSetPathBounceAvgTimeStrategy,
+    SessionIdSetPathBounceStrategy,
     SimpleBreakdownStrategy,
     StatsTableQueryStrategy,
 )
@@ -88,6 +93,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", None)
         self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
+        # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
+        self._session_id_set_selectivity_ok: Optional[bool] = None
 
         limit = self.query.limit if self.query.limit else None
         offset = self.query.offset if self.query.offset else None
@@ -99,14 +106,17 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
-    def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
-        if (
+    def _can_serve_preaggregated(self) -> bool:
+        return bool(
             self.modifiers
             and self.modifiers.useWebAnalyticsPreAggregatedTables
             and self.preaggregated_query_builder.can_use_preaggregated_tables()
             and not self.query.includeAvgTimeOnPage
             and not self.query.conversionGoal
-        ):
+        )
+
+    def _resolve_strategy(self) -> ResolvedStatsTableStrategy:
+        if self._can_serve_preaggregated():
             if self.query.breakdownBy == WebStatsBreakdown.PAGE:
                 return ResolvedStatsTableStrategy(
                     strategy="stats_table_preaggregated_path_breakdown",
@@ -145,7 +155,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
-        # No-join variants first: they don't subclass the join strategies.
+        # Session-id-set variants first: they subclass the no-join strategies.
+        if isinstance(strategy, SessionIdSetPathBounceAvgTimeStrategy):
+            return "stats_table_session_id_set_path_bounce_and_avg_time"
+        if isinstance(strategy, SessionIdSetPathBounceStrategy):
+            return "stats_table_session_id_set_path_bounce"
+        # No-join variants next: they don't subclass the join strategies.
         if isinstance(strategy, NoJoinPathBounceAvgTimeStrategy):
             return "stats_table_no_join_path_bounce_and_avg_time"
         if isinstance(strategy, NoJoinPathBounceStrategy):
@@ -157,6 +172,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
+        # NoJoinSimpleBreakdownStrategy is also a SimpleBreakdownStrategy subclass.
+        if isinstance(strategy, NoJoinSimpleBreakdownStrategy):
+            return "stats_table_no_join_simple_breakdown"
 
         if (
             isinstance(strategy, SimpleBreakdownStrategy)
@@ -177,10 +195,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             if self.query.includeAvgTimeOnPage:
                 if self.should_skip_session_join:
                     return NoJoinPathBounceAvgTimeStrategy(self)
+                if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
+                    return SessionIdSetPathBounceAvgTimeStrategy(self)
                 return PathBounceAvgTimeStrategy(self)
             if self.query.includeBounceRate:
                 if self.should_skip_session_join:
                     return NoJoinPathBounceStrategy(self)
+                if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
+                    return SessionIdSetPathBounceStrategy(self)
                 return PathBounceStrategy(self)
 
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
@@ -188,6 +210,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         if self.query.breakdownBy == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             return ChannelTypeStrategy(self)
+
+        # Simple breakdowns whose displayed columns are all event-derived don't
+        # need the events↔sessions join at all — the join only supplies the
+        # session grouping key and start timestamp, both recoverable from the
+        # UUIDv7 session id. Session-entry breakdowns (Initial*),
+        # session-property filters, and bounce/conversion variants keep
+        # the join.
+        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
+            return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
 
@@ -291,6 +322,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
+    def _uses_session_fields(self) -> bool:
+        """True when the breakdown value or any filter reads a `session.*`
+        field. Those queries need the events↔sessions join — Initial* entry
+        breakdowns for the value itself, session-property filters for the
+        predicate. Routing them to the no-join strategy would make HogQL
+        silently re-add the lazy join, mislabeling the query tag."""
+        found = False
+
+        class Visitor(TraversingVisitor):
+            def visit_field(self, node: ast.Field) -> None:
+                nonlocal found
+                if node.chain and node.chain[0] == "session":
+                    found = True
+
+        visitor = Visitor()
+        visitor.visit(self._counts_breakdown_value())
+        visitor.visit(self._all_properties())
+        return found
+
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
             alias=alias,
@@ -369,6 +419,70 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
         ]
         return property_to_expr(properties, team=self.team, scope="event")
+
+    @cached_property
+    def should_use_session_id_set(self) -> bool:
+        """Whether a filtered paths query can run as the two-scan no-join shape
+        linked by a session-id set (see `_session_id_set_common_eligibility`).
+        Only the PAGE bounce strategies support the shape; anything else keeps
+        the join path.
+        """
+        if self.query.breakdownBy != WebStatsBreakdown.PAGE:
+            return False
+        if not (self.query.includeBounceRate or self.query.includeAvgTimeOnPage):
+            return False
+        if self.should_skip_session_join:
+            return False
+        return self._session_id_set_common_eligibility()
+
+    @cached_property
+    def _session_id_set_bounce_properties(self) -> list[Union[EventPropertyFilter, PersonPropertyFilter, dict]]:
+        # The bounce side mirrors the join path's `_event_properties_for_bounce_rate`
+        # semantics: pathname filters are excluded, because bounce is attributed to
+        # the session's ENTRY path — restricting the id collection by the viewed
+        # pathname would compute each entry path's bounce rate over the wrong
+        # session population.
+        return [
+            p
+            for p in self.query.properties + self._test_account_filters
+            if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
+        ]
+
+    def _session_id_set_bounce_filter(self) -> ast.Expr:
+        if not self._session_id_set_bounce_properties:
+            # Only-`$pathname` filters: nothing constrains session membership on
+            # the bounce side, so it stays a plain unfiltered sessions scan.
+            return ast.Constant(value=True)
+        matching_session_ids = parse_select(
+            """
+SELECT DISTINCT events.$session_id_uuid AS session_id_uuid
+FROM events
+WHERE and(
+    events.$session_id_uuid IS NOT NULL,
+    or(events.event = '$pageview', events.event = '$screen'),
+    {inside_timestamp_periods},
+    {filters},
+)
+            """,
+            placeholders={
+                "inside_timestamp_periods": self._periods_expression("timestamp"),
+                "filters": property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
+            },
+        )
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["sessions", "session_id_v7"]),
+            right=matching_session_ids,
+        )
+
+    def _check_session_id_set_selectivity(self) -> bool:
+        if not self._session_id_set_bounce_properties:
+            # No id set will be built (only-`$pathname` filters) — nothing to bound.
+            return True
+        return self._run_session_id_set_preflight(
+            filters=property_to_expr(self._session_id_set_bounce_properties, team=self.team, scope="event"),
+            query_type="stats_table_session_id_set_preflight",
+        )
 
     def _all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters
@@ -607,6 +721,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if lazy_result is not None:
             return self._build_response_from_lazy(lazy_result)
 
+        # Preflight only when the live query will actually run as the id-set
+        # shape — pre-aggregated serving must not pay a discarded events scan.
+        if self.should_use_session_id_set and not self._can_serve_preaggregated():
+            self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
+
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -615,6 +734,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.used_preaggregated_tables:
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
+        elif self.query_strategy().startswith("stats_table_session_id_set"):
+            # The id-set shape relies on `build_direct_session_id_in_pushdown`
+            # rewriting the bounce side's id filter below the sessions GROUP BY;
+            # that rewrite is gated on the sessionIdPushdown modifier.
+            modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            modifiers.sessionIdPushdown = True
 
         response = self.paginator.execute_hogql_query(
             query_type=self.clickhouse_query_type(),

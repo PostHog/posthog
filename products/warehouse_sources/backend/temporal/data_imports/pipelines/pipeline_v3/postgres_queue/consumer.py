@@ -40,9 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    _UNSET,
     FRESHNESS_WINDOW_SECONDS,
     BatchQueue,
     PendingBatch,
+    _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
@@ -81,6 +83,16 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "ExternalDataJob matching query does not exist",
 )
 
+# Subset of the non-retryable errors that are expected upstream/customer conditions rather than
+# pipeline bugs. The run still fails with an actionable message, but the engine skips
+# error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
+EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
+    # a source column's type changed upstream and no longer fits the stored Delta column
+    # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
+    # user-driven reset and full re-sync, not a code change
+    "Source column type changed",
+)
+
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
 # Dead results never expire — a terminal job never comes back to life — and eviction
 # drops alive entries first, so a dead verdict survives until the cache overflows
@@ -95,8 +107,20 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+    # A skip means the job is dead and fail_run already failed the run's batches;
+    # the engine must record nothing over them.
+    record_skip_as_success: bool = False
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
+    ) -> None:
+        # Fleet partition: the sync_type classes this consumer claims and sweeps.
+        # None/None (the default) means the whole queue — a single-fleet deployment.
+        self._claim_sync_types = claim_sync_types
+        self._claim_exclude_sync_types = claim_exclude_sync_types
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
 
@@ -115,6 +139,8 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             lease_ttl_seconds=lease_ttl_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
         )
 
     async def unlock(
@@ -143,15 +169,28 @@ class DeltaBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
+        expected_state_changed_at: datetime | None | _Unset = _UNSET,
     ) -> None:
-        await BatchQueue.update_status(
+        # 'failed' is absorbing: fail_run can retire a claimed batch mid-flight, and a
+        # newer write would supersede it — un-failing a cancelled run. Takeover-sentinel
+        # failures stay supersedable (see _is_job_dead's matching exemption).
+        # expected_state_changed_at additionally fences the recovery re-queue against a
+        # live owner that completed the batch after the stale scan (see the sweep).
+        inserted = await BatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
             batch_created_at=batch_created_at,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+            expected_state_changed_at=expected_state_changed_at,
         )
+        if not inserted:
+            raise OwnershipLostError(
+                f"batch {batch_id} moved under this writer (already failed or state advanced); "
+                f"refusing to write '{job_state}' over it"
+            )
 
     async def fail_run(
         self,
@@ -229,6 +268,15 @@ class DeltaBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
         )
 
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        await BatchQueue.delete_expired_lease(conn, team_id=team_id, schema_id=schema_id)
+
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -238,7 +286,12 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+        return await BatchQueue.get_stale_executing(
+            conn,
+            grace_seconds=grace_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
+        )
 
     async def reconcile_failed_runs(
         self,
@@ -295,21 +348,20 @@ class DeltaBatchConsumerAdapter:
             except Exception as e:
                 logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
                 capture_exception(e)
-                continue
+                reconciled = False
 
-            if not reconciled:
-                continue  # job was already terminal — nothing to reconcile
+            if reconciled:
+                RUNS_RECONCILED_TOTAL.inc()
+                logger.warning(
+                    "run_reconciled_to_failed",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                )
 
-            RUNS_RECONCILED_TOTAL.inc()
-            logger.warning(
-                "run_reconciled_to_failed",
-                job_id=ref.job_id,
-                run_uuid=ref.run_uuid,
-                team_id=ref.team_id,
-                external_data_schema_id=ref.schema_id,
-            )
-
-            # Release the V3 pipeline lock too, otherwise it blocks the schema's next sync until its TTL expires.
+            # Attempted for every ref: this sweep is the retry for a fail_run whose own release
+            # failed silently. Safe to repeat, since the release compare-and-deletes on the token.
             if ref.workflow_run_id:
                 try:
                     await sync_to_async(release_v3_pipeline_lock)(
@@ -325,6 +377,13 @@ class DeltaBatchConsumerAdapter:
                         exc_info=True,
                     )
                     capture_exception(e)
+            else:
+                logger.info(
+                    "v3_pipeline_lock_release_skipped_no_workflow_run_id",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    external_data_schema_id=ref.schema_id,
+                )
 
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
         """Report the age of the oldest batch no consumer has picked up yet.
@@ -414,6 +473,10 @@ class DeltaBatchConsumerAdapter:
         message = str(err)
         return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
 
+    def is_expected_user_error(self, err: Exception) -> bool:
+        message = str(err)
+        return any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS)
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -429,6 +492,8 @@ class BatchConsumer(SharedBatchConsumer):
         config: ConsumerConfig,
         process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
@@ -436,7 +501,10 @@ class BatchConsumer(SharedBatchConsumer):
         super().__init__(
             config=config,
             process_batch=process_with_ownership_check,
-            adapter=DeltaBatchConsumerAdapter(),
+            adapter=DeltaBatchConsumerAdapter(
+                claim_sync_types=claim_sync_types,
+                claim_exclude_sync_types=claim_exclude_sync_types,
+            ),
             health_reporter=health_reporter,
         )
 

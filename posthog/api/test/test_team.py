@@ -415,6 +415,9 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, 204)
             # Team deletion happens async in the (mocked) Temporal workflow, so team still exists
             # We only verify the workflow was started correctly
+            # Both the direct /api/environments/ client and the rewrite client now reach the project-delete
+            # path (the middleware rewrites /api/environments/ → /api/projects/ for everyone), so a single
+            # environment delete cascades the whole project: "team deleted" then "project deleted".
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -423,31 +426,43 @@ def team_api_test_factory():
                     groups=mock.ANY,
                     send_feature_flags=False,
                 ),
+                call(
+                    distinct_id=self.user.distinct_id,
+                    event="project deleted",
+                    properties=mock.ANY,
+                    groups=mock.ANY,
+                    send_feature_flags=False,
+                ),
             ]
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                expected_capture_calls.append(
-                    call(
-                        distinct_id=self.user.distinct_id,
-                        event="project deleted",
-                        properties=mock.ANY,
-                        groups=mock.ANY,
-                        send_feature_flags=False,
-                    )
-                )
-                mock_start_workflow.assert_called_once_with(
-                    team_ids=[team_pk],
-                    project_id=team_pk,
-                    user_id=self.user.id,
-                    project_name="Default project",
-                )
-            else:
-                mock_start_workflow.assert_called_once_with(
-                    team_ids=[team_pk],
-                    project_id=None,
-                    user_id=self.user.id,
-                    project_name="Default project",
-                )
+            mock_start_workflow.assert_called_once_with(
+                team_ids=[team_pk],
+                project_id=team_pk,
+                user_id=self.user.id,
+                project_name="Default project",
+            )
             assert mock_capture.call_args_list == expected_capture_calls
+
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        @patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            return_value="Deprovision the managed warehouse first.",
+        )
+        def test_delete_team_blocked_by_managed_warehouse(
+            self,
+            mock_block: MagicMock,
+            mock_start_workflow: MagicMock,
+        ):
+            # Wiring guard: perform_destroy must consult the managed-warehouse guard before
+            # dispatching the deletion workflow, and a block must stop the deletion entirely.
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("managed warehouse", response.json()["detail"])
+            mock_block.assert_called_once()
+            mock_start_workflow.assert_not_called()
+            self.assertTrue(Team.objects.filter(pk=team.pk).exists())
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1234,13 +1249,37 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
+        def test_concurrent_team_patches_do_not_clobber_each_other(self) -> None:
+            # Simulates two racing PATCHes: the second request loaded the team before the
+            # first one committed. With a full-row save, the second write reverts the first
+            # request's onboarding-completion fields; with update_fields it must not.
+            stale_team = Team.objects.get(pk=self.team.pk)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"completed_snippet_onboarding": True, "has_completed_onboarding_for": {"product_analytics": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            with patch.object(Project, "passthrough_team", property(lambda _self: stale_team)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"session_recording_opt_in": True},
+                )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.team.refresh_from_db()
+            assert self.team.completed_snippet_onboarding is True
+            assert self.team.has_completed_onboarding_for == {"product_analytics": True}
+            assert self.team.session_recording_opt_in is True
+
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
+            # viewset's report_user_action fires (not the team module's).
+            mock_report_user_action = mock_report_user_action_legacy_endpoint
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -1294,8 +1333,9 @@ def team_api_test_factory():
                 organization_member=self.organization_membership,
             )
 
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
+            # viewset's report_user_action fires (not the team module's).
+            mock_report_user_action = mock_report_user_action_legacy_endpoint
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -2419,17 +2459,15 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
+        _, scoped_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
-            scoped_teams=[other_team_in_project.id],
+            scoped_teams=[scoped_team.id],
             scopes=["*"],
         )
 
@@ -2439,11 +2477,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         # But they can access the scoped team directly
         response = self.client.get(
-            f"/api/environments/{other_team_in_project.id}/",
+            f"/api/environments/{scoped_team.id}/",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], other_team_in_project.id)
+        self.assertEqual(response.json()["id"], scoped_team.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -3149,9 +3187,13 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
 # `@field_access_control`; with access controls enabled that governs it instead (see
 # test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
 # blanket project-admin gate still applies here.
+# `name` (the project/environment rename) is admin-only in the settings UI (TeamDisplayName
+# is gated behind useRestrictedArea(Admin)); a MEMBER must not rename via the API. It stays
+# member-settable at creation time — see test_member_can_create_project_when_org_allows.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
+    ("name", "Renamed by member", "name"),
 ]
 
 
@@ -3343,9 +3385,10 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
 
     def test_member_cannot_delete_team(self) -> None:
-        # Create a second team in the same project so the org isn't left team-less.
-        other = Team.objects.create(organization=self.organization, project=self.project, name="other")
-        response = self.client.delete(f"/api/environments/{other.id}/")
+        # The env→project rewrite routes this to the project-delete path, which still rejects non-admins with
+        # 403. Target a primary team (team.id == project.id) so the rewrite can address it; the 403 means
+        # nothing is deleted, so the org is not left team-less.
+        response = self.client.delete(f"/api/environments/{self.team.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 

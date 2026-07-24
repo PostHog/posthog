@@ -8,7 +8,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InngestSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
+    InngestSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.inngest import InngestResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import ENDPOINTS

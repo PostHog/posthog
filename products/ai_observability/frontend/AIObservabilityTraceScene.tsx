@@ -633,6 +633,7 @@ function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.
 
     const createSentimentEvaluationUrl = combineUrl(urls.aiObservabilityEvaluation('new'), {
         type: 'sentiment',
+        returnTo: urls.aiObservabilityTrace(traceId),
     }).url
 
     return (

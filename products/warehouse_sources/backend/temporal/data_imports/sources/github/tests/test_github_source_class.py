@@ -1,10 +1,12 @@
 import pytest
 from unittest import mock
 
+from posthog.models.integration import GitHubIntegrationError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
 )
@@ -82,6 +84,17 @@ class TestGithubSource:
 
         with pytest.raises(IntegrationAccountListingError):
             self.source.get_oauth_accounts(999, self.team_id)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_maps_github_listing_failure(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.side_effect = GitHubIntegrationError(
+            "GitHubIntegration: list_repositories non-JSON response"
+        )
+
+        with pytest.raises(IntegrationAccountListingError):
+            self.source.get_oauth_accounts(1, self.team_id)
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -437,6 +450,34 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
+
+    @pytest.mark.parametrize(
+        "pin,expected",
+        [
+            # An existing source pinned to the legacy version keeps syncing on it — the default flip
+            # must never silently move a customer to the new version.
+            ("2022-11-28", "2022-11-28"),
+            ("2026-03-10", "2026-03-10"),
+            # An unpinned source resolves to the current default — new sources land here. Every
+            # pre-existing row was pinned to the legacy version by the versioning-framework backfill
+            # (migration 0075), and creation stamps the pin since, so the flip only reaches new ones.
+            (None, "2026-03-10"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
+    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
+        config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+        inputs.schema_name = "issues"
+        inputs.schema_metadata = None
+        inputs.s3_folder_name = "issues"
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+
+        assert mock_github_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):

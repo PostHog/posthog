@@ -9,6 +9,12 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
+# Resend registers a confidential OAuth client (token_endpoint_auth_method=client_secret_post) via
+# its dynamic client registration API (POST https://api.resend.com/oauth/register). Empty defaults
+# keep the app importable and the OAuth auth method dormant until the client is provisioned.
+RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
+RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
@@ -44,7 +50,7 @@ GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 # webhook secret. Empty defaults keep the app importable when Stamphog is unconfigured.
 STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
 STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
-STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+STAMPHOG_GITHUB_APP_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_APP_WEBHOOK_SECRET", "")
 # OAuth client id/secret for the Stamphog App's user-to-server authorization flow (enabled via
 # "Request user authorization during installation"). Used to exchange the post-install `code` for a
 # user access token and prove the caller actually owns the installation before its repos are bound to

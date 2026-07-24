@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -16,7 +18,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.actions.backend.models.action import Action
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -29,6 +31,12 @@ SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
 
 @freeze_time("2026-01-02T12:00:00Z")
 class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Every test shares SESSION_ID and the local-memory cache outlives a test; the context
+        # cache key includes the per-test team, but clear anyway so no test can see another's entry.
+        cache.clear()
+
     def _create_recording(self, session_id: str = SESSION_ID, team_id: Optional[int] = None) -> None:
         produce_replay_summary(
             team_id=team_id if team_id is not None else self.team.pk,
@@ -47,6 +55,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         end_date: Optional[datetime] = None,
         created_by: Optional[User] = None,
         exposure_criteria: Optional[dict[str, Any]] = None,
+        metrics: Optional[list[dict[str, Any]]] = None,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -71,6 +80,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             start_date=start_date,
             end_date=end_date,
             exposure_criteria=exposure_criteria or {},
+            metrics=metrics or [],
         )
 
     def _enable_access_controls(self, feature: str = AvailableFeature.ACCESS_CONTROL) -> None:
@@ -403,6 +413,50 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
         assert all(result["variant"] == "test" for result in results)
 
+    def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
+        self._create_recording()
+        # Two custom-criteria experiments force a real multi-branch UNION ALL — a single branch
+        # collapses to a plain SelectQuery, so only this shape proves the set query compiles
+        # (a set-level LIMIT after the last branch's LIMIT 500ed the endpoint in production).
+        first = self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        second = self._create_experiment(
+            key="pricing-banner",
+            name="Pricing banner",
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "pricing viewed",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        self._create_session_event(
+            event="pricing viewed",
+            timestamp="2026-01-01T10:07:00Z",
+            properties={"$feature/pricing-banner": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        by_id = {result["experiment_id"]: result for result in results}
+        assert by_id[first.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert by_id[second.id]["first_exposure_timestamp"] == "2026-01-01T10:07:00Z"
+
     def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
         self._create_recording()
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
@@ -524,6 +578,62 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
 
+    def test_cached_context_is_not_shared_across_users(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        private_experiment = self._create_experiment(
+            key="private-exp", name="Private experiment", created_by=other_user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "private-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        # Prime the cache as the private experiment's creator, who sees both experiments.
+        self.client.force_login(other_user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta", "private-exp"]
+
+        # The cached entry must not leak the private experiment to a viewer without access.
+        self.client.force_login(self.user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
+    def test_repeat_request_is_served_from_cache(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        first = self._get_session_context()
+        assert first.status_code == status.HTTP_200_OK
+
+        with patch("products.experiments.backend.session_context._compute_session_experiment_context") as compute:
+            second = self._get_session_context()
+        compute.assert_not_called()
+        assert second.json() == first.json()
+
+    def test_recording_not_found_is_not_cached(self) -> None:
+        # A recording can 404 while still ingesting; that answer must not stick for the TTL.
+        assert self._get_session_context().status_code == status.HTTP_404_NOT_FOUND
+
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
     def test_403_without_session_recording_resource_access(self) -> None:
         self._enable_access_controls()
         AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
@@ -556,6 +666,93 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_metrics_in_session(self) -> None:
+        self._create_recording()
+        # Two overlapping experiments with a metric each force a multi-metric aggregate set in
+        # the metric scan, proving the combined single-pass query compiles end to end through
+        # the endpoint — and that a metric with no matching events stays inert.
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        other_metric = {
+            **metric,
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Pricing clicks",
+            "source": {"kind": "EventsNode", "event": "pricing clicked"},
+        }
+        with_hit = self._create_experiment(metrics=[metric])
+        without_hit = self._create_experiment(key="pricing-banner", name="Pricing banner", metrics=[other_metric])
+        for key in ("checkout-cta", "pricing-banner"):
+            self._create_session_event(properties={"$feature_flag": key, "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["experiment_id"]: result for result in response.json()["results"]}
+        assert by_id[with_hit.id]["metrics_in_session"] == [
+            {
+                "metric_uuid": metric["uuid"],
+                "metric_name": "Purchases",
+                "event_count": 1,
+                "first_timestamp": "2026-01-01T10:09:00Z",
+                "timestamps": ["2026-01-01T10:09:00Z"],
+            }
+        ]
+        # No metric event fired for the other experiment — the additive fields stay inert and
+        # every pre-existing field keeps its value (the no-regression claim for current consumers).
+        assert by_id[without_hit.id] == {
+            "experiment_id": without_hit.id,
+            "experiment_name": "Pricing banner",
+            "flag_key": "pricing-banner",
+            "variant": "test",
+            "variants_seen": ["test"],
+            "multiple_variants": False,
+            "first_exposure_timestamp": "2026-01-01T10:02:11Z",
+            "experiment_start_date": "2025-12-01T00:00:00Z",
+            "experiment_end_date": None,
+            "metrics_in_session": [],
+        }
+
+    def test_metrics_in_session_includes_saved_metric(self) -> None:
+        self._create_recording()
+        inline_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        saved_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        experiment = self._create_experiment(metrics=[inline_metric])
+        saved = ExperimentSavedMetric.objects.create(team=self.team, name="Signups", query=saved_query)
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved, metadata={})
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="signup", timestamp="2026-01-01T10:08:00Z")
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        result = next(r for r in response.json()["results"] if r["experiment_id"] == experiment.id)
+        # Both the inline and the saved/shared metric surface, sorted by first occurrence.
+        assert [(hit["metric_uuid"], hit["metric_name"]) for hit in result["metrics_in_session"]] == [
+            (saved_query["uuid"], "Signups"),
+            (inline_metric["uuid"], "Purchases"),
+        ]
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
-use cohort_stream_processor::consumers::CohortStreamEvent;
+use cohort_stream_processor::consumers::{CohortStreamEvent, SeedWork};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
@@ -27,9 +27,10 @@ use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
     StatefulRecord, TransitionKind,
 };
+use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
     Behavioral, BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonPrefix,
-    PersonRecordKey, PersonRecords, StoreConfig, StoreHandle,
+    PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
@@ -78,6 +79,7 @@ async fn dispatch_to_worker(
     tx.send(vec![ShuffleMessage::Event {
         event: Box::new(event),
         cse_offset,
+        broker_ts_ms: None,
     }])
     .await
     .unwrap();
@@ -247,6 +249,22 @@ fn person_leaves(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
     record_at(store, lsk, person).map(|record| record.state)
+}
+
+fn membership_register_at(
+    store: &CohortStore,
+    cohort_id: u64,
+    person: Uuid,
+) -> Option<Stage2State> {
+    store
+        .get_stage2(&Stage2Key {
+            partition_id: PARTITION_ID,
+            team_id: TEAM as u64,
+            cohort_id,
+            person_id: person,
+        })
+        .unwrap()
+        .map(|bytes| Stage2State::decode(&bytes).unwrap())
 }
 
 /// The full persisted record (state + per-source-partition applied offsets), for the cross-partition
@@ -1177,10 +1195,12 @@ async fn sub_batch_read_your_writes_survives_offload() {
         ShuffleMessage::Event {
             event: Box::new(event(alice, 5, 0)),
             cse_offset: 0,
+            broker_ts_ms: None,
         },
         ShuffleMessage::Event {
             event: Box::new(event(alice, 5, 0)),
             cse_offset: 0,
+            broker_ts_ms: None,
         },
     ])
     .await
@@ -1357,6 +1377,14 @@ async fn worker_produces_changes_and_advances_offset() {
     assert_eq!(changes[0].cohort_id, 1);
     assert_eq!(changes[0].status, MembershipStatus::Entered);
     assert_eq!(changes[0].person_id, person(1).to_string());
+    assert_eq!(
+        membership_register_at(&store, 1, person(1)),
+        Some(Stage2State {
+            in_cohort: true,
+            last_evaluated_at_ms: clickhouse_timestamp_to_millis(BASE_TS).unwrap(),
+        }),
+        "the event commit atomically materializes the single-leaf membership register",
+    );
 }
 
 #[tokio::test]
@@ -1911,6 +1939,15 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     assert_eq!(changes[0].person_id, alice.to_string());
     assert_eq!(changes[1].status, MembershipStatus::Left);
     assert_eq!(
+        membership_register_at(&store, 1, alice),
+        Some(Stage2State {
+            in_cohort: false,
+            last_evaluated_at_ms: clickhouse_timestamp_to_millis("2026-05-28 10:00:00.000000")
+                .unwrap(),
+        }),
+        "a live-event Left persists an explicit false register row",
+    );
+    assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&4),
     );
@@ -2362,5 +2399,227 @@ fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
     assert!(
         after.applied_offsets.is_replay(5, 50) && !after.applied_offsets.is_replay(5, 51),
         "the redirected fold did not touch the main map",
+    );
+}
+
+// ---- seed arm: ordering barrier, tracker isolation, watermark advance ----
+
+fn seed_tile(person: Uuid, day: i32, count: u32) -> cohort_core::seed::SeedTile {
+    use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, SChunkMs, SeedTile};
+    SeedTile::new(
+        TeamId(TEAM),
+        person,
+        ConditionHash::parse("0123456789abcdef").unwrap(),
+        std::num::NonZeroU32::new(count).unwrap(),
+        day,
+        SChunkMs(1_700_000_000_000),
+        RunId(Uuid::from_u128(0xBF)),
+        ClaimEpoch(1),
+    )
+}
+
+fn seed_message(person: Uuid, day: i32, count: u32, offset: i64) -> ShuffleMessage {
+    ShuffleMessage::Seed {
+        work: Box::new(SeedWork::Tile(seed_tile(person, day, count))),
+        offset,
+    }
+}
+
+fn utc_today() -> i32 {
+    day_idx_in_tz(chrono::Utc::now().timestamp_millis(), UTC)
+}
+
+/// Buffered event-path changes flush before the tile's own emission, each input marks its own
+/// tracker, and the watermark advances only after the batch's final mark.
+#[tokio::test]
+async fn seed_arm_flushes_buffered_event_changes_first_and_marks_both_trackers() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let alice = person(1);
+    let bob = person(2);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+
+    let broker_ts = 1_750_000_000_000_i64;
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+    tx.send(vec![
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+            broker_ts_ms: Some(broker_ts),
+        },
+        seed_message(bob, utc_today(), 1, 7),
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(changes.len(), 2, "one live flip, one seeded flip");
+    assert_eq!(
+        (changes[0].person_id.clone(), changes[0].origin),
+        (alice.to_string(), None),
+        "the buffered live change flushed before the seed arm ran",
+    );
+    assert_eq!(changes[1].person_id, bob.to_string());
+    assert!(changes[1].origin.is_some(), "the seeded change is tagged");
+
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1),
+        "the events tracker advanced past the event",
+    );
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&8),
+        "the seed tracker advanced past the tile",
+    );
+    assert_eq!(
+        deps.live_watermarks.get(PARTITION_ID as i32),
+        Some(cohort_stream_processor::partitions::WatermarkMs(broker_ts)),
+        "the folded batch advanced the live watermark",
+    );
+}
+
+/// A failed seed emission holds only the seed tracker; the events tracker is unaffected.
+#[tokio::test]
+async fn seed_produce_failure_holds_the_seed_tracker_but_not_the_events_tracker() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let alice = person(1);
+    let bob = person(2);
+
+    let catalog = catalog_of(filters);
+    // The seed's produce is the first flush (the tile leads the batch); the event's is the second.
+    let sink = CaptureSink::failing_first(1);
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        deps.clone(),
+        false,
+    );
+
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+    tx.send(vec![
+        seed_message(bob, utc_today(), 1, 7),
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+            broker_ts_ms: None,
+        },
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        None,
+        "the failed seed produce holds the seed offset",
+    );
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1),
+        "the events offset is unaffected by the seed hold",
+    );
+    let changes = sink.changes();
+    assert_eq!(changes.len(), 1, "only the live flip landed");
+    assert_eq!(changes[0].person_id, alice.to_string());
+}
+
+/// A held batch must not advance the watermark; the successful redelivery does.
+#[tokio::test]
+async fn watermark_advances_only_after_a_successful_mark() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let alice = person(1);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::failing_first(1);
+    let tracker = Arc::new(OffsetTracker::new());
+    let deps = MergeWorkerDeps::capture();
+
+    let broker_ts = 1_750_000_000_000_i64;
+    let run = |batch: Vec<ShuffleMessage>| {
+        let catalog = catalog.clone();
+        let sink = sink.clone();
+        let tracker = tracker.clone();
+        let deps = deps.clone();
+        let store = store.clone();
+        async move {
+            let (tx, rx) = mpsc::channel(16);
+            let rx = MeteredReceiver::unmetered(rx);
+            let worker = Stage1Worker::spawn(
+                PARTITION_ID,
+                rx,
+                test_handle(&store),
+                catalog,
+                Arc::new(sink),
+                tracker.clone(),
+                deps,
+                false,
+            );
+            tracker.mark_dispatched(PARTITION_ID as i32, 1);
+            tx.send(batch).await.unwrap();
+            drop(tx);
+            worker.join().await.unwrap();
+        }
+    };
+
+    run(vec![ShuffleMessage::Event {
+        event: Box::new(event(alice, 5, 0)),
+        cse_offset: 0,
+        broker_ts_ms: Some(broker_ts),
+    }])
+    .await;
+    assert_eq!(
+        deps.live_watermarks.get(PARTITION_ID as i32),
+        None,
+        "a held (unmarked) batch never advances the watermark",
+    );
+
+    run(vec![ShuffleMessage::Event {
+        event: Box::new(event(alice, 5, 0)),
+        cse_offset: 0,
+        broker_ts_ms: Some(broker_ts),
+    }])
+    .await;
+    assert_eq!(
+        deps.live_watermarks.get(PARTITION_ID as i32),
+        Some(cohort_stream_processor::partitions::WatermarkMs(broker_ts)),
+        "the successful redelivery advances it",
     );
 }

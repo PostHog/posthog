@@ -10,12 +10,10 @@ use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
-use crate::types::{
-    AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
-};
+use crate::types::{AssignmentPrecondition, HandoffPhase, HandoffState, PodStatus, RegisteredPod};
 
 use crate::util;
 
@@ -352,8 +350,10 @@ impl Coordinator {
                     }
 
                     // After processing all events in this batch, check if all
-                    // handoffs have completed. If so, re-trigger rebalancing to
-                    // pick up any pod changes that were deferred.
+                    // handoffs have completed. If so, re-trigger rebalancing as
+                    // the final sweep for moves that were pinned while these
+                    // handoffs were in flight (pod changes themselves are never
+                    // deferred; they plan around the in-flight set).
                     if store.list_handoffs().await?.is_empty() {
                         Self::handle_pod_change_static(
                             &store,
@@ -585,29 +585,43 @@ impl Coordinator {
         // be stuck forever otherwise.
         Self::cleanup_stale_handoffs(store).await?;
 
-        // Skip rebalancing while handoffs are in flight to prevent overlapping
-        // rebalances from overwriting each other. The watch_handoffs_loop will
-        // re-trigger rebalancing once all handoffs complete.
-        let remaining_handoffs = store.list_handoffs().await?;
-        if !remaining_handoffs.is_empty() {
+        // In-flight handoffs pin their partitions: the plan excludes them
+        // (no second handoff, no assignment write) and attributes them to
+        // their target for the balance math, so a stuck handoff defers
+        // only its own partition instead of all rebalancing.
+        let in_flight = store.list_handoffs().await?;
+        if !in_flight.is_empty() {
             tracing::info!(
-                in_flight = remaining_handoffs.len(),
-                "handoffs in progress, deferring rebalance"
+                pinned = in_flight.len(),
+                "planning around in-flight handoffs"
             );
-            return Ok(());
         }
 
-        let current_assignments = store.list_assignments().await?;
+        // One revisioned snapshot feeds both the placement computation and
+        // the apply-time preconditions: a handoff's old_owner is only
+        // meaningful while the assignment it was read from is unchanged.
+        let current_assignments = store.list_assignments_with_mod_revisions().await?;
 
         let current_map: HashMap<u32, String> = current_assignments
             .iter()
-            .map(|a| (a.partition, a.owner.clone()))
+            .map(|(a, _)| (a.partition, a.owner.clone()))
+            .collect();
+        let assignment_revisions: HashMap<u32, i64> = current_assignments
+            .iter()
+            .map(|(a, revision)| (a.partition, *revision))
             .collect();
 
         // Placement and diff semantics (moves carry the prior owner, fresh
         // partitions carry none, everything goes through Freezing) live in
-        // `protocol::plan_rebalance`, shared with the stateright model.
-        let plan = plan_rebalance(strategy, &current_map, &active_pods, total_partitions);
+        // `protocol::plan_partial_rebalance`, shared with the stateright
+        // model.
+        let plan = plan_partial_rebalance(
+            strategy,
+            &current_map,
+            &in_flight,
+            &active_pods,
+            total_partitions,
+        );
 
         if plan.handoffs.is_empty() {
             tracing::debug!("no handoffs needed");
@@ -639,26 +653,37 @@ impl Coordinator {
             "creating handoffs"
         );
 
-        // Assignments for partitions that are NOT being moved (correct owner
-        // already) still need to be written to etcd, but reassignments and
-        // fresh assignments defer their PartitionAssignment writes until the
-        // handoff reaches Complete.
-        let handoff_partitions: HashSet<u32> =
-            handoff_objects.iter().map(|h| h.partition).collect();
-        let stable_assignments: Vec<PartitionAssignment> = plan
-            .desired
+        // The rebalance writes no assignment records: handoff completion is
+        // the sole writer of assignments (see `complete_handoff`'s
+        // invariant), so routers always observe owner changes as Complete
+        // events, and a stale plan can never restore a superseded owner.
+        // Each handoff instead carries a precondition tying it to the
+        // snapshot its old_owner came from.
+        let preconditions: Vec<AssignmentPrecondition> = handoff_objects
             .iter()
-            .map(|(&partition, owner)| PartitionAssignment {
-                partition,
-                owner: owner.clone(),
-                status: AssignmentStatus::Active,
+            .map(|h| match assignment_revisions.get(&h.partition) {
+                Some(&mod_revision) => AssignmentPrecondition::UnchangedSince {
+                    partition: h.partition,
+                    mod_revision,
+                },
+                None => AssignmentPrecondition::Absent {
+                    partition: h.partition,
+                },
             })
-            .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 
-        store
-            .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
-            .await?;
+        if !store
+            .create_assignments_and_handoffs(&[], &handoff_objects, &preconditions)
+            .await?
+        {
+            // A concurrent invocation (the empty-set re-trigger racing a
+            // pod event, or a failing-over coordinator) created a handoff
+            // first. Its plan acted on fresher state than ours; whatever
+            // this plan wanted beyond it is replanned by the next pod
+            // event or the final sweep.
+            tracing::info!("concurrent plan won handoff creation; standing down");
+            return Ok(());
+        }
 
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous

@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.fly
     validate_credentials as validate_fly_io_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import FLY_IO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -90,11 +90,17 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid, revoked, or expired token surfaces as an HTTPError when `_fetch_page`
-            # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
-            # the sync. Match the stable status text and base host, not the per-request path.
+            # An invalid, revoked, or expired token surfaces as an HTTPError when the rest_source
+            # client calls `raise_for_status()`. Retrying can never satisfy a credential problem, so
+            # stop the sync. Match the stable status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.machines.dev": "Your Fly.io API token is invalid or expired. Create a new token with `fly tokens create org` and reconnect.",
             "403 Client Error: Forbidden for url: https://api.machines.dev": "Your Fly.io API token does not have access to this organization or resource. Check the token's scope and reconnect.",
+            # Fly.io accepts the token (auth is checked before anything else, so a bad token is a
+            # 401/403 handled above) but rejects the request itself. The org slug validates against
+            # the apps endpoint yet the org-scoped machines/volumes endpoints refuse it, so the
+            # request is deterministically bad and retrying just resends it. Match the stable status
+            # text and base host, not the per-request path (which carries the org slug).
+            "400 Client Error: Bad Request for url: https://api.machines.dev": "Fly.io rejected the request for this organization. Check that the organization slug is correct (find it with `fly orgs list`) and that your token can access that organization, then reconnect.",
         }
 
     def get_schemas(
@@ -104,6 +110,7 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -122,7 +129,7 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
         return schemas
 
     def validate_credentials(
-        self, config: FlyIoSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: FlyIoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_fly_io_credentials(config.api_token, config.organization_slug)
 
@@ -131,5 +138,6 @@ Create an organization-scoped token with `fly tokens create org` (or from the **
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             org_slug=config.organization_slug,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

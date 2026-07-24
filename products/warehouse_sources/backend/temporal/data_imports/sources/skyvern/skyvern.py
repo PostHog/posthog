@@ -1,16 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.settings import (
     SKYVERN_ENDPOINTS,
     SkyvernEndpointConfig,
@@ -24,22 +29,21 @@ PAGE_SIZE = 100
 
 # Bound per-workflow paging on incremental syncs so a huge run history can't scan unbounded. 100 pages
 # * 100 rows = 10k runs per workflow within the created_at_start window. Full refreshes ignore this cap
-# (see _get_fan_out_rows) so a workflow's older runs are never permanently truncated.
+# so a workflow's older runs are never permanently truncated.
 MAX_PAGES_PER_WORKFLOW = 100
-
-
-class SkyvernRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class SkyvernResumeConfig:
-    # Next page number to fetch (1-based).
+    # Next page number to fetch (1-based) for the simple (non-fan-out) endpoints.
     page: int = 1
-    # For the runs fan-out: the workflow currently being paged. A stable workflow_permanent_id
-    # bookmark (not a positional index) so workflows added/removed between a crash and the retry can't
-    # resume us into the wrong workflow. None for the standard (non-fan-out) endpoints.
+    # Legacy bookmark from the hand-rolled fan-out implementation. Retained (with a default) only so
+    # state persisted before the rest_source migration still deserializes; the framework fan-out is
+    # checkpointed via `fanout_state` instead.
     workflow_permanent_id: Optional[str] = None
+    # Framework dependent-resource resume snapshot for the runs fan-out:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _base_url(base_url: str | None) -> str:
@@ -93,126 +97,82 @@ def _created_at_start(
     return _format_datetime_z(dt)
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (
-            SkyvernRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, params: dict[str, Any], headers: dict[str, str], logger: FilteringBoundLogger
-) -> Any:
-    full_url = f"{url}?{urlencode(params)}" if params else url
-    response = session.get(full_url, headers=headers, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SkyvernRetryableError(f"Skyvern API error (retryable): status={response.status_code}, url={full_url}")
-
-    if not response.ok:
-        logger.error(f"Skyvern API error: status={response.status_code}, body={response.text}, url={full_url}")
-        response.raise_for_status()
-
-    return response.json()
+def _client_config(api_key: str, base_url: str | None) -> ClientConfig:
+    return {
+        "base_url": _base_url(base_url),
+        # Only the non-secret Accept header lives here; the API key rides the framework auth so it's
+        # redacted from logs and raised error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
+        # base_url is user-supplied — pin redirects off as an SSRF boundary so a hostile host can't
+        # redirect the credentialed request to an internal address. The egress proxy is the load-bearing
+        # control; this is defense-in-depth.
+        "allow_redirects": False,
+    }
 
 
-def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
-    """A Skyvern list response is either a bare array or an object wrapping the rows under `data_key`."""
-    if data_key is not None:
-        if isinstance(data, dict):
-            items = data.get(data_key) or []
-            return items if isinstance(items, list) else []
-        return []
-    return data if isinstance(data, list) else []
-
-
-def validate_credentials(api_key: str, base_url: str | None) -> tuple[bool, str | None]:
-    """Probe the cheapest list endpoint to confirm the API key is genuine."""
-    url = f"{_base_url(base_url)}/v1/agents"
-    try:
-        # base_url is user-supplied, so treat it as an SSRF boundary: pin redirects off so a
-        # malicious/self-hosted host can't bounce the API key to an internal address. The egress proxy
-        # is the load-bearing control; this is defense-in-depth.
-        response = make_tracked_session(allow_redirects=False).get(
-            url, headers=_get_headers(api_key), params={"page": 1, "page_size": 1}, timeout=10
-        )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
-        return True, None
-    if response.status_code in (401, 403):
-        return False, "Invalid Skyvern API key"
-    return False, f"Skyvern API returned status {response.status_code}"
-
-
-def _iter_workflow_ids(
-    session: requests.Session, base_url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[str]:
-    """Page through /v1/agents (workflows only) and yield each workflow_permanent_id."""
-    url = f"{base_url}/v1/agents"
-    page = 1
-    while True:
-        data = _fetch_page(
-            session, url, {"page": page, "page_size": PAGE_SIZE, "only_workflows": "true"}, headers, logger
-        )
-        items = _extract_items(data, None)
-        if not items:
-            break
-        for item in items:
-            wpid = item.get("workflow_permanent_id")
-            if wpid:
-                yield wpid
-        if len(items) < PAGE_SIZE:
-            break
-        page += 1
-
-
-def _get_simple_rows(
-    session: requests.Session,
-    base_url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
+def _simple_resource(
     config: SkyvernEndpointConfig,
-) -> Iterator[list[dict[str, Any]]]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if (resume and resume.page) else 1
-    url = f"{base_url}{config.path}"
-
-    while True:
-        params = {"page": page, "page_size": PAGE_SIZE, **config.extra_params}
-        data = _fetch_page(session, url, params, headers, logger)
-        items = _extract_items(data, config.data_key)
-        if not items:
-            break
-
-        yield items
-
-        if len(items) < PAGE_SIZE:
-            break
-        page += 1
-        # Save AFTER yielding so a crash re-fetches the last page rather than skipping it; merge
-        # dedupes on the primary key.
-        resumable_source_manager.save_state(SkyvernResumeConfig(page=page))
-
-
-def _get_fan_out_rows(
-    session: requests.Session,
-    base_url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
+) -> Resource:
+    params: dict[str, Any] = {"page_size": PAGE_SIZE, **config.extra_params}
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # A Skyvern list is either a bare array (data_key None) or an object wrapping the
+                    # rows under data_key (e.g. /v1/schedules -> {"schedules": [...]}). Mirror the old
+                    # tolerant behavior: an unexpected shape yields 0 rows rather than failing loud.
+                    "data_selector": config.data_key,
+                    # 1-based paging; stop on the first empty page.
+                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page"),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.page and resume.page > 1:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(SkyvernResumeConfig(page=int(state["page"])))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _fan_out_resource(
     config: SkyvernEndpointConfig,
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> Iterator[list[dict[str, Any]]]:
+) -> Resource:
     """Fan out over every workflow, pulling its runs from /v1/agents/{workflow_permanent_id}/runs.
 
     Incremental syncs bound each workflow's run list with created_at_start (watermark minus lookback).
@@ -220,115 +180,112 @@ def _get_fan_out_rows(
     """
     created_at_start = _created_at_start(config, should_use_incremental_field, db_incremental_field_last_value)
 
-    workflow_ids = list(_iter_workflow_ids(session, base_url, headers, logger))
-    if not workflow_ids:
-        return
+    child_params: dict[str, Any] = {
+        "workflow_permanent_id": {"type": "resolve", "resource": "workflows", "field": "workflow_permanent_id"},
+        "page_size": PAGE_SIZE,
+    }
+    if created_at_start is not None:
+        child_params["created_at_start"] = created_at_start
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_index = 0
-    start_page = 1
-    if resume is not None and resume.workflow_permanent_id in workflow_ids:
-        start_index = workflow_ids.index(resume.workflow_permanent_id)
-        start_page = resume.page or 1
-        logger.debug(f"Skyvern: resuming runs fan-out from workflow={resume.workflow_permanent_id}, page={start_page}")
+    # A full refresh (no created_at_start window) pages through every run so a workflow with more than
+    # MAX_PAGES_PER_WORKFLOW * PAGE_SIZE runs is never permanently truncated. The cap only guards
+    # runaway on incremental syncs, whose created_at_start window already bounds the volume.
+    maximum_page = MAX_PAGES_PER_WORKFLOW if created_at_start is not None else None
 
-    for index in range(start_index, len(workflow_ids)):
-        workflow_permanent_id = workflow_ids[index]
-        page = start_page if index == start_index else 1
-        url = f"{base_url}{config.path.format(workflow_permanent_id=workflow_permanent_id)}"
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": "workflows",
+                "write_disposition": "replace",
+                "endpoint": {
+                    "path": "/v1/agents",
+                    "params": {"page_size": PAGE_SIZE, "only_workflows": "true"},
+                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page"),
+                },
+            },
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": child_params,
+                    "paginator": PageNumberPaginator(base_page=1, page=1, page_param="page", maximum_page=maximum_page),
+                },
+            },
+        ],
+    }
 
-        # A full refresh (no created_at_start window) must page through every run, or a workflow with
-        # more than MAX_PAGES_PER_WORKFLOW * PAGE_SIZE runs would be permanently truncated: later
-        # incremental syncs only fetch runs newer than the watermark, so the skipped older pages would
-        # never be backfilled. The cap only guards runaway on incremental syncs, whose created_at_start
-        # window already bounds the volume.
-        while created_at_start is None or page <= MAX_PAGES_PER_WORKFLOW:
-            params: dict[str, Any] = {"page": page, "page_size": PAGE_SIZE}
-            if created_at_start:
-                params["created_at_start"] = created_at_start
-            data = _fetch_page(session, url, params, headers, logger)
-            items = _extract_items(data, config.data_key)
-            if not items:
-                break
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
 
-            yield items
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(SkyvernResumeConfig(fanout_state=state))
 
-            if len(items) < PAGE_SIZE:
-                break
-            page += 1
-            resumable_source_manager.save_state(
-                SkyvernResumeConfig(page=page, workflow_permanent_id=workflow_permanent_id)
-            )
-        else:
-            logger.warning(
-                "Skyvern: per-workflow incremental run page cap reached; some runs within the "
-                "lookback window may be skipped until the next full refresh",
-                workflow_permanent_id=workflow_permanent_id,
-                max_pages=MAX_PAGES_PER_WORKFLOW,
-            )
-
-        # Advance the bookmark to the next workflow so a crash between workflows resumes correctly.
-        if index + 1 < len(workflow_ids):
-            resumable_source_manager.save_state(
-                SkyvernResumeConfig(page=1, workflow_permanent_id=workflow_ids[index + 1])
-            )
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(r for r in resources if r.name == endpoint)
 
 
-def get_rows(
-    api_key: str,
-    base_url: str | None,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SKYVERN_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    resolved_base_url = _base_url(base_url)
-    # base_url is user-supplied — pin redirects off as an SSRF boundary so a hostile host can't
-    # redirect the credentialed request to an internal address (see validate_credentials).
-    session = make_tracked_session(allow_redirects=False)
-
-    if config.fan_out_over_workflows:
-        yield from _get_fan_out_rows(
-            session,
-            resolved_base_url,
-            headers,
-            logger,
-            resumable_source_manager,
-            config,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-        return
-
-    yield from _get_simple_rows(session, resolved_base_url, headers, logger, resumable_source_manager, config)
+def validate_credentials(api_key: str, base_url: str | None) -> tuple[bool, str | None]:
+    """Probe the cheapest list endpoint to confirm the API key is genuine."""
+    url = f"{_base_url(base_url)}/v1/agents?page=1&page_size=1"
+    # base_url is user-supplied, so treat it as an SSRF boundary: pin redirects off so a
+    # malicious/self-hosted host can't bounce the API key to an internal address.
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(allow_redirects=False, redact_values=(api_key,)),
+        url,
+        headers=_get_headers(api_key),
+    )
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, "Invalid Skyvern API key"
+    if status is None:
+        return False, "Could not reach the Skyvern API"
+    return False, f"Skyvern API returned status {status}"
 
 
 def skyvern_source(
     api_key: str,
     base_url: str | None,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SkyvernResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    endpoint_config = SKYVERN_ENDPOINTS[endpoint]
+    config = SKYVERN_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, base_url)
+
+    if config.fan_out_over_workflows:
+        resource = _fan_out_resource(
+            config,
+            endpoint,
+            client_config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    else:
+        resource = _simple_resource(config, endpoint, client_config, team_id, job_id, resumable_source_manager)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            base_url=base_url,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
-        primary_keys=endpoint_config.primary_keys,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
         # Skyvern list endpoints return newest-first and expose no sort param, so rows arrive
         # descending by created_at. In desc mode the pipeline persists the incremental watermark only
         # at successful job end, which is what we want for the runs fan-out: a partial run's max
@@ -336,7 +293,7 @@ def skyvern_source(
         sort_mode="desc",
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )

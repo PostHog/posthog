@@ -49,19 +49,24 @@ A new credential-based source needs **zero form code** — just route its
 `sourceType` and the `schemas` to sync.
 
 - Endpoint: `GET /api/environments/{projectId}/external_data_sources/wizard/?source_type=<Type>` → `Record<string, SourceConfig>`. Client method: `PostHogAPIClient.getExternalDataSourceConfigs`. Hook: `useSourceConfig(sourceType)`.
-- `SourceConfig.fields` is a union: `input` (text/email/password/url/number/…), `select`, `switch-group`, `oauth`, `ssh-tunnel`, `file-upload`. `DynamicSourceSetup` renders input/select/switch-group and builds the `createExternalDataSource` payload from field `name`s. The backend is the single source of truth for field names/labels/required/secret, so forms never drift.
+- `SourceConfig.fields` is a union: `input` (text/email/password/url/number/…), `select`, `switch-group`, `oauth`, `oauth-account-select`, `ssh-tunnel`, `file-upload`. `DynamicSourceSetup` renders input/select/switch-group **and `oauth`/`oauth-account-select`** generically, and builds the `createExternalDataSource` payload from field `name`s. The backend is the single source of truth for field names/labels/required/secret, so forms never drift.
 - The field `name`s become the `payload` keys — so you no longer hand-maintain them. (Jira → `subdomain`, `email`, `api_token`; all `secret:false` except the token.)
 
-Three cases still need bespoke handling (the generic renderer flags `oauth`/`ssh-tunnel`/`file-upload` as unsupported and disables submit):
+**OAuth sources need NO bespoke form.** `DynamicSourceSetup` renders the `oauth` field (a
+connect button that starts the flow by `kind` and polls `getIntegrationsForProject` for the new
+integration, writing its id into `payload[<name>]`) and the `oauth-account-select` field (a
+server-side-searched picker over the integration's resources) generically. The connect flow is
+started by the generic, `kind`-parameterized `integration` tRPC router
+(`packages/host-router/src/routers/integration.router.ts` → `IntegrationService`), so any
+provider in `OauthIntegration.supported_kinds` works with no per-kind service or router. So an
+OAuth source (Intercom, HubSpot, Salesforce, …) is the same one-registry-entry change as a
+credential source — route its `DataSourceSetup` case to `DynamicSourceSetup`.
 
-| Case                                  | When                                                                                                                                              | Existing example                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| **Generic dynamic form**              | Credential inputs only (Jira, Zendesk, Freshdesk, Front, Gorgias, Sentry, GitLab).                                                                | `DynamicSourceSetup` (route the switch case to it) |
-| **OAuth + integration polling**       | Source authenticates via OAuth grant (Intercom `kind=intercom`); poll `getIntegrationsForProject` for the `kind`, pass `<source>_integration_id`. | `LinearSetup`                                      |
-| **Deep-link OAuth + resource picker** | User must pick a specific resource (repo/board) during setup.                                                                                     | `GitHubSetup`                                      |
-
-`ZendeskSetup`/`PgAnalyzeSetup` are the _old_ hardcoded forms — leave them or
-migrate them to `DynamicSourceSetup` opportunistically; don't add new ones.
+Only two field types still lack a generic renderer (disable submit): `ssh-tunnel` and
+`file-upload`. Route those to a bespoke form. Resource pickers that must run _after_ OAuth
+(GitHub's repo picker) are handled by `oauth-account-select`; the old `GitHubSetup`/`ZendeskSetup`
+/`PgAnalyzeSetup` hardcoded forms remain only for historical reasons — leave them or migrate to
+`DynamicSourceSetup` opportunistically; don't add new ones.
 
 Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
 `posthog/models/integration.py`): `slack, salesforce, hubspot, google-ads,
@@ -86,7 +91,7 @@ Verify exact `source_type` + `payload` key names against the posthog
 | Freshdesk | `Freshdesk`   | `tickets`       | API key                 | `DynamicSourceSetup` | `subdomain`, `api_key`                             |
 | Front     | `Front`       | `conversations` | API token               | `DynamicSourceSetup` | `api_token`                                        |
 | Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
-| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | Linear               | `intercom_integration_id`                          |
+| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | `DynamicSourceSetup` | `intercom_integration_id`                          |
 
 (Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`,
 and Jira `issues` are already shipped — copy them, don't re-add. The Jira row above
@@ -119,18 +124,23 @@ source-list-relevant is a place you must add the new product. The canonical list
 8. `packages/core/src/inbox/signalSourceService.ts` — mirror `SOURCE_TYPE_MAP`, `DATA_WAREHOUSE_SOURCES`, `ALL_SOURCE_PRODUCTS`, `computeSourceValues` init, plus `WarehouseSourceProduct`/`SignalSourceValues`.
 9. `packages/core/src/inbox/dataSourceService.ts` — `DataSourceType`, `REQUIRED_SCHEMAS`, a `createXDataSource` method.
 
-### OAuth plumbing — **only** for OAuth sources (Intercom); API-key sources skip this
+### OAuth plumbing — NOT needed per source anymore
 
-10. `packages/core/src/integrations/<source>.ts` — `XIntegrationService.startFlow(region, projectId)` (clone `linear.ts`).
-11. `packages/core/src/integrations/identifiers.ts` — new `X_INTEGRATION_SERVICE` symbol.
-12. `packages/core/src/integrations/integrations.module.ts` — bind it.
-13. `packages/host-router/src/routers/<source>-integration.router.ts` — clone `linear-integration.router.ts`.
-14. `packages/host-router/src/router.ts` — import + register the router in `appRouter`.
+There is now a **generic, `kind`-parameterized** integration flow: `IntegrationService`
+(`packages/core/src/integrations/integration.ts`) + the `integration` tRPC router
+(`packages/host-router/src/routers/integration.router.ts`). `DynamicSourceSetup` starts any
+OAuth flow through it via the field's `kind`. So a new OAuth source needs **no** per-kind
+service, symbol, or router — do not clone `linear.ts`/`linear-integration.router.ts` per source.
+(The old per-kind linear/slack/github routers still exist for other callers; leave them.)
 
 ### Setup-form specifics
 
-- **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup` (above). Nothing else — the fields come from the wizard endpoint.
-- **OAuth form:** clone `LinearSetup`. Change the `kind` matched in the poll loop and the `<source>_integration_id` payload key; swap `trpc.linearIntegration.startFlow` for the new router.
+- **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup`. Nothing else — the fields come from the wizard endpoint.
+- **OAuth source:** also just route to `DynamicSourceSetup`. Its connect-form schema carries the
+  `oauth` field (and, if the provider needs a resource picked, an `oauth-account-select` field),
+  which `DynamicSourceSetup` renders generically — connect button + integration polling + account
+  picker, all by `kind`. No bespoke form. The provider must be in
+  `OauthIntegration.supported_kinds`.
 - Issues sources (`github`/`linear`/`jira`) force `issues` to `full_refresh` in `ensureRequiredTableSyncing` (`useSignalSourceToggles.ts`) — add the new product to that condition if it syncs an `issues` table (issues get edited/closed, so incremental append would miss updates). Ticket/conversation sources only force `should_sync=true`.
 
 ### Verify
@@ -206,7 +216,7 @@ value `mcp` is upgraded based on the caller:
 | Other MCP clients                            | `EventSource.MCP`          | `mcp`          |
 
 The upgrade lives in `_create_external_data_source` in
-`products/data_warehouse/backend/presentation/views/external_data_source.py`.
+`products/warehouse_sources/backend/presentation/views/external_data_source.py`.
 
 ---
 

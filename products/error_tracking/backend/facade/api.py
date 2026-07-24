@@ -555,6 +555,18 @@ def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTracki
     return _to_fingerprint(fingerprint)
 
 
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorTrackingFingerprint | None:
+    resolved = logic.get_fingerprint_by_value(team_id=team_id, fingerprint=fingerprint)
+    if resolved is None:
+        return None
+    return _to_fingerprint(resolved)
+
+
+def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
+    """Absolute, merge-stable link to an issue for durable surfaces (emails, external tools)."""
+    return logic.get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue_id)
+
+
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
     references = logic.list_external_references(team_id=team_id)
     return [_to_external_reference(reference) for reference in references]
