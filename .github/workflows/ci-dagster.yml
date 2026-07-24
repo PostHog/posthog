@@ -99,6 +99,7 @@ jobs:
                         - 'posthog/models/**'
                         - 'posthog/hogql/**'
                         - 'posthog/hogql_queries/**'
+                        - 'posthog/query_cache/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/session/**'

@@ -304,9 +304,9 @@ class TestWarmQueriesOp(BaseTest):
                 "products.web_analytics.dags.cache_warming.build_replay_runner",
                 return_value=(runner, {}, lazy_eligible),
             ),
-            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.get_cache_data.return_value = None
+            mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
                 [
@@ -329,9 +329,9 @@ class TestWarmQueriesOp(BaseTest):
         runner.get_cache_key.return_value = "same-key"
         with (
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
-            patch("products.web_analytics.dags.cache_warming.DjangoCacheQueryCacheManager") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.get_cache_data.return_value = None
+            mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
                 [

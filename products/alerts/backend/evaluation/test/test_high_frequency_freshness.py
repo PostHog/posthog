@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 
 from products.alerts.backend.evaluation.contract import execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import extract_detector_series
