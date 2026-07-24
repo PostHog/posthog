@@ -20,10 +20,11 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             key: 'gclid',
             type: 'string',
             label: 'Google Click ID (gclid)',
-            description: 'The Google click ID (gclid) associated with this conversion.',
+            description:
+                'The Google click ID (gclid) associated with this conversion. Leave blank to attribute via hashed email/phone instead.',
             default: '{person.properties.gclid ?? person.properties.$initial_gclid}',
             secret: false,
-            required: true,
+            required: false,
         },
         {
             key: 'conversionDateTime',
@@ -64,6 +65,26 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             secret: false,
             required: false,
         },
+        {
+            key: 'email',
+            type: 'string',
+            label: 'Email address',
+            description:
+                'Email address for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize (lowercase, trimmed) for best match rates.',
+            default: '{person.properties.email}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'phone',
+            type: 'string',
+            label: 'Phone number',
+            description:
+                'Phone number for enhanced conversions, used when no gclid is available. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
+            default: '',
+            secret: false,
+            required: false,
+        },
     ]
 }
 
@@ -78,30 +99,42 @@ export const template: HogFunctionTemplate = {
     category: ['Advertisement'],
     code_language: 'hog',
     code: `
-if (empty(inputs.gclid)) {
-    print('Empty \`gclid\`. Skipping...')
+let userIdentifiers := []
+if (not empty(inputs.email)) {
+    userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_email': sha256Hex(lower(trim(inputs.email)))})
+}
+if (not empty(inputs.phone)) {
+    userIdentifiers := arrayPushBack(userIdentifiers, {'hashed_phone_number': sha256Hex(lower(trim(inputs.phone)))})
+}
+
+if (empty(inputs.gclid) and empty(userIdentifiers)) {
+    print('No \`gclid\` or user identifiers. Skipping...')
     return
 }
 
-let body := {
-    'conversions': [
-        {
-            'gclid': inputs.gclid,
-            'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
-            'conversion_date_time': inputs.conversionDateTime
-        }
-    ],
-    'partialFailure': true
+let conversion := {
+    'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
+    'conversion_date_time': inputs.conversionDateTime
 }
-
+if (not empty(inputs.gclid)) {
+    conversion.gclid := inputs.gclid
+}
+if (not empty(userIdentifiers)) {
+    conversion.user_identifiers := userIdentifiers
+}
 if (not empty(inputs.conversionValue)) {
-    body.conversions[1].conversion_value := inputs.conversionValue
+    conversion.conversion_value := inputs.conversionValue
 }
 if (not empty(inputs.currencyCode)) {
-    body.conversions[1].currency_code := inputs.currencyCode
+    conversion.currency_code := inputs.currencyCode
 }
 if (not empty(inputs.orderId)) {
-    body.conversions[1].order_id := inputs.orderId
+    conversion.order_id := inputs.orderId
+}
+
+let body := {
+    'conversions': [conversion],
+    'partialFailure': true
 }
 
 let res := fetch(f'https://googleads.googleapis.com/v21/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {

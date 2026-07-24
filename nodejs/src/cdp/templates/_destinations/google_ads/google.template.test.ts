@@ -59,7 +59,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
+              "body": "{"conversions":[{"conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","gclid":"google-id","user_identifiers":[{"hashed_email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"}],"conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -97,7 +97,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"conversions":[{"conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","gclid":"google-id","user_identifiers":[{"hashed_email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"}]}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -136,7 +136,7 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"conversions":[{"conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","gclid":"google-id","user_identifiers":[{"hashed_email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"}]}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
@@ -159,7 +159,7 @@ describe('google template', () => {
         )
     })
 
-    it('handles missing gclid', async () => {
+    it('falls back to hashed identifiers when gclid is missing', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
             {
@@ -175,12 +175,60 @@ describe('google template', () => {
                         gclid: null,
                     },
                 },
+            }),
+            {
+                phone: '{person.properties.phone}',
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"conversions":[{"conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","user_identifiers":[{"hashed_email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"},{"hashed_phone_number":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8"}]}],"partialFailure":true}",
+              "headers": {
+                "Authorization": "Bearer access-token",
+                "Content-Type": "application/json",
+                "login-customer-id": "5675675678",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
+            }
+        `)
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('skips when neither gclid nor user identifiers are present', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            {
+                oauth: {
+                    access_token: 'access-token',
+                },
+                customerId: '1231231234/5675675678',
+                conversionActionId: '123456789',
+            },
+            createAdDestinationPayload({
+                person: {
+                    properties: {
+                        gclid: null,
+                        email: null,
+                    },
+                },
             })
         )
 
         expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
             [
-              "Empty \`gclid\`. Skipping...",
+              "No \`gclid\` or user identifiers. Skipping...",
             ]
         `)
         expect(response.finished).toEqual(true)
