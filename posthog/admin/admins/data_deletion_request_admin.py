@@ -9,6 +9,9 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
+import requests
+import structlog
+
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
@@ -22,6 +25,8 @@ from posthog.models.data_deletion_request import (
     invalidate_compiled_predicate_cache,
     refresh_deletion_stats,
 )
+
+logger = structlog.get_logger(__name__)
 
 CRITERIA_FIELDS = {
     "request_type",
@@ -39,6 +44,50 @@ CRITERIA_FIELDS = {
     "person_drop_recordings",
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
+
+
+def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> None:
+    """Post to the review channel when a request is submitted for ClickHouse Team approval.
+
+    No-op when the webhook isn't configured. Failures are logged, never raised — a flaky
+    Slack POST must not roll back or block the admin submit response.
+    """
+    webhook_url = settings.DATA_DELETION_SLACK_WEBHOOK_URL
+    if not webhook_url:
+        logger.info("data_deletion_slack_not_configured", request_id=str(obj.pk))
+        return
+
+    scope = "all events" if obj.delete_all_events else ", ".join(obj.events) or "—"
+    fields = [
+        f"*Request:* <{change_url}|{obj.pk}>",
+        f"*Team:* {obj.team_id}",
+        f"*Type:* {obj.get_request_type_display()}",
+        f"*Submitted by:* {obj.created_by.email if obj.created_by else 'unknown'}",
+        f"*Events:* {scope}",
+        f"*Est. matching events:* {obj.count:,}" if obj.count is not None else "*Est. matching events:* not fetched",
+    ]
+    if obj.hogql_predicate:
+        fields.append(f"*Predicate:* `{obj.hogql_predicate}`")
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": ":wastebasket: *Data deletion request ready for review*"},
+        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(fields)}},
+    ]
+    try:
+        response = requests.post(webhook_url, json={"blocks": blocks}, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        # str(e) would include the webhook URL (a secret) — log only safe fields.
+        logger.warning(
+            "data_deletion_slack_failed",
+            request_id=str(obj.pk),
+            error_type=type(e).__name__,
+            status_code=getattr(e.response, "status_code", None),
+        )
+
 
 PERSON_REMOVAL_FIELDS = (
     "person_uuids",
@@ -628,6 +677,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         obj.refresh_from_db()
         self.log_change(request, obj, "Submitted: status changed from draft to pending.")
         if requires_approval:
+            # Only requests needing human approval land in the review channel; auto-approve
+            # candidates are handled by the sweep job and would just be noise there.
+            change_url = request.build_absolute_uri(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            notify_slack_pending_review(obj, change_url)
             messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
         else:
             messages.success(
