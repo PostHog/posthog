@@ -236,6 +236,18 @@ def to_config(
         # to indicate that you should use @config.
         raise TypeError("must be called with a config type or instance")
 
+    # `cast` keeps the defensive check reachable: the parameter is typed as a mapping, but the
+    # production incident was precisely a non-mapping arriving at runtime, so we guard for it.
+    if not isinstance(typing.cast(typing.Any, d), dict):
+        # A non-mapping can reach conversion two ways: a scalar submitted where a nested config is
+        # expected (e.g. a select sent flat as `auth_method: "oauth"`), or stored job inputs that
+        # came back still double-encoded as a JSON string. `from_dict` rejects a non-mapping at the
+        # top level, but the recursive branches below index into `d` (`d[field_key]`) and would
+        # otherwise raise the opaque `TypeError: string indices must be integers, not 'str'`.
+        # `validate_config` never indexes a non-mapping, so mirror it: treat it as empty and let
+        # every field fall through to the flat path and its default instead of crashing.
+        d = {}
+
     top_level_prefixes = prefixes or ()
     inputs = {}
 
