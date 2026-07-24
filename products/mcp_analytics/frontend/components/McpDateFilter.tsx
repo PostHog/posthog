@@ -10,7 +10,9 @@ import {
 } from '@posthog/quill-components'
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 // Quick ranges that translate to PostHog relative date strings, so queries stay
 // rolling ("-7d" re-resolves on every load). Minute-level ranges are omitted on
@@ -63,7 +65,18 @@ interface McpDateFilterProps {
     dataAttr: string
 }
 
-export function McpDateFilter({ dateFrom, dateTo, onChange, dataAttr }: McpDateFilterProps): JSX.Element {
+export function McpDateFilter(props: McpDateFilterProps): JSX.Element {
+    // Quill's DateTimePicker is still behind the QUILL_DATE_PICKER flag; fall back to the LemonUI
+    // DateFilter everywhere else so the picker matches the rest of the app until quill is fully rolled out.
+    const quillEnabled = useFeatureFlag('QUILL_DATE_PICKER')
+    return quillEnabled ? <McpDateFilterQuill {...props} /> : <McpDateFilterLemon {...props} />
+}
+
+function McpDateFilterLemon({ dateFrom, dateTo, onChange }: McpDateFilterProps): JSX.Element {
+    return <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(from, to) => onChange(from, to)} />
+}
+
+function McpDateFilterQuill({ dateFrom, dateTo, onChange, dataAttr }: McpDateFilterProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const value = toPickerValue(dateFrom, dateTo)
 
