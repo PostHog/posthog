@@ -1407,6 +1407,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         role = Role.objects.create(name="Data Modeling", organization=self.organization)
+        named_user = User.objects.create_and_join(self.organization, "named@posthog.com", None, first_name="Ada")
         nameless_user = User.objects.create_and_join(self.organization, "nameless@posthog.com", None, first_name="")
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -1414,7 +1415,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             description="A fancy new sprocket.",
             stage="beta",
             feature_flag=feature_flag,
-            assigned_user=self.user,
+            assigned_user=named_user,
         )
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -1441,11 +1442,10 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
 
             assignees = {f["flagKey"]: f["assignee"] for f in response.json()["earlyAccessFeatures"]}
-            expected_user_name = f"{self.user.first_name} {self.user.last_name}".strip()
             self.assertEqual(
                 assignees,
                 {
-                    "sprocket": {"type": "user", "name": expected_user_name},
+                    "sprocket": {"type": "user", "name": "Ada"},
                     "sprocket2": {"type": "role", "name": "Data Modeling"},
                     # A user with no name serializes as unassigned rather than a blank name.
                     "sprocket3": None,
