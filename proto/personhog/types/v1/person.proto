@@ -163,6 +163,10 @@ message GetOrCreatePersonEntry {
   // Additional distinct ids mapped to the person on the creation branch.
   // Their rows get version 1 when the distinct id has personless history
   // (a posthog_personlessdistinctid row already existed), else version 0.
+  // An extra already mapped to a different person keeps its existing
+  // mapping: get-or-create never re-points or merges, so the conflict is
+  // not an error and is not reported — re-pointing distinct ids is the
+  // merge path's job.
   repeated string extra_distinct_ids = 3;
   // The event name that triggered this call (e.g. "$identify", "$pageview").
   // Forwarded to the leader's property update on the creation branch.

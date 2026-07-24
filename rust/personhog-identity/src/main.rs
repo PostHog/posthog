@@ -200,6 +200,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }
+        // accept_compressed only decodes gzip request frames from opted-in
+        // clients (never send_compressed — see the tonic entry in Cargo.toml).
+        // Note max_decoding_message_size bounds the wire (compressed) size, so
+        // a compressed request can decode larger than the limit; tonic 0.12
+        // does not cap the decompressed size (0.14 does — bounding this means
+        // upgrading the workspace tonic). Until then this trusts internal
+        // callers not to send pathological frames, same as the replica.
         if let Err(e) = server
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
