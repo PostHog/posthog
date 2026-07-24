@@ -102,6 +102,12 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
 
+# Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
+# query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
+# finite value (~150 TiB, generous headroom for fleet growth) rather than 0, so
+# the ClickHouse kill switch's overload cap still clamps it during an overload.
+_SELECTION_MAX_BYTES_TO_READ = 150 * 1024**4
+
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
     """Opt a replayed query into the lazy precompute path.
@@ -256,9 +262,12 @@ def queries_to_keep_fresh(
     # multi-day scan dominates the read cost.
     #
     # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
-    # exceeds the default max_bytes_to_read, so the cap is lifted here; the run is
-    # bounded by max_execution_time and by the demand-selection cache upstream, so
-    # this heavy scan happens on the cache TTL cadence, not every warming run.
+    # exceeds the default max_bytes_to_read, so the cap is raised to
+    # _SELECTION_MAX_BYTES_TO_READ — a finite value, not 0, so the ClickHouse
+    # kill switch's overload byte cap still clamps it (min(kill_switch_cap, ours))
+    # and the giant scan is refused rather than piled on during an overload. The
+    # run is also bounded by max_execution_time and by the demand-selection cache
+    # upstream, so this heavy scan happens on the cache TTL cadence, not every run.
     #
     # trigger/feature exclusions keep the warmer's own replays — and every other
     # background warmer — out of the demand counts, otherwise a once-warmed shape
@@ -275,7 +284,12 @@ def queries_to_keep_fresh(
         FROM (
             SELECT
                 JSONExtractInt(log_comment, 'team_id') AS team_id,
-                JSONExtractString(log_comment, 'query', 'kind') AS query_kind,
+                -- aliased away from the native `query_kind` column so the PREWHERE
+                -- below binds to the column (Select/Insert/…), not this JSON kind
+                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
+                -- collision would resolve `query_kind = 'Select'` against the alias
+                -- and silently select nothing.
+                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
                 JSONExtractString(log_comment, 'query_type') AS query_type,
                 JSONExtractString(log_comment, 'trigger') AS trigger,
                 JSONExtractString(log_comment, 'feature') AS feature,
@@ -301,8 +315,8 @@ def queries_to_keep_fresh(
         WHERE
             team_id != 0
             AND query_json_raw != ''
-            AND startsWith(query_kind, %(kind_prefix)s)
-            AND query_kind NOT IN %(unwarmable_kinds)s
+            AND startsWith(web_query_kind, %(kind_prefix)s)
+            AND web_query_kind NOT IN %(unwarmable_kinds)s
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
             AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
@@ -326,7 +340,7 @@ def queries_to_keep_fresh(
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
         },
-        settings={"max_bytes_to_read": 0, "max_execution_time": 600},
+        settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
 
     return [
@@ -358,26 +372,27 @@ _WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v1.json.gz"
 def _read_cached_warmable_queries(
     days: int, minimum_query_count: int, max_shapes: int, ttl_seconds: int
 ) -> Optional[list[dict]]:
-    # Fail open: any storage or decode problem is treated as a miss so warming
-    # falls back to a fresh scan rather than erroring.
+    # Fail open: any storage, decode, or unexpected-payload problem is treated as
+    # a miss so warming falls back to a fresh scan rather than erroring. The field
+    # access stays inside the try so a decodable-but-malformed blob (wrong shape,
+    # bad field type) misses rather than crashing the hourly run.
     try:
         raw = object_storage.read_bytes(_WARMABLE_QUERIES_STORAGE_KEY, missing_ok=True)
         if raw is None:
             return None
         payload = json.loads(gzip.decompress(raw))
+        params_match = (payload["days"], payload["minimum_query_count"], payload["max_shapes"]) == (
+            days,
+            minimum_query_count,
+            max_shapes,
+        )
+        is_fresh = time.time() - payload["generated_at"] < ttl_seconds
+        if not params_match or not is_fresh:
+            return None
+        return payload["queries"]
     except Exception:
         logger.warning("web_analytics_warming_cache_read_failed", exc_info=True)
         return None
-
-    params_match = (payload.get("days"), payload.get("minimum_query_count"), payload.get("max_shapes")) == (
-        days,
-        minimum_query_count,
-        max_shapes,
-    )
-    is_fresh = time.time() - payload.get("generated_at", 0) < ttl_seconds
-    if not params_match or not is_fresh:
-        return None
-    return payload["queries"]
 
 
 def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shapes: int, queries: list[dict]) -> None:

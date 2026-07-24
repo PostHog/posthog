@@ -1,3 +1,6 @@
+import gzip
+import json
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -258,6 +261,19 @@ class TestWarmableQueriesCaching(BaseTest):
     def test_storage_failure_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
         # Object storage being unavailable must degrade to a fresh scan, not break warming.
         mock_storage.read_bytes.side_effect = Exception("storage unavailable")
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
+
+        result = get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(mock_exec.call_count, 1)
+
+    @patch("products.web_analytics.dags.cache_warming.object_storage")
+    @patch("products.web_analytics.dags.cache_warming.sync_execute")
+    def test_malformed_cache_payload_falls_back_to_scan(self, mock_exec: MagicMock, mock_storage: MagicMock) -> None:
+        # A decodable-but-malformed blob (missing the expected fields) must miss
+        # and trigger a fresh scan, not raise out of the op and skip warming.
+        mock_storage.read_bytes.return_value = gzip.compress(json.dumps({"unexpected": "shape"}).encode())
         mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 123)]
 
         result = get_warmable_queries_op(dagster.build_op_context())
