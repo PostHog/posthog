@@ -8317,7 +8317,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_signal_followup.assert_called_once()
+        self.assertEqual(mock_signal_followup.call_args.args[3], "req-1")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
@@ -8338,7 +8338,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             {
                 "jsonrpc": "2.0",
                 "method": "pi/rpc",
-                "params": {"command": {"type": "future_native_command"}},
+                "params": {"command": {"id": "native", "type": "future_native_command"}},
                 "id": "native",
             },
             format="json",

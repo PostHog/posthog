@@ -377,6 +377,30 @@ class TestProcessTaskFollowupDispatch:
 
         assert deliveries == [("from Slack", "message-123", False)]
 
+    async def test_duplicate_sender_message_id_is_queued_once(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("first", [], "message-123")
+        await workflow.send_followup_message("duplicate", [], "message-123")
+
+        assert [(item.message, item.message_id) for item in workflow._pending_followups] == [("first", "message-123")]
+
+    async def test_sender_message_ids_remain_deduplicated_for_the_run(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        for index in range(501):
+            await workflow.send_followup_message(f"message {index}", [], f"message-{index}")
+        await workflow.send_followup_message("duplicate", [], "message-0")
+
+        assert len(workflow._pending_followups) == 501
+        assert workflow._pending_followups[0].message == "message 0"
+
     async def test_native_steer_preserves_sender_identity(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)

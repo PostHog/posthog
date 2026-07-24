@@ -122,6 +122,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    accepted_message_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -286,6 +287,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
+        self._accepted_message_ids: list[str] = []
+        self._accepted_message_id_set: set[str] = set()
         self._active_followup_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
@@ -1114,6 +1117,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
+                accepted_message_ids=self._accepted_message_ids,
             ),
         )
 
@@ -1124,6 +1128,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._first_user_message_received = resumed.first_user_message_received
+        self._accepted_message_ids = resumed.accepted_message_ids
+        self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
@@ -2009,6 +2015,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": context.run_id if context is not None else None},
             )
             return
+        if message_id and message_id in self._accepted_message_id_set:
+            return
+        if message_id:
+            self._accepted_message_ids.append(message_id)
+            self._accepted_message_id_set.add(message_id)
+
         pending_followup = PendingFollowup(
             message=message,
             artifact_ids=artifact_ids or [],

@@ -2366,6 +2366,11 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
             command_type = command.get("type")
             if not isinstance(command_type, str) or not command_type:
                 raise serializers.ValidationError({"params": "command.type must be a non-empty string"})
+            command_id = command.get("id")
+            if not isinstance(command_id, str) or not command_id:
+                raise serializers.ValidationError({"params": "command.id must be a non-empty string"})
+            if attrs.get("id") != command_id:
+                raise serializers.ValidationError({"id": "id must match params.command.id"})
         elif method == "permission_response":
             self._require_nonempty_string(params, "requestId")
             self._require_nonempty_string(params, "optionId")
