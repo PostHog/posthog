@@ -182,3 +182,25 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestPostgresqlConnectionFailureIsExposed(TestCase):
+    """A ClickHouse->Postgres connection failure (614) is a transient platform hiccup, not an
+    internal bug: it must surface as an exposed error with a friendly retry message (so it isn't
+    captured to error tracking with a raw stack trace), while staying categorized as a platform
+    ERROR rather than a USER_ERROR."""
+
+    def test_postgresql_connection_failure_is_exposed_with_friendly_message(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Connection to Postgres failed. Stack trace: ...",
+            code=614,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, ExposedCHQueryError)
+
+        message = str(wrapped)
+        assert "DB::Exception" not in message
+        assert "Stack trace" not in message
+        assert "try again" in message.lower()
+
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
