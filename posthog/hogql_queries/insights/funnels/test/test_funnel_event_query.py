@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 import regex
 import sqlparse
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -590,6 +591,19 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         select = format_query(funnel_event_query)
         self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
+
+    @freeze_time("2025-11-12")
+    def test_group_node_and_operator_is_rejected(self):
+        # AND groups aren't supported yet — must fail validation, not raise UnboundLocalError (500).
+        group = GroupNode(
+            operator=FilterLogicalOperator.AND_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+        )
+        query = FunnelsQuery(series=[group, EventsNode(event="$checkout")])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        with self.assertRaises(ValidationError):
+            FunnelEventQuery(context=context).to_query()
 
     @parameterized.expand(
         [
