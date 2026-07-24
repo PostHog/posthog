@@ -94,9 +94,9 @@ export function GatewayTeamAndAgents(): JSX.Element {
                                 member.is_org_admin ? <LemonTag type="highlight">admin</LemonTag> : 'member',
                         },
                         {
-                            title: 'Servers',
+                            title: 'Personal connections',
                             key: 'servers',
-                            render: (_, member) => `${member.connected_server_ids.length} connected`,
+                            render: (_, member) => member.connected_server_ids.length,
                         },
                     ]}
                 />
