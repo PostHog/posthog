@@ -1816,6 +1816,8 @@ export interface AssistantDataVisualizationChartSettings {
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
+    /** Show a total summing all Y series. Applies to line, bar, and area charts. */
+    showTotalRow?: boolean
 }
 
 export interface AssistantDataVisualizationTableSettings {
@@ -1823,8 +1825,6 @@ export interface AssistantDataVisualizationTableSettings {
     columns?: AssistantDataVisualizationAxis[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
-    /** Show a total row at the bottom of the table. */
-    showTotalRow?: boolean
     /** Transpose rows and columns. */
     transpose?: boolean
 }
