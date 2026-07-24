@@ -2032,15 +2032,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if isinstance(outcome, FlightFailure):
             QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_error").inc()
             raise ReplayedQueryError(outcome)
-        if outcome == "released":
-            entry = cache_manager.lookup().entry
-            full = entry.as_full_response() if entry else None
-            if full is not None:
-                try:
-                    cached_response = self.cached_response_type(**{**full, "is_cached": True})
-                except Exception:
-                    cached_response = None
-                if cached_response is not None:
+        # Released or timed out: serve only a fresh entry, meaning the leader's own write. A
+        # stale entry means the leader failed without a shareable envelope, and running the
+        # query ourselves surfaces that failure instead of masking it with old data.
+        entry = cache_manager.lookup().entry
+        full = entry.as_full_response() if entry else None
+        if full is not None:
+            try:
+                cached_response = self.cached_response_type(**{**full, "is_cached": True})
+            except Exception:
+                cached_response = None
+            if cached_response is not None:
+                last_refresh = last_refresh_from_cached_result(cached_response)
+                if last_refresh is not None and not self._is_stale_for_request(last_refresh=last_refresh):
                     cached_response, _ = self.apply_series_custom_names(cached_response)
                     QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                     return cached_response

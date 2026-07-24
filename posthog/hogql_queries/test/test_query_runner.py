@@ -1951,6 +1951,23 @@ class TestQuerySingleFlightRunner(BaseTest):
                     response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert response.is_cached is False  # executed the query itself
 
+    def test_follower_refuses_stale_cache_after_release(self):
+        # A stale entry means the leader failed without a shareable envelope; the follower
+        # must surface that by running the query itself, not mask it with old data.
+        runner_class = setup_test_query_runner_class()
+        with freeze_time("2026-01-01T00:00:00Z") as frozen:
+            runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )  # seed the cache
+            frozen.tick(timedelta(minutes=15))  # past the harness's 10-minute staleness window
+
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                with mock.patch.object(QuerySingleFlight, "acquire", autospec=True, return_value=False):
+                    with mock.patch.object(QuerySingleFlight, "wait", autospec=True, return_value="released"):
+                        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is False  # recalculated instead of serving the stale entry
+
     def test_flag_off_never_touches_the_flight(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
