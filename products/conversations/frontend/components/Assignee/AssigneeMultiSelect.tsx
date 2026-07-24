@@ -66,23 +66,6 @@ export function AssigneeMultiSelect({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-2">
-                        <li>
-                            <LemonButton
-                                fullWidth
-                                role="menuitem"
-                                size="small"
-                                icon={
-                                    <LemonCheckbox checked={isSelected('unassigned')} className="pointer-events-none" />
-                                }
-                                disabledReason={isSelected('unassigned') ? undefined : selectionCapReason}
-                                onClick={() => toggleEntry('unassigned')}
-                            >
-                                <span className="flex items-center gap-1">
-                                    <AssigneeIconDisplay assignee={null} size="small" />
-                                    Unassigned
-                                </span>
-                            </LemonButton>
-                        </li>
                         {currentUserMember && (
                             <li>
                                 {/* Dynamic "me" entry — resolves to whoever is signed in, so a
@@ -108,6 +91,23 @@ export function AssigneeMultiSelect({
                                 </LemonButton>
                             </li>
                         )}
+                        <li>
+                            <LemonButton
+                                fullWidth
+                                role="menuitem"
+                                size="small"
+                                icon={
+                                    <LemonCheckbox checked={isSelected('unassigned')} className="pointer-events-none" />
+                                }
+                                disabledReason={isSelected('unassigned') ? undefined : selectionCapReason}
+                                onClick={() => toggleEntry('unassigned')}
+                            >
+                                <span className="flex items-center gap-1">
+                                    <AssigneeIconDisplay assignee={null} size="small" />
+                                    Unassigned
+                                </span>
+                            </LemonButton>
+                        </li>
                         <Section
                             title="Roles"
                             loading={rolesLoading}
