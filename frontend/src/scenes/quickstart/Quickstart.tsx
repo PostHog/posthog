@@ -24,7 +24,15 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonSkeleton,
+    LemonTag,
+    Spinner,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -250,25 +258,34 @@ function ProjectFacts(): JSX.Element | null {
     if (!currentTeam) {
         return null
     }
-    // Region is a cloud concept; outside cloud the SDK-facing fact is the host itself
-    const regionLabel = preflight?.region && preflight.region !== Region.DEV ? `${preflight.region} Cloud` : null
+    const region = preflight?.region === Region.DEV ? 'DEV' : (preflight?.region ?? 'local')
 
     return (
         <>
-            <ProjectFactChip
-                label="Project ID"
-                value={String(currentTeam.id)}
-                copy={{ tooltip: 'Copy project ID', thing: 'project ID', action: 'copy_project_id' }}
-            />
-            {regionLabel ? (
-                <ProjectFactChip label="Region" value={regionLabel} mono={false} />
-            ) : (
-                <ProjectFactChip
-                    label="Host"
-                    value={apiHostOrigin()}
-                    copy={{ tooltip: 'Copy API host', thing: 'API host', action: 'copy_api_host' }}
-                />
-            )}
+            <Tooltip title="Copy project ID" placement="top">
+                <LemonTag
+                    className="cursor-pointer font-mono"
+                    onClick={() => {
+                        captureQuickstartAction('copy_project_id')
+                        void copyToClipboard(String(currentTeam.id), 'project ID')
+                    }}
+                    data-attr="quickstart-copy-project-id"
+                >
+                    ID {currentTeam.id}
+                </LemonTag>
+            </Tooltip>
+            <Tooltip title={`Region – click to copy the API host: ${apiHostOrigin()}`} placement="top">
+                <LemonTag
+                    className="cursor-pointer"
+                    onClick={() => {
+                        captureQuickstartAction('copy_api_host')
+                        void copyToClipboard(apiHostOrigin(), 'API host')
+                    }}
+                    data-attr="quickstart-copy-api-host"
+                >
+                    {region}
+                </LemonTag>
+            </Tooltip>
         </>
     )
 }
