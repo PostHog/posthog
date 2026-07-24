@@ -53,7 +53,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.replay_vision.backend.billing import get_replay_vision_credits_by_team
+from products.replay_vision.backend.billing import (
+    get_replay_vision_credits_by_team,
+    get_replay_vision_observations_by_team,
+)
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -155,6 +158,7 @@ class UsageReportCounters:
 
     # Replay Vision
     replay_vision_credits_used_in_period: int
+    replay_vision_observation_count_in_period: int
 
     # Persons and Groups
     group_types_total: int
@@ -1032,6 +1036,13 @@ def get_teams_with_heatmap_count_in_period(begin: datetime, end: datetime) -> li
 def get_teams_with_replay_vision_credits_used_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     # Billed from the ReplayObservationUsage receipt ledger, the same source the in-product quota meter reads.
     return get_replay_vision_credits_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Counted from the same ReplayObservationUsage receipt ledger the credits sum over, so it stays consistent.
+    return get_replay_vision_observations_by_team(begin, end)
 
 
 @timed_log()
@@ -2575,6 +2586,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_replay_vision_credits_used_in_period": get_teams_with_replay_vision_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_replay_vision_observation_count_in_period": get_teams_with_replay_vision_observation_count_in_period(
+            period_start, period_end
+        ),
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.DECIDE
         ),
@@ -2834,6 +2848,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         heatmap_events_count_in_period=all_data["teams_with_heatmap_count_in_period"].get(team.id, 0),
         replay_vision_credits_used_in_period=all_data["teams_with_replay_vision_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        replay_vision_observation_count_in_period=all_data["teams_with_replay_vision_observation_count_in_period"].get(
             team.id, 0
         ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
