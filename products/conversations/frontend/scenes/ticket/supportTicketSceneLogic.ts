@@ -1026,7 +1026,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                // The edit stays in local state (hasUnsavedChanges), so offer an explicit retry —
+                // without the removed Save button a failed autosave would otherwise have no way back.
+                lemonToast.error('Failed to update ticket', {
+                    button: { label: 'Retry', action: () => actions.updateTicket() },
+                })
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
