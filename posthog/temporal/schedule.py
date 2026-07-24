@@ -7,6 +7,7 @@ from django.conf import settings
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio import common
+from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
 from temporalio.client import (
     Client,
     Schedule,
@@ -19,6 +20,7 @@ from temporalio.client import (
     ScheduleRange,
     ScheduleSpec,
 )
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
@@ -864,8 +866,49 @@ if settings.EE_AVAILABLE:
         schedules.append(create_salesforce_stripe_enrichment_schedule)
 
 
+async def a_wait_for_namespace(
+    temporal: Client,
+    namespace: str,
+    *,
+    max_wait: float = 300.0,
+    initial_delay: float = 1.0,
+    max_delay: float = 30.0,
+) -> None:
+    """Block until the Temporal namespace is registered.
+
+    On a fresh boot the ``temporalio/auto-setup`` container opens its gRPC port before it
+    finishes registering the ``default`` namespace, and the docker healthcheck only probes the
+    port. So the first schedule RPC can race ahead of registration and fail with a NOT_FOUND
+    ``RPCError`` ("Namespace default is not found"), which would otherwise crash the whole
+    schedule-init fan-out. Poll ``describe_namespace`` with exponential backoff until the
+    namespace exists (or ``max_wait`` seconds elapse) so init tolerates that startup race.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + max_wait
+    delay = initial_delay
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            await temporal.workflow_service.describe_namespace(DescribeNamespaceRequest(namespace=namespace))
+            return
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND or loop.time() + delay >= deadline:
+                raise
+            logger.warning(
+                "Temporal namespace not ready yet, retrying",
+                namespace=namespace,
+                attempt=attempt,
+                delay=delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)
+
+
 async def a_init_general_queue_schedules():
     temporal = await async_connect()
+    # Tolerate the auto-setup startup race where the namespace isn't registered yet.
+    await a_wait_for_namespace(temporal, settings.TEMPORAL_NAMESPACE)
     try:
         async with asyncio.TaskGroup() as tg:
             for schedule in schedules:
