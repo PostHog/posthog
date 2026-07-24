@@ -218,6 +218,23 @@ class TestGithubSource:
         assert reviews.should_sync_default is True
         assert [f["field"] for f in reviews.incremental_fields] == ["submitted_at"]
 
+    @pytest.mark.parametrize("endpoint", ["deployments", "deployment_statuses"])
+    def test_deployment_schemas_are_webhook_only_and_default_on(self, endpoint):
+        # Both deploy endpoints do no poll backfill (zero lookback floor), so they must be offered
+        # webhook-only and stay selected by default (they need only the repo grant). If the webhook
+        # map entry or the zero floor regressed, the picker would offer a poll mode that syncs an
+        # empty table forever.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schema = {s.name: s for s in self.source.get_schemas(config, self.team_id)}[endpoint]
+
+        assert schema.supports_webhooks is True
+        assert schema.webhook_only is True
+        assert schema.supports_incremental is False
+        assert schema.should_sync_default is True
+
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(
@@ -319,6 +336,10 @@ class TestGithubSource:
             # Repo names can contain dots — a naive rpartition('.') would split `next.js` wrong.
             ("posthog/next.js.issues", ("posthog/next.js", "issues")),
             ("posthog/next.js.pull_requests", ("posthog/next.js", "pull_requests")),
+            # deployment_statuses must win over deployments (longest suffix first) — a plain
+            # endswith('deployments') would strip 'deployment_statuses' to '_statuses' and misroute.
+            ("posthog/posthog.deployments", ("posthog/posthog", "deployments")),
+            ("posthog/posthog.deployment_statuses", ("posthog/posthog", "deployment_statuses")),
             # Unrecognized suffixes stay whole so unknown rows don't get misrouted.
             ("posthog/posthog.not_an_endpoint", (None, "posthog/posthog.not_an_endpoint")),
         ],
@@ -374,6 +395,8 @@ class TestGithubSource:
             ("workflow_runs", "workflow_run"),
             ("workflow_jobs", "workflow_job"),
             ("reviews", "pull_request_review"),
+            ("deployments", "deployment"),
+            ("deployment_statuses", "deployment_status"),
             # Qualified rows get repo-qualified keys — two repos' workflow_runs would otherwise
             # collide on one "workflow_run" key and route all events to a single schema.
             ("acme/Widgets.workflow_runs", "acme/widgets.workflow_run"),

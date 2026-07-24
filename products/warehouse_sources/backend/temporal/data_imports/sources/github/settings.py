@@ -54,6 +54,15 @@ class GithubEndpointConfig:
     # repo history. The webhook carries steady-state, so only the one-off backfill
     # needs a bound; later syncs advance from the stored watermark and ignore this.
     initial_lookback_days: Optional[int] = None
+    # Steady-state reconciliation for a webhook-fed fan-out child whose events GitHub does not
+    # always deliver: after each webhook drain, re-fan parents created within this many days so
+    # child rows that never got a webhook (deployment statuses marked inactive) are still
+    # collected from the list API. None = webhook drain only.
+    webhook_reconcile_lookback_days: Optional[int] = None
+    # Parent field bumped whenever a child row is created (deployments.updated_at). When set,
+    # an incremental fan-out skips parents whose value predates the child watermark — they can
+    # hold no unseen children — keeping the reconciliation window cheap to re-walk every sync.
+    fan_out_parent_recency_field: Optional[str] = None
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -255,6 +264,76 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # (terminal) outranks started_at (running) outranks created_at (queued). Each is NULL until
         # the job reaches that stage, so NULLs-last ordering keeps the latest state.
         version_keys=["completed_at", "started_at", "created_at"],
+    ),
+    "deployments": GithubEndpointConfig(
+        name="deployments",
+        path="/repos/{repository}/deployments",
+        partition_key="created_at",
+        incremental_fields=[
+            # The deployments list endpoint returns newest-first by created_at and (like
+            # /actions/runs) does not honor sort/direction, so created_at is the only viable
+            # cursor. We sync incrementally by paginating newest-first and stopping once we cross
+            # below the cursor (see github.py). created_at is immutable; a deployment's latest
+            # state lives on its deployment_statuses children and on updated_at, so the
+            # created_at cursor won't refresh a deployment once newer ones land — that is handled
+            # by the deployment webhook, not by re-scanning history.
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        sort_mode="desc",  # API returns newest-first and ignores sort/direction, like workflow_runs
+        # deployment carries updated_at (bumped when a new status is added), the recency key so a
+        # completed deployment is never frozen by a stale earlier webhook event.
+        version_keys=["updated_at"],
+        # Webhook-only marker, like workflow_runs: the deployment webhook is the source of truth.
+        # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
+        # webhook mode from the first sync, and makes the poll path yield no rows instead of
+        # crawling the full /deployments history against a shared, rate-limited budget. History,
+        # if wanted, is a deliberate one-off backfill.
+        initial_lookback_days=0,
+    ),
+    "deployment_statuses": GithubEndpointConfig(
+        name="deployment_statuses",
+        # Child of deployments: {deployment_id} is filled per parent deployment during fan-out.
+        # GitHub has no repo-wide deployment-statuses list, so a deployment's status history (the
+        # success/failure/inactive transitions that mark a rollback) can only be assembled by
+        # fanning out over deployments one at a time.
+        path="/repos/{repository}/deployments/{deployment_id}/statuses",
+        partition_key="created_at",  # Set at status creation; immutable and non-null.
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="created_at",
+        # Deployment-status ids are globally unique (like review ids), so no composite key is
+        # needed even though this is a fan-out child.
+        primary_key="id",
+        sort_mode="desc",  # Rows land parent-newest-first, same as workflow_jobs and reviews.
+        fan_out_parent="deployments",
+        fan_out_path_param="deployment_id",
+        fan_out_parent_field="id",
+        # The raw status only carries the deployment API URL, so inject the deployment id for
+        # trivial attribution joins against the deployments table (mirrors reviews' pr_number).
+        fan_out_include_parent_fields={"id": "deployment_id"},
+        # Webhook-first (zero first-sync backfill), but not webhook-alone: GitHub never fires a
+        # deployment_status webhook for the inactive state, so a pure webhook feed would miss
+        # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
+        # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
+        # deployments created in the last 30 days; the updated_at recency skip keeps that to
+        # parents that actually gained a status since the child watermark.
+        initial_lookback_days=0,
+        webhook_reconcile_lookback_days=30,
+        fan_out_parent_recency_field="updated_at",
+        # A deployment status is append-only (each transition is a new, immutable id), so no
+        # webhook dedupe is needed — unlike reviews/runs, one id never emits multiple events.
     ),
     "teams": GithubEndpointConfig(
         name="teams",
