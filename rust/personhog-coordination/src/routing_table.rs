@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -75,6 +75,13 @@ pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
     table: Arc<RwLock<HashMap<u32, String>>>,
+    /// `pod_name` → advertised `host:port`, learned from the same
+    /// assignments and handoff events that drive `table`, so reachability
+    /// can never lag ownership. Entries for departed pods linger until
+    /// overwritten; lookups only ever go through current owners. A std
+    /// lock (never held across await) so the leader backend's synchronous
+    /// address resolver can read it.
+    addresses: Arc<StdRwLock<HashMap<String, String>>>,
 }
 
 impl RoutingTable {
@@ -83,6 +90,7 @@ impl RoutingTable {
             store,
             config,
             table: Arc::new(RwLock::new(HashMap::new())),
+            addresses: Arc::new(StdRwLock::new(HashMap::new())),
         }
     }
 
@@ -102,6 +110,12 @@ impl RoutingTable {
     /// `RoutingTable` into a spawned task.
     pub fn table_handle(&self) -> Arc<RwLock<HashMap<u32, String>>> {
         Arc::clone(&self.table)
+    }
+
+    /// Shared handle to the pod-name → advertised-address map, for the
+    /// leader backend's dialing.
+    pub fn addresses_handle(&self) -> Arc<StdRwLock<HashMap<String, String>>> {
+        Arc::clone(&self.addresses)
     }
 
     /// Run the routing table. Registers with etcd, loads the initial state,
@@ -150,12 +164,21 @@ impl RoutingTable {
         {
             let store = Arc::clone(&self.store);
             let table = Arc::clone(&self.table);
+            let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, table, handler, router_name, token, handoff_stream)
-                    .await
+                Self::watch_handoffs_loop(
+                    store,
+                    table,
+                    addresses,
+                    handler,
+                    router_name,
+                    token,
+                    handoff_stream,
+                )
+                .await
             });
         }
 
@@ -242,6 +265,14 @@ impl RoutingTable {
 
         let assignments = self.store.list_assignments().await?;
         let mut table = self.table.write().await;
+        {
+            let mut addresses = self.addresses.write().expect("addresses lock poisoned");
+            for a in &assignments {
+                if let Some(address) = &a.advertise_address {
+                    addresses.insert(a.owner.clone(), address.clone());
+                }
+            }
+        }
         for a in assignments {
             table.insert(a.partition, a.owner);
         }
@@ -251,9 +282,11 @@ impl RoutingTable {
         Ok(snapshot_revision)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn watch_handoffs_loop(
         store: Arc<PersonhogStore>,
         table: Arc<RwLock<HashMap<u32, String>>>,
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
         handler: Arc<dyn StashHandler>,
         router_name: String,
         cancel: CancellationToken,
@@ -271,6 +304,7 @@ impl RoutingTable {
                                     event,
                                     store.as_ref(),
                                     &table,
+                                    &addresses,
                                     handler.as_ref(),
                                     &router_name,
                                 ).await?;
@@ -319,6 +353,7 @@ impl RoutingTable {
         event: &etcd_client::Event,
         store: &PersonhogStore,
         table: &Arc<RwLock<HashMap<u32, String>>>,
+        addresses: &Arc<StdRwLock<HashMap<String, String>>>,
         handler: &dyn StashHandler,
         router_name: &str,
     ) -> Result<()> {
@@ -357,6 +392,28 @@ impl RoutingTable {
                 }
             }
             HandoffPhase::Complete => {
+                // The address must land before the table flips: the drain
+                // below dials the new owner immediately.
+                match &handoff.new_owner_address {
+                    Some(address) => {
+                        addresses
+                            .write()
+                            .expect("addresses lock poisoned")
+                            .insert(handoff.new_owner.clone(), address.clone());
+                    }
+                    None => {
+                        // Only possible for handoffs written by a
+                        // pre-advertise-address coordinator; dials to this
+                        // owner fail closed until it re-registers.
+                        tracing::warn!(
+                            router = %router_name,
+                            partition = handoff.partition,
+                            new_owner = %handoff.new_owner,
+                            "handoff carries no advertise address"
+                        );
+                    }
+                }
+
                 // Pre-update the routing table before draining so that any
                 // new request arriving between drain and the independent
                 // assignment-watch dispatch routes to the new owner rather

@@ -673,6 +673,7 @@ async fn statefulset_rollout_pod_skips_drain() {
         lease_ttl: 10,
         heartbeat_interval: Duration::from_secs(3),
         drain_timeout: Duration::from_secs(30),
+        advertise_address: None,
     };
     let (_pod_events, pod_handle) = start_pod_k8s(
         Arc::clone(&store),

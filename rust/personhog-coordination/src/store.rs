@@ -526,6 +526,7 @@ impl PersonhogStore {
         let assignment = PartitionAssignment {
             partition,
             owner: handoff.new_owner.clone(),
+            advertise_address: handoff.new_owner_address.clone(),
             status: AssignmentStatus::Active,
         };
 
