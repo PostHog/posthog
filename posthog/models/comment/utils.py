@@ -22,6 +22,7 @@ SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Survey": "survey",
     "Experiment": "experiment",
     "ErrorTracking": "error_tracking",
+    "Ticket": "ticket",
 }
 
 SCOPE_TO_PATH_MAPPING: dict[str, str] = {
@@ -32,6 +33,7 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Dashboard": "/dashboard/{item_id}",
     "Survey": "/surveys/{item_id}",
     "Experiment": "/experiments/{item_id}",
+    "Ticket": "/support/tickets/{item_id}",
 }
 
 
