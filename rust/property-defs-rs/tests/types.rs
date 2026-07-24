@@ -1,25 +1,48 @@
 use chrono::Utc;
 use property_defs_rs::types::{
-    detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
+    detect_property_type, floor_last_seen, get_floored_last_seen, Event, PropertyValueType, Update,
+    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
 
-#[test]
-fn test_date_flooring() {
+#[rstest]
+#[case(3600)] // hourly
+#[case(86400)] // daily (default)
+fn test_date_flooring(#[case] period_secs: i64) {
     use chrono::Timelike;
 
     let now = Utc::now();
-    let rounded = get_floored_last_seen();
+    let rounded = floor_last_seen(now, period_secs);
 
-    // Time should be rounded to the nearest hour
-    assert_eq!(rounded.minute(), 0);
+    // Flooring to any whole-minute period zeroes sub-minute components
     assert_eq!(rounded.second(), 0);
     assert_eq!(rounded.nanosecond(), 0);
     assert!(rounded <= now);
 
-    // The difference between now and rounded should be less than 1 hour
-    assert!(now - rounded < chrono::Duration::hours(1));
+    // The difference between now and rounded should be less than the period
+    assert!(now - rounded < chrono::Duration::seconds(period_secs));
+}
+
+#[rstest]
+#[case(0)] // disabled
+#[case(-1)] // negative, also disabled
+fn test_non_positive_floor_disables_flooring(#[case] period_secs: i64) {
+    // A non-positive period must not panic (chrono errors on a zero/negative rounding
+    // duration); flooring is disabled and the real timestamp is returned unchanged.
+    let now = Utc::now();
+    assert_eq!(floor_last_seen(now, period_secs), now);
+}
+
+#[test]
+fn test_default_floor_is_daily() {
+    use chrono::Timelike;
+    assert_eq!(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, 86400);
+    // The default helper floors to the start of the UTC day
+    let rounded = get_floored_last_seen();
+    assert_eq!(rounded.hour(), 0);
+    assert_eq!(rounded.minute(), 0);
+    assert_eq!(rounded.second(), 0);
 }
 
 #[test]

@@ -40,6 +40,18 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
+    // Opt into the staged pipeline: a dedicated Kafka reader -> a pool of `worker_loop_count`
+    // processors -> a writer with bounded write concurrency, decoupled by bounded channels.
+    // Default off keeps the original producer/consumer topology.
+    #[envconfig(default = "false")]
+    pub staged_pipeline: bool,
+
+    // Max number of batch writes in flight at once in the staged writer. >1 overlaps the slow
+    // (~170ms) Postgres writes instead of serializing them; raise it to hide write latency, at
+    // the cost of more concurrent connections. Only used when `staged_pipeline` is on.
+    #[envconfig(default = "4")]
+    pub writer_max_concurrency: usize,
+
     // Per-data-type cache capacities (event definitions, event properties, property definitions).
     // Each internal cache avoids sending the same UPSERT multiple times.
     #[envconfig(default = "1000000")]
@@ -55,6 +67,12 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
 
+    // A producer flushes its compaction batch at least this often, even during a lull. Without
+    // this the batch only drained when a new event arrived, so the tail of a low-traffic stream
+    // could sit unwritten indefinitely.
+    #[envconfig(default = "10")]
+    pub producer_drain_interval_secs: u64,
+
     // Workers send updates back to the main thread over a channel,
     // which has a depth of this many slots. If the main thread slows,
     // which usually means if postgres is slow, the workers will block
@@ -65,6 +83,13 @@ pub struct Config {
     // If an event has some ridiculous number of updates, we skip it
     #[envconfig(default = "10000")]
     pub update_count_skip_threshold: usize,
+
+    // event-definition last_seen_at is floored to this many seconds purely as a dedup-cache
+    // key: it bounds how often we re-issue an event-def write to refresh last_seen_at (the DB
+    // always records the real time). Coarser = fewer redundant writes, staler last_seen_at.
+    // Default 1 day; set 3600 to restore the previous hourly cadence.
+    #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "86400")]
+    pub eventdef_last_seen_floor_secs: i64,
 
     // Do everything except actually write to the DB
     #[envconfig(default = "true")]

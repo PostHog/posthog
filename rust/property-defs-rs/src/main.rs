@@ -7,15 +7,19 @@ use property_defs_rs::{
     api::v1::{query::Manager as QueryManager, routing::apply_routes},
     app_context::AppContext,
     config::Config,
+    kafka_reader_loop,
     measuring_channel::measuring_channel,
     metrics_consts::CHANNEL_CAPACITY,
+    processor_loop,
+    types::Event,
     update_cache::Cache,
-    update_consumer_loop, update_producer_loop,
+    update_consumer_loop, update_producer_loop, writer_loop,
 };
 
 use serve_metrics::setup_metrics_routes;
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tracing::level_filters::LevelFilter;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -92,8 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.consumer.kafka_consumer_topic
     );
 
-    let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
-
     let cache = Cache::new(
         config.eventdefs_cache_capacity,
         config.eventprops_cache_capacity,
@@ -105,39 +107,94 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the lifecycle monitor before spawning components
     let guard = manager.monitor_background();
 
-    // Spawn N producer loops (Kafka consumers -> channel)
-    for _ in 0..config.worker_loop_count {
-        let h = producer_handle.clone();
-        tokio::spawn(update_producer_loop(
+    if config.staged_pipeline {
+        // Decoupled pipeline: a dedicated Kafka reader fans events out to N parallel processors
+        // over bounded channels, and a writer drains them with bounded write concurrency, so
+        // reads never block on the slow (~170ms) write path.
+        let n = config.worker_loop_count.max(1);
+        let (update_tx, update_rx) =
+            measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
+
+        let mut raw_txs = Vec::with_capacity(n);
+        for _ in 0..n {
+            let (raw_tx, raw_rx) = mpsc::channel::<Event>(config.channel_slots_per_worker);
+            raw_txs.push(raw_tx);
+            tokio::spawn(processor_loop(
+                config.clone(),
+                cache.clone(),
+                raw_rx,
+                update_tx.clone(),
+                consumer_handle.clone(),
+            ));
+        }
+
+        // Single reader owns the consumer and fans out to the processors.
+        tokio::spawn(kafka_reader_loop(
             config.clone(),
             consumer.clone(),
-            cache.clone(),
-            tx.clone(),
-            h,
+            raw_txs,
+            producer_handle,
+        ));
+
+        // Publish the update-channel capacity metric every 10 seconds
+        tokio::spawn({
+            let update_tx = update_tx.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    metrics::gauge!(CHANNEL_CAPACITY).set(update_tx.capacity() as f64);
+                }
+            }
+        });
+        drop(update_tx);
+
+        tokio::spawn(writer_loop(
+            config.clone(),
+            cache,
+            context.clone(),
+            update_rx,
+            consumer_handle,
+        ));
+    } else {
+        // Legacy pipeline: N producer loops share one consumer and feed a single channel that one
+        // consumer loop drains to the DB.
+        let (tx, rx) =
+            measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
+
+        // Spawn N producer loops (Kafka consumers -> channel)
+        for _ in 0..config.worker_loop_count {
+            let h = producer_handle.clone();
+            tokio::spawn(update_producer_loop(
+                config.clone(),
+                consumer.clone(),
+                cache.clone(),
+                tx.clone(),
+                h,
+            ));
+        }
+        drop(producer_handle);
+
+        // Publish the tx capacity metric every 10 seconds
+        tokio::spawn({
+            let tx = tx.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
+                }
+            }
+        });
+        drop(tx);
+
+        // Spawn the consumer loop (channel -> DB)
+        tokio::spawn(update_consumer_loop(
+            config.clone(),
+            cache,
+            context.clone(),
+            rx,
+            consumer_handle,
         ));
     }
-    drop(producer_handle);
-
-    // Publish the tx capacity metric every 10 seconds
-    tokio::spawn({
-        let tx = tx.clone();
-        async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(10)).await;
-                metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
-            }
-        }
-    });
-    drop(tx);
-
-    // Spawn the consumer loop (channel -> DB)
-    tokio::spawn(update_consumer_loop(
-        config.clone(),
-        cache,
-        context.clone(),
-        rx,
-        consumer_handle,
-    ));
 
     // Build HTTP server with lifecycle readiness/liveness
     let app = Router::new()

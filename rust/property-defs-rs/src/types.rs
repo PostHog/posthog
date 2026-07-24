@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
@@ -227,17 +227,32 @@ pub struct Event {
 
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
-        EventDefinition {
-            name: sanitize_string(&event.event),
-            team_id: event.team_id,
-            project_id: event.project_id,
-            last_seen_at: get_floored_last_seen(),
-        }
+        event.to_event_definition(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
     }
 }
 
 impl Event {
+    fn to_event_definition(&self, last_seen_floor_secs: i64) -> EventDefinition {
+        EventDefinition {
+            name: sanitize_string(&self.event),
+            team_id: self.team_id,
+            project_id: self.project_id,
+            last_seen_at: floor_last_seen(Utc::now(), last_seen_floor_secs),
+        }
+    }
+
     pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
+        self.into_updates_with(skip_threshold, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    }
+
+    /// As `into_updates`, but with an explicit `last_seen_at` flooring period for the
+    /// event-definition dedup key. A coarser period re-issues event-def writes less
+    /// often (the DB always records the real time); see `floor_last_seen`.
+    pub fn into_updates_with(
+        self,
+        skip_threshold: usize,
+        last_seen_floor_secs: i64,
+    ) -> Vec<Update> {
         if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
             return vec![];
@@ -252,7 +267,7 @@ impl Event {
         let team_id = self.team_id;
         let event = self.event.clone();
 
-        let updates = self.into_updates_inner();
+        let updates = self.into_updates_inner(last_seen_floor_secs);
         if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than {} properties, skipping",
@@ -265,8 +280,10 @@ impl Event {
         updates
     }
 
-    fn into_updates_inner(self) -> Vec<Update> {
-        let mut updates = vec![Update::Event(EventDefinition::from(&self))];
+    fn into_updates_inner(self, last_seen_floor_secs: i64) -> Vec<Update> {
+        let mut updates = vec![Update::Event(
+            self.to_event_definition(last_seen_floor_secs),
+        )];
         let Some(props) = &self.properties else {
             return updates;
         };
@@ -392,7 +409,15 @@ impl Event {
 }
 
 pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
-    let key = key.to_lowercase();
+    // Avoid allocating a lowercased copy when the key is already lowercase (the common
+    // case on real traffic). Behaviour-preserving: we only borrow when the key contains no
+    // uppercase characters, otherwise we fall back to the same Unicode `to_lowercase`.
+    let key_lc: Cow<str> = if key.chars().any(char::is_uppercase) {
+        Cow::Owned(key.to_lowercase())
+    } else {
+        Cow::Borrowed(key)
+    };
+    let key: &str = &key_lc;
 
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
@@ -428,7 +453,7 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
-    if detect_timestamp_property_by_key_and_value(&key, value) {
+    if detect_timestamp_property_by_key_and_value(key, value) {
         return Some(PropertyValueType::DateTime);
     }
 
@@ -525,10 +550,24 @@ impl Hash for GroupType {
     }
 }
 
-// We round last seen to the nearest hour. Unwrap is safe here because
-// the duration is positive, non-zero, and smaller than time since epoch
+// The `last_seen_at` on an event definition is floored to this period purely as a
+// dedup-cache key: it bounds how often we re-issue an event-def write to refresh
+// last_seen_at. The DB always records the real time, so a coarser period just means
+// fewer redundant writes and a staler-by-up-to-`period` last_seen_at. Default: 1 day.
+pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 86400;
+
+// Floor `now` to the start of the current `period_secs` window. A non-positive period
+// disables flooring (the real timestamp is used), which also sidesteps chrono's
+// zero-duration rounding error; any other rounding failure falls back to `now`.
+pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64) -> DateTime<Utc> {
+    if period_secs <= 0 {
+        return now;
+    }
+    floor_datetime(now, Duration::seconds(period_secs)).unwrap_or(now)
+}
+
 pub fn get_floored_last_seen() -> DateTime<Utc> {
-    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+    floor_last_seen(Utc::now(), DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
 }
 
 fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
