@@ -1,12 +1,28 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+
+/** A minimal review detail: only the fields the drawer selectors read. */
+function reviewDetail(id: string, runUrgencyThreshold: string | null): Record<string, any> {
+    return {
+        id,
+        published: false,
+        run_urgency_threshold: runUrgencyThreshold,
+        findings: [
+            { title: 'blocker', effective_priority: 'must_fix' },
+            { title: 'recommended', effective_priority: 'should_fix' },
+        ],
+        dismissed_findings: [],
+    }
+}
 
 // More project-wide reviews than the API's maximum limit, so both "Show more" growth and its
 // ceiling are reachable.
@@ -252,6 +268,93 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.showMoreReviews()
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         await expectLogic(logic).toMatchValues({ reviewsLimit: REVIEWS_PAGE_SIZE })
+    })
+
+    it('buckets drawer findings by the stored run threshold, with the viewer proxy only for old rows', async () => {
+        // The run gated at must_fix while the viewer's own setting (mocked above) is should_fix.
+        // Bucketing by the viewer's setting would show the held-back should_fix finding as
+        // published — the exact lie the stored snapshot exists to fix.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-stamped/': () => [
+                    200,
+                    reviewDetail('r-stamped', 'must_fix'),
+                ],
+                '/api/projects/:team_id/review_hog/reviews/r-old/': () => [200, reviewDetail('r-old', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        logic.actions.openReviewDetailById('r-stamped')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+        expect(logic.values.reviewFindingsSplit?.published.map((f) => f.title)).toEqual(['blocker'])
+        expect(logic.values.reviewFindingsSplit?.belowThreshold.map((f) => f.title)).toEqual(['recommended'])
+
+        // A pre-column row (null stored threshold) keeps the old viewer-settings approximation.
+        logic.actions.openReviewDetailById('r-old')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+        expect(logic.values.reviewFindingsSplit?.published.map((f) => f.title)).toEqual(['blocker', 'recommended'])
+        expect(logic.values.reviewFindingsSplit?.belowThreshold).toEqual([])
+    })
+
+    it('opens a review from ?review= and mirrors drawer state back to the URL', async () => {
+        // ?review=<report id> is a permanent public contract: PR status comments bake this exact
+        // param into their "View them in PostHog" links, so renaming the param or dropping the URL
+        // sync silently dead-ends every held-back-findings link already posted to GitHub.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-9/': () => [200, reviewDetail('r-9', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess'])
+
+        router.actions.push(urls.codeReview(), { review: 'r-9' })
+        await expectLogic(logic)
+            .toDispatchActions(['openReviewDetailById', 'loadReviewDetailSuccess'])
+            // No list row on a deep link — the drawer must render from the loaded detail alone.
+            .toMatchValues({ reviewDrawerOpen: true, openedReview: null })
+        expect(logic.values.reviewDetail?.id).toBe('r-9')
+
+        // A repeat location event for the same review (e.g. the open's own URL write-back) must not
+        // re-dispatch into the already-open drawer and reload the detail forever.
+        await expectLogic(logic, () =>
+            router.actions.push(urls.codeReview(), { review: 'r-9' })
+        ).toNotHaveDispatchedActions(['openReviewDetailById'])
+
+        // Closing removes the param in place (replace, not push), so back doesn't reopen the drawer.
+        logic.actions.closeReviewDrawer()
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+        expect(router.values.searchParams.review).toBeUndefined()
+
+        // And navigation that drops the param closes an open drawer — the URL and the visible
+        // report must never disagree.
+        router.actions.push(urls.codeReview(), { review: 'r-9' })
+        await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
+        router.actions.push(urls.codeReview(), {})
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('closes a deep-linked drawer when the review fails to load', async () => {
+        // A stale ?review= link (deleted report, wrong project) has no list row to fall back on —
+        // without the failure path the drawer would sit open on skeletons forever.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/r-gone/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess'])
+
+        router.actions.push(urls.codeReview(), { review: 'r-gone' })
+        await expectLogic(logic).toDispatchActions([
+            'openReviewDetailById',
+            'loadReviewDetailFailure',
+            'closeReviewDrawer',
+        ])
+        expect(logic.values.reviewDrawerOpen).toBe(false)
+        expect(router.values.searchParams.review).toBeUndefined()
     })
 
     it('stops "Show more" at the API\'s maximum limit', async () => {

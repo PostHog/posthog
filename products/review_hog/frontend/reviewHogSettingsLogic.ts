@@ -134,11 +134,13 @@ export interface reviewHogSettingsLogicValues {
     initialLoadFailed: boolean
     moreReviewsAvailable: boolean
     openedReview: ReviewRecentReviewApi | null
+    openedReviewId: string | null
     perspectiveScoreboard: PerspectiveScore[] | null
     perspectiveStats: ReviewPerspectiveStatsApi | null
     perspectiveStatsLoading: boolean
     perspectives: ReviewPerspectiveConfigApi[] | null
     perspectivesLoading: boolean
+    pipelineDetailOpen: boolean
     recentReviews: ReviewRecentReviewApi[] | null
     recentReviewsPage: ReviewRecentReviewsPageApi | null
     recentReviewsPageLoading: boolean
@@ -168,6 +170,9 @@ export interface reviewHogSettingsLogicActions {
     }
     blockSingleActiveDeactivation: (kindLabel: string) => {
         kindLabel: string
+    }
+    closePipelineDetail: () => {
+        value: true
     }
     closeReviewDrawer: () => {
         value: true
@@ -283,8 +288,14 @@ export interface reviewHogSettingsLogicActions {
         validators: ReviewValidatorConfigApi[]
         payload?: any
     }
+    openPipelineDetail: () => {
+        value: true
+    }
     openReviewDetail: (review: ReviewRecentReviewApi) => {
         review: ReviewRecentReviewApi
+    }
+    openReviewDetailById: (reviewId: string) => {
+        reviewId: string
     }
     patchPerspectiveLocally: (
         skillName: string,
@@ -416,7 +427,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         viewSkill: (skill: ViewedSkill) => ({ skill }),
         closeSkillDrawer: true,
         openReviewDetail: (review: ReviewRecentReviewApi) => ({ review }),
+        // Opens the drawer for a review with no list row in hand — the `?review=` deep-link path
+        // (PR status comments bake these links into GitHub). The drawer renders from the loaded
+        // detail alone.
+        openReviewDetailById: (reviewId: string) => ({ reviewId }),
         closeReviewDrawer: true,
+        openPipelineDetail: true,
+        closePipelineDetail: true,
         setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
         toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
         setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
@@ -486,8 +503,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         reviewDetail: [
             null as ReviewDetailApi | null,
             {
-                loadReviewDetail: async (reviewId: string) =>
-                    await reviewHogReviewsRetrieve(currentProjectId(), reviewId),
+                loadReviewDetail: async (reviewId: string, breakpoint) => {
+                    const response = await reviewHogReviewsRetrieve(currentProjectId(), reviewId)
+                    // A newer open (row click, ?review= navigation) dispatched a fresh load
+                    // mid-flight — drop this stale response so out-of-order responses can't
+                    // attach the wrong review's findings to the drawer.
+                    breakpoint()
+                    return response
+                },
             },
         ],
         perspectiveStats: [
@@ -547,21 +570,43 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
         ],
         // The clicked list row: the drawer header renders from it instantly while the detail loads.
+        // Null on a deep-linked open (no row in hand) — the drawer then renders from the detail alone.
         openedReview: [
             null as ReviewRecentReviewApi | null,
             {
                 openReviewDetail: (_, { review }) => review,
+                openReviewDetailById: () => null,
+            },
+        ],
+        // The review the drawer is showing (or loading), by id — set synchronously by both open
+        // paths, so the URL sync can tell "this location event is my own write-back" apart from a
+        // genuinely new deep link before the detail has loaded.
+        openedReviewId: [
+            null as string | null,
+            {
+                openReviewDetail: (_, { review }) => review.id,
+                openReviewDetailById: (_, { reviewId }) => reviewId,
+                closeReviewDrawer: () => null,
             },
         ],
         reviewDetail: {
             // Clear the previous review's detail so opening another row never flashes stale findings.
             openReviewDetail: () => null,
+            openReviewDetailById: () => null,
         },
         reviewDrawerOpen: [
             false,
             {
                 openReviewDetail: () => true,
+                openReviewDetailById: () => true,
                 closeReviewDrawer: () => false,
+            },
+        ],
+        pipelineDetailOpen: [
+            false,
+            {
+                openPipelineDetail: () => true,
+                closePipelineDetail: () => false,
             },
         ],
         reviewDrawerTab: [
@@ -569,6 +614,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 setReviewDrawerTab: (_, { tab }) => tab,
                 openReviewDetail: () => 'published' as ReviewDrawerTab,
+                openReviewDetailById: () => 'published' as ReviewDrawerTab,
             },
         ],
         expandedReviewIds: [
@@ -703,8 +749,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 // offering it would send a limit the server rejects.
                 (recentReviewsPage?.has_more ?? false) && reviewsLimit < MAX_REVIEWS_LIMIT,
         ],
-        // Splits the detail's valid findings by the CURRENT threshold — a close-enough proxy for
-        // what the run published (the run's own threshold snapshot isn't stored).
+        // Splits the detail's valid findings by the threshold the run actually gated on
+        // (`run_urgency_threshold`, stamped at finalize). Only rows that predate the stamp fall
+        // back to the viewer's current setting — an approximation that can misbucket when the
+        // run's acting user or their settings differ from the viewer's.
         reviewFindingsSplit: [
             (s) => [s.reviewDetail, s.settings],
             (
@@ -714,7 +762,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 if (!reviewDetail) {
                     return null
                 }
-                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'consider']
+                const threshold = reviewDetail.run_urgency_threshold ?? settings?.urgency_threshold ?? 'consider'
+                const thresholdRank = REVIEW_PRIORITY_RANK[threshold]
                 return {
                     published: reviewDetail.findings.filter(
                         (f) => REVIEW_PRIORITY_RANK[f.effective_priority] >= thresholdRank
@@ -863,6 +912,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         openReviewDetail: ({ review }) => {
             actions.loadReviewDetail(review.id)
         },
+        openReviewDetailById: ({ reviewId }) => {
+            actions.loadReviewDetail(reviewId)
+        },
+        loadReviewDetailFailure: () => {
+            // Only the deep-link path has no list row keeping the drawer meaningful — a failed
+            // load there (stale link, deleted report) would strand an open drawer of skeletons.
+            if (values.reviewDrawerOpen && !values.openedReview) {
+                lemonToast.error("That review couldn't be opened. The link may be stale, or the review deleted.")
+                actions.closeReviewDrawer()
+            }
+        },
         submitTriggerReview: async () => {
             if (values.triggeringReview) {
                 // A request is already in flight — the disabled button can't stop an Enter keypress
@@ -927,17 +987,34 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
     // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
     // the fallback would silently upgrade it into a permanent explicit choice on reload.
-    actionToUrl(({ values }) => ({
-        setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+    // The drawer mirrors to `?review=<report id>` the same way — a PERMANENT PUBLIC CONTRACT (PR
+    // status comments bake these links into GitHub, where they are never re-edited). Always
+    // `replace`, never push, so opening/closing the drawer doesn't stack history entries.
+    actionToUrl(({ values }) => {
+        const withReviewParam = (
+            review: string | undefined
+        ): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                reviews_scope: values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
-            },
+            { ...router.values.searchParams, review },
             router.values.hashParams,
             { replace: true },
-        ],
-    })),
+        ]
+        return {
+            setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    reviews_scope:
+                        values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ],
+            openReviewDetail: ({ review }) => withReviewParam(review.id),
+            openReviewDetailById: ({ reviewId }) => withReviewParam(reviewId),
+            closeReviewDrawer: () => withReviewParam(undefined),
+        }
+    }),
 
     urlToAction(({ actions, values }) => ({
         [urls.codeReview()]: (_, searchParams) => {
@@ -947,6 +1024,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 parsed !== values.reviewsScope
             ) {
                 actions.setReviewsScope(parsed)
+            }
+            // ?review=<report id>: open that review's drawer. `openedReviewId` (set synchronously by
+            // both open paths) makes the guard hold before the detail loads, so the open's own URL
+            // write-back — a repeat location event with the same param — can't re-dispatch forever.
+            const reviewParam = searchParams.review
+            if (typeof reviewParam === 'string' && reviewParam && reviewParam !== values.openedReviewId) {
+                actions.openReviewDetailById(reviewParam)
+            } else if (!reviewParam && values.reviewDrawerOpen) {
+                // Navigation that drops the param (back/forward, a pasted URL without it) closes
+                // the drawer — otherwise the URL and the visible report disagree.
+                actions.closeReviewDrawer()
             }
         },
     })),

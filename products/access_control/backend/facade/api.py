@@ -27,6 +27,7 @@ from posthog.models import OrganizationMembership, PropertyDefinition, Team
 from ee.models.rbac.role import Role
 
 from ..models.property_access_control import PropertyAccessControl
+from ..property_access_control import is_property_access_control_enabled
 from . import contracts
 from .contracts import PropertyAccessLevel
 
@@ -100,6 +101,19 @@ def get_property_access_state(
         available_access_levels=list(PropertyAccessLevel),
         default_access_level=default_level,
     )
+
+
+def team_has_property_access_rules(*, team_id: int) -> bool:
+    """Whether the team has any property-level access-control rules in effect.
+
+    True only when the feature is available for the org AND at least one rule
+    targeting a property definition exists. Callers that share results across
+    users (e.g. userless precompute) use this to opt out entirely, since a
+    result computed without a user cannot honor per-user property restrictions.
+    """
+    if not is_property_access_control_enabled(team_id=team_id):
+        return False
+    return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
 # --- Write API ---

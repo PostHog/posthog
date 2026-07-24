@@ -115,7 +115,7 @@ const AGENTS: AgentDef[] = [
     },
     {
         key: 'posthog-code',
-        name: 'PostHog Code',
+        name: 'PostHog Desktop',
         logo: <IconLogomark className="size-4 shrink-0" />,
         verb: 'Open',
         open: (prompt, { repository }) => window.open(buildPostHogCodeDeepLink(prompt, repository), '_blank'),

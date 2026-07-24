@@ -150,6 +150,17 @@ class TestNotionSource:
             for pattern in non_retryable
         )
 
+    def test_retryable_marker_matches_raised_message(self) -> None:
+        # notion.py's _request raises this exact message on a 5xx after tenacity's internal
+        # retries exhaust; matching it here keeps that self-recovering failure out of error
+        # tracking as noise instead of being logged as an unclassified exception.
+        markers = self.source.get_retryable_errors()
+        assert markers
+        assert any(
+            marker in "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments"
+            for marker in markers
+        )
+
 
 @pytest.mark.parametrize("status_code", [500, 503])
 def test_http_error_message_format_matches_non_retryable(status_code: int) -> None:

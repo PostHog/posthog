@@ -40,20 +40,13 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
             _DATE_TO,
             OpenApiParameter(
-                name="min_rerun_passes",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="A test counts as flaky once it passed on retry at least this many times in the "
-                "window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
-            ),
-            OpenApiParameter(
                 name="min_failed_prs",
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="A test counts as flaky once it failed on at least this many distinct pull "
-                "requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+                description="An unrecovered test counts toward regression_test_count once it failed on at least "
+                "this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect "
+                "flaky_test_count, which needs proof, not a threshold.",
             ),
             OpenApiParameter(
                 name="limit",
@@ -71,11 +64,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
         },
         description=(
-            "Per-owning-team rollup of the CI test surfaces each team owns: flaky-test count, failure and "
-            "pass-on-retry span counts, each with an equal-length previous-window twin for honest deltas. "
-            "Ownership is stamped on the spans at CI emission time from the repo's ownership map "
-            "(products/*/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team "
-            "'unowned'. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as "
+            "flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was "
+            "seen both failing and passing in the window, regression_test_count is owned tests that failed "
+            "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
+            "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
+            "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
+            "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
+            "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -85,7 +81,6 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
-                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
                 source_id=request.query_params.get("source_id") or None,
@@ -134,8 +129,8 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after "
-            "comparison) over the window and its equal-length prior twin. Signal = failed + error + "
-            "pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "comparison) over the window and its equal-length prior twin. Signal = runs where an owned "
+            "test failed, errored, or a retry recovered it. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

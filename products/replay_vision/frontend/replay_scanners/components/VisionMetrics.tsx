@@ -108,7 +108,9 @@ export function VisionMetrics(): JSX.Element {
                         {hasCap && (
                             <span className={`text-xs tabular-nums ${styles.text}`}>
                                 {percentLabel}%{' '}
-                                <span className="text-muted font-normal">by {resetsOn ?? 'period end'}</span>
+                                <span className="text-muted font-normal">
+                                    by period end{resetsOn ? ` (${resetsOn})` : ''}
+                                </span>
                             </span>
                         )}
                     </div>
