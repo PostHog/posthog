@@ -44,6 +44,7 @@ Before reviewing or writing any code, read these files:
 - `nodejs/src/ingestion/framework/docs/08-side-effects.test.ts` — side effect accumulation, await modes
 - `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
 - `nodejs/src/ingestion/framework/results.ts` — result type definitions and constructor implementations
+- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — sub-result contract inside fan-out/fan-in stages
 
 Also read any files the user points you to.
 
@@ -182,6 +183,23 @@ builder
 
 Use `await: true` when side effects are fast and correctness matters.
 Use `await: false` when throughput matters, but ensure PromiseScheduler is drained at batch boundaries.
+
+### 9. Fan-out sub-result contract
+
+Sub-steps inside a `fanOut().via().fanIn()` stage have a narrower result contract than regular
+steps — the stage settles the parent from its sub-results:
+
+- `ok()` — collected and handed to the fan-in.
+- `drop()` — the sanctioned exclusion: the sub contributes nothing, silently, and the parent
+  fans in with the survivors.
+- `dlq()` — legitimate, and fails the whole parent: the stage emits a parent-level DLQ
+  aggregating the sub DLQs (count, distinct reasons, every error via AggregateError); fan-in
+  is never called. Use it when a sub-element's permanent failure invalidates the element
+  (e.g. a blob upload that permanently failed must not produce an event pointing at a blob
+  that was never stored).
+- `redirect()` — a review flag: sub-elements are not Kafka messages, so there is nothing to
+  redirect. The stage excludes it with a warning log. Route the parent in a step before the
+  fan-out instead — sub redirects never escape the stage's result type.
 
 ## Output format
 

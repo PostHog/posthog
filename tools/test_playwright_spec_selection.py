@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+import argparse
 import importlib.util
 from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
 
 SCRIPT_PATH = Path(__file__).with_name("playwright_spec_selection.py")
 
@@ -31,6 +33,9 @@ FAKE_SPECS = {
 }
 FAKE_MAP = {
     "force_full": ["posthog/**", "pnpm-lock.yaml", "playwright/*.ts"],
+    "ignore": ["docs/**", "**/*.md"],
+    "smoke_subset": ["playwright/e2e/auth.spec.ts"],
+    "scenes_smoke_only": ["inbox"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
         "billing": ["playwright/e2e/billing/"],
@@ -108,6 +113,35 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 {"playwright/e2e/billing/billing.spec.ts"},
             ),
             ("empty diff defaults to full", [], "full", ("empty_diff", "")),
+            # Ignore-listed paths must not force full (that's the feature) and must not
+            # outrank force_full (that would let an ignore glob swallow a critical path).
+            (
+                "ignored file contributes nothing alongside a mapped file",
+                ["docs/handbook/page.txt", "products/surveys/frontend/logic.ts"],
+                "selected",
+                {"products/surveys/frontend/e2e/crud.spec.ts"},
+            ),
+            (
+                "all-ignored diff falls closed to full with its own category",
+                ["docs/handbook/page.txt", "some/notes.md"],
+                "full",
+                ("all_ignored", ""),
+            ),
+            (
+                "force-full wins over ignore for the same file",
+                ["posthog/README.md"],
+                "full",
+                ("force_full", "posthog/**"),
+            ),
+            # A smoke-only scene (declared: no direct coverage) narrows to the smoke
+            # subset instead of forcing full — regressing this reverts the scene to
+            # paying for the whole suite that never exercises it.
+            (
+                "smoke-only scene narrows to the smoke subset",
+                ["frontend/src/scenes/inbox/components/Inbox.tsx"],
+                "selected",
+                {"playwright/e2e/auth.spec.ts"},
+            ),
         ]
         for name, changed, mode, expected in cases:
             with self.subTest(name):
@@ -133,7 +167,7 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
         self.assertTrue(all_specs, "no Playwright specs discovered — wrong REPO_ROOT?")
 
-        targets: list[str] = []
+        targets: list[str] = list(area_map.get("smoke_subset", []))
         for spec_globs in area_map.get("products", {}).values():
             targets += spec_globs
         for spec_globs in area_map.get("scenes", {}).values():
@@ -150,6 +184,47 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                         msg=f"{target} -> {spec} is outside the spec roots",
                     )
 
+    def test_smoke_only_scenes_are_consistent(self) -> None:
+        # A scene in both `scenes` and `scenes_smoke_only` is a contradiction — the
+        # mapped entry silently wins and the smoke declaration is dead weight. And a
+        # non-empty smoke-only list with an empty smoke_subset would send every
+        # smoke-only scene to the defensive no_specs full run, silently killing the
+        # mechanism.
+        area_map = selection.load_map(selection.MAP_PATH)
+        overlap = set(area_map.get("scenes_smoke_only", [])) & set(area_map.get("scenes", {}))
+        self.assertEqual(overlap, set(), msg="scene(s) listed in both scenes and scenes_smoke_only")
+        if area_map.get("scenes_smoke_only"):
+            self.assertTrue(
+                area_map.get("smoke_subset"),
+                msg="scenes_smoke_only requires a non-empty smoke_subset",
+            )
+
+    def test_ignore_patterns_never_match_specs(self) -> None:
+        # An over-broad ignore entry (e.g. "playwright/**") would make a directly-edited
+        # spec contribute nothing — the one selection miss the master backstop can't
+        # attribute. Lock ignore to non-spec paths.
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        for pattern in area_map.get("ignore", []):
+            with self.subTest(pattern):
+                rx = selection._compile_glob(pattern)
+                matched = sorted(s for s in all_specs if rx.match(s))
+                self.assertEqual(matched, [], msg=f"ignore pattern {pattern!r} matches spec files")
+
+    def test_git_failure_tags_git_diff_failed_and_keeps_known_totals(self) -> None:
+        # A git environment failure (e.g. a missing binary) surfaces as OSError, not
+        # CalledProcessError. It must read as git_diff_failed — not map_load_failed — and
+        # must keep the spec count already discovered, so selector_error telemetry points
+        # at the real cause instead of reporting a false zero total.
+        args = argparse.Namespace(map=str(selection.MAP_PATH), base_ref="origin/master")
+        with mock.patch.object(selection, "changed_files_from_git", side_effect=FileNotFoundError("git missing")):
+            result = selection._compute_result(args)
+
+        self.assertEqual(result["mode"], "full")
+        self.assertEqual(result["full_run_reason_category"], "selector_error")
+        self.assertEqual(result["full_run_reason_detail"], "git_diff_failed")
+        self.assertGreater(result["total_spec_count"], 0)
+
     def test_every_spec_is_mapped_or_explicitly_full_suite_only(self) -> None:
         # Forces a conscious decision on every new spec: reachable by a map target
         # (it runs on selective runs for its area) or listed in full_suite_only (it
@@ -159,6 +234,8 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
 
         reachable: set[str] = set()
+        for target in area_map.get("smoke_subset", []):
+            reachable |= selection.expand_target(target, all_specs)
         for section in ("products", "scenes", "explicit"):
             for targets in area_map.get(section, {}).values():
                 for target in targets:

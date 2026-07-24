@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { Ticket } from '../../types'
-import { SupportTicketsTable } from './SupportTicketsScene'
+import { SupportTicketsTable, SupportTicketsTableFilters } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 const TICKET: Ticket = {
@@ -96,5 +96,53 @@ describe('SupportTicketsTable selection', () => {
 
         await waitFor(() => expect(getRowCheckbox()).not.toBeChecked())
         expect(logic.values.selectedTicketIds).toEqual([])
+    })
+})
+
+describe('SupportTicketsTableFilters count', () => {
+    let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+    let mockCount = 0
+
+    beforeEach(() => {
+        mockCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: mockCount }],
+                '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
+                '/api/projects/:team_id/tags': () => [200, []],
+            },
+        })
+        initKeaTests()
+        logic = supportTicketsSceneLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        cleanup()
+    })
+
+    // Set the count directly so the assertion doesn't race the debounced loadTickets; keep the
+    // mock in sync so a background reload can't reset the value out from under the assertion.
+    function setCount(count: number): void {
+        mockCount = count
+        act(() => {
+            logic.actions.setTotalCount(count)
+        })
+    }
+
+    it.each([
+        ['pluralizes the count of tickets matching the current query', 42, '42 tickets'],
+        ['uses the singular noun for a single ticket', 1, '1 ticket'],
+    ])('%s', async (_name, count, expected) => {
+        setCount(count)
+
+        render(
+            <Provider>
+                <SupportTicketsTableFilters />
+            </Provider>
+        )
+
+        expect(await screen.findByText(expected)).toBeInTheDocument()
     })
 })

@@ -11,7 +11,7 @@ use std::sync::RwLock;
 
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
-use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind, PhaseTimings};
+use posthog_replay_anonymizer::{snapshot, AllowLists, FailKind, ImagePolicy, PhaseTimings};
 use serde::Deserialize;
 
 // The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
@@ -21,6 +21,28 @@ use serde::Deserialize;
 compile_error!(
     "replay-anonymizer-node requires panic=unwind: catch_unwind is the fail-closed guard"
 );
+
+/// Deferred-parallel image scrubbing is the production default; `REPLAY_ANONYMIZER_PARALLEL_IMAGES=0`
+/// (or `false`) is the rollback lever to the inline path. Worker count comes from
+/// `REPLAY_ANONYMIZER_IMAGE_THREADS` (see the core crate's `images` module).
+static IMAGE_POLICY: std::sync::OnceLock<ImagePolicy> = std::sync::OnceLock::new();
+
+fn image_policy() -> ImagePolicy {
+    *IMAGE_POLICY.get_or_init(|| {
+        // Forgiving parse: this is an incident rollback lever, so common falsy spellings count.
+        let disabled = std::env::var("REPLAY_ANONYMIZER_PARALLEL_IMAGES").is_ok_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            )
+        });
+        if disabled {
+            ImagePolicy::Inline
+        } else {
+            ImagePolicy::Parallel
+        }
+    })
+}
 
 // The allow lists are immutable per process; set once at startup via `initAnonymizer`.
 static ALLOW: RwLock<Option<AllowLists>> = RwLock::new(None);
@@ -86,7 +108,10 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let scrubbed = snapshot::anonymize_kafka_payload_timed(
                     allow,
                     &mut payload,
-                    snapshot::AnonymizeOpts::default(),
+                    snapshot::AnonymizeOpts {
+                        image_policy: image_policy(),
+                        ..Default::default()
+                    },
                     Some(&timings),
                 );
                 timings.scrub_finished();
