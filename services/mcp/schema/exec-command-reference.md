@@ -4,8 +4,6 @@
 
 In [CLI mode](/docs/model-context-protocol/faq#choosing-a-tool-mode), the default for most clients, the MCP server registers a single `exec` tool instead of one tool per endpoint. Agents pass it CLI-style command strings to list, search, inspect, and call the tools above on demand, which keeps context usage small.
 
-This section is generated from the same templates the server serves to agents at runtime, so it always matches the deployed command surface.
-
 ```text
 learn <topic...> - load one or more learning topics
 tools — list available tool names
@@ -20,21 +18,6 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 The `learn` command is only registered on hosts that use the guided help catalog (currently Claude web and desktop). On hosts that support MCP apps, CLI mode also registers a separate `render-ui` tool for rendering interactive visualizations.
 
 ### How agents use these commands
-
-This is the workflow the tool description asks agents to follow.
-
-PostHog: dashboards, insights, funnels, SQL, experiments, surveys, replay, error tracking, flags.
-
-Pass CLI-style commands in the `command` parameter for all PostHog interactions.
-
-**Requirements**
-
-1. Find unknown tools with `search` or `tools`.
-2. Run `info <tool_name>` once if its schema is not in context. Reuse it unless the tool changes or a schema error occurs.
-
-Never guess a schema or run `info` before every call.
-
-**Commands (in order):**
 
 ```text
 # 1. Find unknown tools
@@ -52,18 +35,8 @@ posthog:exec({ "command": "call <tool_name> <json_input>" })
 posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 ```
 
-**Schema drill-down:**
+### Tips
 
-- `info` returns the full schema if it fits the token budget; otherwise it auto-summarizes (names, types, required, enums, defaults) and attaches `hint` entries pointing to `schema <tool> <path>` for complex fields.
-- `schema <tool>` (no path) returns the summarized top-level schema.
-- `schema <tool> <path>` resolves a dot path, descending through:
-  - object `properties` (e.g. `query.source`)
-  - array `items` — numeric segments step into items (`events.0.properties`), or jump to a property on the item type (`events.id`)
-  - `anyOf`/`oneOf` — numeric segment picks a variant by index, or a property name matches any object variant defining it
-- Oversized sub-schemas are also summarized with a `note` to drill further.
-- Unknown paths return an error listing available child paths.
-
-**Not supported:**
-
-- `search` matches tool metadata only, not input schemas.
-- No pattern-based field projection — drill one path at a time.
+- Run `info <tool_name>` once when a schema isn't already in context, then reuse it. Running it before every call wastes context, and guessing a schema instead fails the call.
+- When `info` returns fields carrying a `hint`, drill into each one with `schema <tool_name> <field_path>` before building that field's value.
+- `search` matches tool names, titles, and descriptions, not input schemas. Search for the tool, then inspect its schema.
