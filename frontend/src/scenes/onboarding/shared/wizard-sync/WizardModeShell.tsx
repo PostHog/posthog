@@ -76,12 +76,15 @@ export function WizardModeShell({
     children,
     hogCastKey = 0,
     hideHog = false,
+    align = 'center',
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
     /** Drop the hedgehog (e.g. the compact context-first onboarding card has no room for it). */
     hideHog?: boolean
+    /** Hog-less content alignment: onboarding cards center it, quickstart keeps the page's left rhythm. */
+    align?: 'center' | 'start'
     'data-attr'?: string
 }): JSX.Element {
     return (
@@ -98,7 +101,12 @@ export function WizardModeShell({
             {/* With the hog hidden (compact context-first card), center the content at its natural
                 width instead of stretching it full-bleed — so the command block and the GitHub-connect
                 block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
-            <div className={cn('flex-1 flex flex-col justify-center gap-3', hideHog && 'items-center text-center')}>
+            <div
+                className={cn(
+                    'flex-1 flex flex-col justify-center gap-3',
+                    hideHog && align === 'center' && 'items-center text-center'
+                )}
+            >
                 {children}
             </div>
         </div>

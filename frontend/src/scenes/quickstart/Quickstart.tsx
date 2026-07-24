@@ -1533,8 +1533,8 @@ function QuickstartInstallSwitcher(): JSX.Element {
         clearActiveCloudRun()
         setMode('local')
     }
-    const cloudBlock = <WizardCloudRunBlock hideHog onRetryLocally={runItYourself} />
-    const localBlock = <WizardCommandBlock hideHog />
+    const cloudBlock = <WizardCloudRunBlock hideHog align="start" onRetryLocally={runItYourself} />
+    const localBlock = <WizardCommandBlock hideHog align="start" />
 
     if (!offerCloud) {
         return activeCloudRun ? cloudBlock : localBlock
@@ -1579,10 +1579,10 @@ function QuickstartFocusedInstall(): JSX.Element {
     return (
         <section className="max-w-xl flex flex-col gap-6">
             <div>
-                <h2 className="text-lg font-semibold mb-1">Get your first event in</h2>
+                <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
                 <p className="text-secondary mb-0">
-                    PostHog runs on your product's events. The wizard gets them flowing in a couple of minutes and
-                    instruments key events for you.
+                    Install the PostHog SDK and data starts flowing within minutes. The setup wizard does it for you –
+                    pick how you'd like to run it:
                 </p>
             </div>
 
@@ -1594,7 +1594,7 @@ function QuickstartFocusedInstall(): JSX.Element {
 
             {!wizardBusy && (
                 <div>
-                    <SubsectionHeader title="Or install manually for a specific tool" />
+                    <SubsectionHeader title="Prefer to set things up by hand? Start from the tool you came for" />
                     <div className="flex flex-wrap gap-2">
                         {featuredProducts.map((product) => (
                             <LemonButton
@@ -1615,7 +1615,7 @@ function QuickstartFocusedInstall(): JSX.Element {
                         ))}
                     </div>
                     <p className="text-secondary text-sm mb-0 mt-3">
-                        Your tools light up here as soon as your data arrives.
+                        This page fills in with your tools as soon as data arrives.
                     </p>
                 </div>
             )}
