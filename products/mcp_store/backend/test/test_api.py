@@ -304,12 +304,12 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
-    def _template(self, name: str, *, active: bool = True) -> MCPServerTemplate:
+    def _template(self, name: str, *, active: bool = True, auth_type: str = "oauth") -> MCPServerTemplate:
         return MCPServerTemplate.objects.create(
             name=name,
             url=f"https://mcp.{name.lower()}.gateway-test.example.com/mcp",
             description=f"{name} integration",
-            auth_type="oauth",
+            auth_type=auth_type,
             category="dev",
             is_active=active,
         )
@@ -365,6 +365,24 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert by_template_id[str(linked.id)]["id"] == str(existing.id)
         assert str(inactive.id) not in by_template_id
         assert MCPGatewayServer.objects.for_team(self.team.id).filter(url=linked.url).count() == 1
+
+    def test_list_exposes_template_auth_type_and_leaves_custom_auth_choice_open(self) -> None:
+        self._make_admin()
+        template = self._template("API key", auth_type="api_key")
+        custom = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Custom",
+            url="https://mcp.custom-auth.gateway-test.example.com/mcp",
+            created_by=self.user,
+        )
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["id"]: result for result in response.json()["results"]}
+        template_result = next(result for result in by_id.values() if result["template_id"] == str(template.id))
+        assert template_result["template_auth_type"] == "api_key"
+        assert by_id[str(custom.id)]["template_auth_type"] is None
 
     def test_disabled_catalog_server_is_hidden_from_members_but_visible_to_admins(self) -> None:
         self._make_admin()

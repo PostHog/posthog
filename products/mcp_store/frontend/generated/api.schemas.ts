@@ -364,6 +364,17 @@ export const AuthModeEnumApi = {
 } as const
 
 /**
+ * * `api_key` - API Key
+ * * `oauth` - OAuth
+ */
+export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
+
+export const MCPAuthTypeEnumApi = {
+    ApiKey: 'api_key',
+    Oauth: 'oauth',
+} as const
+
+/**
  * One member's personal connection to a gateway server.
  */
 export interface GatewayConnectionApi {
@@ -484,6 +495,11 @@ export interface MCPGatewayServerApi {
     readonly description: string
     readonly category: MCPServerCategoryEnumApi
     readonly auth_mode: AuthModeEnumApi
+    /** Fixed authentication type for catalog templates. Null for custom servers, where members choose.
+     *
+     * * `api_key` - API Key
+     * * `oauth` - OAuth */
+    readonly template_auth_type: MCPAuthTypeEnumApi | null
     readonly is_team_enabled: boolean
     readonly allow_personal_connections: boolean
     /** Deprecated brand icon key from the linked template. Empty for custom servers. */
@@ -812,17 +828,6 @@ export interface ServiceAccountAccessUpdateApi {
      */
     policies?: ToolPolicyEntryApi[]
 }
-
-/**
- * * `api_key` - API Key
- * * `oauth` - OAuth
- */
-export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
-
-export const MCPAuthTypeEnumApi = {
-    ApiKey: 'api_key',
-    Oauth: 'oauth',
-} as const
 
 /**
  * * `personal` - Personal

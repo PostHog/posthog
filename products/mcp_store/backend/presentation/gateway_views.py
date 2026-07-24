@@ -42,6 +42,7 @@ from ..gateway import (
 )
 from ..models import (
     APPROVAL_STATES,
+    AUTH_TYPE_CHOICES,
     POLICY_PRESET_CHOICES,
     POLICY_SCOPE_TYPE_CHOICES,
     SERVICE_ACCOUNT_STATUS_CHOICES,
@@ -253,6 +254,14 @@ def _connection_payload(installation: MCPServerInstallation) -> dict[str, Any]:
 class MCPGatewayServerSerializer(serializers.ModelSerializer):
     """A server registered in the team's gateway, with connection summary."""
 
+    template_auth_type = serializers.ChoiceField(
+        choices=AUTH_TYPE_CHOICES,
+        source="template.auth_type",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Fixed authentication type for catalog templates. Null for custom servers, where members choose.",
+    )
     icon_key = serializers.CharField(
         source="template.icon_key",
         read_only=True,
@@ -299,6 +308,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "auth_mode",
+            "template_auth_type",
             "is_team_enabled",
             "allow_personal_connections",
             "icon_key",

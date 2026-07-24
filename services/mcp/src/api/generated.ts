@@ -39069,6 +39069,11 @@ export namespace Schemas {
       readonly description: string;
       readonly category: MCPServerCategoryEnum;
       readonly auth_mode: AuthModeEnum;
+      /** Fixed authentication type for catalog templates. Null for custom servers, where members choose.
+       *
+       * * `api_key` - API Key
+       * * `oauth` - OAuth */
+      readonly template_auth_type: MCPAuthTypeEnum | null;
       readonly is_team_enabled: boolean;
       readonly allow_personal_connections: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */

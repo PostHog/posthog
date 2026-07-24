@@ -28,6 +28,7 @@ import {
 import {
     AudienceEnumApi,
     GatewayMemberSummaryApi,
+    InstallCustomAuthTypeEnumApi,
     MCPGatewayServerApi,
     MCPOrgRuleApi,
     MCPPolicyPresetEnumApi,
@@ -46,6 +47,13 @@ export const GATEWAY_CATEGORY_LABELS: Record<string, string> = {
 
 function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
+}
+
+function errorDetail(error: unknown): string | null {
+    if (typeof error !== 'object' || error === null || !('detail' in error)) {
+        return null
+    }
+    return typeof error.detail === 'string' ? error.detail : null
 }
 
 export function agentServerAccessKey(accountId: string, serverId: string): string {
@@ -73,6 +81,13 @@ export interface mcpGatewayLogicValues {
     config: TeamMCPGatewayConfigApi | null
     configLoading: boolean
     connectingServerId: string | null
+    connectionApiKey: string
+    connectionAuthType: InstallCustomAuthTypeEnumApi
+    connectionClientId: string
+    connectionClientSecret: string
+    connectionModalServer: MCPGatewayServerApi | null
+    connectionModalServerId: string | null
+    connectionSubmitDisabledReason: string | null
     enabledServerCount: number
     filteredServers: MCPGatewayServerApi[]
     isAdmin: boolean
@@ -101,6 +116,9 @@ export interface mcpGatewayLogicActions {
     ) => {
         audience: AudienceEnumApi
         preset: MCPPolicyPresetEnumApi
+    }
+    closeConnectionModal: () => {
+        value: true
     }
     connectServer: (serverId: string) => {
         serverId: string
@@ -187,6 +205,29 @@ export interface mcpGatewayLogicActions {
         serviceAccounts: MCPServiceAccountApi[]
         payload?: any
     }
+    openConnectionModal: (
+        serverId: string,
+        authType: InstallCustomAuthTypeEnumApi
+    ) => {
+        authType: InstallCustomAuthTypeEnumApi
+        serverId: string
+    }
+    performConnection: (
+        serverId: string,
+        authType: InstallCustomAuthTypeEnumApi,
+        apiKey: string,
+        clientId: string,
+        clientSecret: string
+    ) => {
+        apiKey: string
+        authType: InstallCustomAuthTypeEnumApi
+        clientId: string
+        clientSecret: string
+        serverId: string
+    }
+    performConnectionComplete: () => {
+        value: true
+    }
     removeServer: (serverId: string) => {
         serverId: string
     }
@@ -227,6 +268,18 @@ export interface mcpGatewayLogicActions {
     setCategoryFilter: (category: string | null) => {
         category: string | null
     }
+    setConnectionApiKey: (apiKey: string) => {
+        apiKey: string
+    }
+    setConnectionAuthType: (authType: InstallCustomAuthTypeEnumApi) => {
+        authType: InstallCustomAuthTypeEnumApi
+    }
+    setConnectionClientId: (clientId: string) => {
+        clientId: string
+    }
+    setConnectionClientSecret: (clientSecret: string) => {
+        clientSecret: string
+    }
     setMemberServerAccess: (
         userId: number,
         serverId: string,
@@ -245,6 +298,9 @@ export interface mcpGatewayLogicActions {
     }
     setSearchQuery: (query: string) => {
         query: string
+    }
+    submitConnection: () => {
+        value: true
     }
     toggleAccountStatus: (
         accountId: string,
@@ -303,6 +359,14 @@ export interface mcpGatewayLogicMeta {
         allowMemberAgentAccess: (config: TeamMCPGatewayConfigApi | null) => boolean
         canAddServers: (isAdmin: boolean, allowCustomServers: boolean) => boolean
         canManageAgentAccess: (isAdmin: boolean, allowMemberAgentAccess: boolean) => boolean
+        connectionModalServer: (
+            servers: MCPGatewayServerApi[],
+            connectionModalServerId: string | null
+        ) => MCPGatewayServerApi | null
+        connectionSubmitDisabledReason: (
+            connectionAuthType: InstallCustomAuthTypeEnumApi,
+            connectionApiKey: string
+        ) => string | null
         categoryCounts: (servers: MCPGatewayServerApi[]) => Record<string, number>
         filteredServers: (
             servers: MCPGatewayServerApi[],
@@ -333,6 +397,24 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         toggleAllowPersonalComplete: (serverId: string) => ({ serverId }),
         removeServer: (serverId: string) => ({ serverId }),
         connectServer: (serverId: string) => ({ serverId }),
+        openConnectionModal: (serverId: string, authType: InstallCustomAuthTypeEnumApi) => ({
+            serverId,
+            authType,
+        }),
+        closeConnectionModal: true,
+        setConnectionAuthType: (authType: InstallCustomAuthTypeEnumApi) => ({ authType }),
+        setConnectionApiKey: (apiKey: string) => ({ apiKey }),
+        setConnectionClientId: (clientId: string) => ({ clientId }),
+        setConnectionClientSecret: (clientSecret: string) => ({ clientSecret }),
+        submitConnection: true,
+        performConnection: (
+            serverId: string,
+            authType: InstallCustomAuthTypeEnumApi,
+            apiKey: string,
+            clientId: string,
+            clientSecret: string
+        ) => ({ serverId, authType, apiKey, clientId, clientSecret }),
+        performConnectionComplete: true,
         disconnectServer: (serverId: string, installationId: string) => ({ serverId, installationId }),
         toggleYourConnectionEnabled: (installationId: string, enabled: boolean) => ({ installationId, enabled }),
         toggleAccountStatus: (accountId: string, paused: boolean) => ({ accountId, paused }),
@@ -413,9 +495,50 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         connectingServerId: [
             null as string | null,
             {
-                connectServer: (_, { serverId }) => serverId,
-                loadServersSuccess: () => null,
-                loadServersFailure: () => null,
+                performConnection: (_, { serverId }) => serverId,
+                performConnectionComplete: () => null,
+            },
+        ],
+        connectionModalServerId: [
+            null as string | null,
+            {
+                openConnectionModal: (_, { serverId }) => serverId,
+                closeConnectionModal: () => null,
+            },
+        ],
+        connectionAuthType: [
+            'oauth' as InstallCustomAuthTypeEnumApi,
+            {
+                openConnectionModal: (_, { authType }) => authType,
+                setConnectionAuthType: (_, { authType }) => authType,
+                closeConnectionModal: () => 'oauth',
+            },
+        ],
+        connectionApiKey: [
+            '',
+            {
+                setConnectionApiKey: (_, { apiKey }) => apiKey,
+                setConnectionAuthType: () => '',
+                openConnectionModal: () => '',
+                closeConnectionModal: () => '',
+            },
+        ],
+        connectionClientId: [
+            '',
+            {
+                setConnectionClientId: (_, { clientId }) => clientId,
+                setConnectionAuthType: () => '',
+                openConnectionModal: () => '',
+                closeConnectionModal: () => '',
+            },
+        ],
+        connectionClientSecret: [
+            '',
+            {
+                setConnectionClientSecret: (_, { clientSecret }) => clientSecret,
+                setConnectionAuthType: () => '',
+                openConnectionModal: () => '',
+                closeConnectionModal: () => '',
             },
         ],
         serversInitialized: [
@@ -541,6 +664,16 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             (s) => [s.isAdmin, s.allowMemberAgentAccess],
             (isAdmin: boolean, allowMemberAgentAccess: boolean): boolean => isAdmin || allowMemberAgentAccess,
         ],
+        connectionModalServer: [
+            (s) => [s.servers, s.connectionModalServerId],
+            (servers: MCPGatewayServerApi[], serverId: string | null): MCPGatewayServerApi | null =>
+                servers.find((server) => server.id === serverId) ?? null,
+        ],
+        connectionSubmitDisabledReason: [
+            (s) => [s.connectionAuthType, s.connectionApiKey],
+            (authType: InstallCustomAuthTypeEnumApi, apiKey: string): string | null =>
+                authType === 'api_key' && !apiKey.trim() ? 'Enter an API key to connect this server.' : null,
+        ],
         categoryCounts: [
             (s) => [s.servers],
             (servers: MCPGatewayServerApi[]): Record<string, number> => {
@@ -647,35 +780,75 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             actions.loadServers()
             lemonToast.info(`${server?.name ?? 'Server'} removed from the gateway`)
         },
-        connectServer: async ({ serverId }) => {
+        connectServer: ({ serverId }) => {
+            if (values.connectingServerId) {
+                return
+            }
+
             const server = values.servers.find((candidate) => candidate.id === serverId)
             if (!server) {
                 return
             }
+
+            if (server.template_id && server.template_auth_type === 'oauth') {
+                actions.performConnection(serverId, 'oauth', '', '', '')
+                return
+            }
+
+            actions.openConnectionModal(serverId, server.template_auth_type ?? 'oauth')
+        },
+        submitConnection: () => {
+            if (!values.connectionModalServerId || values.connectingServerId || values.connectionSubmitDisabledReason) {
+                return
+            }
+            actions.performConnection(
+                values.connectionModalServerId,
+                values.connectionAuthType,
+                values.connectionApiKey,
+                values.connectionClientId,
+                values.connectionClientSecret
+            )
+        },
+        performConnection: async ({ serverId, authType, apiKey, clientId, clientSecret }) => {
+            const server = values.servers.find((candidate) => candidate.id === serverId)
+            if (!server) {
+                actions.performConnectionComplete()
+                return
+            }
+
             const returnPath = router.values.location.pathname
             const projectId = currentProjectId()
             try {
                 const response = server.template_id
                     ? await mcpServerInstallationsInstallTemplateCreate(projectId, {
                           template_id: server.template_id,
+                          api_key: authType === 'api_key' ? apiKey || undefined : undefined,
+                          scope: 'personal',
                           return_path: returnPath,
                       })
                     : await mcpServerInstallationsInstallCustomCreate(projectId, {
                           name: server.name,
                           url: server.url,
-                          auth_type: 'oauth',
+                          auth_type: authType,
+                          api_key: authType === 'api_key' ? apiKey || undefined : undefined,
                           description: server.description || '',
+                          client_id: authType === 'oauth' ? clientId || undefined : undefined,
+                          client_secret: authType === 'oauth' ? clientSecret || undefined : undefined,
+                          scope: 'personal',
                           return_path: returnPath,
                       })
                 if ('redirect_url' in response && response.redirect_url) {
                     window.location.href = response.redirect_url
                     return
                 }
+                actions.closeConnectionModal()
                 actions.loadServers()
-                lemonToast.success(`Authenticated with ${server.name} as you`)
-            } catch (error: any) {
+                lemonToast.success(`Connected to ${server.name}`)
+            } catch (error: unknown) {
                 actions.loadServers()
-                lemonToast.error(error?.detail || `Could not connect to ${server.name}`)
+                lemonToast.error(errorDetail(error) ?? `Could not connect to ${server.name}`)
+            } finally {
+                actions.performConnectionComplete()
             }
         },
         disconnectServer: async ({ serverId, installationId }) => {

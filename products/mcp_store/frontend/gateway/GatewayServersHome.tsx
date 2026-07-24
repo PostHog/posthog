@@ -2,14 +2,30 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSnack, LemonTag, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSnack,
+    LemonTag,
+    ProfilePicture,
+    Spinner,
+} from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
-import { MCPGatewayServerApi } from '../generated/api.schemas'
+import { InstallCustomAuthTypeEnumApi, MCPGatewayServerApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { toProfileUser } from './gatewayUtils'
 import { GATEWAY_CATEGORY_LABELS, mcpGatewayLogic } from './mcpGatewayLogic'
+
+const AUTH_TYPE_OPTIONS = [
+    { value: 'oauth' as const, label: 'OAuth' },
+    { value: 'api_key' as const, label: 'API key' },
+]
 
 export function GatewayServersHome(): JSX.Element {
     const { filteredServers, serversLoading, searchQuery, categoryFilter, categoryCounts, isAdmin, servers } =
@@ -20,6 +36,8 @@ export function GatewayServersHome(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            <GatewayConnectionModal />
+
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonInput
                     type="search"
@@ -72,13 +90,17 @@ export function GatewayServersHome(): JSX.Element {
 }
 
 function GatewayServerCard({ server }: { server: MCPGatewayServerApi }): JSX.Element {
-    const { isAdmin, connectingServerId } = useValues(mcpGatewayLogic)
+    const { isAdmin, connectingServerId, canAddServers } = useValues(mcpGatewayLogic)
     const { connectServer } = useActions(mcpGatewayLogic)
 
     const connected = Boolean(server.your_connection) || (server.auth_mode === 'shared' && !isAdmin)
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
     const canConnectIndividual = server.auth_mode === 'individual' && !connected
+    const customConnectionDisabledReason =
+        !server.template_id && !canAddServers
+            ? 'Only project admins can connect custom servers for this team.'
+            : undefined
 
     return (
         <div
@@ -111,7 +133,12 @@ function GatewayServerCard({ server }: { server: MCPGatewayServerApi }): JSX.Ele
                             Authorizing…
                         </LemonButton>
                     ) : (
-                        <LemonButton size="small" type="secondary" onClick={() => connectServer(server.id)}>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() => connectServer(server.id)}
+                            disabledReason={customConnectionDisabledReason}
+                        >
                             Connect
                         </LemonButton>
                     )
@@ -124,6 +151,145 @@ function GatewayServerCard({ server }: { server: MCPGatewayServerApi }): JSX.Ele
                 )}
             </div>
         </div>
+    )
+}
+
+function GatewayConnectionModal(): JSX.Element | null {
+    const {
+        connectionModalServer,
+        connectionAuthType,
+        connectionApiKey,
+        connectionClientId,
+        connectionClientSecret,
+        connectingServerId,
+        connectionSubmitDisabledReason,
+    } = useValues(mcpGatewayLogic)
+    const {
+        closeConnectionModal,
+        setConnectionAuthType,
+        setConnectionApiKey,
+        setConnectionClientId,
+        setConnectionClientSecret,
+        submitConnection,
+    } = useActions(mcpGatewayLogic)
+
+    if (!connectionModalServer) {
+        return null
+    }
+
+    const isCustomServer = !connectionModalServer.template_id
+    const connecting = connectingServerId === connectionModalServer.id
+    const closeModal = (): void => {
+        if (!connecting) {
+            closeConnectionModal()
+        }
+    }
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={closeModal}
+            title={`Connect ${connectionModalServer.name}`}
+            description={
+                isCustomServer
+                    ? 'Choose how this server authenticates, then enter your personal credentials.'
+                    : 'Enter the credentials for your personal connection.'
+            }
+            footer={
+                <div className="flex items-center justify-end gap-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeModal}
+                        disabledReason={connecting ? 'Connection in progress' : undefined}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        form="mcp-gateway-connect-server-form"
+                        loading={connecting}
+                        disabledReason={connectionSubmitDisabledReason ?? undefined}
+                    >
+                        Connect
+                    </LemonButton>
+                </div>
+            }
+            width={560}
+        >
+            <form
+                id="mcp-gateway-connect-server-form"
+                className="flex flex-col gap-3"
+                onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!connecting && !connectionSubmitDisabledReason) {
+                        submitConnection()
+                    }
+                }}
+            >
+                {isCustomServer && (
+                    <LemonField.Pure label="Authentication">
+                        <LemonSelect<InstallCustomAuthTypeEnumApi>
+                            value={connectionAuthType}
+                            onChange={setConnectionAuthType}
+                            options={AUTH_TYPE_OPTIONS}
+                            fullWidth
+                        />
+                    </LemonField.Pure>
+                )}
+
+                {connectionAuthType === 'api_key' ? (
+                    <LemonField.Pure label="API key">
+                        <LemonInput
+                            type="password"
+                            value={connectionApiKey}
+                            onChange={setConnectionApiKey}
+                            placeholder="Enter API key"
+                            autoFocus
+                            fullWidth
+                        />
+                    </LemonField.Pure>
+                ) : (
+                    isCustomServer && (
+                        <LemonCollapse
+                            panels={[
+                                {
+                                    key: 'oauth-settings',
+                                    header: 'Advanced OAuth settings',
+                                    content: (
+                                        <div className="flex flex-col gap-3">
+                                            <LemonField.Pure
+                                                label="OAuth client ID"
+                                                help="Leave blank to let PostHog register a client for you."
+                                            >
+                                                <LemonInput
+                                                    value={connectionClientId}
+                                                    onChange={setConnectionClientId}
+                                                    placeholder="Optional"
+                                                    fullWidth
+                                                />
+                                            </LemonField.Pure>
+                                            <LemonField.Pure
+                                                label="OAuth client secret"
+                                                help="Only needed for confidential clients."
+                                            >
+                                                <LemonInput
+                                                    type="password"
+                                                    value={connectionClientSecret}
+                                                    onChange={setConnectionClientSecret}
+                                                    placeholder="Optional"
+                                                    fullWidth
+                                                />
+                                            </LemonField.Pure>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    )
+                )}
+            </form>
+        </LemonModal>
     )
 }
 
