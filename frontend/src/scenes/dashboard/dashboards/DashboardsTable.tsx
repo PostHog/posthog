@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { canEditDashboard } from '@posthog/products-dashboards/frontend/utils'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
@@ -112,13 +113,12 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(_, { id, name, description, is_shared, user_access_level }) {
+            render: function Render(
+                _,
+                { id, name, description, is_shared, user_access_level, effective_privilege_level }
+            ) {
                 const isPrimary = id === currentTeam?.primary_dashboard
-                const canEditDashboard = accessLevelSatisfied(
-                    AccessControlResourceType.Dashboard,
-                    user_access_level,
-                    AccessControlLevel.Editor
-                )
+                const userCanEditDashboard = canEditDashboard({ user_access_level, effective_privilege_level })
                 return (
                     // Fixed-layout table sizes this cell from the container, so the name truncates within its column
                     // (full name on hover) instead of growing the cell and scrolling the whole table.
@@ -138,7 +138,7 @@ export function DashboardsTable({
                                             <IconShare className="ml-1 text-base text-link" />
                                         </Tooltip>
                                     )}
-                                    {!canEditDashboard && (
+                                    {!userCanEditDashboard && (
                                         <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
                                             <IconLock className="ml-1 text-base text-secondary" />
                                         </Tooltip>
