@@ -28,7 +28,7 @@ export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
-    if (value === 'unassigned') {
+    if (value === 'unassigned' || value === 'me') {
         return true
     }
     if (typeof value !== 'object' || value === null) {
