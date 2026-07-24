@@ -237,4 +237,40 @@ describe('PropertiesTable inline editor', () => {
             expect(container.querySelector('.ph-no-capture')).not.toBeNull()
         })
     })
+
+    describe('virtualized bounds mounted properties', () => {
+        // EventDetails passes `virtualized`, so an event with hundreds of properties windows its
+        // rows instead of mounting them all. Below the threshold it must still render the plain
+        // table; above it, the full row set must not mount as a table.
+        const manyProperties = (count: number): Record<string, string> => {
+            const props: Record<string, string> = {}
+            for (let i = 0; i < count; i++) {
+                props[`prop_${i}`] = `value_${i}`
+            }
+            return props
+        }
+
+        const renderVirtualized = (count: number): ReturnType<typeof render> =>
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={manyProperties(count)}
+                        virtualized
+                    />
+                </Provider>
+            )
+
+        const rowCount = (container: HTMLElement): number => container.querySelectorAll('tbody tr').length
+
+        it('renders every row as a plain table when below the virtualization threshold', () => {
+            const { container } = renderVirtualized(60)
+            expect(rowCount(container)).toBe(60)
+        })
+
+        it('does not mount the full row set as a table once above the threshold', () => {
+            const { container } = renderVirtualized(150)
+            expect(rowCount(container)).toBeLessThan(150)
+        })
+    })
 })

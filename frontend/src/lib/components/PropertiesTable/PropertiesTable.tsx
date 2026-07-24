@@ -3,13 +3,15 @@ import './PropertiesTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { List, useDynamicRowHeight } from 'react-window'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isKeyOf } from 'lib/utils/guards'
@@ -229,6 +231,121 @@ export interface PropertiesTableProps extends BasePropertyType {
      * that can be expanded on demand, rather than being expanded inline. Threads through nesting.
      */
     collapsible?: boolean
+    /**
+     * When true, top-level property rows are windowed with react-window once there are enough of
+     * them, so an event with hundreds of properties only mounts the visible rows. Off by default so
+     * every other consumer keeps LemonTable's natural full-height rendering.
+     */
+    virtualized?: boolean
+}
+
+// Above this many top-level rows the object table windows its rows; below it the DOM node count is
+// small enough that plain LemonTable rendering is cheaper than a scroll viewport.
+const VIRTUALIZED_PROPERTY_THRESHOLD = 100
+const VIRTUALIZED_MAX_HEIGHT = 600
+// react-window measures real row heights (rows vary: scalars, wrapped values, collapsed JSON), but
+// needs a starting estimate before the first paint.
+const DEFAULT_PROPERTY_ROW_HEIGHT = 34
+
+interface PropertyRowProps {
+    rows: Array<[string, any]>
+    columns: LemonTableColumn<Record<string, any>, any>[]
+    highlightedKeys?: string[]
+    highlightVariant: 'default' | 'subtle'
+    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+}
+
+function VirtualizedPropertyRow({
+    index,
+    style,
+    rows,
+    columns,
+    highlightedKeys,
+    highlightVariant,
+    dynamicRowHeight,
+    ariaAttributes,
+}: {
+    ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
+    index: number
+    style: CSSProperties
+} & PropertyRowProps): JSX.Element {
+    const rowRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (rowRef.current) {
+            return dynamicRowHeight.observeRowElements([rowRef.current])
+        }
+    }, [dynamicRowHeight])
+
+    const item = rows[index]
+    const highlighted = highlightedKeys?.includes(item[0])
+
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div ref={rowRef} style={style} data-index={index} {...ariaAttributes}>
+            <div
+                className="flex items-start gap-2 px-2 py-1 border-b border-border"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    highlighted
+                        ? { background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)' }
+                        : undefined
+                }
+            >
+                {columns.map((column, columnIndex) => (
+                    <div
+                        key={typeof column.key === 'string' ? column.key : columnIndex}
+                        className={columnIndex === 1 ? 'flex-1 min-w-0 break-all' : 'shrink-0'}
+                    >
+                        {/* These columns (key/value/copy/delete) all return JSX, never the
+                            TableCellRepresentation object shape LemonTable also supports. */}
+                        {column.render?.(undefined, item, index, rows.length) as ReactNode}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function VirtualizedPropertiesList({
+    rows,
+    columns,
+    className,
+    highlightedKeys,
+    highlightVariant,
+}: {
+    rows: Array<[string, any]>
+    columns: LemonTableColumn<Record<string, any>, any>[]
+    className?: string
+    highlightedKeys?: string[]
+    highlightVariant: 'default' | 'subtle'
+}): JSX.Element {
+    const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: DEFAULT_PROPERTY_ROW_HEIGHT })
+    const height = Math.min(rows.length * DEFAULT_PROPERTY_ROW_HEIGHT, VIRTUALIZED_MAX_HEIGHT)
+    const rowProps = useMemo(
+        (): PropertyRowProps => ({ rows, columns, highlightedKeys, highlightVariant, dynamicRowHeight }),
+        [rows, columns, highlightedKeys, highlightVariant, dynamicRowHeight]
+    )
+
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className={className} style={{ height }}>
+            <AutoSizer
+                renderProp={({ height, width }) =>
+                    height && width ? (
+                        <List<PropertyRowProps>
+                            style={{ height, width }}
+                            overscanCount={10}
+                            rowCount={rows.length}
+                            rowHeight={dynamicRowHeight}
+                            rowComponent={VirtualizedPropertyRow}
+                            rowProps={rowProps}
+                        />
+                    ) : null
+                }
+            />
+        </div>
+    )
 }
 
 export function PropertiesTable({
@@ -249,6 +366,7 @@ export function PropertiesTable({
     type,
     parent,
     collapsible = false,
+    virtualized = false,
 }: PropertiesTableProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
@@ -410,7 +528,7 @@ export function PropertiesTable({
     }
 
     if (properties instanceof Object) {
-        const columns: LemonTableColumns<Record<string, any>> = [
+        const columns: LemonTableColumn<Record<string, any>, any>[] = [
             {
                 key: 'key',
                 title: 'Key',
@@ -558,46 +676,56 @@ export function PropertiesTable({
                     </div>
                 )}
 
-                <LemonTable
-                    columns={columns}
-                    showHeader={!embedded}
-                    rowKey="0"
-                    embedded={embedded}
-                    dataSource={objectProperties}
-                    className={className}
-                    emptyState={
-                        <>
-                            {hidePostHogPropertiesInTable || searchTerm ? (
-                                <span className="flex gap-2">
-                                    <span>No properties found</span>
-                                    <LemonButton
-                                        noPadding
-                                        onClick={() => {
-                                            setSearchTerm('')
-                                            setHidePostHogPropertiesInTable(false)
-                                            setHideNullValues(false)
-                                        }}
-                                    >
-                                        Clear filters
-                                    </LemonButton>
-                                </span>
-                            ) : (
-                                'No properties set yet'
-                            )}
-                        </>
-                    }
-                    inset={nestingLevel > 0}
-                    onRow={(record) =>
-                        highlightedKeys?.includes(record[0])
-                            ? {
-                                  style: {
-                                      background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
-                                  },
-                              }
-                            : {}
-                    }
-                    {...tableProps}
-                />
+                {virtualized && nestingLevel === 0 && objectProperties.length > VIRTUALIZED_PROPERTY_THRESHOLD ? (
+                    <VirtualizedPropertiesList
+                        rows={objectProperties}
+                        columns={columns}
+                        className={className}
+                        highlightedKeys={highlightedKeys}
+                        highlightVariant={highlightVariant}
+                    />
+                ) : (
+                    <LemonTable
+                        columns={columns}
+                        showHeader={!embedded}
+                        rowKey="0"
+                        embedded={embedded}
+                        dataSource={objectProperties}
+                        className={className}
+                        emptyState={
+                            <>
+                                {hidePostHogPropertiesInTable || searchTerm ? (
+                                    <span className="flex gap-2">
+                                        <span>No properties found</span>
+                                        <LemonButton
+                                            noPadding
+                                            onClick={() => {
+                                                setSearchTerm('')
+                                                setHidePostHogPropertiesInTable(false)
+                                                setHideNullValues(false)
+                                            }}
+                                        >
+                                            Clear filters
+                                        </LemonButton>
+                                    </span>
+                                ) : (
+                                    'No properties set yet'
+                                )}
+                            </>
+                        }
+                        inset={nestingLevel > 0}
+                        onRow={(record) =>
+                            highlightedKeys?.includes(record[0])
+                                ? {
+                                      style: {
+                                          background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
+                                      },
+                                  }
+                                : {}
+                        }
+                        {...tableProps}
+                    />
+                )}
             </>
         )
     }
