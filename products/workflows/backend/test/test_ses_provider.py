@@ -169,13 +169,6 @@ class TestSESProvider(TestCase):
                     "status": "pending",
                 },
                 {
-                    "type": "verification",
-                    "recordType": "TXT",
-                    "recordHostname": "@",
-                    "recordValue": "v=spf1 include:amazonses.com ~all",
-                    "status": "pending",
-                },
-                {
                     "recordHostname": "mail.test.posthog.com",
                     "recordType": "MX",
                     "recordValue": "feedback-smtp.us-east-1.amazonses.com",

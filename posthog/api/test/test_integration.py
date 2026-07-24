@@ -346,13 +346,6 @@ class TestEmailIntegration:
                     "recordValue": "token1.dkim.amazonses.com",
                     "status": "pending",
                 },
-                {
-                    "type": "spf",
-                    "recordType": "TXT",
-                    "recordHostname": "@",
-                    "recordValue": "v=spf1 include:amazonses.com ~all",
-                    "status": "pending",
-                },
             ],
         }
         mock_client.verify_email_domain.return_value = expected_result

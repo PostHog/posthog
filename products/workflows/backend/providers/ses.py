@@ -153,16 +153,6 @@ class SESProvider:
                 }
             )
 
-        dns_records.append(
-            {
-                "type": "verification",
-                "recordType": "TXT",
-                "recordHostname": "@",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "pending",
-            }
-        )
-
         # Start/ensure MAIL FROM setup (MX + TXT) ---
         try:
             self.ses_client.set_identity_mail_from_domain(
