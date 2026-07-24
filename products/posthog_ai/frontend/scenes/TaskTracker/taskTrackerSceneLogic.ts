@@ -23,6 +23,7 @@ import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
+import { takePendingTaskKickoff } from '../../logics/pendingTaskKickoff'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
@@ -231,6 +232,9 @@ export interface taskTrackerSceneLogicActions {
     applyComposerSeed: () => {
         value: true
     }
+    applyPendingTaskKickoff: () => {
+        value: true
+    }
     applySuggestion: (item: SuggestionItem) => {
         item: SuggestionItem
     }
@@ -347,6 +351,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         clearConsentBlock: true,
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
+        // Consumes a `pendingTaskKickoff` queued by another scene: opens the thread on its message
+        // immediately and runs its create-and-run thunk in the background.
+        applyPendingTaskKickoff: true,
     }),
 
     reducers({
@@ -553,6 +560,50 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },
+        // A kickoff queued by another scene (e.g. the inbox's "Discuss report") before navigating here:
+        // the same optimistic-open as `submitNewTask` — seed the thread with the message right away —
+        // but with the task creation supplied by the producer, so the user watches their message (and
+        // then the provisioning run) instead of waiting on the creation calls back on the old scene.
+        applyPendingTaskKickoff: async () => {
+            // Embedded panels never consume a scene-level kickoff (the producer navigated the main app here).
+            if (props.panelId) {
+                return
+            }
+            const kickoff = takePendingTaskKickoff()
+            if (!kickoff) {
+                return
+            }
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
+            const streamKey = `draft-${uuid()}`
+            actions.claimApplyBackTargets(streamKey)
+            const stream = runStreamLogic({ streamKey })
+            cache.activeCreationUnmount = stream.mount()
+            actions.setActiveCreation({ streamKey })
+            stream.actions.startOptimisticRun(kickoff.message)
+
+            let created: { taskId: string; runId?: string }
+            try {
+                created = await kickoff.createAndRun()
+            } catch (error) {
+                actions.releaseApplyBackTargets(streamKey)
+                actions.clearActiveCreation()
+                // Land back on the composer with the message prefilled so the typed text survives the failure.
+                actions.setNewTaskData({ description: kickoff.message })
+                const { detail, message } = (error ?? {}) as { detail?: string; message?: string }
+                lemonToast.error(detail || message || 'Failed to start task')
+                return
+            }
+            // The user may have left the pending thread while the task provisioned (the `urlToAction`
+            // below cleared the creation) — don't re-point it or yank them back.
+            if (values.activeCreation?.streamKey !== streamKey) {
+                return
+            }
+            actions.setActiveCreation({ streamKey, taskId: created.taskId, runId: created.runId })
+            // Replace so back returns to the producer's scene, not the transient `/tasks/new` handoff.
+            router.actions.replace(`/tasks/${created.taskId}`)
+            actions.loadTasks(values.taskListParams)
+        },
         openExistingTask: ({ task }) => {
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
@@ -645,7 +696,17 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
             '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
-            '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            '/tasks/:taskId': ({ taskId }) => {
+                if (props.panelId) {
+                    return
+                }
+                clearIfLeftCreatedTask(taskId)
+                // `/tasks/new` is where producers land a queued kickoff (this also fires on mount for the
+                // current URL, covering the scene-not-yet-mounted order).
+                if (taskId === 'new') {
+                    actions.applyPendingTaskKickoff()
+                }
+            },
         }
     }),
 ])
