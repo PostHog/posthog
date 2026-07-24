@@ -277,3 +277,54 @@ tasks:
       expected_tools: [metric-names-list, query-metrics]
       acceptable_tools: [execute-sql]
       success_criteria: 'Resolves the exact metric name first (names match exactly), then queries a rate over the last 24h — does not guess the metric name.'
+
+    # --- data-catalog -----------------------------------------------------------------------
+    - id: data-catalog-use-canonical-mrr
+      category: data-catalog
+      intent: 'What was our MRR last month?'
+      expected_tools: [execute-sql]
+      acceptable_tools: [data-catalog-metric-run]
+      success_criteria: >
+          Checks system.information_schema.metrics for an approved, non-drifted MRR metric before
+          deriving the number. If one exists, runs it and cites it as the canonical definition; never
+          presents a proposed or drifted metric as canonical.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted, definition_kind FROM system.information_schema.metrics WHERE name ILIKE '%mrr%' OR description ILIKE '%recurring revenue%'"
+
+    - id: data-catalog-check-before-deriving
+      category: data-catalog
+      intent: "What's our activation rate?"
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Looks in the catalog (system.information_schema.metrics) for a canonical activation metric
+          before deriving one from scratch, and reports whether an approved one exists.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%activation%' OR description ILIKE '%activation%'"
+
+    - id: data-catalog-prefer-certified-source
+      category: data-catalog
+      intent: 'Which table should I use to report revenue?'
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Uses the certification column on system.information_schema.tables to prefer a certified
+          revenue source and avoid deprecated ones, rather than picking an arbitrary similar table.
+      probe:
+          tool: execute-sql
+          args:
+              query: 'SELECT table_name, certification, description FROM system.information_schema.tables WHERE certification IS NOT NULL'
+
+    - id: data-catalog-never-cite-proposed
+      category: data-catalog
+      intent: 'Is there an official definition of churn I should use?'
+      expected_tools: [execute-sql]
+      success_criteria: >
+          Reports whether an approved (not proposed or drifted) churn metric exists in the catalog, and
+          does not present a proposed metric as if it were official.
+      probe:
+          tool: execute-sql
+          args:
+              query: "SELECT name, status, is_drifted FROM system.information_schema.metrics WHERE name ILIKE '%churn%'"
