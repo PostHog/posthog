@@ -16,6 +16,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
+import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
+
 export const FLAGS_PER_PAGE = 100
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
@@ -233,6 +235,56 @@ export interface featureFlagsLogicActions {
         id: number
         payload: Partial<FeatureFlagType>
     }
+    updateFeatureFlagArchived: ({
+        id,
+        archived,
+        via,
+    }: {
+        archived: boolean
+        id: number
+        /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+        via?: FeatureFlagArchivedSource
+    }) => {
+        id: number
+        archived: boolean
+        via?: FeatureFlagArchivedSource
+    }
+    updateFeatureFlagArchivedFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateFeatureFlagArchivedSuccess: (
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        },
+        payload?: {
+            id: number
+            archived: boolean
+            via?: FeatureFlagArchivedSource
+        }
+    ) => {
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        }
+        payload?: {
+            id: number
+            archived: boolean
+            via?: FeatureFlagArchivedSource
+        }
+    }
     updateFeatureFlagFailure: (
         error: string,
         errorObject?: any
@@ -381,6 +433,39 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         throw e
                     }
                 },
+                // Dedicated from updateFeatureFlag so the archive telemetry below can fire only once the
+                // archive actually lands, instead of on click (see featureFlagLogic.ts's sibling action).
+                updateFeatureFlagArchived: async ({
+                    id,
+                    archived,
+                    via,
+                }: {
+                    id: number
+                    archived: boolean
+                    /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+                    via?: FeatureFlagArchivedSource
+                }) => {
+                    try {
+                        const response = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                            archived ? { archived: true, active: false } : { archived: false }
+                        )
+                        const updatedFlags = [...values.featureFlags.results].map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
+                        if (archived && via) {
+                            reportFeatureFlagArchived(via)
+                        }
+                        return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
+                    } catch (e: any) {
+                        handleFlagApprovalRequired(
+                            e,
+                            id,
+                            archived ? 'archive this feature flag' : 'unarchive this feature flag'
+                        )
+                        throw e
+                    }
+                },
             },
         ],
     })),
@@ -409,6 +494,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return featureFlags.results
                 },
                 updateFeatureFlagSuccess: (_, { featureFlags }) => {
+                    return featureFlags.results
+                },
+                updateFeatureFlagArchivedSuccess: (_, { featureFlags }) => {
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
@@ -461,6 +549,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return state
                 },
                 updateFeatureFlagFailure: () => ({}),
+                updateFeatureFlagArchived: (state, { id }) => ({ ...state, [id]: true }),
+                updateFeatureFlagArchivedSuccess: (state, { featureFlags }) => {
+                    if (featureFlags.lastUpdatedFlagId) {
+                        const { [featureFlags.lastUpdatedFlagId]: _, ...rest } = state
+                        return rest
+                    }
+                    return state
+                },
+                updateFeatureFlagArchivedFailure: () => ({}),
             },
         ],
     }),

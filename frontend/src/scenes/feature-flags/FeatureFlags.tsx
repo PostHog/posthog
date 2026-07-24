@@ -62,6 +62,7 @@ import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsMod
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
+import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
@@ -149,7 +150,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating } = useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
+    const { updateFeatureFlag, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -193,57 +194,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             }}
                             fullWidth
                         >
-                            Copy feature flag key
+                            Copy key
                         </LemonButton>
-
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.FeatureFlag}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={featureFlag.user_access_level}
-                        >
-                            <LemonButton
-                                data-attr={`feature-flag-${featureFlag.key}-switch`}
-                                onClick={() => {
-                                    const newValue = !featureFlag.active
-                                    LemonDialog.open({
-                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                        description: `This flag will be immediately ${
-                                            newValue === true ? 'rolled out to' : 'rolled back from'
-                                        } the users matching the release conditions.`,
-                                        primaryButton: {
-                                            children: 'Confirm',
-                                            type: 'primary',
-                                            onClick: () => {
-                                                featureFlag.id
-                                                    ? updateFeatureFlag({
-                                                          id: featureFlag.id,
-                                                          payload: { active: newValue },
-                                                      })
-                                                    : null
-                                            },
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                                id={`feature-flag-${featureFlag.id}-switch`}
-                                fullWidth
-                                loading={isUpdating}
-                                disabledReason={
-                                    isUpdating
-                                        ? 'Updating…'
-                                        : featureFlag.archived
-                                          ? 'Unarchive this flag before enabling it.'
-                                          : undefined
-                                }
-                            >
-                                {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                            </LemonButton>
-                        </AccessControlAction>
 
                         {featureFlag.id && (
                             <AccessControlAction
@@ -287,6 +239,70 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
                         <LemonDivider />
 
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={featureFlag.user_access_level}
+                        >
+                            <LemonButton
+                                data-attr={`feature-flag-${featureFlag.key}-switch`}
+                                onClick={() => {
+                                    const newValue = !featureFlag.active
+                                    const applyUpdate = (payload: Partial<FeatureFlagType>): void => {
+                                        featureFlag.id && updateFeatureFlag({ id: featureFlag.id, payload })
+                                    }
+                                    const openControlDialog = (onConfirm?: () => void, onCancel?: () => void): void => {
+                                        LemonDialog.open({
+                                            title: `${newValue ? 'Enable' : 'Disable'} this flag?`,
+                                            description: `This flag will be immediately ${
+                                                newValue ? 'rolled out to' : 'rolled back from'
+                                            } the users matching the release conditions.`,
+                                            primaryButton: {
+                                                children: 'Confirm',
+                                                type: 'primary',
+                                                onClick: onConfirm ?? (() => applyUpdate({ active: newValue })),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                                onClick: onCancel,
+                                            },
+                                        })
+                                    }
+                                    if (newValue) {
+                                        openControlDialog()
+                                        return
+                                    }
+                                    openFeatureFlagDisableDialog({
+                                        source: 'feature-flags-list',
+                                        onDisable: () => applyUpdate({ active: false }),
+                                        onDisableAndArchive: () =>
+                                            featureFlag.id &&
+                                            updateFeatureFlagArchived({
+                                                id: featureFlag.id,
+                                                archived: true,
+                                                via: 'disable-confirmation',
+                                            }),
+                                        openControlDialog,
+                                    })
+                                }}
+                                id={`feature-flag-${featureFlag.id}-switch`}
+                                fullWidth
+                                loading={isUpdating}
+                                disabledReason={
+                                    isUpdating
+                                        ? 'Updating…'
+                                        : featureFlag.archived
+                                          ? 'Unarchive this flag before enabling it.'
+                                          : undefined
+                                }
+                            >
+                                {featureFlag.active ? 'Disable' : 'Enable'}
+                            </LemonButton>
+                        </AccessControlAction>
+
                         {featureFlag.id && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
@@ -298,17 +314,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     onClick={() => {
                                         if (featureFlag.archived) {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
-                                                    id: featureFlag.id,
-                                                    payload: { archived: false },
-                                                })
+                                                updateFeatureFlagArchived({ id: featureFlag.id, archived: false })
                                             return
                                         }
                                         openFeatureFlagArchiveDialog(featureFlag, () => {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
+                                                updateFeatureFlagArchived({
                                                     id: featureFlag.id,
-                                                    payload: { archived: true, active: false },
+                                                    archived: true,
+                                                    via: 'archive-dialog',
                                                 })
                                         })
                                     }}
@@ -316,7 +330,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     loading={isUpdating}
                                     disabledReason={isUpdating ? 'Updating…' : undefined}
                                 >
-                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
+                                    {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}
@@ -347,7 +361,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }
                                     fullWidth
                                 >
-                                    Delete feature flag
+                                    Delete
                                 </LemonButton>
                             </AccessControlAction>
                         )}

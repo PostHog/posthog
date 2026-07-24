@@ -401,10 +401,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         }
                                         onClick={() => {
                                             if (featureFlag.archived) {
-                                                updateFeatureFlagArchived(false)
+                                                updateFeatureFlagArchived({ archived: false })
                                             } else {
                                                 openFeatureFlagArchiveDialog(featureFlag, () =>
-                                                    updateFeatureFlagArchived(true)
+                                                    updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
                                                 )
                                             }
                                         }}
@@ -465,7 +465,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 featureFlag.can_edit
                                     ? {
                                           children: 'Unarchive',
-                                          onClick: () => updateFeatureFlagArchived(false),
+                                          onClick: () => updateFeatureFlagArchived({ archived: false }),
                                           disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
                                       }
                                     : undefined

@@ -5,6 +5,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
+import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { DependentFlag } from './featureFlagLogic'
 
 /**
@@ -112,7 +113,8 @@ export function checkFeatureFlagConfirmation(
     onConfirm: () => void,
     dependentFlags?: DependentFlag[],
     isBeingDisabled?: boolean,
-    requireStatusConfirmation = false
+    requireStatusConfirmation = false,
+    onDisableAndArchive?: () => void
 ): boolean {
     // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
@@ -137,12 +139,26 @@ export function checkFeatureFlagConfirmation(
     }
 
     if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
-        openConfirmationModal({
-            featureFlag: updatedFlag,
-            type: 'flag-status',
-            activeNewValue: updatedFlag.active,
-            onConfirm,
-        })
+        const openStatusConfirmationModal = (onConfirmModal?: () => void, onCancelModal?: () => void): void =>
+            openConfirmationModal({
+                featureFlag: updatedFlag,
+                type: 'flag-status',
+                activeNewValue: updatedFlag.active,
+                onConfirm: onConfirmModal ?? onConfirm,
+                onCancel: onCancelModal,
+            })
+
+        // Disabling can offer "Disable and archive" behind the disable-and-archive experiment
+        if (!updatedFlag.active && onDisableAndArchive) {
+            openFeatureFlagDisableDialog({
+                source: 'feature-flag-detail',
+                onDisable: onConfirm,
+                onDisableAndArchive,
+                openControlDialog: openStatusConfirmationModal,
+            })
+            return true
+        }
+        openStatusConfirmationModal(onConfirm)
         return true
     }
 
