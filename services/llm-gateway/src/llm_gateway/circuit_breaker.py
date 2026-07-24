@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 
 BUCKET_WIDTH_SECONDS = 30
 # Bump the prefix when bucket semantics change so rolling deploys cannot mix incompatible writes.
-KEY_PREFIX = "llm_gateway:cb:anthropic:v3"
+KEY_PREFIX = "llm_gateway:cb:anthropic:v2"
 REDIS_OP_TIMEOUT_SECONDS = 0.1
 
 _OutcomeField = Literal["s", "f"]
