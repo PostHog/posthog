@@ -6,11 +6,10 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+import { LEARN_COMMAND_LINE } from '../src/tools/exec-help'
+
 const SECTIONS_DIR = path.join(__dirname, '../src/templates/sections')
 const OUTPUT_PATH = path.join(__dirname, '../schema/exec-command-reference.md')
-
-// Mirrors the `extraCommands` literal in src/lib/instructions-formatter.ts (buildClaudeExecCommandReference).
-const LEARN_COMMAND_LINE = 'learn <topic...> - load one or more learning topics\n'
 
 function readSection(name: string): string {
     return fs.readFileSync(path.join(SECTIONS_DIR, name), 'utf8').trim()
