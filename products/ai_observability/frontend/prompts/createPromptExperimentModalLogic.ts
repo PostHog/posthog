@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
-import { LLMPromptVersionSummary } from '~/types'
 
 import {
     experimentsCreateFromPromptCreate,
@@ -16,6 +15,7 @@ import type {
     ExperimentsPromptTemplatesRetrieve200Item,
     TemplatesEnumApi,
 } from '../../../experiments/frontend/generated/api.schemas'
+import { LLMPromptVersionSummary } from './types'
 
 export const MIN_VERSIONS = 2
 export const MAX_VERSIONS = 10
