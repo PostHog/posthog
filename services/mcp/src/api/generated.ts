@@ -40502,107 +40502,6 @@ export namespace Schemas {
       success?: boolean | null;
     }
 
-    /**
-     * * `count` - count
-     * * `sum` - sum
-     * * `distinct` - distinct
-     */
-    export type OutcomeAggregationEnum = typeof OutcomeAggregationEnum[keyof typeof OutcomeAggregationEnum];
-
-
-    export const OutcomeAggregationEnum = {
-      Count: 'count',
-      Sum: 'sum',
-      Distinct: 'distinct',
-    } as const;
-
-    /**
-     * A standard PostHog property filter (event property, person property, cohort, HogQL, ...), in the same shape the insights API accepts.
-     */
-    export type OutcomeAtomPropertiesItem = { [key: string]: unknown };
-
-    export interface OutcomeAtom {
-      /**
-         * Name of the event this condition aggregates.
-         * @maxLength 400
-         */
-      event: string;
-      /** Property filters an event must match to count toward this condition. */
-      properties?: OutcomeAtomPropertiesItem[];
-      /** Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.
-       *
-       * * `count` - count
-       * * `sum` - sum
-       * * `distinct` - distinct */
-      aggregation?: OutcomeAggregationEnum;
-      /**
-         * Event property to sum or count distinct values of; required for sum and distinct, must be empty for count.
-         * @maxLength 400
-         * @nullable
-         */
-      aggregation_property?: string | null;
-      /** The condition is satisfied once the aggregation reaches at least this value. Must be a whole number of at least 1 for count and distinct, greater than 0 for sum. */
-      threshold?: number;
-    }
-
-    export interface OutcomePath {
-      /** Conditions combined within this path; all must be met unless min_matches is set. */
-      atoms: OutcomeAtom[];
-      /**
-         * Satisfy the path when at least this many of its conditions are met (M-of-N). Leave empty to require all of them.
-         * @minimum 1
-         * @nullable
-         */
-      min_matches?: number | null;
-    }
-
-    export interface OutcomeCriteria {
-      /** Paths OR'd together: a person reaches the outcome by completing any one path. */
-      paths: OutcomePath[];
-    }
-
-    export interface OutcomeDefinition {
-      readonly id: string;
-      /**
-         * Human-readable name of the outcome.
-         * @maxLength 400
-         */
-      name: string;
-      /** What reaching this outcome means for the business. */
-      description?: string;
-      /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
-      criteria: OutcomeCriteria;
-      /** Number of persons who have reached this outcome so far. */
-      readonly reached_count: number;
-      /**
-         * When the batch evaluator last ran for this outcome.
-         * @nullable
-         */
-      readonly last_calculated_at: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly created_by: UserBasic;
-    }
-
-    /**
-     * Aggregate values only: the winning path index and, per condition, the attained value against its threshold at latch time.
-     */
-    export type OutcomeLatchEvidence = { [key: string]: unknown };
-
-    export interface OutcomeLatch {
-      readonly id: string;
-      /** UUID of the person who reached the outcome. */
-      readonly person_id: string;
-      /** A distinct ID of the person, used for display and event emission. */
-      readonly distinct_id: string;
-      /** Timestamp of the threshold-crossing event — a function of the event set alone. */
-      readonly reached_at: string;
-      /** Aggregate values only: the winning path index and, per condition, the attained value against its threshold at latch time. */
-      readonly evidence: OutcomeLatchEvidence;
-      readonly created_at: string;
-    }
-
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
       version: string;
@@ -41993,15 +41892,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationPersonalAPIKey[];
-    }
-
-    export interface PaginatedOutcomeDefinitionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: OutcomeDefinition[];
     }
 
     export interface ParserRecipe {
@@ -50142,30 +50032,6 @@ export namespace Schemas {
       readonly last_login?: string;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
-    }
-
-    export interface PatchedOutcomeDefinition {
-      readonly id?: string;
-      /**
-         * Human-readable name of the outcome.
-         * @maxLength 400
-         */
-      name?: string;
-      /** What reaching this outcome means for the business. */
-      description?: string;
-      /** Monotone criteria: paths OR'd together, conditions AND'd within a path (optionally M-of-N). */
-      criteria?: OutcomeCriteria;
-      /** Number of persons who have reached this outcome so far. */
-      readonly reached_count?: number;
-      /**
-         * When the batch evaluator last ran for this outcome.
-         * @nullable
-         */
-      readonly last_calculated_at?: string | null;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      readonly created_by?: UserBasic;
     }
 
     export interface PatchedParserRecipe {
@@ -78328,17 +78194,6 @@ export namespace Schemas {
     };
 
     export type ObjectMediaPreviewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type OutcomesListParams = {
     /**
      * Number of results to return per page.
      */
