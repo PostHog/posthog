@@ -176,6 +176,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "enforce_login_with_verified_domain",
             "members_can_invite",
             "members_can_create_projects",
             "members_can_use_personal_api_keys",
@@ -308,6 +309,15 @@ class OrganizationSerializer(
             if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
                 raise serializers.ValidationError(
                     "You must upgrade your plan to enforce 2FA.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_enforce_login_with_verified_domain(self, value: bool | None) -> bool | None:
+        if self.instance and self.instance.enforce_login_with_verified_domain != value:
+            if not self.instance.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to restrict members to verified domains.",
                     code="payment_required",
                 )
         return value
