@@ -18,12 +18,13 @@ import { InsightShortId } from '~/types'
 import { AlertStateIndicator } from '../components/AlertDefinition'
 import { buildAlertSummary } from '../components/alertSummary'
 import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
-import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
 
 interface AlertListItemProps {
     alert: AlertType
+    destinationCount?: number
+    destinationsLoading?: boolean
     onClick: () => void
     redesigned: boolean
 }
@@ -67,9 +68,32 @@ function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
     )
 }
 
-export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps): JSX.Element {
+export function AlertListItem({
+    alert,
+    destinationCount = 0,
+    destinationsLoading = false,
+    onClick,
+    redesigned,
+}: AlertListItemProps): JSX.Element {
     if (redesigned) {
-        return <RedesignedAlertListItem alert={alert} onClick={onClick} />
+        const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, destinationCount)
+        if (destinationsLoading) {
+            summary.notifies = 'Loading…'
+        }
+        return (
+            <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
+                <AlertSummaryBanner
+                    summary={summary}
+                    header={
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate">{alert.name}</span>
+                            <AlertStateIndicator alert={alert} />
+                        </div>
+                    }
+                    footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
+                />
+            </LemonButton>
+        )
     }
 
     return (
@@ -83,26 +107,6 @@ export function AlertListItem({ alert, onClick, redesigned }: AlertListItemProps
 
                 <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
-        </LemonButton>
-    )
-}
-
-function RedesignedAlertListItem({ alert, onClick }: Omit<AlertListItemProps, 'redesigned'>): JSX.Element {
-    const { existingHogFunctions } = useValues(alertNotificationLogic({ alertId: alert.id }))
-    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, existingHogFunctions.length)
-
-    return (
-        <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
-            <AlertSummaryBanner
-                summary={summary}
-                header={
-                    <div className="flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate">{alert.name}</span>
-                        <AlertStateIndicator alert={alert} />
-                    </div>
-                }
-                footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
-            />
         </LemonButton>
     )
 }
@@ -122,7 +126,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, alertsLoading } = useValues(logic)
+    const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
     const redesigned = useFeatureFlag('ALERTS_REDESIGNED_EDIT_MODAL')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
@@ -174,6 +178,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                             <AlertListItem
                                 key={alert.id}
                                 alert={alert}
+                                destinationCount={alertDestinationCounts[alert.id] ?? 0}
+                                destinationsLoading={alertDestinationCountsLoading}
                                 onClick={() => openAlert(alert.id)}
                                 redesigned={redesigned}
                             />

@@ -322,6 +322,10 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 value={url.value}
                                 onChange={url.onChange}
                                 onPressEnter={(event) => {
+                                    if (event.nativeEvent.isComposing) {
+                                        event.stopPropagation()
+                                        return
+                                    }
                                     event.preventDefault()
                                     event.stopPropagation()
                                     if (!add.disabledReason) {

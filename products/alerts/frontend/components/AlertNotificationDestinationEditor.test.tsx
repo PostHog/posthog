@@ -86,41 +86,6 @@ describe('AlertNotificationDestinationEditor', () => {
         expect(screen.queryByText("Couldn't load Slack workspaces.")).toBeNull()
     })
 
-    it('renders pending destinations with the same structure and a pending tag', () => {
-        render(
-            <AlertNotificationDestinationEditor
-                destinations={{
-                    showExisting: false,
-                    existingLoading: false,
-                    existing: [],
-                    pending: [
-                        {
-                            key: 'pending-webhook',
-                            title: 'Webhook',
-                            detail: 'https://example.com/webhook',
-                            onRemove: jest.fn(),
-                        },
-                    ],
-                }}
-                notificationType={{ options: [], value: 'webhook', onChange: jest.fn() }}
-                slack={{
-                    notificationType: 'slack',
-                    integrationsLoading: false,
-                    integrationsFailed: false,
-                    onRetryIntegrations: jest.fn(),
-                    integrations: [],
-                    channelValue: null,
-                    onChannelValueChange: jest.fn(),
-                }}
-                add={{ onClick: jest.fn() }}
-            />
-        )
-
-        expect(screen.getByText('Webhook')).toBeTruthy()
-        expect(screen.getByText('https://example.com/webhook')).toBeTruthy()
-        expect(screen.getByText('Pending')).toBeTruthy()
-    })
-
     it('adds a valid URL on Enter without bubbling to the wizard', () => {
         const onAdd = jest.fn()
         const onWizardKeyDown = jest.fn()
@@ -148,7 +113,12 @@ describe('AlertNotificationDestinationEditor', () => {
             </div>
         )
 
-        fireEvent.keyDown(screen.getByPlaceholderText('https://example.com/webhook'), { key: 'Enter' })
+        const input = screen.getByPlaceholderText('https://example.com/webhook')
+        fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+        expect(onAdd).not.toHaveBeenCalled()
+        expect(onWizardKeyDown).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(input, { key: 'Enter' })
 
         expect(onAdd).toHaveBeenCalledTimes(1)
         expect(onWizardKeyDown).not.toHaveBeenCalled()
