@@ -125,16 +125,6 @@ export interface EvaluationRun {
     status: 'completed' | 'failed' | 'running'
 }
 
-export interface HogTestResult {
-    event_uuid: string
-    trace_id?: string | null
-    input_preview: string
-    output_preview: string
-    result: boolean | null
-    reasoning: string
-    error: string | null
-}
-
 export type EvaluationReportFrequency = 'scheduled' | 'every_n'
 
 export interface EvaluationReportDeliveryTarget {

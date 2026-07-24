@@ -241,14 +241,6 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
-class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
-    pass
-
-
-class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
-    pass
-
-
 class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
@@ -1045,10 +1037,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
+# Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
 CH_TRANSIENT_ERRORS = (
-    CHQueryErrorTooManySimultaneousQueries,
-    CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
+    ClickHouseAtCapacity,
 )

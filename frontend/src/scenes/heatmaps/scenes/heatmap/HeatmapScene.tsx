@@ -6,6 +6,7 @@ import { IconBrowser, IconDownload } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -15,6 +16,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -25,6 +27,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
+
+export const scene: SceneExport<{ id: string }> = {
+    component: HeatmapScene,
+    logic: heatmapLogic,
+    paramsToProps: ({ params: { id } }) => ({ id }),
+}
 
 export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logicProps = { id: id }
@@ -45,6 +53,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
         isHeightCapped,
+        userAccessLevel,
     } = useValues(logic)
     const {
         setName,
@@ -106,9 +115,15 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     }}
                     actions={
                         <>
-                            <LemonButton type="primary" onClick={updateHeatmap} size="small">
-                                Save
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Heatmap}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel ?? undefined}
+                            >
+                                <LemonButton type="primary" onClick={updateHeatmap} size="small">
+                                    Save
+                                </LemonButton>
+                            </AccessControlAction>
                             <LemonButton
                                 onClick={exportHeatmap}
                                 data-attr="export-heatmap"

@@ -28,7 +28,7 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 **Patch, don't replace.** Edit a draft with `workflows-patch-graph`: a small, ordered list of id-addressed operations (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`). `update_action` deep-merges its patch, so changing one email subject is a few lines, not the whole graph. The ops apply atomically server-side (read, apply in order, validate, save only if valid), and the response echoes the **full updated graph**, so you never re-fetch before the next edit. This keeps each round-trip tiny instead of re-transmitting every action and edge.
 
-`workflows-update` is the fallback, for two cases: top-level metadata a graph patch can't express (for example renaming the workflow), or as an escape hatch when you genuinely can't get `workflows-patch-graph` to land a change (send the whole corrected workflow rather than keep fighting the op list). For everything else, patch.
+`workflows-update` covers only what a graph patch can't express: top-level fields like name, description, exit_condition, conversion, trigger_masking, and variables. It rejects `actions`/`edges` outright - a partial list would silently drop every step it omits - so every graph change goes through `workflows-patch-graph`.
 
 After **any** patch, re-test the path you changed (step 3). A patch that validates structurally can still route the wrong way.
 
@@ -44,6 +44,8 @@ Editing an active workflow stages a **draft** instead of changing what's running
 4. **Or bail.** `workflows-discard-draft` throws the staged draft away.
 
 In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run; people parked on a step the publish deletes skip forward to its next surviving step (or exit at a dead end), exactly as the impact preview reported.
+
+Timing edits apply to parked runs gradually, not instantly. Publishing a shortened delay (or a moved wait window) reschedules the runs parked on it via a rate-limited sweep. Runs already due to wake soon keep their original earlier wake untouched; only wakes that the sweep moves earlier are affected, and those land spread out, no sooner than a few minutes after publish (and never later than their original wake). Runs still parked shortly after publishing are expected - tell the user this rather than re-publishing or treating it as a failure.
 
 ### Rolling back
 
