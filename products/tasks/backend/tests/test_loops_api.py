@@ -1,3 +1,7 @@
+import io
+import base64
+import hashlib
+import zipfile
 from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
@@ -109,6 +113,32 @@ class LoopsAPITestCase(TestCase):
 
 
 class LoopCRUDAPITest(LoopsAPITestCase):
+    @parameterized.expand(
+        [
+            ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
+            (
+                "pinned_glm_with_unsupported_effort",
+                "claude",
+                "@cf/zai-org/glm-5.2",
+                "medium",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_validates_model_and_reasoning_effort(
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+    ):
+        payload = self._valid_loop_payload(
+            runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
+        )
+
+        response = self.owner_client.post(self._loops_url(), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+
     def test_create_list_retrieve_update_delete_loop(self):
         payload = self._valid_loop_payload(
             name="Weekly digest",
@@ -229,6 +259,314 @@ class LoopPartialUpdateAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertFalse(response.json()["triggers"][0]["enabled"])
+
+
+class LoopSkillBundlesAPITest(LoopsAPITestCase):
+    def _skill_bundles_url(self, loop_id: str) -> str:
+        return f"{self._loop_url(loop_id)}skill_bundles/"
+
+    def _zip_bytes(self, files: dict[str, str] | None = None) -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for entry_name, entry_content in (files or {"SKILL.md": "body"}).items():
+                archive.writestr(entry_name, entry_content)
+        return buffer.getvalue()
+
+    def _bundle_payload(self, name: str = "my-skill", content: bytes | None = None) -> dict:
+        content_bytes = content if content is not None else self._zip_bytes()
+        return {
+            "file_name": f"{name}.zip",
+            "skill_name": name,
+            "skill_source": "user",
+            "content_sha256": hashlib.sha256(content_bytes).hexdigest(),
+            "bundle_format": "zip",
+            "content_base64": base64.b64encode(content_bytes).decode("ascii"),
+        }
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_owner_replaces_and_clears_skill_bundles(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        content = self._zip_bytes()
+
+        replaced = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]),
+            {"bundles": [self._bundle_payload(content=content)]},
+            format="json",
+        )
+
+        self.assertEqual(replaced.status_code, status.HTTP_200_OK, replaced.content)
+        bundles = replaced.json()["skill_bundles"]
+        self.assertEqual(len(bundles), 1)
+        self.assertEqual(bundles[0]["skill_name"], "my-skill")
+        self.assertEqual(bundles[0]["skill_source"], "user")
+        self.assertEqual(bundles[0]["size"], len(content))
+        self.assertEqual(bundles[0]["content_sha256"], hashlib.sha256(content).hexdigest())
+        mock_write.assert_called_once()
+
+        row = Loop.objects.unscoped().get(id=loop["id"])
+        stored = row.skill_bundles[0]
+        self.assertEqual(stored["type"], "skill_bundle")
+        self.assertTrue(stored["storage_path"].startswith(row.get_skill_bundle_s3_prefix()))
+        self.assertEqual(stored["metadata"]["skill_name"], "my-skill")
+        first_storage_path = stored["storage_path"]
+
+        retrieved = self.owner_client.get(self._loop_url(loop["id"]))
+        self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(retrieved.json()["skill_bundles"]), 1)
+
+        cleared = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": []}, format="json")
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
+        self.assertEqual(cleared.json()["skill_bundles"], [])
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+        # Superseded objects are expired via a grace-period tag, not deleted outright —
+        # an in-flight fire may still be copying from them.
+        mock_delete.assert_not_called()
+        mock_tag.assert_any_call(first_storage_path, {"ttl_days": "1", "team_id": str(self.team.id)})
+
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_sha_mismatch(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload()
+        payload["content_sha256"] = "0" * 64
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("sha256", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    def test_replace_rejects_too_many_bundles(self):
+        loop = self._create_loop(self.owner_client)
+        bundles = [self._bundle_payload(name=f"skill-{index}") for index in range(11)]
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": bundles}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    @patch("posthog.storage.object_storage.write")
+    def test_a_later_invalid_bundle_prevents_any_write(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        valid = self._bundle_payload(name="first")
+        invalid = self._bundle_payload(name="second")
+        invalid["content_sha256"] = "0" * 64
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [valid, invalid]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        mock_write.assert_not_called()
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_a_failed_write_deletes_the_bundles_already_written(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        mock_write.side_effect = [None, RuntimeError("s3 down")]
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]),
+            {"bundles": [self._bundle_payload(name="first"), self._bundle_payload(name="second")]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, response.content)
+        mock_delete.assert_called_once()
+        deleted_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(deleted_paths), 1)
+        self.assertIn("first", deleted_paths[0])
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_non_zip_bundle(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=b"not a zip archive")
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("not a valid zip archive", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES", 64)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_bundle_that_expands_past_the_cap(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=self._zip_bytes({"SKILL.md": "x" * 1024}))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("expands to more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_FILES", 1)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_bundle_with_too_many_entries(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=self._zip_bytes({"SKILL.md": "body", "extra.md": "more"}))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("contains more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLES_TOTAL_UNCOMPRESSED_BYTES", 1500)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_bundles_that_together_expand_past_the_cap(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        bundles = [
+            self._bundle_payload(name="first", content=self._zip_bytes({"SKILL.md": "x" * 1024})),
+            self._bundle_payload(name="second", content=self._zip_bytes({"SKILL.md": "y" * 1024})),
+        ]
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": bundles}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("together expand", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_CENTRAL_DIR_BYTES", 10)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_an_oversized_central_directory(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_FILES", 1)
+    @patch("posthog.storage.object_storage.write")
+    def test_a_lying_trailer_count_is_caught_after_parse(self, mock_write):
+        # The trailer's entry count is attacker-controlled; forging it low shaves the
+        # fast-fail but the parsed entry list must still trip the cap.
+        content = bytearray(self._zip_bytes({"SKILL.md": "body", "extra.md": "more"}))
+        eocd = content.rfind(b"PK\x05\x06")
+        content[eocd + 8 : eocd + 12] = (1).to_bytes(2, "little") * 2
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=bytes(content))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("contains more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    def test_replace_requires_a_declared_content_length(self):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), CONTENT_LENGTH="0")
+
+        self.assertEqual(response.status_code, status.HTTP_411_LENGTH_REQUIRED, response.content)
+
+    @patch("products.tasks.backend.presentation.views.loops.MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES", 10)
+    def test_replace_rejects_an_oversized_request_up_front(self):
+        loop = self._create_loop(self.owner_client)
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, response.content)
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_racing_an_ownership_takeover_is_denied(self, mock_write, mock_tag, mock_delete):
+        # Ownership moves to a teammate while the former owner's replace is mid-upload;
+        # the swap must re-authorize under the lock, discard its uploads and 403 rather
+        # than landing the former owner's skill on the taken-over loop.
+        loop = self._create_loop(self.owner_client, visibility="team")
+
+        def take_ownership_mid_request(*args, **kwargs):
+            Loop.objects.unscoped().filter(id=loop["id"]).update(created_by=self.peer)
+
+        mock_write.side_effect = take_ownership_mid_request
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        mock_delete.assert_called_once()
+        discarded_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(discarded_paths), 1)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_racing_a_delete_discards_its_uploads(self, mock_write, mock_tag, mock_delete):
+        # The soft delete commits between this request's fetch and its manifest swap; the
+        # swap must notice the deleted row and discard its own fresh uploads, not
+        # resurrect bundles on a deleted loop.
+        loop = self._create_loop(self.owner_client)
+
+        def soft_delete_mid_request(*args, **kwargs):
+            Loop.objects.unscoped().filter(id=loop["id"]).update(deleted=True)
+
+        mock_write.side_effect = soft_delete_mid_request
+
+        response = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        mock_delete.assert_called_once()
+        discarded_paths = mock_delete.call_args.args[0]
+        self.assertEqual(len(discarded_paths), 1)
+        self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.delete_objects")
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_deleting_a_loop_releases_its_bundle_objects(self, mock_write, mock_tag, mock_delete):
+        loop = self._create_loop(self.owner_client)
+        replaced = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(replaced.status_code, status.HTTP_200_OK, replaced.content)
+        stored_path = Loop.objects.unscoped().get(id=loop["id"]).skill_bundles[0]["storage_path"]
+
+        deleted = self.owner_client.delete(self._loop_url(loop["id"]))
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
+        mock_delete.assert_not_called()
+        mock_tag.assert_any_call(stored_path, {"ttl_days": "1", "team_id": str(self.team.id)})
+        row = Loop.objects.unscoped().get(id=loop["id"])
+        self.assertTrue(row.deleted)
+        self.assertEqual(row.skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_is_owner_gated_on_a_team_loop(self, mock_write, mock_tag):
+        loop = self._create_loop(self.owner_client, visibility="team")
+
+        denied = self.peer_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.content)
+
+        allowed = self.owner_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK, allowed.content)
+
+    def test_replace_on_someone_elses_personal_loop_is_a_404(self):
+        loop = self._create_loop(self.owner_client, visibility="personal")
+
+        response = self.peer_client.put(
+            self._skill_bundles_url(loop["id"]), {"bundles": [self._bundle_payload()]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
 
 class LoopSafetyLimitAPITest(LoopsAPITestCase):
@@ -628,6 +966,77 @@ class LoopScheduleTriggerValidationAPITest(LoopsAPITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.content)
+
+
+class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        mock_github = self._start_patch("products.tasks.backend.facade.loops.GitHubIntegration")
+        mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/repo"}]
+
+    def _github_trigger(self, events: list, filters: dict | None = None) -> dict:
+        config: dict = {"github_integration_id": self.integration.id, "repository": "acme/repo", "events": events}
+        if filters is not None:
+            config["filters"] = filters
+        return {"type": "github", "config": config}
+
+    @parameterized.expand(
+        [
+            ("bare_event", ["issues"], None, ["issues"], {}),
+            ("bare_event_with_action_filter", ["issues"], {"actions": ["opened"]}, ["issues"], {"actions": ["opened"]}),
+            ("singular_action_alias", ["issues"], {"action": "opened"}, ["issues"], {"actions": ["opened"]}),
+            ("dotted_shorthand", ["issues.opened"], None, ["issues"], {"actions": ["opened"]}),
+            (
+                "dotted_shorthand_duplicates",
+                ["issues.opened", "issues.opened"],
+                None,
+                ["issues"],
+                {"actions": ["opened"]},
+            ),
+            (
+                "dotted_shorthand_multiple_actions",
+                ["issues.opened", "issues.reopened"],
+                None,
+                ["issues"],
+                {"actions": ["opened", "reopened"]},
+            ),
+            (
+                "dotted_shorthand_merges_with_explicit_actions",
+                ["pull_request.opened"],
+                {"actions": ["synchronize"]},
+                ["pull_request"],
+                {"actions": ["synchronize", "opened"]},
+            ),
+        ]
+    )
+    def test_event_shorthand_normalization(self, _name, events, filters, expected_events, expected_filters):
+        created = self._create_loop(self.owner_client, triggers=[self._github_trigger(events, filters)])
+        config = created["triggers"][0]["config"]
+        self.assertEqual(config["events"], expected_events)
+        self.assertEqual(config["filters"], expected_filters)
+
+    @parameterized.expand(
+        [
+            ("unknown_event", ["nonsense"]),
+            ("unknown_dotted_event", ["nonsense.opened"]),
+            ("dotted_event_with_empty_action", ["issues."]),
+            # Shorthand mixed with a bare event is ambiguous: the folded actions filter would
+            # silently apply to the bare event too.
+            ("shorthand_mixed_with_bare_event", ["issues.opened", "push"]),
+            ("shorthand_mixed_with_its_own_bare_event", ["issues.opened", "issues"]),
+            # Cross-event shorthand would flatten into a cartesian product: pull_request.opened
+            # would fire here even though only pull_request.synchronize was requested.
+            ("shorthand_spanning_multiple_events", ["issues.opened", "pull_request.synchronize"]),
+        ]
+    )
+    def test_invalid_events_are_rejected(self, _name, events):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[self._github_trigger(events)]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
 
 class LoopServiceReadbackAPITest(LoopsAPITestCase):

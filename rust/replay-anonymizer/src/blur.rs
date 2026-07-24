@@ -14,6 +14,54 @@ const MAX_LONG_SIDE: f32 = 96.0;
 const MAX_IMAGE_SIDE: u32 = 16_384;
 const MAX_IMAGE_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
 
+const JPEG_MAGIC: &[u8] = &[0xFF, 0xD8, 0xFF];
+
+/// Decode a JPEG at a reduced DCT scale — the blur target is <= MAX_LONG_SIDE px, so the decoder
+/// can skip most IDCT work (it picks the smallest of 1/8..1 still at or above the request).
+/// Returns the decoded image plus the ORIGINAL dimensions, so the caller sizes the thumbnail off
+/// the true aspect, not the scaled decode. `None` falls back to the full-resolution path
+/// (non-JPEG bytes, oversize dimensions, or a pixel format the fast path doesn't map).
+fn decode_scaled_jpeg(bytes: &[u8]) -> Option<(DynamicImage, (u32, u32))> {
+    if !bytes.starts_with(JPEG_MAGIC) {
+        return None;
+    }
+    let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.read_info().ok()?;
+    let info = decoder.info()?;
+    // Baseline only: progressive (and lossless) frames buffer FULL-resolution coefficient planes
+    // inside decode() regardless of the requested scale, and jpeg-decoder has no allocation-limit
+    // API — a tiny crafted progressive header declaring 16k x 16k would force gigabytes. The
+    // fallback path enforces MAX_IMAGE_ALLOC_BYTES via image::Limits and rejects such files.
+    if info.coding_process != jpeg_decoder::CodingProcess::DctSequential {
+        return None;
+    }
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
+        return None;
+    }
+    // Belt for the sequential path's own buffers: stay well under the fallback's allocation cap.
+    if u64::from(w) * u64::from(h) * 4 > MAX_IMAGE_ALLOC_BYTES {
+        return None;
+    }
+    decoder
+        .scale(MAX_LONG_SIDE as u16, MAX_LONG_SIDE as u16)
+        .ok()?;
+    let pixels = decoder.decode().ok()?;
+    let scaled = decoder.info()?;
+    let (sw, sh) = (u32::from(scaled.width), u32::from(scaled.height));
+    let img = match scaled.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            image::RgbImage::from_raw(sw, sh, pixels).map(DynamicImage::ImageRgb8)
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            image::GrayImage::from_raw(sw, sh, pixels).map(DynamicImage::ImageLuma8)
+        }
+        // CMYK32 / L16 are rare; the generic decoder handles them at full resolution.
+        _ => None,
+    }?;
+    Some((img, (w, h)))
+}
+
 fn decode_limited(bytes: &[u8]) -> Option<DynamicImage> {
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_SIDE);
@@ -70,8 +118,14 @@ pub fn blur_image_data_uri(s: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
         .ok()?;
-    let img = decode_limited(&bytes)?; // can't read the header / exceeds limits -> None
-    let (w, h) = img.dimensions();
+    let (img, (w, h)) = match decode_scaled_jpeg(&bytes) {
+        Some(scaled) => scaled,
+        None => {
+            let img = decode_limited(&bytes)?; // can't read the header / exceeds limits -> None
+            let dims = img.dimensions();
+            (img, dims)
+        }
+    };
     let (tw, th) = target_dims(w, h);
     // Downsample (fit: fill) then Gaussian blur, mirroring the TS pipeline order.
     let out = img
@@ -149,6 +203,39 @@ mod tests {
         let decoded = image::load_from_memory(&bytes).unwrap();
         // target_dims(100, 50) with ratio 0.12 -> (12, 6).
         assert_eq!(decoded.dimensions(), (12, 6));
+    }
+
+    #[test]
+    fn scaled_jpeg_decode_sizes_the_thumbnail_off_the_original_dims() {
+        // 1024x512 decodes at a reduced DCT scale; the thumbnail must still come out at
+        // target_dims(1024, 512) = (96, 48), not 0.12x of the scaled decode.
+        for gray in [false, true] {
+            let rgb = image::RgbImage::from_fn(1024, 512, |x, y| {
+                image::Rgb([(x % 251) as u8, (y % 241) as u8, 90])
+            });
+            let img = if gray {
+                image::DynamicImage::ImageLuma8(image::DynamicImage::ImageRgb8(rgb).to_luma8())
+            } else {
+                image::DynamicImage::ImageRgb8(rgb)
+            };
+            let mut buf = Vec::new();
+            img.write_to(
+                &mut std::io::Cursor::new(&mut buf),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+            let uri = format!(
+                "data:image/jpeg;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(&buf)
+            );
+            let out = blur_image_data_uri(&uri).expect("blur should succeed for a valid jpeg");
+            let (_, b64) = split_data_uri(&out).unwrap();
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&b64)
+                .unwrap();
+            let decoded = image::load_from_memory(&bytes).unwrap();
+            assert_eq!(decoded.dimensions(), (96, 48), "gray={gray}");
+        }
     }
 
     #[test]

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
+
+from django.db import transaction
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -24,14 +26,16 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import is_service_auth
+from posthog.permissions import get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
@@ -46,9 +50,14 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunSerializer,
+    CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueSuggestionsResponseSerializer,
     CustomPropertyValueWriteSerializer,
+    EventStreamMemberWriteSerializer,
+    EventStreamSerializer,
+    EventStreamTestMessageSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -58,6 +67,46 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+
+class _WarehouseScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
+    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
+    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
+    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
+    scope in here enforces the cross-resource scope on every path without threading it through the
+    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
+    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+
+    def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
+        self._inner = inner
+        self._token_scopes = token_scopes
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
+        if self._token_lacks_scope_for(obj, required_level):
+            return False
+        return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
+
+    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+        scopes = self._token_scopes
+        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+            return False
+        if "external_data_source:write" in scopes:
+            return False  # write implies read, so it satisfies both viewer and editor
+        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+
+
+def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
+    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
+    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
+    if scopes is None:
+        return view.user_access_control
+    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
 # "A UUID string identifying this <model>.". These viewsets reach the model through the
@@ -100,6 +149,30 @@ def _object_required_level(request: Request, write: bool) -> str | None:
     if is_service_auth(request):
         return None
     return _OBJECT_WRITE_LEVEL if write else _OBJECT_READ_LEVEL
+
+
+_GROUP_TARGET_TYPE = "group"
+
+
+def _has_group_scope(request: Request, *, write: bool) -> bool:
+    """Whether the caller may read (``write=False``) or write (``write=True``) the ``group`` resource.
+    Group-target custom properties read and modify group data, but these viewsets are scoped to
+    ``account`` — so a token/OAuth caller must additionally hold the matching ``group`` scope,
+    mirroring what the group API itself enforces. Session callers are governed by project membership
+    (same as the group API), and service auth is exempt."""
+    if is_service_auth(request):
+        return True
+    token_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if token_scopes is None:
+        return True  # session / non-token auth — same footing as the group API
+    if "*" in token_scopes or "group:write" in token_scopes:
+        return True
+    return not write and "group:read" in token_scopes
+
+
+def _assert_group_scope(request: Request, *, write: bool) -> None:
+    if not _has_group_scope(request, write=write):
+        raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
 
 
 class CustomerProfileConfigViewSet(
@@ -203,23 +276,35 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    # ``values`` is a custom read action; without listing it here it carries no required scope and
+    # rejects token auth outright ("does not support personal API key access") before the group gate runs.
+    scope_object_read_actions = ["list", "retrieve", "values"]
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_custom_property_definitions(
-                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
             ),
             CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         definition = api.get_custom_property_definition(
-            self.team_id, self.kwargs["pk"], user_access_control=self.user_access_control
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
         )
-        if definition is None:
+        # Hide group-target definitions from callers without group read authorization.
+        if definition is None or (
+            definition.target_type == _GROUP_TARGET_TYPE and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
 
@@ -247,6 +332,18 @@ class CustomPropertyDefinitionViewSet(
         key = request.GET.get("key")
         if not key:
             return Response({"results": [], "refreshing": False})
+        # Suggestions expose a group-target definition's option labels (and its existence), so gate them
+        # on group read authorization just like list/retrieve — an account-scoped caller without group
+        # read must not read group property configuration. Unknown keys keep the empty-envelope behavior.
+        definition = api.get_custom_property_definition(
+            self.team_id, key, user_access_control=_warehouse_scoped_uac(self)
+        )
+        if (
+            definition is not None
+            and definition.target_type == _GROUP_TARGET_TYPE
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         suggestions = api.list_custom_property_value_suggestions(self.team_id, key, request.GET.get("value"))
         return Response({"results": [{"name": value} for value in suggestions], "refreshing": False})
 
@@ -254,8 +351,11 @@ class CustomPropertyDefinitionViewSet(
         serializer = CustomPropertyDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.target_type == "person" and not api.person_properties_flag_enabled(self.team_id):
-            raise ValidationError({"target_type": "Person properties from warehouse data are not enabled yet."})
+        # Person and group targets are both gated behind the warehouse-person-properties rollout flag.
+        if data.target_type in ("person", "group") and not api.person_properties_flag_enabled(self.team_id):
+            raise ValidationError({"target_type": "Person/group properties from warehouse data are not enabled yet."})
+        if data.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
         try:
             definition = api.create_custom_property_definition(
                 team_id=self.team_id,
@@ -265,6 +365,7 @@ class CustomPropertyDefinitionViewSet(
                 is_big_number=data.is_big_number,
                 options=_custom_property_option_dicts(data.options),
                 target_type=data.target_type,
+                group_type_index=data.group_type_index,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -275,7 +376,16 @@ class CustomPropertyDefinitionViewSet(
             raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
+    def _guard_group_definition(self, request: Request, definition_id) -> None:
+        # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
+        definition = api.get_custom_property_definition(
+            self.team_id, definition_id, user_access_control=self.user_access_control
+        )
+        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+            _assert_group_scope(request, write=True)
+
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         partial = kwargs.pop("partial", False)
         serializer = CustomPropertyDefinitionSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -287,6 +397,7 @@ class CustomPropertyDefinitionViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -301,6 +412,7 @@ class CustomPropertyDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_definition(request, self.kwargs["pk"])
         deleted = api.delete_custom_property_definition(
             team_id=self.team_id,
             definition_id=self.kwargs["pk"],
@@ -427,22 +539,52 @@ class CustomPropertySourceViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
+        # Callers without group read authorization don't see sources feeding group-target definitions.
+        exclude_group_targets = not _has_group_scope(request, write=False)
         return self._paginate_via_facade(
             request,
-            lambda offset, limit: api.list_custom_property_sources(self.team_id, offset=offset, limit=limit),
+            lambda offset, limit: api.list_custom_property_sources(
+                self.team_id,
+                offset=offset,
+                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
+            ),
             CustomPropertySourceSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
-        if source is None:
+        source = api.get_custom_property_source(
+            self.team_id, self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+        )
+        # Hide sources feeding a group-target definition from callers without group read authorization.
+        if source is None or (
+            self._definition_is_group(source.definition) and not _has_group_scope(request, write=False)
+        ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    def _definition_is_group(self, definition_id) -> bool:
+        if definition_id is None:
+            return False
+        definition = api.get_custom_property_definition(
+            self.team_id, str(definition_id), user_access_control=self.user_access_control
+        )
+        return definition is not None and definition.target_type == _GROUP_TARGET_TYPE
+
+    def _guard_group_source(self, request: Request, source_id, *, write: bool = True) -> None:
+        # A source feeding a group definition reads/activates the group-writing pipeline, so touching
+        # it needs group scope — an account-only token must not read or modify group properties.
+        source = api.get_custom_property_source(self.team_id, source_id)
+        if source is not None and self._definition_is_group(source.definition):
+            _assert_group_scope(request, write=write)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CustomPropertySourceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if self._definition_is_group(data.definition):
+            _assert_group_scope(request, write=True)
         try:
             source = api.create_custom_property_source(
                 team_id=self.team_id,
@@ -451,21 +593,32 @@ class CustomPropertySourceViewSet(
                 source_column=data.source_column,
                 external_data_schema_id=data.external_data_schema,
                 column_property_map=data.column_property_map,
+                column_descriptions=data.column_descriptions,
                 key_column=data.key_column,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
+                user_access_control=_warehouse_scoped_uac(self),
             )
         except api.CustomPropertySourceValidationError as e:
             raise ValidationError(str(e))
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
     def update(self, request: Request, *args, **kwargs) -> Response:
+        self._guard_group_source(request, self.kwargs["pk"])
         write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
         write.is_valid(raise_exception=True)
-        source = api.update_custom_property_source(
-            team_id=self.team_id, source_id=self.kwargs["pk"], fields=write.validated_data
-        )
+        try:
+            source = api.update_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                fields=write.validated_data,
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
@@ -476,10 +629,100 @@ class CustomPropertySourceViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            deleted = api.delete_custom_property_source(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        operation_id="custom_property_sources_sync",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
+        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
+        off it."""
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            triggered = api.trigger_person_property_sync(
+                team_id=self.team_id, source_id=self.kwargs["pk"], user_access_control=_warehouse_scoped_uac(self)
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        except api.WarehouseSyncPausedError as e:
+            return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if not triggered:
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        operation_id="custom_property_sources_backfill",
+        request=None,
+        responses={202: CustomPropertySyncTriggerResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def backfill(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: start a backfill that reads the whole warehouse table and
+        populates person or group properties for historical rows. Coalesces if one is already running
+        for the table."""
+        self._guard_group_source(request, self.kwargs["pk"])
+        try:
+            started = api.trigger_person_property_backfill(
+                team_id=self.team_id,
+                source_id=self.kwargs["pk"],
+                trigger="manual",
+                user_access_control=_warehouse_scoped_uac(self),
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if started is None:
+            raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        return Response(
+            {"status": "started" if started else "already_running", "already_running": not started},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        operation_id="custom_property_sources_runs_list",
+        responses={200: CustomPropertySyncRunSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True)
+    def runs(self, request: Request, *args, **kwargs) -> Response:
+        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
+        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
+        errors."""
+        # Hide the run history of a group-target source from callers without group read authorization.
+        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        if (
+            source is not None
+            and self._definition_is_group(source.definition)
+            and not _has_group_scope(request, write=False)
+        ):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            return self._paginate_via_facade(
+                request,
+                lambda offset, limit: api.list_custom_property_sync_runs(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    offset=offset,
+                    limit=limit,
+                    user_access_control=_warehouse_scoped_uac(self),
+                ),
+                CustomPropertySyncRunSerializer,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
 
 
 class CustomerJourneyViewSet(
@@ -1075,7 +1318,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 account_id=account_id,
                 definition_id=write.validated_data["definition"],
                 value=write.validated_data["value"],
-                created_by_id=request.user.id,
+                actor=cast(User, request.user),
             )
         except api.Account_DoesNotExist:
             # The account passed the access pre-check but was deleted before the write committed.
@@ -1171,3 +1414,174 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+
+_EVENT_STREAM_ID_PARAM = OpenApiParameter(
+    "id",
+    OpenApiTypes.STR,
+    OpenApiParameter.PATH,
+    description="A UUID string identifying this event stream.",
+)
+
+
+class EventStreamTestMessageThrottle(UserRateThrottle):
+    """Each test message posts to Slack, so cap the rate per user regardless of auth method."""
+
+    scope = "event_stream_test_message"
+    rate = "6/minute"
+
+
+@extend_schema(tags=["customer_analytics"])
+class EventStreamViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """The caller's event stream: a live feed of selected accounts' events posted to a
+    Slack channel of their choice. Per-user — each team member owns at most one stream, and
+    every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+    destination that is re-provisioned inside the same transaction as every write, so
+    config and delivery can't drift apart."""
+
+    scope_object = "account"
+    serializer_class = EventStreamSerializer
+    pagination_class = None  # at most one stream exists per team (one-to-one) — nothing to paginate
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        streams = api.list_event_streams(self.team_id, user=cast(User, request.user))
+        return Response(EventStreamSerializer(instance=streams, many=True).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = EventStreamSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.create_event_stream(
+                    team_id=self.team_id,
+                    enabled=data.enabled,
+                    event_names=data.event_names,
+                    slack_integration_id=data.slack_integration,
+                    slack_channel_id=data.slack_channel_id,
+                    slack_channel_name=data.slack_channel_name,
+                    user=user,
+                )
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        except api.EventStreamConflictError as e:
+            raise Conflict(str(e))
+        return Response(EventStreamSerializer(instance=stream).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = EventStreamSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.update_event_stream(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    fields=_event_stream_write_fields(serializer.validated_data, request.data),
+                    user=user,
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.EventStreamValidationError as e:
+            raise ValidationError(str(e))
+        return Response(EventStreamSerializer(instance=stream).data)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        deleted = api.delete_event_stream(
+            team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=True)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=EventStreamMemberWriteSerializer,
+        responses={200: EventStreamSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def remove_account(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_member(request, included=False)
+
+    @extend_schema(
+        parameters=[_EVENT_STREAM_ID_PARAM],
+        request=None,
+        responses={200: EventStreamTestMessageSerializer},
+    )
+    @action(methods=["POST"], detail=True, throttle_classes=[EventStreamTestMessageThrottle])
+    def send_test_message(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            channel_id = api.send_test_slack_message(
+                team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
+            )
+        except contracts.EventStreamTestMessageError as e:
+            raise ValidationError(str(e))
+        if channel_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EventStreamTestMessageSerializer(instance={"channel_id": channel_id}).data)
+
+    def _set_member(self, request: Request, *, included: bool) -> Response:
+        write = EventStreamMemberWriteSerializer(data=request.data)
+        write.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        try:
+            with transaction.atomic():
+                stream = api.set_event_stream_member(
+                    team_id=self.team_id,
+                    stream_id=self.kwargs["pk"],
+                    account_id=write.validated_data["account_id"],
+                    included=included,
+                    user=user,
+                    user_access_control=self.user_access_control,
+                )
+                if stream is None:
+                    return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
+        except api.Account_DoesNotExist:
+            raise ValidationError({"account_id": "Account not found for this team."})
+        return Response(EventStreamSerializer(instance=stream).data)
+
+
+# Request field -> model column, for translating a write body into facade update fields.
+_EVENT_STREAM_WRITE_FIELDS = {
+    "enabled": "enabled",
+    "event_names": "event_names",
+    "slack_integration": "slack_integration_id",
+    "slack_channel_id": "slack_channel_id",
+    "slack_channel_name": "slack_channel_name",
+}
+
+
+def _event_stream_write_fields(validated, raw_data: dict) -> dict:
+    """The event-stream columns the caller actually sent, so a PATCH that omits a field
+    leaves it untouched (the serializer fields carry defaults for create)."""
+    return {column: getattr(validated, key) for key, column in _EVENT_STREAM_WRITE_FIELDS.items() if key in raw_data}

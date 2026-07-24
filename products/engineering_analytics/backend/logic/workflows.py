@@ -13,7 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
-from products.engineering_analytics.backend.logic._shared import _DEFAULT_WINDOW, _parse_window, _split_repo
+from products.engineering_analytics.backend.logic._shared import _DEFAULT_WINDOW, _parse_window, _require_repo
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_run_failure_logs
 from products.engineering_analytics.backend.logic.queries.current_branch_health import query_current_branch_health
@@ -57,9 +57,7 @@ def build_workflow_run_list(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_list(
         curated=curated,
@@ -81,9 +79,7 @@ def build_workflow_run_activity(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> WorkflowRunActivity:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_activity(
         curated=curated,
@@ -105,9 +101,7 @@ def build_workflow_runner_costs(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
-    owner, name = _split_repo(repo)
-    if not (owner and name):
-        raise ValueError("repo must be in 'owner/name' format")
+    owner, name = _require_repo(repo)
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_runner_costs(
         curated=curated,

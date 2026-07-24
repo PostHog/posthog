@@ -17,14 +17,16 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_github_tables,
     resolve_job_cost_source_pairs,
 )
-from products.engineering_analytics.backend.tests._logic_helpers import _ago, _WarehouseMixin
-from products.engineering_analytics.backend.tests.test_views import (
-    _PULL_REQUESTS_COLUMNS,
-    _WORKFLOW_RUNS_COLUMNS,
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
+)
+from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     create_warehouse_table_row,
     link_schema,
 )
+from products.engineering_analytics.backend.tests._logic_helpers import _ago, _WarehouseMixin
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -473,12 +475,12 @@ class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
         older = self._connect_source(source_id="src-a", prefix="repoa", repository="PostHog/posthog")
         newer = self._connect_source(source_id="src-b", prefix="repob", repository="PostHog/posthog.com")
         # Source A (older, other repo): synced but holds no PR on the branch.
-        self._create_table("github_pull_requests", _PULL_REQUESTS_COLUMNS, [], source=older, prefix="repoa")
-        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=older, prefix="repoa")
+        self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, [], source=older, prefix="repoa")
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [], source=older, prefix="repoa")
         # Source B (newer, target repo): holds the feat/login PR.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(
                     61,
@@ -494,7 +496,7 @@ class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
             source=newer,
             prefix="repob",
         )
-        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [], source=newer, prefix="repob")
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [], source=newer, prefix="repob")
 
         # Clone-URL casing: both the source hint and the repo filter compare case-insensitively.
         matches = api.resolve_branch(team=self.team, branch="feat/login", repo="posthog/POSTHOG.com")

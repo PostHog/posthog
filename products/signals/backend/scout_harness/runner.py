@@ -483,6 +483,9 @@ async def _spawn_and_run(
             team=team,
             config=config,
             skill=skill,
+            model=model,
+            runtime_adapter=runtime_adapter,
+            reasoning_effort=reasoning_effort,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -665,7 +668,22 @@ def _create_run_row(
     team: Team,
     config: SignalScoutConfig,
     skill: LoadedSkill,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> SignalScoutRun:
+    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
+    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
+    # on the default path, so an empty dict means the agent-server default served the run.
+    metadata = {
+        key: value
+        for key, value in (
+            ("model", model),
+            ("runtime_adapter", runtime_adapter),
+            ("reasoning_effort", reasoning_effort),
+        )
+        if value is not None
+    }
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -673,6 +691,7 @@ def _create_run_row(
         scout_config=config,
         skill_name=skill.name,
         skill_version=skill.version,
+        metadata=metadata,
     )
 
 

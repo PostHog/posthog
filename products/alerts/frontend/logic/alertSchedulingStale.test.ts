@@ -1,12 +1,30 @@
+import { dayjs } from 'lib/dayjs'
+
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 import {
+    approximateNextAlertRun,
     isNextPlannedEvaluationStale,
     normalizeScheduleRestrictionForCompare,
     type SchedulingSnapshot,
 } from './alertSchedulingStale'
 
 describe('alertSchedulingStale', () => {
+    describe('approximateNextAlertRun', () => {
+        it.each([
+            [AlertCalculationInterval.REAL_TIME, '2026-07-24T16:02:00.000Z'],
+            [AlertCalculationInterval.EVERY_15_MINUTES, '2026-07-24T16:15:00.000Z'],
+            [AlertCalculationInterval.HOURLY, '2026-07-24T17:00:00.000Z'],
+            [AlertCalculationInterval.DAILY, '2026-07-25T05:00:00.000Z'],
+            [AlertCalculationInterval.WEEKLY, '2026-07-27T07:00:00.000Z'],
+            [AlertCalculationInterval.MONTHLY, '2026-08-01T08:00:00.000Z'],
+        ])('matches the backend anchor for %s', (interval, expected) => {
+            const now = dayjs.utc('2026-07-24T16:00:00.000Z')
+
+            expect(approximateNextAlertRun(interval, 'America/Toronto', now).toISOString()).toBe(expected)
+        })
+    })
+
     describe('normalizeScheduleRestrictionForCompare', () => {
         it('maps missing, null, and empty windows to null', () => {
             expect(normalizeScheduleRestrictionForCompare(undefined)).toBeNull()

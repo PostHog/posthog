@@ -29,6 +29,10 @@ from products.tasks.backend.facade.run_config import (
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
+from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
+    TASK_RUN_SKILL_SOURCE_CHOICES,
+)
 
 
 class LoopRepositoryEntrySerializer(serializers.Serializer):
@@ -192,16 +196,46 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
             {"repository": "Repository is not accessible via the selected GitHub integration."}
         )
 
-    events = config.get("events")
-    if not isinstance(events, list) or not events:
+    events_raw = config.get("events")
+    if not isinstance(events_raw, list) or not events_raw:
         raise serializers.ValidationError({"events": "At least one event is required."})
+    # Agents reach for GitHub Actions shorthand like `issues.opened`; fold it into the bare
+    # webhook event plus an `actions` filter instead of rejecting the trigger.
+    events: list = []
+    shorthand_actions: list[str] = []
+    has_bare_event = False
+    for item in events_raw:
+        event = item
+        if isinstance(item, str) and "." in item:
+            base, action = item.split(".", 1)
+            if base in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS and action:
+                event = base
+                if action not in shorthand_actions:
+                    shorthand_actions.append(action)
+        else:
+            has_bare_event = True
+        if event not in events:
+            events.append(event)
     invalid_events = sorted(set(events) - set(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS))
     if invalid_events:
         raise serializers.ValidationError(
             {
                 "events": (
                     f"Unsupported event(s): {invalid_events}. "
-                    f"Allowed: {list(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)}."
+                    f"Allowed: {list(loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)}, "
+                    "optionally with an action suffix like 'issues.opened'."
+                )
+            }
+        )
+    # The folded `actions` filter applies to every event in the trigger, so shorthand spanning
+    # several events (or mixed with bare events) would make unrequested event/action pairs fire.
+    if shorthand_actions and (has_bare_event or len(events) > 1):
+        raise serializers.ValidationError(
+            {
+                "events": (
+                    "`event.action` shorthand supports a single event per trigger because the "
+                    "folded `actions` filter applies to every event. Use one trigger per event, "
+                    "or bare events with `filters.actions`."
                 )
             }
         )
@@ -223,6 +257,12 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
         if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
             raise serializers.ValidationError({"filters": f"Filter '{key}' must be a string or a list of strings."})
         filters[key] = values
+
+    if shorthand_actions:
+        explicit_actions = filters.get("actions", [])
+        filters["actions"] = explicit_actions + [
+            action for action in shorthand_actions if action not in explicit_actions
+        ]
 
     return {
         "github_integration_id": github_integration_id,
@@ -256,7 +296,11 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
         help_text=(
             "Trigger configuration, shape validated per `type`: schedule takes "
             "`{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes "
-            "`{github_integration_id, repository, events, filters}`; api takes no config."
+            "`{github_integration_id, repository, events, filters}` where `events` is one or more of "
+            f"{', '.join(f'`{event}`' for event in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)} "
+            "(`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one "
+            "event per trigger) and "
+            "`filters` takes `{actions, branches, labels}`; api takes no config."
         ),
     )
 
@@ -509,6 +553,11 @@ class LoopRepositoryEntryResponseSerializer(DataclassSerializer):
         dataclass = loops_facade.LoopRepositoryEntryDTO
 
 
+class LoopSkillBundleResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = loops_facade.LoopSkillBundleDTO
+
+
 class LoopSerializer(DataclassSerializer):
     """Detail/create/update response for a loop, including its triggers."""
 
@@ -520,6 +569,9 @@ class LoopSerializer(DataclassSerializer):
         allow_null=True, required=False, help_text="Context this loop is attached to, or null when unattached."
     )
     triggers = LoopTriggerSerializer(many=True, help_text="Triggers attached to this loop.")
+    skill_bundles = LoopSkillBundleResponseSerializer(
+        many=True, help_text="Skill bundles attached to this loop, seeded into every fired run."
+    )
 
     class Meta:
         dataclass = loops_facade.LoopDTO
@@ -552,6 +604,7 @@ class LoopSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "triggers",
+            "skill_bundles",
         ]
 
 
@@ -612,6 +665,34 @@ class LoopPreviewRequestSerializer(serializers.Serializer):
 class LoopPreviewSerializer(DataclassSerializer):
     class Meta:
         dataclass = loops_facade.LoopPreviewDTO
+
+
+class LoopSkillBundleUploadSerializer(serializers.Serializer):
+    """One zipped local skill in a skill-bundle replace request."""
+
+    file_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="File name for the stored bundle, e.g. `my-skill.zip`."
+    )
+    skill_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="Name of the skill inside the bundle."
+    )
+    skill_source = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_SOURCE_CHOICES, help_text="Local source the bundle was built from, such as user or repo."
+    )
+    content_sha256 = serializers.RegexField(
+        regex=r"^[a-f0-9]{64}$", help_text="SHA-256 hex digest of the bundle bytes."
+    )
+    bundle_format = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES, help_text="Archive format used for the bundle."
+    )
+    content_base64 = serializers.CharField(allow_blank=False, help_text="Base64-encoded bundle bytes.")
+
+
+class LoopSkillBundlesWriteSerializer(serializers.Serializer):
+    """Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+    list to detach every skill."""
+
+    bundles = LoopSkillBundleUploadSerializer(many=True, allow_empty=True)
 
 
 class LoopFireRunSerializer(DataclassSerializer):

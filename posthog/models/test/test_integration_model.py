@@ -1,3 +1,4 @@
+import json
 import time
 import base64
 import hashlib
@@ -3881,3 +3882,129 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+
+
+def _make_resend_jwt(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"header.{body}.signature"
+
+
+@override_settings(RESEND_APP_CLIENT_ID="resend-client-id", RESEND_APP_CLIENT_SECRET="resend-client-secret")
+class TestResendIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("resend")
+        assert config.authorize_url == "https://resend.com/oauth/authorize"
+        assert config.token_url == "https://api.resend.com/oauth/token"
+        assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
+        assert config.client_id == "resend-client-id"
+        assert config.client_secret == "resend-client-secret"
+        assert config.scope == "full_access"
+        assert config.pkce is True
+        assert config.id_path == "resend_account_id"
+
+    @override_settings(RESEND_APP_CLIENT_ID="", RESEND_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Resend app not configured"):
+            OauthIntegration.oauth_config_for_kind("resend")
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_extracts_account_from_jwt(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_123", "email": "team@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt_1",
+            "expires_in": 900,
+            "token_type": "Bearer",
+        }
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+        assert integration.kind == "resend"
+        assert integration.integration_id == "acct_123"
+        assert integration.config["resend_account_id"] == "acct_123"
+        assert integration.config["resend_account_name"] == "team@acme.com"
+        assert integration.config["expires_in"] == 900
+        assert integration.sensitive_config["access_token"] == access_token
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_name_falls_back_without_email(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_xyz"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "acct_xyz"
+        assert integration.config["resend_account_name"] == "Resend account acct_xyz"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_without_sub_raises(self, mock_post):
+        access_token = _make_resend_jwt({"email": "no-sub@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        with pytest.raises(Exception, match="failed to extract integration ID"):
+            OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_authorization_code_exchange_does_not_follow_redirects(self, mock_post):
+        # A 307/308 from the token endpoint must not forward client_secret + code to its Location.
+        access_token = _make_resend_jwt({"sub": "acct_1"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("posthog.models.integration.requests.post")
+    def test_revoke_token_authenticates_with_client_credentials(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="resend",
+            config={"resend_account_id": "acct_1"},
+            sensitive_config={"refresh_token": "rt_secret", "access_token": "at_secret"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["token"] == "rt_secret"
+        assert sent["client_id"] == "resend-client-id"
+        assert sent["client_secret"] == "resend-client-secret"
+        assert sent["token_type_hint"] == "refresh_token"

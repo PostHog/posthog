@@ -14,7 +14,10 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2, build_direct_session_id_in_pushdown
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS,
+    SessionMinTimestampWhereClauseExtractorV2,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -24,6 +27,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.models import EventDefinition
 from posthog.models.utils import uuid7
+from posthog.schema_enums import SessionsV2JoinMode
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -918,6 +922,144 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
 
         assert results[True] == results[False]
         assert results[True] == [(matching_session,)]
+
+
+class TestSessionIdLiteralPushdownV2(ClickhouseTestMixin, APIBaseTest):
+    # Locks build_session_id_literal_pushdown_predicate: literal $session_id filters on the
+    # events side must reach the raw_sessions join subquery, and only for the exact shapes below.
+
+    SESSION_A = "0195331e-a9f4-7d10-b04a-c9a24e0f1b17"
+    SESSION_B = "01953321-3966-73b3-9de3-b1a1c9b78de5"
+
+    # filters on the SELECT alias, exactly like the frontend's buildPropertiesQuery output
+    REPLAY_LIST_SHAPE = (
+        "SELECT $session_id AS session_id, any(events.session.$entry_current_url) AS entry_url "
+        "FROM events "
+        f"WHERE session_id IN ('{SESSION_A}', '{SESSION_B}') "
+        "AND timestamp >= '2026-03-27 00:00:00' AND timestamp <= '2026-03-31 23:59:59' "
+        "GROUP BY session_id"
+    )
+
+    def print_query(self, query: str, join_mode: SessionsV2JoinMode = SessionsV2JoinMode.UUID) -> str:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionsV2JoinMode = join_mode
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
+        assert prepared_ast is not None
+        return " ".join(print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True).split())
+
+    @parameterized.expand(
+        [
+            ("in_list", REPLAY_LIST_SHAPE),
+            (
+                "eq_single_value",
+                "SELECT $session_id AS session_id, any(events.session.$entry_pathname) AS entry "
+                f"FROM events WHERE $session_id = '{SESSION_A}' GROUP BY session_id",
+            ),
+        ]
+    )
+    def test_literal_filter_is_pushed_into_join_subquery(self, _name: str, query: str):
+        sql = self.print_query(query)
+        assert "in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull(" in sql, sql
+        # the literal push must not add a second events scan
+        assert sql.count("FROM events") == 1, sql
+
+    @parameterized.expand(
+        [
+            # not a hard constraint; pushing would drop the other branch's sessions
+            (
+                "or_nested",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id IN ('{SESSION_A}') OR event = '$pageview' GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            (
+                "not_in",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id NOT IN ('{SESSION_A}') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # same all-valid-UUIDs gate as the printer's $session_id_uuid rewrite
+            (
+                "mixed_non_uuid_values",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                f"WHERE $session_id IN ('{SESSION_A}', 'not-a-uuid') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # subquery id sets stay behind the sessionIdPushdown modifier (off here)
+            (
+                "subquery_rhs",
+                "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry FROM events "
+                "WHERE $session_id IN (SELECT $session_id FROM events WHERE event = '$pageview') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # a self-join's other occurrence must not be hijacked
+            (
+                "other_events_occurrence",
+                "SELECT e1.$session_id AS sid, any(e1.session.$entry_pathname) AS entry "
+                "FROM events e1 JOIN events e2 ON e1.uuid = e2.uuid "
+                f"WHERE e2.$session_id IN ('{SESSION_A}') GROUP BY sid",
+                SessionsV2JoinMode.UUID,
+            ),
+            # the uint128 push only applies to UUID join mode
+            ("string_join_mode", REPLAY_LIST_SHAPE, SessionsV2JoinMode.STRING),
+        ]
+    )
+    def test_unsupported_shapes_are_not_pushed(self, _name: str, query: str, join_mode: SessionsV2JoinMode):
+        sql = self.print_query(query, join_mode=join_mode)
+        assert "in(raw_sessions.session_id_v7, tuple(" not in sql, sql
+        assert "globalIn(raw_sessions.session_id_v7" not in sql, sql
+
+    def test_oversized_id_list_is_not_pushed(self):
+        ids = ", ".join(f"'{uuid7()}'" for _ in range(SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS + 1))
+        query = (
+            "SELECT $session_id AS sid, any(events.session.$entry_pathname) AS entry "
+            f"FROM events WHERE $session_id IN ({ids}) GROUP BY sid"
+        )
+        sql = self.print_query(query)
+        assert "in(raw_sessions.session_id_v7, tuple(" not in sql
+
+    def test_pushdown_preserves_join_results(self):
+        session_a = str(uuid7("2026-03-27"))
+        session_b = str(uuid7("2026-03-28"))
+        session_c = str(uuid7("2026-03-28"))
+        for session_id, distinct_id, timestamp, url in [
+            (session_a, "d1", "2026-03-27T10:00:00Z", "https://example.com/a"),
+            (session_b, "d2", "2026-03-28T10:00:00Z", "https://example.com/b"),
+            (session_c, "d3", "2026-03-28T11:00:00Z", "https://example.com/c"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$current_url": url},
+            )
+
+        query = (
+            "SELECT $session_id AS session_id, any(events.session.$entry_current_url) AS entry_url "
+            "FROM events "
+            f"WHERE $session_id IN ('{session_a}', '{session_b}') "
+            "GROUP BY session_id ORDER BY session_id"
+        )
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.sessionTableVersion = SessionTableVersion.V2
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.UUID
+        response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+
+        # guard against passing vacuously: the pushed shape must actually execute
+        assert response.clickhouse is not None
+        assert "in(raw_sessions.session_id_v7, tuple(" in response.clickhouse
+
+        # a conversion bug in the pushed id set would surface as NULL entry urls
+        expected = sorted([(session_a, "https://example.com/a"), (session_b, "https://example.com/b")])
+        assert response.results == expected
 
 
 class TestSessionPropertyPreAggregationV2(ClickhouseTestMixin, APIBaseTest):

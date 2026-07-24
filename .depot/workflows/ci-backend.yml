@@ -34,7 +34,9 @@
 # - report-test-timings: canonical emits per-test OTLP spans from the uploaded JUnit. The shadow
 #   strips artifact uploads (above) and posts no telemetry, so the whole job is depot-exempt —
 #   changes confined to it (script deps, the reporter's availability guard, emission secret
-#   plumbing such as dual-project tokens) need no depot bump.
+#   plumbing such as dual-project tokens, the JUnit-artifact download pattern, re-run attempt
+#   handling — including the attempt-suffixed junit artifact names canonical uploads so the
+#   reporter can pair re-run recoveries with attempt-1 failures) need no depot bump.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
@@ -92,7 +94,8 @@ on:
         # still skip drafts. Ready PRs run the full matrices — the merge gate —
         # and ready_for_review re-triggers them when a PR leaves draft. Add the
         # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft. Mirrors canonical.
+        # matrices on a draft; the `no-ci` label silences the workflow on a draft
+        # entirely. Mirrors canonical.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -186,9 +189,14 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
-        # at percent 0/unset), which cascades the whole workflow off.
+        # at percent 0/unset), which cascades the whole workflow off. Also skipped on
+        # draft PRs labeled `no-ci`, mirroring canonical.
         needs: sample
-        if: needs.sample.outputs.sampled == 'true'
+        if: >-
+            needs.sample.outputs.sampled == 'true'
+            && (github.event_name != 'pull_request'
+                || github.event.pull_request.draft != true
+                || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -573,6 +581,8 @@ jobs:
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
+            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -603,6 +613,10 @@ jobs:
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                  # Surface the inputs behind an untrusted skip so the telemetry can
+                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - name: Run shadow selector
               id: select

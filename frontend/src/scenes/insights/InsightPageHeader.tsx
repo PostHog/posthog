@@ -180,7 +180,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
 
                         {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                            <InsightSubscribeProminentButton insightShortId={insight.short_id!} />
+                            <InsightSubscribeProminentButton
+                                insightShortId={insight.short_id!}
+                                canCreateAlert={canCreateAlertForInsight}
+                            />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (

@@ -765,6 +765,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
+                    // Dashboard refreshes return a view-only query with the dashboard filters applied.
+                    // Keep that query out of the canonical insight state that the editor persists.
+                    if (sourceDashboardId != null) {
+                        const { query: _query, result: _result, ...insightWithoutDashboardOverrides } = insight
+                        return { ...state, ...insightWithoutDashboardOverrides }
+                    }
                     return { ...state, ...insight }
                 }
                 return state
@@ -1049,8 +1055,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         alertsLogic.actions.loadAlerts()
                     }
                 }
-                // remove draft query from local storage
-                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                if (!insightNumericId) {
+                    // saving the new insight consumes its draft; updating an existing insight
+                    // must leave the (unrelated) draft alone
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()

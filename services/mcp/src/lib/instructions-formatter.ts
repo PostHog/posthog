@@ -10,6 +10,7 @@ import {
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
@@ -23,12 +24,13 @@ import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
 
 export interface InstructionsContext {
     guidelines: string
@@ -62,6 +64,7 @@ export class InstructionsFormatter {
                 ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
+                ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -96,10 +99,16 @@ export class InstructionsFormatter {
                 kind: 'guide',
                 title: 'Analytics',
                 description: ctx.dataCatalogEnabled
-                    ? 'Query or analyze PostHog data, events, and governed metrics (including "what metrics do we have?").'
+                    ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
                     : 'Query or analyze PostHog data, metrics, and events.',
                 content: this.compose(
-                    [...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []), RETRIEVING_DATA, SCHEMA_WORKFLOW, EXAMPLES],
+                    [
+                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                        RETRIEVING_DATA,
+                        SCHEMA_WORKFLOW,
+                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        EXAMPLES,
+                    ],
                     ctx,
                     { compact: false }
                 ),
@@ -149,6 +158,7 @@ export class InstructionsFormatter {
             [
                 CLI_SYNTAX,
                 helpSection,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -162,7 +172,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic...> - load one or more learning topics\n',
+                extraCommands: LEARN_COMMAND_LINE,
             }
         )
     }
@@ -198,6 +208,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
+            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,

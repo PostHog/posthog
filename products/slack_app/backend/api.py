@@ -64,6 +64,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
+from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
@@ -122,7 +123,6 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
-LOCAL_DEV_SLACK_EMAIL = "test@posthog.com"
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -350,13 +350,13 @@ def resolve_slack_user(
             return SlackUserContext(user=linked_user, slack_email=None)
 
         slack_email = get_slack_email_for_user(integration, slack_user_id)
-        if settings.DEBUG:
+        if (dev_email := local_dev_slack_email()) is not None:
             # Local dev: match the seeded test fixture user regardless of what
             # Slack returns. Applied here rather than in the shared helper so
             # other callers (e.g. `resolve_posthog_user_from_event` from the
             # channel-approval path) can still drive the helper with stubbed
             # Slack responses in tests.
-            slack_email = LOCAL_DEV_SLACK_EMAIL
+            slack_email = dev_email
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -651,7 +651,7 @@ _VALID_WORKSPACE_CLAIM_KINDS = frozenset(SLACK_INTEGRATION_KINDS)
 def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     """Cross-region probe: does this region hold an Integration row for the given Slack workspace?
 
-    Both Cloud regions provision the PostHog Code Slack signing secret, so a region can HMAC-sign
+    Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
     Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
     cannot be replayed against a different workspace.

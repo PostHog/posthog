@@ -1,4 +1,4 @@
-"""Clean up unused agent worktrees (Claude Code, Codex, PostHog Code).
+"""Clean up unused agent worktrees (Claude Code, Codex, PostHog Desktop).
 
 These tools each create throwaway git worktrees that accumulate over time. A
 single PostHog worktree carries multi-GB `node_modules`, Python venvs, and Rust
@@ -41,7 +41,7 @@ from .doctor import _format_size
 
 
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
-# Claude Code and Codex nest worktrees directly under the repo; PostHog Code
+# Claude Code and Codex nest worktrees directly under the repo; PostHog Desktop
 # keeps them in the home directory as <id>/posthog. Returned as (source, root).
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     return [
@@ -131,7 +131,7 @@ class Worktree:
 
 @click.command(
     name="worktrees:clean",
-    help="Clear out unused Claude Code / Codex / PostHog Code worktrees by age",
+    help="Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age",
 )
 @click.option(
     "--before",
@@ -225,7 +225,7 @@ def worktrees_clean(
             resolved = _resolve(path)
             if resolved in protected:
                 continue
-            # PostHog Code worktrees live outside the repo and the home root is
+            # PostHog Desktop worktrees live outside the repo and the home root is
             # shared across repos, so only act on worktrees owned by this repo.
             if not _belongs_to_repo(resolved, repo_root, repo_common):
                 continue
@@ -432,7 +432,7 @@ def _parse_cutoff(value: str) -> tuple[float, str]:
 def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
     """Find worktree directories under *root* (a dir containing a .git entry).
 
-    Depth 1 covers Claude/Codex (root/<name>); depth 2 covers PostHog Code
+    Depth 1 covers Claude/Codex (root/<name>); depth 2 covers PostHog Desktop
     (root/<id>/posthog). Found worktrees are not descended into.
     """
 
@@ -529,7 +529,7 @@ def _belongs_to_repo(resolved_path: Path, repo_root: Path, repo_common: Path | N
     """Whether a worktree is owned by *repo_root*.
 
     Worktrees physically inside the repo always belong to it. For out-of-repo
-    worktrees (PostHog Code's home root is shared across repos), confirm via the
+    worktrees (PostHog Desktop's home root is shared across repos), confirm via the
     gitdir's commondir pointing back at this repo's common git directory. A
     dangling pointer we can't attribute is treated as not ours, so we never
     delete another repo's worktree.
@@ -938,7 +938,7 @@ def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float
 
 
 def _cleanup_empty_parent(path: Path) -> None:
-    """Remove a now-empty parent (e.g. PostHog Code's <id>/ after <id>/posthog)."""
+    """Remove a now-empty parent (e.g. PostHog Desktop's <id>/ after <id>/posthog)."""
 
     parent = path.parent
     try:

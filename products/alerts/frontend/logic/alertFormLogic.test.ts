@@ -196,7 +196,7 @@ describe('alertFormLogic', () => {
 
     it.each([
         ['legacy', 'legacy' as const, '', {}],
-        ['redesigned', 'redesigned' as const, 'Weekly signups alert', { upper: 1 }],
+        ['redesigned', 'redesigned' as const, 'Weekly signups alert', {}],
     ])('keeps %s creation defaults scoped to its UI', (_name, uiVersion, expectedName, expectedBounds) => {
         const logic = alertFormLogic({
             alert: null,
@@ -349,6 +349,10 @@ describe('alertFormLogic', () => {
         })
 
         expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
+        expect(logic.values.alertFormValidationErrors.threshold).toBe(
+            'Enter at least one threshold (less than or more than)'
+        )
+        expect(logic.values.thresholdBoundsFormError).toBeUndefined()
 
         logic.actions.setAlertFormSubmitAttempted()
 
