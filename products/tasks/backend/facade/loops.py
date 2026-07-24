@@ -1003,6 +1003,25 @@ MAX_LOOP_SKILL_BUNDLE_FILES = 1000
 MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
 
 
+def _zip_entry_count(content_bytes: bytes) -> int | None:
+    """Total entry count from the zip's end-of-central-directory trailer, without
+    materializing per-entry metadata. Mirrors how `zipfile` locates the trailer (last
+    well-formed record within the max 64KB comment window), so the count validated here
+    is the one `ZipFile` will parse. Returns None when no trailer is found. A zip64
+    archive reports 0xFFFF here, which already exceeds the bundle cap."""
+    eocd_size = 22
+    tail = content_bytes[-(eocd_size + 65535) :]
+    offset = tail.rfind(b"PK\x05\x06")
+    while offset != -1:
+        record = tail[offset:]
+        if len(record) >= eocd_size:
+            comment_length = int.from_bytes(record[20:22], "little")
+            if len(record) == eocd_size + comment_length:
+                return int.from_bytes(record[10:12], "little")
+        offset = tail.rfind(b"PK\x05\x06", 0, offset)
+    return None
+
+
 def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
     """Best-effort removal of loop skill bundle objects. Failures are logged, not raised:
     a leaked object is recoverable garbage, while failing the caller's operation over
@@ -1063,7 +1082,19 @@ def replace_loop_skill_bundles(
             )
         if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
-        # Central-directory metadata only — nothing is decompressed here.
+        # Entry count comes from the end-of-central-directory record BEFORE ZipFile
+        # parses the archive: infolist() materializes a ZipInfo per record, so a small
+        # zip declaring 100k entries would otherwise allocate tens of MB of metadata
+        # just to be rejected.
+        entry_count = _zip_entry_count(content_bytes)
+        if entry_count is None:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
+        if entry_count > MAX_LOOP_SKILL_BUNDLE_FILES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
+            )
+        # Central-directory metadata only — nothing is decompressed here. The parsed
+        # entry list is re-checked against the cap in case the trailer undercounted.
         try:
             with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
                 archive_entries = archive.infolist()
