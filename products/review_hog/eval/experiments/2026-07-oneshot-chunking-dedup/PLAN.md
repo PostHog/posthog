@@ -107,7 +107,7 @@ reads; the funnel/valid count is secondary with the structure caveat attached.
   edits — but a reload severs live streams, so gateway config edits only between runs). Smoke-verified
   2026-07-03: one-shot dedup call end-to-end → `$ai_generation` with model=claude-sonnet-5,
   ai_product=review_hog, ai_stage stamped (593 in / 20 out).
-- **Env gotcha (agent-driven shells only):** the PostHog Code desktop harness overrides
+- **Env gotcha (agent-driven shells only):** the PostHog Desktop harness overrides
   `LLM_GATEWAY_URL` to its own local proxy — prefix manual shell invocations with
   `LLM_GATEWAY_URL=http://localhost:3308`. The Temporal worker (started from a normal terminal) gets
   the correct debug default and is unaffected.

@@ -181,7 +181,7 @@ class TestPushNotifications(APIBaseTest):
 
         accepted = send_push_to_user(
             self.user,
-            title="PostHog Code",
+            title="PostHog Desktop",
             body="task done",
             data={"taskId": "t1", "taskRunId": "r1"},
         )
@@ -190,7 +190,7 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(mock_post.call_count, 1)
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(len(payload), 2)
-        self.assertEqual(payload[0]["title"], "PostHog Code")
+        self.assertEqual(payload[0]["title"], "PostHog Desktop")
         self.assertEqual(payload[0]["body"], "task done")
         self.assertEqual(payload[0]["data"], {"taskId": "t1", "taskRunId": "r1"})
 

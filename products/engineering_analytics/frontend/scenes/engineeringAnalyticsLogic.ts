@@ -455,8 +455,8 @@ export interface FlakyTestRow {
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
     classification: FlakyTestClassification
-    /** Runs where an in-job retry recovered the test after failing: the only proof of flakiness here. */
-    rerunPassedRunCount: number
+    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
+    sameCommitRecoveryRunCount: number
     failedRunCount: number
     failedPrCount: number
     masterFailedRunCount: number
@@ -559,8 +559,8 @@ export interface QuarantineModalState {
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.rerunPassedRunCount > 0) {
-        parts.push(`recovered on retry in ${pluralize(row.rerunPassedRunCount, 'run')}`)
+    if (row.sameCommitRecoveryRunCount > 0) {
+        parts.push(`recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
     }
     if (row.failedRunCount > 0) {
         parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
@@ -1183,7 +1183,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     nodeid: it.nodeid,
                                     selector: it.selector,
                                     classification: it.classification,
-                                    rerunPassedRunCount: it.rerun_passed_run_count,
+                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
                                     failedRunCount: it.failed_run_count,
                                     failedPrCount: it.failed_pr_count,
                                     masterFailedRunCount: it.master_failed_run_count,

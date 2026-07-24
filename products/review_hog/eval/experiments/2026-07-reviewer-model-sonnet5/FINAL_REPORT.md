@@ -112,7 +112,7 @@ item-3 C-win path; or (b) the latency win (~15%) starts mattering for the Inbox 
 motive, test **sonnet-5 @ high** first — xhigh's extra turns are where the price edge goes to die.
 
 Registry enablement (`claude-sonnet-5` in `CLAUDE_REASONING_EFFORTS_BY_MODEL`) ships regardless — it's parity with
-the agent/gateway/PostHog Code and unblocks any future flip, Slack picker, or per-user choice.
+the agent/gateway/PostHog Desktop and unblocks any future flip, Slack picker, or per-user choice.
 
 > **Decision postscript (2026-07-03):** the user chose to flip prod to `claude-sonnet-5 @ xhigh` immediately
 > (flip-and-watch: dogfood volume means the live-PR confirmation happens in prod, and the change is a one-constant
