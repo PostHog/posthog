@@ -985,6 +985,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('access denied (403)', () => {
+        beforeEach(() => {
+            // RBAC 403 is expected backend behaviour for users without recordings access.
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => [403, { detail: 'Forbidden' }],
+                },
+            })
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'tests',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('surfaces access-denied state without failing the loader', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                .toMatchValues({
+                    sessionRecordingsAccessDenied: true,
+                    sessionRecordingsAPIErrored: false,
+                    sessionRecordings: [],
+                })
+        })
+    })
+
     describe('total filters count', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({

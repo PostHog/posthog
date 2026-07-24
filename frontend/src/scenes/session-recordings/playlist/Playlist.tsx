@@ -399,11 +399,14 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
 }
 
 const ListEmptyState = (): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, sessionRecordingsAccessDenied, unusableEventsInFilter } =
+        useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
+            {sessionRecordingsAccessDenied ? (
+                <LemonBanner type="warning">You don't have access to view session recordings.</LemonBanner>
+            ) : sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
@@ -423,11 +426,14 @@ const CollectionEmptyState = ({
     isSynthetic?: boolean
     description?: string
 }): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, sessionRecordingsAccessDenied, unusableEventsInFilter } =
+        useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
+            {sessionRecordingsAccessDenied ? (
+                <LemonBanner type="warning">You don't have access to view session recordings.</LemonBanner>
+            ) : sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
