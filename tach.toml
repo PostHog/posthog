@@ -763,6 +763,7 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.access_control",
     "products.cohorts",
     "ee",
     "posthog",
@@ -1064,7 +1065,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources"]
+depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals"]
 layer = "modules"
 
 [[interfaces]]
