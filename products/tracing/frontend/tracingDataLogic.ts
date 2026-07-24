@@ -1550,25 +1550,25 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     events(({ values }) => ({
         beforeUnmount: () => {
             if (values.spansAbortController) {
-                values.spansAbortController.abort('unmounting component')
+                values.spansAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.matchingCountsAbortController) {
-                values.matchingCountsAbortController.abort('unmounting component')
+                values.matchingCountsAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.durationHistogramAbortController) {
-                values.durationHistogramAbortController.abort('unmounting component')
+                values.durationHistogramAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.latencyHeatmapAbortController) {
-                values.latencyHeatmapAbortController.abort('unmounting component')
+                values.latencyHeatmapAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.spanTreeAbortController) {
-                values.spanTreeAbortController.abort('unmounting component')
+                values.spanTreeAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.aggregationAbortController) {
-                values.aggregationAbortController.abort('unmounting component')
+                values.aggregationAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
         },
     })),
