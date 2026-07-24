@@ -388,6 +388,7 @@ pub async fn send_issue_created_notification(
         context.config.event_properties_max_bytes,
         issue.team_id,
         event_uuid,
+        "issue_created",
         &processed_properties,
     )
     .await;
@@ -415,21 +416,23 @@ async fn store_error_tracking_event_properties(
     max_bytes: usize,
     team_id: i32,
     event_uuid: Uuid,
+    notification_type: &'static str,
     processed_properties: &ProcessedExceptionProperties,
 ) {
     let key = error_tracking_event_properties_key(team_id, event_uuid);
     let payload = match serde_json::to_vec(processed_properties) {
         Ok(payload) => payload,
         Err(error) => {
-            metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "serialization").increment(1);
-            warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to serialize issue-created event properties");
+            metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "serialization", "notification_type" => notification_type).increment(1);
+            warn!(team_id, event_uuid = %event_uuid, notification_type, error = %error, "failed to serialize lifecycle event properties");
             return;
         }
     };
 
-    metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES).record(payload.len() as f64);
+    metrics::histogram!(ISSUE_CREATED_EVENT_PROPERTIES_BYTES, "notification_type" => notification_type)
+        .record(payload.len() as f64);
     if payload.len() > max_bytes {
-        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large")
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, "reason" => "payload_too_large", "notification_type" => notification_type)
             .increment(1);
         return;
     }
@@ -438,13 +441,14 @@ async fn store_error_tracking_event_properties(
         .set_bytes(key.clone(), payload, Some(ttl_seconds))
         .await
     {
-        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis")
+        metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis", "notification_type" => notification_type)
             .increment(1);
-        warn!(team_id, event_uuid = %event_uuid, error = %error, "failed to store issue-created event properties");
+        warn!(team_id, event_uuid = %event_uuid, notification_type, error = %error, "failed to store lifecycle event properties");
         return;
     }
 
-    metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED).increment(1);
+    metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED, "notification_type" => notification_type)
+        .increment(1);
 }
 
 pub async fn send_issue_reopened_notification(
@@ -452,13 +456,25 @@ pub async fn send_issue_reopened_notification(
     issue: &Issue,
     assignment: Option<Assignment>,
     processed_properties: ProcessedExceptionProperties,
+    event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
+    store_error_tracking_event_properties(
+        &*context.issue_buckets_redis_client,
+        context.config.event_properties_ttl_seconds,
+        context.config.event_properties_max_bytes,
+        issue.team_id,
+        event_uuid,
+        "issue_reopened",
+        &processed_properties,
+    )
+    .await;
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueReopened(IssueReopened {
             meta: notification_meta(issue),
             issue: issue_notification_context(issue, processed_properties),
+            event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
         }),
@@ -628,6 +644,7 @@ mod test {
             1_048_576,
             42,
             event_uuid,
+            "issue_created",
             &properties,
         )
         .await;
@@ -670,6 +687,7 @@ mod test {
             128,
             42,
             Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap(),
+            "issue_created",
             &properties,
         )
         .await;
