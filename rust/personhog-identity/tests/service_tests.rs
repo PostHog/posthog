@@ -66,6 +66,7 @@ impl ServiceTestContext {
         Self::with_limits(RequestLimits {
             max_batch_size: 250,
             max_distinct_id_length: 400,
+            max_extra_distinct_ids: 5000,
         })
         .await
     }
@@ -272,6 +273,7 @@ async fn batch_over_limit_is_rejected() {
     let t = ServiceTestContext::with_limits(RequestLimits {
         max_batch_size: 2,
         max_distinct_id_length: 400,
+        max_extra_distinct_ids: 5000,
     })
     .await;
 

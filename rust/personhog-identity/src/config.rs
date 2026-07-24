@@ -48,6 +48,13 @@ pub struct Config {
     #[envconfig(default = "400")]
     pub max_distinct_id_length: usize,
 
+    /// Maximum extra distinct ids per get-or-create entry. Real entries carry
+    /// one or two (the anon id at $identify); persons stop accumulating
+    /// distinct ids around 2,500 in the merge path, so 5,000 only stops
+    /// runaway callers.
+    #[envconfig(default = "5000")]
+    pub max_extra_distinct_ids: usize,
+
     /// Router endpoint used to reach the owning leader for initial-properties
     /// writes on the creation branch (UpdatePersonProperties).
     #[envconfig(default = "http://127.0.0.1:50054")]
@@ -91,6 +98,7 @@ impl Config {
         crate::service::validation::RequestLimits {
             max_batch_size: self.max_batch_size,
             max_distinct_id_length: self.max_distinct_id_length,
+            max_extra_distinct_ids: self.max_extra_distinct_ids,
         }
     }
 
