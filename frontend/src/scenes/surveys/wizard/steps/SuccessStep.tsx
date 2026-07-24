@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
+import { doesSurveyRepeatOnEveryEvent, getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
@@ -19,6 +19,7 @@ interface SuccessStepProps {
 export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
     const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
+    const scheduleInfo = !repeatsOnEveryEvent ? getRecurringSurveyScheduleInfo(survey) : null
     const [countdown, setCountdown] = useState(5)
 
     useEffect(() => {
@@ -97,6 +98,16 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                                       : `Up to ${survey.iteration_count ?? 10} times, every ${survey.iteration_frequency_days} days from launch`}
                             </dd>
                         </div>
+                        {scheduleInfo && (
+                            <div className="flex justify-between">
+                                <dt className="text-secondary">Automatically closes</dt>
+                                <dd>
+                                    {scheduleInfo.autoCloseDate
+                                        ? scheduleInfo.autoCloseDate.format('MMMM D, YYYY')
+                                        : `After ${scheduleInfo.totalDurationDays} days`}
+                                </dd>
+                            </div>
+                        )}
                         {survey.conditions?.seenSurveyWaitPeriodInDays != null && (
                             <div className="flex justify-between">
                                 <dt className="text-secondary">Wait period across all surveys</dt>

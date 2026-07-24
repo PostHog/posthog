@@ -29,7 +29,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import wrap_clickhouse_query_error
+from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -80,6 +80,7 @@ ExtractErrors = {
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
@@ -845,6 +846,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
 
     def _safe_expose_ch_error(self, err):
+        # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may
+        # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
+        # we key on here.
+        raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
         err = wrap_clickhouse_query_error(err)
 
         # Capacity errors are transient — surface them so the caller can retry. Check this
@@ -854,7 +859,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise err
 
         for key, value in ExtractErrors.items():
-            if key in err.message:
+            if key in raw_message:
                 raise Exception(value)
 
         raise Exception(

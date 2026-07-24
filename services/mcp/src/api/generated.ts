@@ -25683,6 +25683,59 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface EventStream {
+      readonly id: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids: readonly string[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * Request body for adding or removing an event-stream member account.
+     */
+    export interface EventStreamMemberWrite {
+      /** UUID of the account to add to or remove from the stream. */
+      account_id: string;
+    }
+
+    /**
+     * Result of posting an event-stream test message to Slack.
+     */
+    export interface EventStreamTestMessage {
+      /** Slack channel ID the test message was posted to (e.g. C0123ABC). */
+      readonly channel_id: string;
+    }
+
     export interface EventSuggestionsResponse {
       /** Ranked candidate events for conversion goals */
       candidates: CandidateEvent[];
@@ -37729,6 +37782,15 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    export interface LoopSkillBundleDTO {
+      id: string;
+      skill_name: string;
+      skill_source: string;
+      size: number;
+      content_sha256: string;
+      uploaded_at: string;
+    }
+
     /**
      * Detail/create/update response for a loop, including its triggers.
      */
@@ -37774,6 +37836,8 @@ export namespace Schemas {
       updated_at: string;
       /** Triggers attached to this loop. */
       triggers: LoopTriggerDTO[];
+      /** Skill bundles attached to this loop, seeded into every fired run. */
+      skill_bundles: LoopSkillBundleDTO[];
     }
 
     /**
@@ -37929,6 +37993,64 @@ export namespace Schemas {
          * @nullable
          */
       next_cursor: string | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * One zipped local skill in a skill-bundle replace request.
+     */
+    export interface LoopSkillBundleUpload {
+      /**
+         * File name for the stored bundle, e.g. `my-skill.zip`.
+         * @maxLength 255
+         */
+      file_name: string;
+      /**
+         * Name of the skill inside the bundle.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source the bundle was built from, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /** Base64-encoded bundle bytes. */
+      content_base64: string;
+    }
+
+    /**
+     * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+     * list to detach every skill.
+     */
+    export interface LoopSkillBundlesWrite {
+      bundles: LoopSkillBundleUpload[];
     }
 
     export interface LoopTriggerWrite {
@@ -44535,22 +44657,6 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
-    /**
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex
-     */
-    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
-
-
-    export const SkillSourceEnum = {
-      User: 'user',
-      Repo: 'repo',
-      Marketplace: 'marketplace',
-      Codex: 'codex',
-    } as const;
-
     export interface TaskRunArtifactMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -47944,6 +48050,43 @@ export namespace Schemas {
       property_group_id?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * The caller's event stream — a live feed of selected accounts' events posted to a
+     * Slack channel of their choice. One stream per user per project.
+     */
+    export interface PatchedEventStream {
+      readonly id?: string;
+      /** Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel. */
+      enabled?: boolean;
+      /**
+         * Names of the events to stream (matched exactly). Duplicates and blanks are dropped.
+         * @items.maxLength 400
+         */
+      event_names?: string[];
+      /**
+         * ID of the team's Slack workspace integration to deliver through.
+         * @nullable
+         */
+      slack_integration?: number | null;
+      /**
+         * Slack channel ID to post to (e.g. C0123ABC).
+         * @maxLength 200
+         */
+      slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel (e.g. #customer-events). Informational only.
+         * @maxLength 200
+         */
+      slack_channel_name?: string;
+      /** UUIDs of the member accounts whose users' events are streamed. Managed via the add_account/remove_account endpoints. */
+      readonly account_ids?: readonly string[];
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -72862,7 +73005,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string;
     /**
