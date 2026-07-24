@@ -149,7 +149,7 @@ closeToolbarModal: () => {
 },
 ```
 
-**`MediaQueryList` listener in `events(afterMount)`** — `frontend/src/layout/navigation-3000/themeLogic.ts:108-118`
+**`MediaQueryList` listener in `events(afterMount)`** — `frontend/src/lib/logic/themeLogic.ts:108-118`
 
 ```ts
 events(({ cache, actions }) => ({
