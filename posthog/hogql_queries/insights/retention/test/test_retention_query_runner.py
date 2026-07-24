@@ -5936,8 +5936,6 @@ class TestClickhouseRetentionGroupAggregation(
     RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
 ):
     retention_base_query_variant_comparison_excluded_tests = {
-        "test_groups_aggregating",
-        "test_groups_aggregating_person_on_events",
         "test_limit_is_context_aware",
         "test_retention_24h_window_calculation",
     }
