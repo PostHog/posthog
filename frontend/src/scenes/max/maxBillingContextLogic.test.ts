@@ -303,6 +303,13 @@ describe('maxBillingContextLogic', () => {
             expect(result).toBeNull()
         })
 
+        it('returns null when currentTeam is null', () => {
+            // Guards against a load-timing race where billing is loaded before the team,
+            // which would otherwise throw when reading currentTeam.autocapture_opt_out
+            const result = billingToMaxContext(mockBilling, {}, null, [], null, null)
+            expect(result).toBeNull()
+        })
+
         it('converts billing data to MaxBillingContext format', () => {
             const result = billingToMaxContext(
                 mockBilling,
