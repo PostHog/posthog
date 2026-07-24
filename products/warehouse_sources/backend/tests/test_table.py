@@ -1,14 +1,23 @@
 import subprocess
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from clickhouse_driver.errors import ServerException
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 
-from products.warehouse_sources.backend.models.table import DataWarehouseTable, run_chdb_query
+from products.warehouse_sources.backend.models.table import (
+    DataWarehouseTable,
+    get_hogql_field_for_column,
+    run_chdb_query,
+)
 
 
 class TestDataWarehouseTableColumnOrder(BaseTest):
@@ -69,3 +78,26 @@ class TestRunChdbQuery:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+
+class TestGetHogqlFieldForColumn(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Old-style metadata is just the ClickHouse type string, resolved through a mapping
+            # on every query — it must keep its historical String typing so a mapping change
+            # cannot retype every legacy UUID column at once.
+            ("old_style_pinned_to_string", "Nullable(UUID)", StringDatabaseField),
+            (
+                "new_style_stored_type",
+                {"clickhouse": "Nullable(UUID)", "hogql": "UUIDDatabaseField"},
+                UUIDDatabaseField,
+            ),
+        ]
+    )
+    def test_uuid_column_typing(
+        self, _name: str, column_definition: dict[str, Any] | str, expected_type: type[DatabaseField]
+    ) -> None:
+        field = get_hogql_field_for_column("id", column_definition, "UUID", is_nullable=True)
+
+        assert type(field) is expected_type
+        assert field.is_nullable()

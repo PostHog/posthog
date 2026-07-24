@@ -211,6 +211,15 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Enum8": StringDatabaseField,
 }
 
+# Old-style column metadata stores only the ClickHouse type string and resolves through a
+# mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
+# legacy column at once on deploy. Pin those to their historical String typing — UUID typing
+# reaches a table only when a sync or materialization regenerates its column metadata.
+LEGACY_CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
+    **CLICKHOUSE_HOGQL_MAPPING,
+    "UUID": StringDatabaseField,
+}
+
 STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
