@@ -177,7 +177,7 @@ async def test_helper_swallows_activity_failure():
         ),
     ],
 )
-def testsummarize_drop_error(error, expected_type, expected_message):
+def test_summarize_drop_error(error, expected_type, expected_message):
     error_type, message = summarize_drop_error(error)
     assert error_type == expected_type
     assert expected_message in message
