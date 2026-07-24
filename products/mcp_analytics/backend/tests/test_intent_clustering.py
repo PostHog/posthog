@@ -18,6 +18,8 @@ from unittest.mock import patch
 import numpy as np
 from parameterized import parameterized
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.embedding_worker import EmbeddingResponse
 
 from products.mcp_analytics.backend import intent_clustering
@@ -36,6 +38,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     cluster_embeddings,
     embed_intents_async,
     fetch_intent_corpus,
+    fetch_session_journeys,
 )
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -432,6 +435,25 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert [r.intent_text for r in records] == ["look up feature flag rollout"]
         assert intent_by_session == {"real": "look up feature flag rollout"}
+
+    def test_tool_stats_and_journeys_are_not_truncated_at_the_default_hogql_limit(self) -> None:
+        # execute_hogql_query injects LIMIT 100 into any query without an explicit
+        # LIMIT. The per-session tool-stats and journey queries return one-plus rows
+        # per corpus session, so a corpus above 100 sessions silently lost tool
+        # counts and journeys for everything past the first 100 rows.
+        n_sessions = DEFAULT_RETURNED_ROWS + 20
+        for i in range(n_sessions):
+            self._seed_tool_call(f"session-{i}", "execute_sql", intent=f"unique intent {i}")
+        flush_persons_and_events()
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert len(intent_by_session) == n_sessions
+        assert len(records) == n_sessions
+        assert all(r.tool_counts == {"execute_sql": 1} for r in records)
+
+        journeys = fetch_session_journeys(self.team, list(intent_by_session.keys()))
+        assert len(journeys) == n_sessions
 
 
 # Embedding helpers -----------------------------------------------------

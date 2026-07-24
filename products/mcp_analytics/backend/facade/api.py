@@ -123,10 +123,27 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     from django.conf import settings
 
     from posthog.temporal.common.client import async_connect
-    from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+    from posthog.temporal.mcp_analytics.intent_clustering.constants import (
+        CHILD_WORKFLOW_ID_PREFIX,
+        WORKFLOW_EXECUTION_TIMEOUT,
+        WORKFLOW_NAME,
+    )
     from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
 
     from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+
+    # One run at a time per team: while a fresh run holds the snapshot in
+    # COMPUTING, another dispatch would only stack a duplicate workflow on the
+    # queue behind it. A run stuck past STALE_COMPUTING_THRESHOLD is presumed
+    # dead (same rule as the sweep in get_intent_cluster_snapshot), so a
+    # retry is allowed through.
+    in_flight = MCPIntentClusterSnapshot.objects.filter(team=team).first()
+    if (
+        in_flight is not None
+        and in_flight.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        and in_flight.updated_at >= timezone.now() - logic.STALE_COMPUTING_THRESHOLD
+    ):
+        return
 
     # Flip to COMPUTING before dispatching so the 202 response and any
     # immediate poll see consistent state. The workflow's activity
@@ -149,11 +166,15 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     # Matches the cluster_mcp_intents management command pattern.
     async def _start() -> None:
         client = await async_connect()
+        # execution_timeout bounds the whole run *including* queue wait: with
+        # no worker polling the task queue, an unbounded workflow sits pending
+        # forever and every recompute click stacks another one behind it.
         await client.start_workflow(
             WORKFLOW_NAME,
             IntentClusteringWorkflowInputs(team_id=team.id, user_id=user.id if user else None),
             id=workflow_id,
             task_queue=settings.MCPA_TASK_QUEUE,
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
         )
 
     try:

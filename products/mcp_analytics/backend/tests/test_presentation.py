@@ -11,7 +11,11 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
-from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+from posthog.temporal.mcp_analytics.intent_clustering.constants import (
+    CHILD_WORKFLOW_ID_PREFIX,
+    WORKFLOW_EXECUTION_TIMEOUT,
+    WORKFLOW_NAME,
+)
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
@@ -227,6 +231,38 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert call_args.args[1].team_id == self.team.id
         assert call_args.args[1].user_id == self.user.id
         assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
+        # Without a bound, a dispatch onto a queue with no live worker sits
+        # pending forever and repeat clicks stack workflows behind it.
+        assert call_args.kwargs["execution_timeout"] == WORKFLOW_EXECUTION_TIMEOUT
+
+    @parameterized.expand(
+        [
+            # A fresh COMPUTING run owns the snapshot: don't stack a duplicate workflow.
+            ("fresh_computing_skips_dispatch", timedelta(minutes=1), 0),
+            # A run stuck past the stale threshold is presumed dead: allow the retry through.
+            ("stale_computing_dispatches_again", timedelta(minutes=11), 1),
+        ]
+    )
+    def test_intent_clusters_recompute_throttles_while_computing(
+        self, _name: str, computing_age: timedelta, expected_dispatches: int
+    ) -> None:
+        MCPIntentClusterSnapshot.objects.update_or_create(
+            team=self.team,
+            defaults={"status": MCPIntentClusterSnapshot.Status.COMPUTING},
+        )
+        # updated_at is auto_now — backdate it directly to position the run's age.
+        MCPIntentClusterSnapshot.objects.filter(team=self.team).update(updated_at=datetime.now(tz=UTC) - computing_age)
+
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
+        with patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        assert mock_client.start_workflow.await_count == expected_dispatches
 
     def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
         # If the workflow never starts, no activity will flip the status —
