@@ -217,25 +217,22 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
         # below destroys the DuckgresServer pointer, and without this the warehouse would
         # survive the org fully alive — external writers keep ingesting, storage keeps being
         # metered, and its credentials stay valid. Gated with `patched` so in-flight deletions
-        # from before this deploy don't fail replay on a new command. Best-effort after
-        # retries: a duckgres outage must not wedge the org deletion — a warehouse the
-        # retries could not deprovision is logged as an error for manual cleanup.
+        # from before this deploy don't fail replay on a new command. The rest of the deletion
+        # is CONDITIONAL on duckgres accepting the deprovision: proceeding past a failure
+        # would drop the only pointer to a live warehouse and foreclose any later automatic
+        # cleanup, so the activity retries indefinitely with capped backoff (like the bulky
+        # delete phases) — a persistent control-plane outage stalls this workflow visibly
+        # (ops-alertable) and the deletion completes once duckgres is reachable again.
+        # Orgs without a warehouse and already-torn-down warehouses succeed immediately
+        # inside the activity.
         if temporalio.workflow.patched("deprovision-managed-warehouse"):
-            try:
-                await temporalio.workflow.execute_activity(
-                    deprovision_managed_warehouse_activity,
-                    OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
-                    start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-                    heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-                    retry_policy=SIDE_EFFECT_RETRY_POLICY,
-                )
-            except temporalio.exceptions.ActivityError:
-                temporalio.workflow.logger.error(
-                    "deprovision_managed_warehouse_activity failed; continuing organization deletion "
-                    f"— the managed warehouse for organization {inputs.organization_id} must be "
-                    "deprovisioned manually",
-                    exc_info=True,
-                )
+            await temporalio.workflow.execute_activity(
+                deprovision_managed_warehouse_activity,
+                OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
 
         if inputs.team_ids:
             await _delete_teams_data_child(

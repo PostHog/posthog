@@ -900,9 +900,11 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
     so unrelated org deletions never touch the control plane). Idempotent against
     duckgres: 404 (warehouse unknown to the control plane) and 409 (teardown already
     started or finished — deprovision is not re-POSTable) are treated as converged. Any
-    other failure raises so the Temporal activity retries; once retries are exhausted the
-    workflow logs loudly and proceeds rather than wedging the org deletion on a duckgres
-    outage.
+    other failure raises so the Temporal activity retries: the org-record deletion (whose
+    cascade drops the ``DuckgresServer`` pointer) is conditional on this call being
+    accepted, so a persistent duckgres outage stalls the deletion workflow — visibly, and
+    resumable once the control plane is reachable — instead of orphaning a live warehouse
+    with no pointer left for any later cleanup.
     """
     # Keep ducklake.models off the core import path.
     from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415

@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import patch
@@ -221,10 +222,12 @@ async def test_transient_error_is_retried():
     assert len(attempts) == 2  # retried once, then succeeded
 
 
-async def test_warehouse_deprovision_failure_does_not_block_org_deletion():
-    # Deprovisioning the managed warehouse is best-effort: a duckgres outage must not wedge the
-    # organization deletion — the workflow logs the orphaned warehouse and proceeds once the
-    # activity has exhausted its retries.
+async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
+    # The rest of the org deletion is conditional on duckgres accepting the deprovision: the
+    # org-record cascade destroys the DuckgresServer pointer, so a persistent control-plane
+    # outage must stall the workflow (the activity keeps retrying) rather than orphan a live
+    # warehouse with no pointer left. The execution timeout is test-only, to bound the
+    # otherwise-indefinite retries.
     attempts: list[str] = []
     calls: list[str] = []
 
@@ -246,21 +249,23 @@ async def test_warehouse_deprovision_failure_does_not_block_org_deletion():
             activities=activities,
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            await env.client.execute_workflow(
-                DeleteOrganizationWorkflow.run,
-                DeleteOrganizationWorkflowInputs(
-                    team_ids=[1],
-                    organization_id="11111111-1111-1111-1111-111111111111",
-                    user_id=7,
-                    organization_name="org",
-                    project_names=["a"],
-                ),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    DeleteOrganizationWorkflow.run,
+                    DeleteOrganizationWorkflowInputs(
+                        team_ids=[1],
+                        organization_id="11111111-1111-1111-1111-111111111111",
+                        user_id=7,
+                        organization_name="org",
+                        project_names=["a"],
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=dt.timedelta(hours=1),
+                )
 
-    assert len(attempts) == 5  # exhausted SIDE_EFFECT_RETRY_POLICY, then swallowed
-    assert "delete_organization_record_activity" in calls  # deletion still ran to completion
+    assert len(attempts) > 1  # durably retried until the test-only execution timeout
+    assert calls == []  # nothing else ran — the pointer-destroying cascade never started
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():
