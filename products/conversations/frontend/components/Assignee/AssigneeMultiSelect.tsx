@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPerson, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -12,7 +12,8 @@ import { assigneeSelectLogic } from './assigneeSelectLogic'
 import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
 
 function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
-    if (a === 'unassigned' || b === 'unassigned') {
+    // String tokens ('unassigned', 'me') only match the identical token.
+    if (typeof a === 'string' || typeof b === 'string') {
         return a === b
     }
     return a.type === b.type && String(a.id) === String(b.id)
@@ -25,7 +26,7 @@ export function AssigneeMultiSelect({
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
 }): JSX.Element {
-    const { search, filteredRoles, otherFilteredMembers, currentUserMember, rolesLoading, membersLoading } =
+    const { search, filteredRoles, filteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -84,17 +85,27 @@ export function AssigneeMultiSelect({
                         </li>
                         {currentUserMember && (
                             <li>
-                                <AssigneeFilterItem
-                                    item={{
-                                        id: currentUserMember.user.id,
-                                        type: 'user',
-                                        user: currentUserMember.user,
-                                    }}
-                                    isSelected={isSelected}
-                                    onToggle={toggleEntry}
-                                    selectionCapReason={selectionCapReason}
-                                    labelSuffix={<span className="text-secondary">(you)</span>}
-                                />
+                                {/* Dynamic "me" entry — resolves to whoever is signed in, so a
+                                    saved view scoped to it stays each viewer's own tickets. */}
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={
+                                        <LemonCheckbox
+                                            checked={isSelected('me')}
+                                            className="pointer-events-none"
+                                        />
+                                    }
+                                    disabledReason={isSelected('me') ? undefined : selectionCapReason}
+                                    onClick={() => toggleEntry('me')}
+                                >
+                                    <span className="flex items-center gap-1">
+                                        <MeIcon />
+                                        Me
+                                        <span className="text-secondary">(current user)</span>
+                                    </span>
+                                </LemonButton>
                             </li>
                         )}
                         <Section
@@ -116,12 +127,15 @@ export function AssigneeMultiSelect({
                                 </LemonButton>
                             }
                         />
-                        {(!!search || membersLoading || otherFilteredMembers.length > 0) && (
+                        {(!!search || membersLoading || filteredMembers.length > 0) && (
                             <Section
                                 title="Users"
                                 loading={membersLoading}
                                 search={!!search}
-                                items={otherFilteredMembers.map((member) => ({
+                                // Include the current user here too (as their concrete
+                                // user:<id>), so they can filter to their own UUID
+                                // specifically — distinct from the dynamic "Me" row above.
+                                items={filteredMembers.map((member) => ({
                                     id: member.user.id,
                                     type: 'user' as const,
                                     user: member.user,
@@ -163,6 +177,14 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
             </span>
         )
     }
+    if (entry === 'me') {
+        return (
+            <span className="flex items-center gap-1">
+                <MeIcon />
+                Me
+            </span>
+        )
+    }
     return (
         <AssigneeResolver assignee={entry}>
             {({ assignee }) => (
@@ -173,6 +195,12 @@ function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element 
             )}
         </AssigneeResolver>
     )
+}
+
+// Solid person glyph for the dynamic "me" entry — distinct from the dashed
+// "unassigned" icon and from any specific member's avatar.
+function MeIcon(): JSX.Element {
+    return <IconPerson className="rounded-full bg-accent-highlight text-accent p-0.5 h-4 w-4" />
 }
 
 const AssigneeFilterItem = ({
