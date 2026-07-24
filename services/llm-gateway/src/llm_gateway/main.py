@@ -184,6 +184,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         window_seconds=settings.anthropic_circuit_breaker_window_seconds,
         bypass_probability=settings.anthropic_circuit_breaker_bypass_probability,
         min_requests=settings.anthropic_circuit_breaker_min_requests,
+        model_min_requests=settings.anthropic_circuit_breaker_model_min_requests,
     )
     app.state.anthropic_breaker_gauge_task = asyncio.create_task(
         publish_anthropic_breaker_gauges_loop(app.state.anthropic_circuit_breaker)

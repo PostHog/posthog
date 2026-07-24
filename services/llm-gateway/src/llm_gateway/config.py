@@ -217,6 +217,7 @@ class Settings(BaseSettings):
     anthropic_circuit_breaker_window_seconds: int = 300
     anthropic_circuit_breaker_bypass_probability: float = 0.9
     anthropic_circuit_breaker_min_requests: int = 20
+    anthropic_circuit_breaker_model_min_requests: int = 5
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod

@@ -62,11 +62,6 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
 BEDROCK_COUNT_TOKENS_ENDPOINT_NAME = "bedrock_count_tokens"
 
-# Fable uses the same model on both providers and has repeatedly timed out on both in the same
-# degradation window. Returning the Anthropic failure lets callers switch models instead of waiting
-# through a second provider timeout that cannot provide meaningful redundancy.
-BEDROCK_FALLBACK_EXCLUDED_MODELS: frozenset[str] = frozenset({"claude-fable-5"})
-
 
 def _invalid_header_exception(message: str) -> HTTPException:
     return HTTPException(status_code=400, detail={"error": {"message": message, "type": "invalid_request_error"}})
@@ -84,10 +79,6 @@ def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
         return extract_posthog_use_bedrock_fallback_from_headers(request) or False
     except ValueError as exc:
         raise _invalid_header_exception(str(exc)) from exc
-
-
-def _can_use_bedrock_fallback(model: str, requested: bool) -> bool:
-    return requested and model not in BEDROCK_FALLBACK_EXCLUDED_MODELS
 
 
 # Params that are safe to forward on the Bedrock path. This is an allowlist on purpose:
@@ -410,7 +401,7 @@ async def _maybe_bypass_anthropic(
     if breaker is None or not use_bedrock_fallback:
         return False
 
-    decision = await breaker.evaluate()
+    decision = await breaker.evaluate(model)
     if decision.bypass:
         ANTHROPIC_CIRCUIT_BREAKER_BYPASSED.labels(model=model, product=product).inc()
     return decision.bypass
@@ -475,15 +466,16 @@ def _is_breaker_success(status_code: int) -> bool:
     return status_code < 500
 
 
-async def _record_anthropic_outcome(breaker: AnthropicCircuitBreaker | None, success: bool) -> None:
+async def _record_anthropic_outcome(breaker: AnthropicCircuitBreaker | None, success: bool, model: str) -> None:
     if breaker is None:
         return
-    await breaker.record_outcome(success=success)
+    await breaker.record_outcome(success=success, model=model)
 
 
 def _wrap_stream_with_breaker(
     response: StreamingResponse,
     breaker: AnthropicCircuitBreaker | None,
+    model: str,
 ) -> StreamingResponse:
     """Record the breaker outcome from inside the stream generator's lifecycle so mid-stream
     Anthropic failures aren't misrecorded as successes — the connection-level success that
@@ -508,7 +500,7 @@ def _wrap_stream_with_breaker(
             raise
         finally:
             try:
-                await breaker.record_outcome(success=success)
+                await breaker.record_outcome(success=success, model=model)
             except Exception as exc:
                 logger.exception(
                     "circuit_breaker_stream_record_failed",
@@ -529,7 +521,7 @@ async def _handle_anthropic_messages(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
-    use_bedrock_fallback = _can_use_bedrock_fallback(body.model, _get_use_bedrock_fallback_from_headers(request))
+    use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     # `@cf/` models are served by the GLM routing layer (Cloudflare, or Modal during the ramp), so
     # route them by model id — the same way the chat/completions and responses handlers do. The
@@ -566,7 +558,7 @@ async def _handle_anthropic_messages(
         # failures so the breaker can open; ordinary caller-side 4xx stay a breaker success.
         billing_block = _is_anthropic_billing_block(exc)
         fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
-        await _record_anthropic_outcome(breaker, success=not fallback_eligible)
+        await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
         if not use_bedrock_fallback or not fallback_eligible:
             raise
 
@@ -598,8 +590,8 @@ async def _handle_anthropic_messages(
     else:
         if isinstance(result, StreamingResponse):
             # Outcome recorded from inside the stream generator (see _wrap_stream_with_breaker).
-            return _wrap_stream_with_breaker(result, breaker)
-        await _record_anthropic_outcome(breaker, success=True)
+            return _wrap_stream_with_breaker(result, breaker, body.model)
+        await _record_anthropic_outcome(breaker, success=True, model=body.model)
         return result
 
 
@@ -642,7 +634,7 @@ async def _handle_count_tokens(
     try:
         result = await _anthropic_count_tokens_impl(data, body.model, user, product)
     except HTTPException as exc:
-        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
+        await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code), model=body.model)
         if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
             raise
 
@@ -672,7 +664,7 @@ async def _handle_count_tokens(
             )
             raise exc from None
     else:
-        await _record_anthropic_outcome(breaker, success=True)
+        await _record_anthropic_outcome(breaker, success=True, model=body.model)
         return result
 
 

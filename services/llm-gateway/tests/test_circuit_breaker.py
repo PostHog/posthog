@@ -32,6 +32,7 @@ def make_breaker(
     window_seconds: int = 300,
     bypass_probability: float = 0.9,
     min_requests: int = 5,
+    model_min_requests: int = 5,
     enabled: bool = True,
 ) -> AnthropicCircuitBreaker:
     return AnthropicCircuitBreaker(
@@ -40,6 +41,7 @@ def make_breaker(
         window_seconds=window_seconds,
         bypass_probability=bypass_probability,
         min_requests=min_requests,
+        model_min_requests=model_min_requests,
         enabled=enabled,
     )
 
@@ -90,6 +92,23 @@ class TestAnthropicCircuitBreaker:
         assert decision.open is True
         assert decision.failure_rate == pytest.approx(0.25)
         assert decision.total_requests == 20
+
+    async def test_model_failures_are_not_diluted_by_healthy_models(
+        self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
+    ) -> None:
+        breaker = make_breaker(fake_redis, min_requests=5, failure_threshold=0.25)
+        for _ in range(5):
+            await breaker.record_outcome(success=False, model="claude-fable-5")
+        for _ in range(20):
+            await breaker.record_outcome(success=True, model="claude-sonnet-4-6")
+
+        fable_decision = await breaker.evaluate("claude-fable-5")
+        sonnet_decision = await breaker.evaluate("claude-sonnet-4-6")
+        aggregate_decision = await breaker.evaluate()
+
+        assert fable_decision.open is True
+        assert sonnet_decision.open is False
+        assert aggregate_decision.open is False
 
     async def test_closes_when_failure_rate_drops(
         self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
