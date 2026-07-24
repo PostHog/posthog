@@ -135,6 +135,12 @@ Any_Source_Errors: dict[str, str | None] = {
         "A column's type changed in your source and no longer fits the type we stored. We can't widen "
         "an existing column in place — please reset and fully re-sync this table to adopt the new type."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a column imported
+    # as a number contains non-numeric text. The same cells fail identically on every retry regardless
+    # of source. Already non-retryable for Google Sheets via its own get_non_retryable_errors; declare
+    # it here so every other source stops retrying too. The enriched message names the offending column
+    # and shows example cells, so keep the raw error rather than replacing it with a generic one.
+    "must be real number, not str": None,
 }
 
 
