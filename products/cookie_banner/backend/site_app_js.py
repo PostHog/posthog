@@ -78,6 +78,11 @@ _BANNER_CSS = """
 .actions .decline { background: transparent; border: 1px solid rgba(0, 0, 0, 0.2); }
 .powered { margin-top: 10px; font-size: 11px; opacity: 0.65; }
 .powered a { color: inherit; }
+@media (max-width: 640px) {
+    .banner.bottom-left, .banner.bottom-right { left: 16px; right: 16px; max-width: none; }
+    .banner.bottom-bar { flex-direction: column; align-items: stretch; gap: 12px; }
+    .banner.bottom-bar .powered { margin-top: 8px; }
+}
 """
 
 _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {

@@ -33,6 +33,19 @@ export const POSITION_LABELS: Record<Required<CookieBannerAppearanceApi>['positi
     'bottom-bar': 'Bottom bar',
 }
 
+/** Perceived-brightness check for hex colors (#rgb/#rrggbb), used to warn on low-contrast art */
+export function isLightColor(hex: string): boolean {
+    const raw = hex.replace('#', '')
+    const full = raw.length === 3 || raw.length === 4 ? [...raw].map((c) => c + c).join('') : raw
+    const r = parseInt(full.slice(0, 2), 16)
+    const g = parseInt(full.slice(2, 4), 16)
+    const b = parseInt(full.slice(4, 6), 16)
+    if (isNaN(r) || isNaN(g) || isNaN(b)) {
+        return false
+    }
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6
+}
+
 // One-click theme presets applied to the four color fields; "light" mirrors DEFAULT_APPEARANCE
 export const THEME_PALETTES = {
     light: {

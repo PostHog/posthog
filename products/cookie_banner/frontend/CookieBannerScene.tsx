@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonInput,
@@ -70,7 +71,8 @@ const COLOR_FIELDS: { key: keyof CookieBannerAppearanceApi; label: string }[] = 
 ]
 
 export function CookieBannerScene(): JSX.Element {
-    const { activeTheme, configLoading, enabledDraft, effectiveAppearance, isDirty } = useValues(cookieBannerLogic)
+    const { activeTheme, configLoading, enabledDraft, effectiveAppearance, isDirty, showLightArtWarning } =
+        useValues(cookieBannerLogic)
     const { setEnabled, setAppearanceValue, setAppearanceValues, save } = useActions(cookieBannerLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -98,7 +100,7 @@ export function CookieBannerScene(): JSX.Element {
                 <div className="flex flex-col gap-8 lg:max-w-160 flex-1">
                     <SceneSection
                         title="Status"
-                        description="The banner is only served to your website while enabled."
+                        description="Applies immediately. The banner is only served to your website while enabled."
                         titleSize="sm"
                     >
                         <LemonSwitch
@@ -158,7 +160,13 @@ export function CookieBannerScene(): JSX.Element {
                                         <span className="flex flex-col items-center gap-1 py-1">
                                             {COOKIE_BANNER_ART[style] ? (
                                                 <span
-                                                    className="flex h-12 items-center"
+                                                    className={
+                                                        // The light logomark is white art — give its tile a dark
+                                                        // backing so it's visible in the picker
+                                                        style === 'posthog-logomark-light'
+                                                            ? 'flex h-12 items-center rounded bg-[#1d1f27] px-2'
+                                                            : 'flex h-12 items-center'
+                                                    }
                                                     // Static app-owned SVG markup, never user input
                                                     dangerouslySetInnerHTML={{
                                                         __html: COOKIE_BANNER_ART[style],
@@ -172,6 +180,12 @@ export function CookieBannerScene(): JSX.Element {
                                     </LemonButton>
                                 ))}
                             </div>
+                            {showLightArtWarning && (
+                                <LemonBanner type="warning" className="mt-2">
+                                    The light logomark is designed for dark backgrounds. It may be invisible on your
+                                    current background color — switch to the dark theme or pick a darker background.
+                                </LemonBanner>
+                            )}
                         </div>
                         <div>
                             <LemonLabel className="mb-1">Position</LemonLabel>
