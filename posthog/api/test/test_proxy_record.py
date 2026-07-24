@@ -167,6 +167,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
             ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+            # Settled non-error states are retryable too, so diagnostics that detect drift on a
+            # live proxy (e.g. the Cloudflare custom hostname went missing) can recover via Retry.
+            ("valid", ProxyRecord.Status.VALID, None),
+            ("warning", ProxyRecord.Status.WARNING, "Cloudflare custom hostname missing"),
         ]
     )
     @patch("posthog.api.proxy_record.sync_connect")
@@ -201,12 +205,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("waiting", ProxyRecord.Status.WAITING),
             ("issuing", ProxyRecord.Status.ISSUING),
-            ("valid", ProxyRecord.Status.VALID),
-            ("warning", ProxyRecord.Status.WARNING),
             ("deleting", ProxyRecord.Status.DELETING),
         ]
     )
-    def test_cannot_retry_proxy_in_non_error_state(self, _name, initial_status):
+    def test_cannot_retry_proxy_in_transitional_state(self, _name, initial_status):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
@@ -220,6 +222,69 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot retry" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("valid", ProxyRecord.Status.VALID),
+            ("warning", ProxyRecord.Status.WARNING),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_cannot_retry_live_proxy_that_would_switch_provisioning_path(
+        self, _name, initial_status, mock_sync_connect
+    ):
+        # Reproduces the regression that reverted #67729: with Cloudflare provisioning globally
+        # enabled, retrying a live proxy that still sits on the legacy path re-runs create-proxy on
+        # the Cloudflare path. DNS still points at the legacy target, so Cloudflare validation can
+        # never pass and a healthy proxy gets knocked into 'erroring'. The guard must refuse it.
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="legacy-live.example.com",
+            target_cname="abc123.legacy.posthog.com",
+            status=initial_status,
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_ENABLED=True, CLOUDFLARE_PROXY_BASE_CNAME="cf.proxy.posthog.com"):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "different path" in response.json()["detail"]
+        mock_temporal.start_workflow.assert_not_called()
+        record.refresh_from_db()
+        assert record.status == initial_status
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_retry_live_cloudflare_proxy_recovers_drift(self, mock_capture, mock_sync_connect):
+        # The drift-recovery case in the real prod config: Cloudflare enabled and the live proxy is
+        # already on the Cloudflare path, so re-provisioning stays on the same path and is safe.
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="cf-live.example.com",
+            target_cname="abc123.cf.proxy.posthog.com",
+            status=ProxyRecord.Status.VALID,
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_ENABLED=True, CLOUDFLARE_PROXY_BASE_CNAME="cf.proxy.posthog.com"):
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "waiting"
+        mock_temporal.start_workflow.assert_called_once()
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.WAITING
 
     @patch("posthog.api.proxy_record.sync_connect")
     def test_retry_returns_500_and_reverts_status_on_temporal_failure(self, mock_sync_connect):
