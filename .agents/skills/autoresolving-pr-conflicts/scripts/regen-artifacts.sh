@@ -18,7 +18,14 @@ dest=${3:-}
 
 case "$cmd" in
     export)
-        mkdir -p "$dest"
+        # Refuse a pre-existing destination: a reused tree could keep a file from an
+        # earlier PR under an allowed generated path and leak it into this one.
+        if [ -e "$dest" ]; then
+            echo "refusing export: $dest already exists; use a fresh per-PR directory" >&2
+            exit 1
+        fi
+        mkdir -p "$(dirname "$dest")"
+        mkdir "$dest"
         tar -C "$src" --exclude=.git -cf - . | tar -C "$dest" -xf -
         ;;
     import)
