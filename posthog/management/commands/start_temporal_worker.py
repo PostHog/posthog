@@ -14,6 +14,7 @@ from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.open_telemetry import initialize_otel
+from posthog.temporal.common.psycopg_adapters import warm_up_psycopg_adapters
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -626,6 +627,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Resolve psycopg3's lazily-registered adapters (notably UUID) here, on the main thread,
+        # before activities start opening connections on the shared worker thread pool. Doing it
+        # once up front avoids a thread-safety race in psycopg's first-use adapter resolution that
+        # otherwise crashes concurrent UUID binds with "cannot adapt type 'UUID'".
+        warm_up_psycopg_adapters()
+
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
