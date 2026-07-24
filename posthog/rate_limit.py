@@ -1273,6 +1273,18 @@ class ComposeTicketSustainedThrottle(UserRateThrottle):
     rate = "60/hour"
 
 
+class BulkTagTicketsBurstThrottle(UserRateThrottle):
+    # Each bulk tag request can already fan out to many TaggedItem writes (bounded
+    # per-request in the viewset); these limit how fast a user can repeat the action.
+    scope = "bulk_tag_tickets_burst"
+    rate = "30/minute"
+
+
+class BulkTagTicketsSustainedThrottle(UserRateThrottle):
+    scope = "bulk_tag_tickets_sustained"
+    rate = "200/hour"
+
+
 class TeamsAdminGraphThrottle(UserRateThrottle):
     """
     Protect the bot's per-tenant Graph API quota. The TeamsTeamsView /

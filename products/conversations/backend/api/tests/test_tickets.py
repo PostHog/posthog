@@ -891,6 +891,107 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_tags/"
+
+    def _tags_of(self, ticket) -> set[str]:
+        ticket.refresh_from_db()
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def _tag(self, ticket, *names: str) -> None:
+        for name in names:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            ticket.tagged_items.get_or_create(tag_id=tag.id)
+
+    def test_add_merges_with_existing_tags(self, mock_on_commit):
+        self._tag(self.tickets[0], "keep")
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["updated"]), 3)
+        # "add" is a union, not a replace — the pre-existing tag survives.
+        self.assertEqual(self._tags_of(self.tickets[0]), {"keep", "urgent"})
+        self.assertEqual(self._tags_of(self.tickets[1]), {"urgent"})
+
+    def test_remove_drops_only_named_tags(self, mock_on_commit):
+        self._tag(self.tickets[0], "keep", "drop")
+        self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "action": "remove", "tags": ["drop"]},
+            format="json",
+        )
+        self.assertEqual(self._tags_of(self.tickets[0]), {"keep"})
+
+    def test_set_replaces_all_tags(self, mock_on_commit):
+        self._tag(self.tickets[0], "old1", "old2")
+        self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "action": "set", "tags": ["new"]},
+            format="json",
+        )
+        self.assertEqual(self._tags_of(self.tickets[0]), {"new"})
+
+    def test_other_team_ids_are_skipped_not_tagged(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["leak"]},
+            format="json",
+        )
+        updated_ids = {u["id"] for u in response.json()["updated"]}
+        skipped_ids = {s["id"] for s in response.json()["skipped"]}
+        self.assertEqual(updated_ids, {str(self.tickets[0].id)})
+        self.assertIn(str(other_ticket.id), skipped_ids)
+        self.assertEqual(self._tags_of(other_ticket), set())
+
+    def test_rejects_empty_tags_for_add(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "action": "add", "tags": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_over_cap_operations(self, mock_on_commit):
+        # 50 tickets × 50 tags = 2500 > BULK_TAG_MAX_OPERATIONS (2000). Rejected before any write.
+        ids = [f"00000000-0000-0000-0000-{i:012d}" for i in range(50)]
+        tags = [f"tag-{j}" for j in range(50)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": tags},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()

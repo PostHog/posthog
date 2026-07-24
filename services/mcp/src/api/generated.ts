@@ -13103,6 +13103,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
+
+
+    export const BulkUpdateTagsActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
+    /**
+     * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+     */
+    export interface BulkTicketTagsRequest {
+      /**
+         * List of object UUIDs to update tags on.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      action: BulkUpdateTagsActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    /**
      * * `new` - New
      * * `open` - Open
      * * `pending` - Pending
@@ -13142,20 +13175,6 @@ export namespace Schemas {
       /** UUIDs of the tickets whose status changed. */
       ids: string[];
     }
-
-    /**
-     * * `add` - add
-     * * `remove` - remove
-     * * `set` - set
-     */
-    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
-
-
-    export const BulkUpdateTagsActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
 
     export interface BulkUpdateTagsError {
       id: number;

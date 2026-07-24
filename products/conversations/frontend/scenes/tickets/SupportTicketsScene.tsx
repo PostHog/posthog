@@ -1,24 +1,23 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDivider,
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
     LemonSegmentedButton,
-    LemonSelect,
     LemonTable,
     LemonTableColumns,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -65,33 +64,123 @@ interface SupportTicketsTableProps {
 }
 
 function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+    const { selectedTicketIds, selectedTickets, selectedTicketTagStates, bulkUpdating } =
+        useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkAddTags, bulkRemoveTags } = useActions(supportTicketsSceneLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
+    const [dropdownOpen, setDropdownOpen] = useState(false)
 
     const hasSelection = selectedTicketIds.length > 0
-    const selectedStatuses = selectedTickets.map((t) => t.status)
-    const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
-        if (acc === null) {
-            return s
-        }
-        return acc === s ? acc : 'mixed'
-    }, null)
+    const currentStatus = selectedTickets
+        .map((t) => t.status)
+        .reduce<TicketStatus | 'mixed' | null>((acc, s) => {
+            if (acc === null) {
+                return s
+            }
+            return acc === s ? acc : 'mixed'
+        }, null)
+
+    // The tag editor lists tags already on the selection with their state; the input below only
+    // offers tags not yet on any selected ticket, so the two don't overlap.
+    const tagsOnSelection = new Set(selectedTicketTagStates.map((t) => t.tag))
+    const addableTagOptions = (tagsAvailable ?? [])
+        .filter((t: string) => !tagsOnSelection.has(t))
+        .map((t: string) => ({ key: t, label: t }))
 
     return (
-        <LemonSelect
-            onChange={(value) => {
-                if (!value || value === currentStatus) {
-                    return
-                }
-                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
-            }}
-            value={null}
-            placeholder="Mark as"
-            loading={bulkUpdating}
-            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
-            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-            size="small"
-        />
+        <LemonDropdown
+            visible={dropdownOpen}
+            onVisibilityChange={setDropdownOpen}
+            closeOnClickInside={false}
+            overlay={
+                <div className="p-2 min-w-64 flex flex-col gap-2">
+                    <div className="flex flex-col gap-1">
+                        <span className="text-muted text-xs">Mark as</span>
+                        <div className="flex flex-col gap-px">
+                            {statusOptionsWithoutAll.map((o) => (
+                                <LemonButton
+                                    key={o.value}
+                                    type="tertiary"
+                                    size="small"
+                                    fullWidth
+                                    active={currentStatus === o.value}
+                                    loading={bulkUpdating}
+                                    onClick={() => {
+                                        if (o.value !== currentStatus) {
+                                            bulkUpdateStatus(selectedTicketIds, o.value as TicketStatus)
+                                        }
+                                        setDropdownOpen(false)
+                                    }}
+                                >
+                                    {o.label}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
+                    <LemonDivider className="my-1" />
+                    <div className="flex flex-col gap-2">
+                        <span className="text-muted text-xs">Tags</span>
+                        {selectedTicketTagStates.length > 0 && (
+                            <div className="flex flex-col gap-px">
+                                {selectedTicketTagStates.map(({ tag, state }) => (
+                                    <LemonButton
+                                        key={tag}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        loading={bulkUpdating}
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={state === 'all' ? true : 'indeterminate'}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        tooltip={
+                                            state === 'all'
+                                                ? 'On all selected tickets — click to remove'
+                                                : 'On some selected tickets — click to add to all'
+                                        }
+                                        onClick={() => {
+                                            if (state === 'all') {
+                                                bulkRemoveTags(selectedTicketIds, [tag])
+                                            } else {
+                                                bulkAddTags(selectedTicketIds, [tag])
+                                            }
+                                        }}
+                                    >
+                                        {tag}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            value={[]}
+                            options={addableTagOptions}
+                            onChange={(vals) => {
+                                const tag = vals[vals.length - 1]
+                                if (tag) {
+                                    bulkAddTags(selectedTicketIds, [tag])
+                                }
+                            }}
+                            placeholder="Add a tag..."
+                            data-attr="bulk-add-tags-input"
+                        />
+                    </div>
+                </div>
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                disabledReason={!hasSelection ? 'Select tickets to update' : undefined}
+                data-attr="support-tickets-bulk-actions"
+            >
+                Update tickets
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
@@ -107,77 +196,51 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         searchQuery,
         hasActiveFilters,
     } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
+    const { setCurrentPage, setSorting, toggleTicketSelected, toggleSelectAllOnPage, clearFiltersKeepingSearch } =
+        useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const getKey = useMemo(() => (t: Ticket) => t.id, [])
-    const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
-    // `bulk` is a fresh object every render, but its members are individually stable
-    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
-    // stable members instead of the unstable wrapper object.
-    const {
-        selectedKeys,
-        clearSelection,
-        isSomeOnPageSelected,
-        isAllOnPageSelected,
-        toggleAllOnPage,
-        selectedKeysSet,
-        toggleRow,
-    } = bulk
-
-    useEffect(() => {
-        setSelectedTicketIds(selectedKeys)
-    }, [selectedKeys, setSelectedTicketIds])
-
-    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
-    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
-    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
-    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
-    // would immediately wipe the selection the user just made.
-    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
-    useEffect(() => {
-        const wasSelected = prevSelectedTicketIdCount.current > 0
-        prevSelectedTicketIdCount.current = selectedTicketIds.length
-        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
-            clearSelection()
-        }
-    }, [selectedTicketIds, selectedKeys, clearSelection])
+    const selectedSet = useMemo(() => new Set(selectedTicketIds), [selectedTicketIds])
+    const pageIds = useMemo(() => tickets.map((t) => t.id), [tickets])
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedSet.has(id))
+    const someOnPageSelected = !allOnPageSelected && pageIds.some((id) => selectedSet.has(id))
 
     const columns = useMemo<LemonTableColumns<Ticket>>(() => {
-        const checkboxCol: LemonTableColumns<Ticket>[number] = {
-            key: '__select__' as any,
+        const selectColumn: LemonTableColumns<Ticket>[number] = {
+            key: 'ticket-select' as any,
             width: 32,
             title: (
                 <LemonCheckbox
-                    checked={isSomeOnPageSelected ? 'indeterminate' : isAllOnPageSelected}
-                    onChange={toggleAllOnPage}
+                    checked={someOnPageSelected ? 'indeterminate' : allOnPageSelected}
+                    onChange={() => toggleSelectAllOnPage(pageIds)}
+                    aria-label="Select all tickets on this page"
                     stopPropagation
                 />
             ),
-            render: (_, ticket: Ticket, recordIndex: number) => (
+            render: (_, ticket: Ticket) => (
                 <LemonCheckbox
-                    checked={selectedKeysSet.has(ticket.id)}
-                    onChange={(_value, event) =>
-                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
-                    }
+                    checked={selectedSet.has(ticket.id)}
+                    onChange={() => toggleTicketSelected(ticket.id)}
+                    aria-label={`Select ticket ${ticket.ticket_number}`}
                     stopPropagation
                 />
             ),
         }
-        return [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded })]
+        return [selectColumn, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded })]
     }, [
         visibleColumns,
-        embedded,
         aiEnabled,
-        isSomeOnPageSelected,
-        isAllOnPageSelected,
-        toggleAllOnPage,
-        selectedKeysSet,
-        toggleRow,
+        embedded,
+        selectedSet,
+        allOnPageSelected,
+        someOnPageSelected,
+        pageIds,
+        toggleSelectAllOnPage,
+        toggleTicketSelected,
     ])
 
     const emptyState =

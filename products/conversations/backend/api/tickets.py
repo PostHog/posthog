@@ -29,7 +29,13 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    apply_bulk_tag_changes,
+)
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -40,7 +46,12 @@ from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
+from posthog.rate_limit import (
+    BulkTagTicketsBurstThrottle,
+    BulkTagTicketsSustainedThrottle,
+    ComposeTicketBurstThrottle,
+    ComposeTicketSustainedThrottle,
+)
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
@@ -179,6 +190,10 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
 
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
+# Bounds the write amplification of a single bulk tag request: each (ticket, tag)
+# pair is up to one TaggedItem write plus an activity-log entry, so the total work
+# is tickets × tags. The shared UUID serializer caps ids at 500 but has no tags limit.
+BULK_TAG_MAX_OPERATIONS = 2000
 
 
 class BulkUpdateStatusRequestSerializer(serializers.Serializer):
@@ -200,6 +215,21 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         help_text="UUIDs of the tickets whose status changed.",
     )
+
+
+class BulkTicketTagsRequestSerializer(BulkUpdateTagsUUIDRequestSerializer):
+    # Reuses the shared UUID-keyed bulk-tag serializer (ids/action/tags) and adds a per-request
+    # cap so a single call can't fan out to a huge number of TaggedItem writes. The cap lives here
+    # rather than in the shared serializer because the shared one has no tags limit at all.
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        operations = len(attrs["ids"]) * max(len(attrs["tags"]), 1)
+        if operations > BULK_TAG_MAX_OPERATIONS:
+            raise serializers.ValidationError(
+                f"Too many operations: {operations} (tickets × tags) exceeds the limit of "
+                f"{BULK_TAG_MAX_OPERATIONS}. Select fewer tickets or tags."
+            )
+        return attrs
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -362,7 +392,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    # "bulk_update_tags" is opted in so personal API keys with ticket:write can use it (see the
+    # note in TaggedItemViewSetMixin.bulk_update_tags).
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "bulk_update_tags",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -1079,6 +1120,56 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         transaction.on_commit(_emit_bulk_side_effects)
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
+
+    @extend_schema(
+        request=BulkTicketTagsRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkUpdateTagsUUIDResponseSerializer)},
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        throttle_classes=[BulkTagTicketsBurstThrottle, BulkTagTicketsSustainedThrottle],
+    )
+    def bulk_update_tags(self, request, *args, **kwargs):
+        """Add, remove, or replace tags across multiple tickets in one request.
+
+        Reuses the shared tag machinery (``apply_bulk_tag_changes``) with the UUID-keyed request
+        serializer. Overrides ``TaggedItemViewSetMixin.bulk_update_tags`` because that assumes
+        integer PKs and runs an object-level editor check; tickets are UUID-keyed and aren't an
+        object-level access-controlled resource, so team membership (enforced by the queryset) is
+        the only boundary, matching the single-ticket update path. No ``activity_context`` is
+        passed: ticket tag changes are already mirrored onto the ticket's activity timeline by the
+        TaggedItem signal, so passing one would double-log.
+        """
+        serializer = BulkTicketTagsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        ticket_ids: list[uuid.UUID] = validated["ids"]
+
+        with transaction.atomic():
+            tickets = list(self.prefetch_tagged_items_if_available(self.get_queryset().filter(id__in=ticket_ids)))
+            updated = apply_bulk_tag_changes(tickets, validated["action"], validated["tags"])
+
+        found_ids = {ticket.id for ticket in tickets}
+        skipped = [{"id": tid, "reason": "Not found"} for tid in ticket_ids if tid not in found_ids]
+
+        if updated:
+
+            def _emit_bulk_side_effects() -> None:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk tags updated",
+                        {"count": len(updated), "action": validated["action"], "tag_count": len(validated["tags"])},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+            transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": updated, "skipped": skipped})
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):

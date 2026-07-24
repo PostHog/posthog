@@ -15,23 +15,30 @@ import { ticketListBackTo } from '../ticket/SupportTicketScene'
 import { SupportTicketsTable, SupportTicketsTableFilters } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
-const TICKET: Ticket = {
-    id: 'ticket-1',
-    ticket_number: 1,
-    distinct_id: 'distinct-1',
-    status: 'open',
-    channel_source: 'email',
-    anonymous_traits: {},
-    identity_verified: false,
-    ai_resolved: false,
-    created_at: '2026-06-12T00:00:00Z',
-    updated_at: '2026-06-12T00:00:00Z',
-    message_count: 1,
-    last_message_at: '2026-06-12T00:00:00Z',
-    last_message_text: 'Hello',
-    unread_team_count: 0,
-    unread_customer_count: 0,
+function makeTicket(overrides: Partial<Ticket> & Pick<Ticket, 'id' | 'ticket_number'>): Ticket {
+    return {
+        distinct_id: 'distinct-1',
+        status: 'open',
+        channel_source: 'email',
+        anonymous_traits: {},
+        identity_verified: false,
+        ai_resolved: false,
+        created_at: '2026-06-12T00:00:00Z',
+        updated_at: '2026-06-12T00:00:00Z',
+        message_count: 1,
+        last_message_at: '2026-06-12T00:00:00Z',
+        last_message_text: 'Hello',
+        unread_team_count: 0,
+        unread_customer_count: 0,
+        ...overrides,
+    }
 }
+
+const TICKETS = [
+    makeTicket({ id: 'ticket-1', ticket_number: 1 }),
+    makeTicket({ id: 'ticket-2', ticket_number: 2 }),
+    makeTicket({ id: 'ticket-3', ticket_number: 3 }),
+]
 
 describe('SupportTicketsTable selection', () => {
     let logic: ReturnType<typeof supportTicketsSceneLogic.build>
@@ -39,16 +46,19 @@ describe('SupportTicketsTable selection', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: 1 }],
+                '/api/projects/:team_id/conversations/tickets/': () => [
+                    200,
+                    { results: TICKETS, count: TICKETS.length },
+                ],
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
             },
         })
         initKeaTests()
         logic = supportTicketsSceneLogic()
         logic.mount()
-        // Seed a ticket directly so we don't depend on the debounced loadTickets request.
+        // Seed tickets directly so we don't depend on the debounced loadTickets request.
         act(() => {
-            logic.actions.setTickets([TICKET])
+            logic.actions.setTickets(TICKETS)
         })
     })
 
@@ -57,49 +67,62 @@ describe('SupportTicketsTable selection', () => {
         cleanup()
     })
 
-    function getRowCheckbox(): HTMLInputElement {
-        // Two checkboxes render: [0] the header "select all on page", [1] the single row.
-        const checkboxes = screen.getAllByRole('checkbox')
-        expect(checkboxes).toHaveLength(2)
-        return checkboxes[1] as HTMLInputElement
-    }
-
-    // Regression: the hook selection (selectedKeys) and kea (selectedTicketIds) were synced by
-    // two effects, and on the first click the "clear when kea is empty" effect fired before the
-    // push effect had propagated — instantly wiping the selection. The checkbox never stuck.
-    it('keeps a row checked after clicking and pushes the id into kea', async () => {
+    // Guards the checkbox-column wiring: a row checkbox toggles that ticket in the logic's selection.
+    it('selects a ticket when its row checkbox is clicked', async () => {
         render(
             <Provider>
                 <SupportTicketsTable />
             </Provider>
         )
 
-        const rowCheckbox = getRowCheckbox()
-        expect(rowCheckbox).not.toBeChecked()
-
+        // Checkbox [0] is the header "select all on page"; [1] is the first row.
+        const rowCheckbox = screen.getAllByRole('checkbox')[1]
         await userEvent.click(rowCheckbox)
 
-        await waitFor(() => expect(getRowCheckbox()).toBeChecked())
-        expect(logic.values.selectedTicketIds).toEqual([TICKET.id])
+        expect(logic.values.selectedTicketIds).toEqual(['ticket-1'])
     })
 
-    it('clears the checkbox when the kea selection is reset externally', async () => {
-        render(
-            <Provider>
-                <SupportTicketsTable />
-            </Provider>
-        )
+    // Select-all toggles every ticket on the page on, then off on a second click.
+    it('toggles all page tickets via select-all', () => {
+        const pageIds = TICKETS.map((t) => t.id)
 
-        await userEvent.click(getRowCheckbox())
-        await waitFor(() => expect(getRowCheckbox()).toBeChecked())
+        logic.actions.toggleSelectAllOnPage(pageIds)
+        expect(logic.values.selectedTicketIds).toEqual(pageIds)
 
-        // A bulk update / page reload resets the kea selection — the hook should follow.
-        act(() => {
-            logic.actions.clearSelectedTickets()
-        })
-
-        await waitFor(() => expect(getRowCheckbox()).not.toBeChecked())
+        logic.actions.toggleSelectAllOnPage(pageIds)
         expect(logic.values.selectedTicketIds).toEqual([])
+    })
+
+    // Tag state powers the tri-state editor: fully-applied vs partially-applied across the selection.
+    it('marks a tag "all" when every selected ticket has it and "some" otherwise', () => {
+        logic.actions.setTickets([
+            makeTicket({ id: 'ticket-1', ticket_number: 1, tags: ['billing', 'urgent'] }),
+            makeTicket({ id: 'ticket-2', ticket_number: 2, tags: ['billing'] }),
+        ])
+        logic.actions.setSelectedTicketIds(['ticket-1', 'ticket-2'])
+
+        expect(logic.values.selectedTicketTagStates).toEqual([
+            { tag: 'billing', state: 'all' },
+            { tag: 'urgent', state: 'some' },
+        ])
+    })
+
+    // Optimistic patch keeps the selection (and the tag editor) open across edits.
+    it('patches tags on selected tickets without dropping the selection or touching others', () => {
+        logic.actions.setTickets([
+            makeTicket({ id: 'ticket-1', ticket_number: 1, tags: ['old'] }),
+            makeTicket({ id: 'ticket-2', ticket_number: 2, tags: ['old'] }),
+            makeTicket({ id: 'ticket-3', ticket_number: 3, tags: ['keep'] }),
+        ])
+        logic.actions.setSelectedTicketIds(['ticket-1', 'ticket-2'])
+
+        logic.actions.applyTicketTagPatch(['ticket-1', 'ticket-2'], ['new'], ['old'])
+
+        const tagsById = Object.fromEntries(logic.values.tickets.map((t) => [t.id, t.tags]))
+        expect(tagsById['ticket-1']).toEqual(['new'])
+        expect(tagsById['ticket-2']).toEqual(['new'])
+        expect(tagsById['ticket-3']).toEqual(['keep'])
+        expect(logic.values.selectedTicketIds).toEqual(['ticket-1', 'ticket-2'])
     })
 
     // Regression: opening a ticket from a filtered list dropped the filters, so the ticket's
@@ -125,7 +148,9 @@ describe('SupportTicketsTable selection', () => {
         await userEvent.click(rows[rows.length - 1])
 
         await waitFor(() =>
-            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
+            expect(router.values.location.pathname).toContain(
+                urls.supportTicketDetail(TICKETS[TICKETS.length - 1].ticket_number)
+            )
         )
         // Filters ride along on the ticket URL so the back arrow returns to this view.
         expect(router.values.searchParams.status).not.toBeUndefined()
@@ -153,7 +178,9 @@ describe('SupportTicketsTable selection', () => {
         const rows = screen.getAllByRole('row')
         await userEvent.click(rows[rows.length - 1])
         await waitFor(() =>
-            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
+            expect(router.values.location.pathname).toContain(
+                urls.supportTicketDetail(TICKETS[TICKETS.length - 1].ticket_number)
+            )
         )
 
         // The back arrow's target is built from the ticket page's live query string. It must
@@ -180,7 +207,10 @@ describe('SupportTicketsTableFilters count', () => {
         mockCount = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: mockCount }],
+                '/api/projects/:team_id/conversations/tickets/': () => [
+                    200,
+                    { results: [TICKETS[0]], count: mockCount },
+                ],
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
             },
