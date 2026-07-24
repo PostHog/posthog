@@ -246,3 +246,9 @@ def test_non_retryable_errors_cover_auth_failures():
     assert "401 Client Error" in errors
     assert "403 Client Error" in errors
     assert "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in errors
+
+
+def test_retryable_errors_cover_exhausted_quota_retries():
+    error_msg = "Data API quota for property '123456789' still exhausted after 5 retries (retryable)"
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns)
