@@ -39,7 +39,11 @@ from products.web_analytics.backend.temporal.weekly_digest.types import (
     SendTestDigestInput,
     WAWeeklyDigestInput,
 )
-from products.web_analytics.backend.weekly_digest import auto_select_project_for_user, build_team_digest
+from products.web_analytics.backend.weekly_digest import (
+    SCHEDULED_DIGEST_EXECUTION_MODE,
+    auto_select_project_for_user,
+    build_team_digest,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -255,9 +259,21 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     build_start = time.monotonic()
-    team_digest_data: dict[int, dict] = {team.id: build_team_digest(team) for team in all_org_teams}
+    team_digest_data: dict[int, dict] = {}
+    for team in all_org_teams:
+        digest = build_team_digest(team, execution_mode=SCHEDULED_DIGEST_EXECUTION_MODE)
+        # Skip a team whose overview query failed rather than emailing an all-zero section
+        # that reads as a real traffic outage.
+        if not digest.get("overview_available", True):
+            logger.warning("Skipping team from WA weekly digest: overview query failed", org_id=org_id, team_id=team.id)
+            continue
+        team_digest_data[team.id] = digest
     counts.build_duration = time.monotonic() - build_start
     counts.team_count = len(team_digest_data)
+
+    if not team_digest_data:
+        counts.skipped_reason = "no_team_data"
+        return counts
 
     date_suffix = timezone.now().strftime("%Y-%W")
 
@@ -440,11 +456,15 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
         if not membership:
             raise PermissionError(f"User {email} is not a member of the organization that owns team {team_id}")
 
+        team_digest = build_team_digest(team, execution_mode=SCHEDULED_DIGEST_EXECUTION_MODE)
+        if not team_digest.get("overview_available", True):
+            raise RuntimeError(f"Web overview query failed for team {team_id}; not sending test digest")
+
         outcome = _send_digest_for_user(
             user=user,
             org=team.organization,
             membership=membership,
-            team_digest_data={team.id: build_team_digest(team)},
+            team_digest_data={team.id: team_digest},
             date_suffix=date_suffix,
             test=True,
         )
@@ -470,7 +490,13 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
         org_teams = list(Team.objects.filter(organization_id=org.id))
         if not org_teams:
             continue
-        team_digest_data = {t.id: build_team_digest(t) for t in org_teams}
+        team_digest_data = {}
+        for t in org_teams:
+            digest = build_team_digest(t, execution_mode=SCHEDULED_DIGEST_EXECUTION_MODE)
+            if digest.get("overview_available", True):
+                team_digest_data[t.id] = digest
+        if not team_digest_data:
+            continue
         outcome = _send_digest_for_user(
             user=user,
             org=org,
