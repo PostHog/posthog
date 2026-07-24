@@ -482,9 +482,13 @@ def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -
     if node_type == "blockquote":
         quote_lines: list[str] = []
         for child in node.get("content", []):
-            if child.get("type") == "paragraph":
-                text = _serialize_inline_nodes_to_markdown(child.get("content", []), include_images=include_images)
-                quote_lines.extend(f"> {line}".rstrip() for line in text.split("\n"))
+            child_type = child.get("type")
+            if child_type in ("bulletList", "orderedList"):
+                child_md = _serialize_list_to_markdown(child, child_type == "orderedList", "", include_images)
+            else:
+                child_md = _serialize_block_node_to_markdown(child, include_images=include_images)
+            if child_md:
+                quote_lines.extend(f"> {line}".rstrip() for line in child_md.split("\n"))
         return "\n".join(quote_lines)
 
     if node_type == "heading":
@@ -769,8 +773,13 @@ def _serialize_block_node_to_html(node: JSON) -> str:
     if node_type == "blockquote":
         inner_blocks: list[str] = []
         for child in node.get("content", []):
-            if child.get("type") == "paragraph":
+            child_type = child.get("type")
+            if child_type in ("bulletList", "orderedList"):
+                inner_blocks.append(_serialize_list_to_html(child, child_type == "orderedList"))
+            elif child_type == "paragraph":
                 inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+            else:
+                inner_blocks.append(_serialize_block_node_to_html(child))
         return f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>"
 
     if node_type == "heading":

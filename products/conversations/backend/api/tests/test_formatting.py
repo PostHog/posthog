@@ -520,6 +520,25 @@ class TestRichContentBlockNodes(SimpleTestCase):
                 },
                 "~~gone~~",
             ),
+            (
+                "blockquote_wrapping_list",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "blockquote",
+                            "content": [
+                                _paragraph("see options:"),
+                                {
+                                    "type": "bulletList",
+                                    "content": [_list_item(_paragraph("one")), _list_item(_paragraph("two"))],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "> see options:\n> - one\n> - two",
+            ),
         ]
     )
     def test_rich_content_to_markdown_block_nodes(self, _name: str, doc: dict, expected: str) -> None:
@@ -650,3 +669,16 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         html = rich_content_to_html(doc)
         assert "<li>intro<pre><code>print(1)</code></pre></li>" in html
+
+    def test_rich_content_to_html_keeps_non_paragraph_blocks_in_blockquote(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "blockquote",
+                    "content": [_paragraph("see"), {"type": "bulletList", "content": [_list_item(_paragraph("one"))]}],
+                }
+            ],
+        }
+        html = rich_content_to_html(doc)
+        assert "<blockquote>see<br><ul><li>one</li></ul></blockquote>" in html
