@@ -112,6 +112,22 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     }
 )
 
+# String-matching ops that ClickHouse pushes down to a federated Postgres table as a text operator
+# (LIKE -> ~~, ILIKE -> ~~*, match -> ~, etc.). Postgres has no such operator for jsonb columns, so a
+# jsonb column on either side must be coerced to text first (see _coerce_postgres_json_field_to_text).
+POSTGRES_TEXT_MATCH_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Like,
+        ast.CompareOperationOp.NotLike,
+        ast.CompareOperationOp.ILike,
+        ast.CompareOperationOp.NotILike,
+        ast.CompareOperationOp.Regex,
+        ast.CompareOperationOp.NotRegex,
+        ast.CompareOperationOp.IRegex,
+        ast.CompareOperationOp.NotIRegex,
+    }
+)
+
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
@@ -588,6 +604,26 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
+    def _coerce_postgres_json_field_to_text(self, node: ast.Expr, field_sql: str) -> str:
+        """Wrap a jsonb column on a federated Postgres table in toString() so a text-matching operator
+        (LIKE/ILIKE/match) can be pushed down. ClickHouse renders this as a cast, and Postgres accepts
+        `jsonb::text ~~ text` where it rejects `jsonb ~~ text`."""
+        from posthog.hogql.database.models import StringJSONDatabaseField
+        from posthog.hogql.database.postgres_table import PostgresTable
+
+        if not isinstance(node, ast.Field) or not isinstance(node.type, ast.FieldType):
+            return field_sql
+
+        table_type = node.type.table_type
+        if not isinstance(table_type, ast.BaseTableType):
+            return field_sql
+        if not isinstance(table_type.resolve_database_table(self.context), PostgresTable):
+            return field_sql
+        if not isinstance(node.type.resolve_database_field(self.context), StringJSONDatabaseField):
+            return field_sql
+
+        return f"toString({field_sql})"
+
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
         from posthog.hogql.database.schema.events import EventsTable
@@ -726,6 +762,14 @@ class ClickHousePrinter(BasePrinter):
         in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
+
+        # A jsonb column on a federated Postgres table can't be matched with a text operator once the
+        # predicate is pushed down to Postgres (jsonb ~~ text has no operator). Cast such columns to text
+        # so the pushed-down predicate becomes e.g. `filters::text LIKE ...`.
+        if node.op in POSTGRES_TEXT_MATCH_COMPARE_OPS:
+            left = self._coerce_postgres_json_field_to_text(node.left, left)
+            right = self._coerce_postgres_json_field_to_text(node.right, right)
+
         nullable_left = self._is_nullable(node.left)
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right

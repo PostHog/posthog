@@ -406,6 +406,28 @@ class TestPostgresTable(BaseTest):
             f"SELECT other_table__details.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN (SELECT postgres_table.name AS name, postgres_table.id AS other_table__details___id FROM postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30))))) AS other_table__details ON equals(other_table.ref_id, other_table__details.other_table__details___id) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
+    @parameterized.expand(
+        [
+            ("like", "data LIKE '%x%'", "like"),
+            ("ilike", "data ILIKE '%x%'", "ilike"),
+            ("not_like", "data NOT LIKE '%x%'", "notLike"),
+            ("regex", "data =~ 'x'", "match"),
+        ]
+    )
+    def test_json_field_coerced_to_text_for_string_match(self, _name, where, printed_fn):
+        # A jsonb column matched with a text operator (LIKE etc.) is pushed down to Postgres as
+        # `jsonb ~~ text`, which has no operator. It must be cast to text first.
+        self._init_database(extra_fields={"data": StringJSONDatabaseField(name="data")})
+        printed = self._select(f"SELECT id FROM postgres_table WHERE {where} LIMIT 10")
+        assert f"{printed_fn}(toString(postgres_table.data)" in printed
+
+    def test_non_json_field_not_coerced_for_string_match(self):
+        # Plain text columns are already text in Postgres — coercing them would be needless.
+        self._init_database()
+        printed = self._select("SELECT id FROM postgres_table WHERE name LIKE '%x%' LIMIT 10")
+        assert "toString(postgres_table.name)" not in printed
+        assert "like(postgres_table.name" in printed
+
     def test_predicate_with_nested_property_access(self):
         self._init_database(
             predicates=[parse_expr("properties.email != ''")],
@@ -419,6 +441,33 @@ class TestPostgresTable(BaseTest):
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_5)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_6)s), 1)) LIMIT 10",
         )
+
+
+class TestSystemTableJsonMatchCoercion(BaseTest):
+    """The two federated system tables from the reported failures expose jsonb columns that agents
+    filter with string operators; both must be coerced to text so the Postgres pushdown succeeds."""
+
+    @parameterized.expand(
+        [
+            ("insights", "system.insights", "query"),
+            ("feature_flags", "system.feature_flags", "filters"),
+        ]
+    )
+    def test_jsonb_column_coerced_to_text_for_like(self, _name, table, column):
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        printed = prepare_and_print_ast(
+            parse_select(f"SELECT id FROM {table} WHERE {column} LIKE '%x%' LIMIT 10"),
+            context,
+            dialect="clickhouse",
+        )[0]
+        # The jsonb column is cast to text inside the pushed-down LIKE (identifier may be escaped).
+        assert f"like(toString(system__{table.split('.')[-1]}." in printed
 
 
 class TestPostgresTablePrimaryKey(BaseTest):
