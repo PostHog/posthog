@@ -1550,7 +1550,7 @@
         }
     },
     "cdp-function-templates-retrieve": {
-        "description": "Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
+        "description": "Get a specific function template by its exact template ID (e.g. 'template-slack', 'template-webhook'). Template IDs are exact and often cannot be guessed from the destination name (e.g. Encharge's ID is 'segment-encharge-cloud-actions', not 'template-encharge') — if you do not already have the exact ID, call cdp-function-templates-list first to look it up rather than guessing. Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
         "category": "Function templates",
         "feature": "hog_function_templates",
         "summary": "Get function template",

@@ -8,6 +8,8 @@ vi.mock('@/lib/posthog', () => ({
 }))
 
 const LOGS_QUERY_URL = 'https://us.posthog.com/api/projects/2/logs/query/'
+const TEMPLATE_RETRIEVE_URL = 'https://us.posthog.com/api/projects/2/hog_function_templates/template-resend/'
+const TEMPLATE_LIST_URL = 'https://us.posthog.com/api/projects/2/hog_function_templates/'
 
 describe('getToolRecoveryHint', () => {
     it('returns the narrow-and-retry hint for a 5xx on a logs query endpoint', () => {
@@ -37,6 +39,21 @@ describe('getToolRecoveryHint', () => {
         expect(
             getToolRecoveryHint({ url: 'https://us.posthog.com/api/projects/2/insights/', status: 500 })
         ).toBeUndefined()
+    })
+
+    it('returns the list-then-retrieve hint for a 404 on a function-template retrieve', () => {
+        const hint = getToolRecoveryHint({ url: TEMPLATE_RETRIEVE_URL, status: 404 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('cdp-function-templates-list')
+        expect(hint).toContain('template_id')
+    })
+
+    it('does not fire for the template list URL (no id) or a non-404 status on retrieve', () => {
+        // A too-loose matcher would fire on the list URL; only a genuine id miss should.
+        expect(getToolRecoveryHint({ url: TEMPLATE_LIST_URL, status: 404 })).toBeUndefined()
+        // Other 4xx on the retrieve endpoint carry an actionable detail already.
+        expect(getToolRecoveryHint({ url: TEMPLATE_RETRIEVE_URL, status: 400 })).toBeUndefined()
     })
 
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
@@ -76,6 +93,22 @@ describe('handleToolError recovery hints', () => {
         const [content] = result.content as Array<{ type: string; text: string }>
 
         expect(content?.text).toContain('logs-count-ranges')
+    })
+
+    it('appends the list-then-retrieve hint to a 404 not-found on a function-template retrieve', () => {
+        const error = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"type":"invalid_request","code":"not_found","detail":"Not found.","attr":null}',
+            url: 'https://us.posthog.com/api/projects/2/hog_function_templates/template-resend/',
+            method: 'GET',
+        })
+
+        const result = handleToolError(error, 'cdp-function-templates-retrieve')
+        const [content] = result.content as Array<{ type: string; text: string }>
+
+        expect(content?.text).toContain('Status Code: 404')
+        expect(content?.text).toContain('cdp-function-templates-list')
     })
 
     it('does not append a hint for a 4xx (no noise on recoverable input errors)', () => {
