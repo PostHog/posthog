@@ -68,6 +68,10 @@ run_render multi POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091 
 new_case_dir
 run_render debug POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 POSTHOG_DEBUG=1
 
+# Single quotes in a target are doubled so the rendered YAML stays valid.
+new_case_dir
+run_render quoted-target POSTHOG_API_KEY=phc_test "SCRAPE_TARGETS=app's-host:9090"
+
 # A mounted scrape_configs.yaml replaces the env-generated job verbatim
 # (re-indented under the receiver), and SCRAPE_TARGETS is not required.
 new_case_dir

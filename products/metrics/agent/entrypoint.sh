@@ -57,6 +57,8 @@ else
     for target in $SCRAPE_TARGETS; do
         target=$(printf '%s' "$target" | sed 's/^ *//;s/ *$//')
         [ -n "$target" ] || continue
+        # Double single quotes so the target stays valid inside YAML quotes.
+        target=$(printf '%s' "$target" | sed "s/'/''/g")
         if [ -n "$TARGETS" ]; then
             TARGETS="$TARGETS, '$target'"
         else
