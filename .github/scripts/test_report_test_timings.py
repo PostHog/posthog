@@ -197,9 +197,13 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             '<testcase name="t"><properties><property name="posthog.reruns" value="garbage"/></properties></testcase>',
             ("passed", 1),
         ),
+        # Playwright's JUnit reporter uses flakyFailure/flakyError for attempts
+        # that failed before the final successful retry.
+        ('<testcase name="t"><flakyFailure message="x"/></testcase>', ("rerun_passed", 2)),
+        ('<testcase name="t"><flakyError message="x"/></testcase>', ("rerun_passed", 2)),
     ],
 )
-def test_classify_testcase_reads_rerun_property(testcase_xml: str, expected: tuple[str, int]) -> None:
+def test_classify_testcase_reads_retry_attempts(testcase_xml: str, expected: tuple[str, int]) -> None:
     assert report_test_timings.classify_testcase(ElementTree.fromstring(testcase_xml)) == expected
 
 

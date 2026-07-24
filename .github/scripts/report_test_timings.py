@@ -205,7 +205,7 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
                         rerun_count += max(0, int(prop.get("value", "0")))
                     except ValueError:
                         pass
-        elif tag.startswith("rerun"):
+        elif tag.startswith("rerun") or tag in ("flakyFailure", "flakyError"):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
