@@ -265,9 +265,9 @@ jobs:
         steps:
             - name: Check Python CI status
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Block cancelled too: outputs are empty then, so the exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

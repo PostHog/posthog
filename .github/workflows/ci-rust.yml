@@ -741,7 +741,7 @@ jobs:
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, affected, build, test, linting]
+        needs: [changes, affected, build, test, linting, personhog-gate]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -750,9 +750,9 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
-                  # Fail if change detection or affected computation failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed, affected computation failed, or either was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -762,8 +762,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.affected.result }}" == "failure" ]]; then
-                    echo "Affected crate computation failed."
+                  if [[ "${{ needs.affected.result }}" != "success" && "${{ needs.affected.result }}" != "skipped" ]]; then
+                    echo "Affected crate computation did not succeed (result: ${{ needs.affected.result }})."
                     exit 1
                   fi
 
@@ -779,6 +779,13 @@ jobs:
 
                   if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
                     echo "Rust linting failed."
+                    exit 1
+                  fi
+
+                  # Skips unless the affected computation marks personhog-test-harness,
+                  # so this only blocks on PRs where the e2e gate actually ran.
+                  if [[ "${{ needs.personhog-gate.result }}" != "success" && "${{ needs.personhog-gate.result }}" != "skipped" ]]; then
+                    echo "PersonHog e2e gate did not succeed (result: ${{ needs.personhog-gate.result }})."
                     exit 1
                   fi
 

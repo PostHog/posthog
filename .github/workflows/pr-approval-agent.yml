@@ -318,6 +318,8 @@ jobs:
                   gh pr comment "$PR" --repo "$REPO" \
                     --body "Retaining stamphog approval — delta since last review classified as \`$REASON\`."
 
+    # hogli-lint: not-a-required-gate — branches on decide-delta's result to decide
+    # whether to dismiss a stale approval; it emits no required status check.
     dismiss:
         needs: decide-delta
         # Fail closed on three cases:

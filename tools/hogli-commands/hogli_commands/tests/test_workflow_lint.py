@@ -26,6 +26,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
+from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -873,6 +874,189 @@ class TestRegistry:
         for check in CHECKS:
             result = check.run(wfs)
             assert isinstance(result, CheckResult)
+
+
+# The shape these fixtures guard against: a `changes` detector cleared with a bare
+# `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
+# are empty on a cancelled job, so the gate exits 0 green with no tests run.
+def _gate(body: str, condition: str = "always()") -> str:
+    return f"""
+    name: ci-thing
+    on: pull_request
+    jobs:
+      changes:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [changes, build]
+        timeout-minutes: 5
+        if: {condition}
+        steps:
+          - run: |
+{textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
+"""
+
+
+SAFE_BODY = """
+    if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then
+      exit 0
+    fi
+    if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+# One dependency allowlisted, one denylisted — the shape a global scan for
+# result words calls clean.
+MIXED_BODY = SAFE_BODY.replace(
+    """if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then""",
+    """if [[ "${{ needs.changes.result }}" == "failure" ]]; then""",
+)
+
+# Two dependencies denylisted while the rest are allowlisted.
+TWO_BAD_BODY = MIXED_BODY.replace(
+    """if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+    """if [[ "${{ needs.affected.result }}" == "failure" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+)
+
+# ci-backend.yml / ci-mcp.yml route every result through one shell function, so
+# no literal sits next to `needs.<dep>.result`.
+HELPER_BODY = """
+    check() {
+      if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+UNSAFE_HELPER_BODY = HELPER_BODY.replace(
+    """if [[ "$2" != "success" && "$2" != "skipped" ]]; then""",
+    """if [[ "$2" == "failure" ]]; then""",
+)
+
+# ci-agents.yml maps results into env and loops over the variable names.
+ENV_LOOP_GATE = """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [build]
+        timeout-minutes: 5
+        if: always()
+        steps:
+          - name: Check outcomes
+            env:
+              BUILD: ${{ needs.build.result }}
+            run: |
+              for var in BUILD; do
+                val="${!var}"
+                if [[ "$val" != "success" && "$val" != "skipped" ]]; then
+                  exit 1
+                fi
+              done
+"""
+
+
+# A gate whose display name doesn't end in "Pass", so only structural detection finds it.
+def _off_convention_gate(marker: str = "") -> str:
+    yaml_ = _gate(MIXED_BODY).replace("Thing Tests Pass", "Thing decision")
+    if marker:
+        yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
+    return yaml_
+
+
+class TestRequiredGateCheck:
+    @pytest.mark.parametrize(
+        "content",
+        [_gate(SAFE_BODY), _gate(HELPER_BODY), ENV_LOOP_GATE],
+        ids=["inline-allowlist", "shared-helper", "env-block-loop"],
+    )
+    def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "body,expected_deps",
+        [(MIXED_BODY, ["changes"]), (TWO_BAD_BODY, ["affected", "changes"])],
+        ids=["one-denylisted-among-allowlisted", "two-denylisted-among-allowlisted"],
+    )
+    def test_flags_exactly_the_denylisted_dependencies(
+        self, tmp_path: Path, body: str, expected_deps: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(body))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            (_gate(SAFE_BODY, condition="${{ !cancelled() }}"), "always()"),
+            (_gate(UNSAFE_HELPER_BODY), "never tests a result"),
+        ],
+        ids=["gate-must-always-run", "indirect-gate-without-allowlist"],
+    )
+    def test_flags_unsafe_gate(self, tmp_path: Path, content: str, expected: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1
+        assert expected in issues[0].message
+
+    def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
+        # Worker jobs *should* use !cancelled() so they stop when superseded;
+        # only the collate gate is held to always().
+        _write(
+            tmp_path,
+            "ci-thing.yml",
+            """
+            name: ci-thing
+            on: pull_request
+            jobs:
+              shards:
+                timeout-minutes: 5
+                if: ${{ !cancelled() }}
+                steps:
+                  - run: echo test
+            """,
+        )
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    # A gate named off-convention is still a gate, so detection can't key on the
+    # name alone.
+    def test_finds_gate_not_named_pass(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == ["changes"]
+
+    @pytest.mark.parametrize(
+        "marker,exempted",
+        [
+            ("hogli-lint: not-a-required-gate", False),
+            ("hogli-lint: not-a-required-gate — decides a side effect, emits no check", True),
+        ],
+        ids=["without-reason", "with-reason"],
+    )
+    def test_allow_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(marker))
+        assert (RequiredGateCheck().run(_read_all(tmp_path)).issues == []) is exempted
 
 
 class TestLiveTreeSmoke:

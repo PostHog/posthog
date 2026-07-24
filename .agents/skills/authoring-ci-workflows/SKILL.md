@@ -26,7 +26,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -82,6 +82,36 @@ concurrency:
   ```yaml
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
   ```
+
+## Required-check gates
+
+The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
+By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally — `always()` plus a step that reads `needs.<dep>.result` — because the convention is not universally followed.
+A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
+Gates and the workers they inspect need **opposite** conditions:
+
+| Job     | Condition          | Why                                                                           |
+| ------- | ------------------ | ----------------------------------------------------------------------------- |
+| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
+| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+
+`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
+Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+
+Four rules for the gate body:
+
+1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
+   A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
+   The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
+2. **`needs` every job that produces coverage.**
+   If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
+   Name the upstream job explicitly.
+3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
+4. **Keep the tests inline**, one `if` per dependency.
+   Routing results through a shell function or an `env:` block hides them from `WF007`'s per-dependency pass, which then falls back to only checking that an allowlist appears somewhere in the step — so a denylisted dependency alongside an allowlisted one goes unnoticed.
+
+`WF007` enforces 1, 4, and the `always()` condition.
+Rule 2 is not mechanically checkable, because "reporting job" and "coverage job" look identical to a linter. It is on you and the reviewer.
 
 ## Checkout / clone — shallow by default
 
