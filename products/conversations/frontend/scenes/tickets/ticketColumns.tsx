@@ -20,6 +20,7 @@ import {
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
 } from '../../types'
+import { planLabel } from './planTags'
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -28,6 +29,7 @@ export type TicketColumnKey =
     | 'status'
     | 'ai_triage'
     | 'priority'
+    | 'plan'
     | 'sla_due_at'
     | 'assignee'
     | 'channel'
@@ -39,6 +41,9 @@ interface TicketColumnDefinition {
     label: string
     /** Only offered (and only rendered) when AI suggestions are enabled for the team. */
     aiOnly?: boolean
+    /** Only offered (and only rendered) to PostHog staff — internal triage
+     *  concepts that aren't (yet) meaningful or configurable for customers. */
+    staffOnly?: boolean
     /** Hidden in embedded tables, which are already scoped to one person. */
     hiddenWhenEmbedded?: boolean
     /** Identifies the row, so it can't be hidden. */
@@ -207,6 +212,23 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                 ),
         },
     },
+    plan: {
+        label: 'Plan',
+        staffOnly: true,
+        column: {
+            title: 'Plan',
+            key: 'plan',
+            sorter: true,
+            render: (_, ticket) => {
+                const label = planLabel(ticket.tags)
+                return (
+                    <span className="text-xs whitespace-nowrap" title={label}>
+                        {label}
+                    </span>
+                )
+            },
+        },
+    },
     sla_due_at: {
         label: 'SLA',
         column: {
@@ -305,6 +327,7 @@ export const TICKET_COLUMN_ORDER: TicketColumnKey[] = [
     'status',
     'ai_triage',
     'priority',
+    'plan',
     'sla_due_at',
     'assignee',
     'channel',
@@ -326,13 +349,18 @@ export function isTicketColumnMandatory(key: TicketColumnKey): boolean {
 interface TicketColumnContext {
     aiEnabled: boolean
     embedded: boolean
+    /** Whether the viewer is PostHog staff (user.is_staff). */
+    staff: boolean
 }
 
 /** The columns a user can actually choose between, given the current context. */
-export function offerableTicketColumns({ aiEnabled, embedded }: TicketColumnContext): TicketColumnKey[] {
+export function offerableTicketColumns({ aiEnabled, embedded, staff }: TicketColumnContext): TicketColumnKey[] {
     return TICKET_COLUMN_ORDER.filter((key) => {
         const definition = TICKET_COLUMNS[key]
         if (definition.aiOnly && !aiEnabled) {
+            return false
+        }
+        if (definition.staffOnly && !staff) {
             return false
         }
         if (definition.hiddenWhenEmbedded && embedded) {
