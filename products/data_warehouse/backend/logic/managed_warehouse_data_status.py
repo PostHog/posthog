@@ -9,7 +9,7 @@ from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
 
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 ReadinessState = Literal[
     "not_configured",
@@ -216,7 +216,10 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     # should_sync is deliberately not filtered here: a schema with sync paused still has real,
     # queryable data in the warehouse (or a genuine backfill-in-progress state), and hiding it
     # entirely reads as "nothing here" rather than "this one isn't actively syncing right now".
-    # Only schemas/sources that no longer exist (soft-deleted) are excluded.
+    # Only schemas/sources that no longer exist (soft-deleted) are excluded — plus direct-query
+    # (self-managed/federated) schemas, which never sync into the warehouse at all: a stray sink
+    # state row for one (e.g. from before this exclusion existed) must not be reported as
+    # "backfilled"/"up to date" here, since that table will never actually live in the warehouse.
     schema_filter: dict[str, object] = {
         "team_id": team_id,
         "id__in": [state.schema_id for state in states],
@@ -227,7 +230,10 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
         schema_filter["source_id"] = source_id
 
     schema_by_id = {
-        str(schema.id): schema for schema in ExternalDataSchema.objects.filter(**schema_filter).select_related("source")
+        str(schema.id): schema
+        for schema in ExternalDataSchema.objects.filter(**schema_filter)
+        .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+        .select_related("source")
     }
     visible_states = [state for state in states if str(state.schema_id) in schema_by_id]
 
