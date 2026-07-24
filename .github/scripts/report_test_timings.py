@@ -25,6 +25,13 @@ Trace ID is deterministic per (run_id, run_attempt, job) so each job in each
 workflow attempt gets its own trace. Failures and errors mark spans
 Status.ERROR.
 
+On a re-run attempt (GITHUB_RUN_ATTEMPT > 1) only the artifacts that attempt
+uploaded (suffixed `-attempt<N>` by the workflow) are emitted, so shards the
+attempt did not re-execute are never re-reported under the new attempt. Passes
+of tests that failed in an earlier attempt of the same job are kept regardless
+of duration: one commit failing then passing is the same-commit recovery proof
+the flaky-test queue (engineering_analytics) classifies on.
+
 This script must NEVER fail the workflow: any unexpected error is logged and
 the process exits 0. The workflow job is also `continue-on-error: true` as a
 second belt for setup and artifact-download failures.
@@ -33,6 +40,7 @@ second belt for setup and artifact-download failures.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import hashlib
@@ -87,6 +95,9 @@ class ArtifactInfo:
     segment: str
     group: int | None
     total: int | None
+    # Which workflow run attempt uploaded the artifact (from the `-attempt<N>` name suffix); 1
+    # when unsuffixed, i.e. every artifact predating re-run-aware uploads.
+    attempt: int = 1
 
 
 @dataclass(frozen=True)
@@ -117,6 +128,21 @@ def split_artifact_name(name_parts: list[str]) -> tuple[str, str]:
     return "-".join(name_parts), "-".join(name_parts)
 
 
+_ATTEMPT_SUFFIX = re.compile(r"-attempt(\d+)$")
+
+
+def split_attempt_suffix(artifact_dir_name: str) -> tuple[str, int]:
+    """`junit-results-backend-core-29-attempt2` → ("junit-results-backend-core-29", 2).
+
+    Re-run shards upload under an attempt-suffixed name so attempt 1's artifact survives
+    (a same-name upload in a later attempt silently supersedes the earlier artifact).
+    """
+    match = _ATTEMPT_SUFFIX.search(artifact_dir_name)
+    if match is None:
+        return artifact_dir_name, 1
+    return artifact_dir_name[: match.start()], int(match.group(1))
+
+
 def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, int | None]:
     """Parse `junit-results-backend-core-29` → ("backend", "core", 29).
 
@@ -133,10 +159,13 @@ def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, in
 
 def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
     artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir()) or [artifacts_root]
-    parsed = [(d, *derive_suite_segment_and_group(d.name)) for d in artifact_dirs]
+    parsed: list[tuple[Path, str, str, int | None, int]] = []
+    for d in artifact_dirs:
+        base_name, attempt = split_attempt_suffix(d.name)
+        parsed.append((d, *derive_suite_segment_and_group(base_name), attempt))
 
     groups_by_shard_key: dict[tuple[str, str], set[int]] = {}
-    for _, suite, segment, group in parsed:
+    for _, suite, segment, group, _attempt in parsed:
         if group is not None:
             groups_by_shard_key.setdefault((suite, segment), set()).add(group)
 
@@ -146,12 +175,18 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
     }
 
     return [
-        ArtifactInfo(path=d, suite=suite, segment=segment, group=group, total=shard_totals.get((suite, segment)))
-        for d, suite, segment, group in parsed
+        ArtifactInfo(
+            path=d, suite=suite, segment=segment, group=group, total=shard_totals.get((suite, segment)), attempt=attempt
+        )
+        for d, suite, segment, group, attempt in parsed
     ]
 
 
 # ---------- junit parsing ----------
+
+
+def is_retry_attempt(tag: str) -> bool:
+    return tag.startswith("rerun") or tag in ("flakyFailure", "flakyError")
 
 
 def classify_testcase(testcase: Any) -> tuple[str, int]:
@@ -174,7 +209,7 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
                         rerun_count += max(0, int(prop.get("value", "0")))
                     except ValueError:
                         pass
-        elif tag.startswith("rerun"):
+        elif is_retry_attempt(tag):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
@@ -284,6 +319,12 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
             duration = float(tc.get("time", "0"))
         except ValueError:
             duration = 0.0
+        for child in tc:
+            if is_retry_attempt(child.tag):
+                try:
+                    duration += max(0.0, float(child.get("time", "0")))
+                except ValueError:
+                    pass
         test_start = cursor
         test_end = cursor + timedelta(seconds=duration)
         cursor = test_end
@@ -329,17 +370,33 @@ def collect_shards(artifacts_root: Path) -> list[Shard]:
 # ---------- threshold filter ----------
 
 
-def should_emit(test: TestCase, min_duration_seconds: float) -> bool:
-    """Emit signal-bearing testcases: failures, errors, xfails, reruns, or above the duration threshold."""
+def should_emit(test: TestCase, min_duration_seconds: float, prior_failed: frozenset[str] = frozenset()) -> bool:
+    """Emit signal-bearing testcases: failures, errors, xfails, reruns, or above the duration threshold.
+
+    ``prior_failed`` (re-run attempts only) holds the nodeids that failed in an earlier attempt of
+    the same job: their passes are the same-commit recovery proof and are kept however fast.
+    """
     if test.outcome in ("failed", "error", "xfailed"):
         return True
     if test.attempts > 1:
         return True
+    if test.outcome == "passed" and test.nodeid in prior_failed:
+        return True
     return test.duration_seconds >= min_duration_seconds
 
 
-def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shard]:
+def filter_shards(
+    shards: list[Shard],
+    min_duration_seconds: float,
+    prior_failed_by_job: dict[str, frozenset[str]] | None = None,
+) -> list[Shard]:
     """Prune sub-threshold passing tests; preserve shard wall-time bounds and order."""
+    prior_failed_by_job = prior_failed_by_job or {}
+
+    def kept_tests(shard: Shard) -> list[TestCase]:
+        prior_failed = prior_failed_by_job.get(job_trace_key(shard.info), frozenset())
+        return [t for t in shard.tests if should_emit(t, min_duration_seconds, prior_failed)]
+
     return [
         Shard(
             info=s.info,
@@ -348,11 +405,44 @@ def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shar
             end=s.end,
             testcase_seconds=s.testcase_seconds,
             overhead_seconds=s.overhead_seconds,
-            tests=[t for t in s.tests if should_emit(t, min_duration_seconds)],
+            tests=kept_tests(s),
             setup_seconds=s.setup_seconds,
         )
         for s in shards
     ]
+
+
+# ---------- re-run attempts ----------
+
+
+def current_run_attempt() -> int:
+    """The workflow run attempt this emit runs under; 1 outside CI or on malformed input."""
+    try:
+        return max(1, int(os.environ.get("GITHUB_RUN_ATTEMPT", "1") or "1"))
+    except ValueError:
+        return 1
+
+
+# ci-backend.yml greps for this function name to decide whether the checked-out script may emit
+# on a re-run attempt; keep the name in sync with that probe if it ever changes.
+def partition_run_attempt(shards: list[Shard], run_attempt: int) -> tuple[list[Shard], dict[str, frozenset[str]]]:
+    """Split parsed shards for a re-run attempt: the shards this attempt executed, plus the
+    nodeids that failed in earlier attempts keyed by job.
+
+    Emitting only the current attempt's shards keeps an attempt from re-reporting shards it
+    never ran (each run attempt's resource attributes stamp every span it emits). The per-job
+    keying scopes recovery proof to the same matrix leg: a pass in a different leg runs a
+    different config and proves nothing about the failure.
+    """
+    current = [s for s in shards if s.info.attempt == run_attempt]
+    prior_failed: dict[str, set[str]] = {}
+    for shard in shards:
+        if shard.info.attempt >= run_attempt:
+            continue
+        for test in shard.tests:
+            if test.outcome in ("failed", "error"):
+                prior_failed.setdefault(job_trace_key(shard.info), set()).add(test.nodeid)
+    return current, {key: frozenset(nodeids) for key, nodeids in prior_failed.items()}
 
 
 # ---------- workflow context ----------
@@ -595,8 +685,19 @@ def main(argv: list[str] | None = None) -> int:
         logger.exception("failed to collect shards")
         return 0
 
+    run_attempt = current_run_attempt()
+    prior_failed_by_job: dict[str, frozenset[str]] = {}
+    if run_attempt > 1:
+        shards, prior_failed_by_job = partition_run_attempt(shards, run_attempt)
+        logger.info(
+            "re-run attempt %d: emitting %d re-executed shards (%d jobs carry earlier-attempt failures)",
+            run_attempt,
+            len(shards),
+            len(prior_failed_by_job),
+        )
+
     pre_filter = sum(len(s.tests) for s in shards)
-    shards = filter_shards(shards, args.min_duration_seconds)
+    shards = filter_shards(shards, args.min_duration_seconds, prior_failed_by_job)
     post_filter = sum(len(s.tests) for s in shards)
     logger.info(
         "collected %d shards, %d testcases (%d after %.2fs threshold filter)",

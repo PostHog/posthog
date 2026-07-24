@@ -17,12 +17,12 @@ import {
     customPropertyDefinitionsDestroy,
     customPropertyDefinitionsList,
     customPropertyDefinitionsPartialUpdate,
-    customPropertySourcesBackfillCreate,
+    customPropertySourcesBackfill,
     customPropertySourcesCreate,
     customPropertySourcesDestroy,
     customPropertySourcesPartialUpdate,
     customPropertySourcesRunsList,
-    customPropertySourcesSyncCreate,
+    customPropertySourcesSync,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     CustomPropertyDefinitionApi,
@@ -35,7 +35,7 @@ import type {
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
-export type CustomPropertyTargetType = 'account' | 'person'
+export type CustomPropertyTargetType = 'account' | 'person' | 'group'
 
 // After triggering a sync/backfill, poll until the source's run settles so the UI reflects
 // completion without a manual refresh. Bounded so a stuck run can't poll forever.
@@ -58,11 +58,13 @@ export interface CustomPropertyFormValues {
     // 'account' feeds an account (group) property from a saved query; 'person' upserts warehouse
     // columns onto person properties (usable in flags/cohorts/insights) from a raw synced table.
     targetType: CustomPropertyTargetType
+    // Group target only: which group type (0-4) the property attaches to.
+    groupTypeIndex: number | null
     sourceMode: CustomPropertySourceMode
     savedQuery: string | null
     sourceColumn: string | null
     keyColumn: string | null
-    // Person target: the warehouse table (its schema id backs the source) + the column mappings.
+    // Person/group target: the warehouse table (its schema id backs the source) + the column mappings.
     warehouseTable: string | null
     columnMappings: ColumnPropertyMapping[]
     isEnabled: boolean
@@ -75,6 +77,7 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     isBigNumber: false,
     options: [],
     targetType: 'account',
+    groupTypeIndex: null,
     sourceMode: 'manual',
     savedQuery: null,
     sourceColumn: null,
@@ -91,27 +94,31 @@ const serializeDefinition = ({
     isBigNumber,
     options,
     targetType,
+    groupTypeIndex,
 }: CustomPropertyFormValues): {
     name: string
     description: string | null
     display_type: CustomPropertyDisplayTypeEnumApi
     target_type: CustomPropertyTargetType
+    group_type_index?: number | null
     is_big_number: boolean
     options?: CustomPropertyOptionApi[]
 } => {
-    // display_type/is_big_number/options only drive how an account property renders — a person
-    // property is written as a raw $set value, so those fields are hidden and forced to defaults.
-    const isPerson = targetType === 'person'
+    // display_type/is_big_number/options only drive how an account property renders — person and
+    // group properties are written as raw $set / $group_set values, so those are hidden and defaulted.
+    const isProfile = targetType === 'person' || targetType === 'group'
     return {
         name: name.trim(),
         description: description?.trim() || null,
-        display_type: isPerson ? 'text' : displayType,
+        display_type: isProfile ? 'text' : displayType,
         // Create-only on the backend; a definition's target doesn't change after creation.
         target_type: targetType,
+        // The group type is create-only too; sent only for group targets, omitted otherwise.
+        ...(targetType === 'group' ? { group_type_index: groupTypeIndex } : {}),
         // The switch is hidden for non-numeric types, so never send a stale flag for them.
-        is_big_number: !isPerson && isNumericDisplayType(displayType) ? isBigNumber : false,
+        is_big_number: !isProfile && isNumericDisplayType(displayType) ? isBigNumber : false,
         // Options only apply to select; the backend clears them for other types.
-        ...(!isPerson && displayType === 'select'
+        ...(!isProfile && displayType === 'select'
             ? {
                   options: options.map(({ id, label, color }) => ({
                       ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
@@ -588,28 +595,32 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 displayType,
                 options,
                 targetType,
+                groupTypeIndex,
                 sourceMode,
                 savedQuery,
                 sourceColumn,
                 keyColumn,
                 warehouseTable,
             }: CustomPropertyFormValues) => {
-                const isPerson = targetType === 'person'
-                const isAccountWarehouse = !isPerson && sourceMode === 'data_warehouse'
+                // Person and group both feed from a warehouse table; account can also via a view.
+                const isProfile = targetType === 'person' || targetType === 'group'
+                const isAccountWarehouse = !isProfile && sourceMode === 'data_warehouse'
                 // The table + column map are create-only, so only require them when creating a new
-                // person source — an existing source keeps only key_column and enabled editable.
-                const isNewPersonSource = isPerson && !values.editingDefinition?.source
+                // profile source — an existing source keeps only key_column and enabled editable.
+                const isNewProfileSource = isProfile && !values.editingDefinition?.source
                 return {
                     name: !name?.trim() ? 'Name is required' : undefined,
+                    groupTypeIndex:
+                        targetType === 'group' && groupTypeIndex == null ? 'Select a group type' : undefined,
                     options:
-                        !isPerson && displayType === 'select'
+                        !isProfile && displayType === 'select'
                             ? options.map((_, index) => ({ label: optionLabelError(options, index) }))
                             : undefined,
                     savedQuery: isAccountWarehouse && !savedQuery ? 'Select a view' : undefined,
                     sourceColumn: isAccountWarehouse && !sourceColumn ? 'Select the value column' : undefined,
                     keyColumn:
-                        (isAccountWarehouse || isPerson) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
-                    warehouseTable: isNewPersonSource && !warehouseTable ? 'Select a warehouse table' : undefined,
+                        (isAccountWarehouse || isProfile) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
+                    warehouseTable: isNewProfileSource && !warehouseTable ? 'Select a warehouse table' : undefined,
                 }
             },
             submit: async (formValues: CustomPropertyFormValues) => {
@@ -628,7 +639,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 try {
                     const { targetType, sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
                     const existingSource = editing?.source ?? null
-                    if (targetType === 'person') {
+                    // Person and group sources share the same warehouse binding (schema + column map).
+                    if (targetType === 'person' || targetType === 'group') {
                         const schemaId = values.selectedWarehouseSchemaId
                         if (existingSource) {
                             // The binding + column map are create-only on the backend; only key_column
@@ -759,14 +771,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             actions.loadSavedQueries()
             actions.loadWarehouseTables()
             actions.loadPersonPropertyDefinitions()
-            const isPerson = definition.target_type === 'person'
+            const targetType: CustomPropertyTargetType =
+                definition.target_type === 'person' || definition.target_type === 'group'
+                    ? definition.target_type
+                    : 'account'
+            const isProfile = targetType === 'person' || targetType === 'group'
             actions.setCustomPropertyFormValues({
                 name: definition.name,
                 description: definition.description ?? '',
                 displayType: definition.display_type,
                 isBigNumber: definition.is_big_number ?? false,
                 options: definition.options ?? [],
-                targetType: isPerson ? 'person' : 'account',
+                targetType,
+                groupTypeIndex: definition.group_type_index ?? null,
                 sourceMode: definition.source
                     ? 'data_warehouse'
                     : definition.references?.length
@@ -778,7 +795,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 // The warehouse-table binding is create-only, so on edit we surface the existing map
                 // (read-only in the modal) rather than resolving the table back for the picker.
                 warehouseTable: null,
-                columnMappings: isPerson
+                columnMappings: isProfile
                     ? parseColumnPropertyMap(definition.source?.column_property_map)
                     : [{ column: '', property: '' }],
                 isEnabled: definition.source?.is_enabled ?? true,
@@ -866,7 +883,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         triggerSync: async ({ sourceId }) => {
             actions.addTriggeringSource({ sourceId })
             try {
-                await customPropertySourcesSyncCreate(String(values.currentProjectId), sourceId)
+                await customPropertySourcesSync(String(values.currentProjectId), sourceId)
                 lemonToast.success('Sync triggered — it may take a few minutes to run')
                 actions.loadDefinitions()
                 actions.pollRunsStatus({ sourceId })
@@ -880,7 +897,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         triggerBackfill: async ({ sourceId }) => {
             actions.addTriggeringSource({ sourceId })
             try {
-                const response = await customPropertySourcesBackfillCreate(String(values.currentProjectId), sourceId)
+                const response = await customPropertySourcesBackfill(String(values.currentProjectId), sourceId)
                 const alreadyRunning = (response as { already_running?: boolean } | undefined)?.already_running
                 lemonToast.success(
                     alreadyRunning

@@ -70,8 +70,8 @@ const SKILL: LLMSkillApi = {
     metadata: {},
     category: '',
     files: [
-        { path: 'scripts/extract.sh', content_type: 'text/x-shellscript' },
-        { path: 'references/pdf-spec.md', content_type: 'text/markdown' },
+        { path: 'scripts/extract.sh', content_type: 'text/x-shellscript', line_count: 24, char_count: 512 },
+        { path: 'references/pdf-spec.md', content_type: 'text/markdown', line_count: 120, char_count: 4096 },
     ],
     outline: [
         { level: 1, text: 'PDF extractor' },
@@ -81,6 +81,7 @@ const SKILL: LLMSkillApi = {
     ],
     version: 4,
     created_by: MOCK_AUTHOR,
+    owners: [MOCK_AUTHOR],
     created_at: '2025-01-14T10:00:00Z',
     updated_at: '2025-01-14T10:00:00Z',
     deleted: false,
@@ -108,6 +109,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     outline: SKILL.outline,
     version: SKILL.version,
     created_by: SKILL.created_by,
+    owners: SKILL.owners,
     created_at: SKILL.created_at,
     updated_at: SKILL.updated_at,
     deleted: SKILL.deleted,
