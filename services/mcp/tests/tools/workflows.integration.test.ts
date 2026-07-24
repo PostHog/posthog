@@ -513,10 +513,16 @@ describe('Workflows', { concurrent: false }, () => {
             // Must be active or the run-batch active-guard fires before the echo-back check.
             await enableTool.handler(context, { id: created.id })
 
-            const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
+            const { affected, confirm_token } = parseToolResponse(
+                await blastRadiusTool.handler(context, { workflow_id: created.id })
+            )
 
             await expect(
-                runBatchTool.handler(context, { workflow_id: created.id, acknowledged_affected_count: affected + 1 })
+                runBatchTool.handler(context, {
+                    workflow_id: created.id,
+                    acknowledged_affected_count: affected + 1,
+                    confirm_token,
+                })
             ).rejects.toThrow(String(affected))
         })
 
@@ -526,7 +532,12 @@ describe('Workflows', { concurrent: false }, () => {
             createdWorkflowIds.push(created.id)
 
             await expect(
-                runBatchTool.handler(context, { workflow_id: created.id, acknowledged_affected_count: 0 })
+                // Trigger-type guard fires before the token is ever used, so any value works here.
+                runBatchTool.handler(context, {
+                    workflow_id: created.id,
+                    acknowledged_affected_count: 0,
+                    confirm_token: 'unused',
+                })
             ).rejects.toThrow(/batch/)
         })
 

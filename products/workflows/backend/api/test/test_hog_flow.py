@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -2621,7 +2621,7 @@ class TestHogFlowAPI(APIBaseTest):
         # The web builder (session auth) keeps its own confirm UI and stays token-free (covered by the
         # existing batch job tests, which run as WEB).
         flow_id = self._create_active_hog_flow()
-        filters = {"properties": []}
+        filters: dict[str, Any] = {"properties": []}
 
         no_token = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
