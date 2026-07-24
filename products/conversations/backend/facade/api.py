@@ -11,8 +11,10 @@ from typing import Any
 from pydantic.dataclasses import dataclass
 from slack_sdk.errors import SlackApiError
 
+from posthog.models.comment import Comment
 from posthog.models.team import Team
 
+from products.conversations.backend.models import Ticket
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
@@ -106,3 +108,33 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     if not ts:
         raise SupportMessageSendError("missing_ts")
     return ts
+
+
+def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, dedupe_key: str) -> str | None:
+    """Add a team-only note to a ticket, as the AI author. Returns the new comment's id, or None when
+    nothing was written because the ticket doesn't exist for this team or this ``dedupe_key`` already
+    posted a note.
+
+    Always private: callers use this to hand agent findings to a support teammate, who decides what
+    (if anything) reaches the customer. ``dedupe_key`` identifies the thing that produced the note so
+    a retrying caller doesn't post twice.
+    """
+    if not Ticket.objects.filter(team_id=team_id, id=ticket_id).exists():
+        return None
+    already_posted = Comment.objects.filter(
+        team_id=team_id,
+        scope="conversations_ticket",
+        item_id=ticket_id,
+        item_context__internal_note_key=dedupe_key,
+        deleted=False,
+    ).exists()
+    if already_posted:
+        return None
+    comment = Comment.objects.create(
+        team_id=team_id,
+        scope="conversations_ticket",
+        item_id=ticket_id,
+        content=content,
+        item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
+    )
+    return str(comment.id)
