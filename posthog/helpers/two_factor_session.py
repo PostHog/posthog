@@ -172,6 +172,9 @@ def set_two_factor_verified_in_session(request: HttpRequest, verified: bool = Tr
 
 
 def is_two_factor_verified_in_session(request: HttpRequest) -> bool:
+    if not hasattr(request, "session"):
+        return False
+
     if not request.session.get(TWO_FACTOR_VERIFIED_SESSION_KEY):
         return False
 
@@ -187,6 +190,9 @@ def clear_two_factor_session_flags(request: HttpRequest) -> None:
 
 
 def is_two_factor_session_expired(request: HttpRequest) -> bool:
+    if not hasattr(request, "session"):
+        return True
+
     session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
     if not session_created_at:
         return True
@@ -245,6 +251,9 @@ def is_path_whitelisted(path):
 
 
 def is_two_factor_enforcement_in_effect(request: HttpRequest):
+    if not hasattr(request, "session"):
+        return False
+
     session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
 
     if not session_created_at:
