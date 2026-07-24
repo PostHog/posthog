@@ -7,8 +7,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.deletion import events_data_tables_via_sync_execute, events_read_tables_via_sync_execute
 from posthog.models.event.util import create_event
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
 from posthog.models.scoping import team_scope
@@ -38,6 +37,7 @@ MCP_SERVER_NAME = "posthog-mcp"
 # Every seeded event carries this marker so --clear can target exactly what this
 # command created, never genuine SDK traffic sharing the same event names.
 SEEDED_MARKER_PROPERTY = "$mcp_seeded"
+SEEDED_EVENT_NAMES = ("$mcp_tool_call", "$mcp_missing_capability", "$exception")
 
 
 def stable_hash(value: str) -> int:
@@ -204,8 +204,9 @@ class Command(BaseCommand):
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Delete events previously seeded by this command (marked with $mcp_seeded) before seeding. "
-            "Genuine MCP events and data seeded before the marker existed are left alone.",
+            help="Delete data previously seeded by this command before seeding — events marked with "
+            "$mcp_seeded, plus the session intent rows those events belong to. Genuine MCP traffic "
+            "and data seeded before the marker existed are left alone.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -237,19 +238,39 @@ class Command(BaseCommand):
             return
 
         if clear:
-            # Scoped to the seeded marker so genuine SDK traffic sharing these event
-            # names survives; runs against both tables create_event dual-writes to.
-            for table in (EVENTS_DATA_TABLE(), EVENTS_JSON_DATA_TABLE):
-                sync_execute(
-                    f"ALTER TABLE {table} DELETE WHERE team_id = %(team_id)s "
-                    "AND event IN ('$mcp_tool_call', '$mcp_missing_capability', '$exception') "
-                    f"AND JSONExtractBool(properties, '{SEEDED_MARKER_PROPERTY}') "
-                    "SETTINGS mutations_sync=1",
-                    {"team_id": team_id},
+            # Scoped to the seeded marker so genuine SDK traffic sharing these event names
+            # survives. The intent rows carry no marker of their own, so recover which
+            # sessions were seeded from the events before deleting them.
+            seeded_predicate = (
+                "team_id = %(team_id)s AND event IN %(events)s "
+                f"AND JSONExtractBool(properties, '{SEEDED_MARKER_PROPERTY}')"
+            )
+            clear_params = {"team_id": team_id, "events": SEEDED_EVENT_NAMES}
+            # Read through the distributed table: the sharded tables below only see the local shard.
+            read_table, *_ = events_read_tables_via_sync_execute()
+            seeded_session_ids = [
+                session_id
+                for (session_id,) in sync_execute(
+                    f"SELECT DISTINCT JSONExtractString(properties, '$session_id') "
+                    f"FROM {read_table} WHERE {seeded_predicate}",
+                    clear_params,
                 )
-            with team_scope(team_id):
-                MCPSession.objects.filter(team=team).delete()
-            self.stdout.write(self.style.WARNING(f"Cleared previously seeded MCP events for team {team_id}."))
+                if session_id
+            ]
+            # Both tables create_event dual-writes to, and only where they exist.
+            for table in events_data_tables_via_sync_execute():
+                sync_execute(
+                    f"ALTER TABLE {table} DELETE WHERE {seeded_predicate} SETTINGS mutations_sync=1",
+                    clear_params,
+                )
+            if seeded_session_ids:
+                with team_scope(team_id):
+                    MCPSession.objects.filter(team=team, session_id__in=seeded_session_ids).delete()
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Cleared previously seeded MCP data for team {team_id} ({len(seeded_session_ids)} sessions)."
+                )
+            )
 
         rng = random.Random(seed)
         now = datetime.now(tz=UTC)
