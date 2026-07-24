@@ -23,14 +23,16 @@ All events captured via `Task.capture_event()` automatically include:
 
 All events captured via `TaskRun.capture_event()` automatically include:
 
-| Property      | Type   | Description                                |
-| ------------- | ------ | ------------------------------------------ |
-| `task_id`     | `str`  | UUID of the task                           |
-| `run_id`      | `str`  | UUID of the run                            |
-| `team_id`     | `int`  | Team ID                                    |
-| `repository`  | `str?` | Repository in `org/repo` format (nullable) |
-| `environment` | `str`  | `cloud` or `local` (defaults to `cloud`)   |
-| `mode`        | `str`  | Execution mode (e.g. `background`)         |
+| Property          | Type   | Description                                                             |
+| ----------------- | ------ | ----------------------------------------------------------------------- |
+| `task_id`         | `str`  | UUID of the task                                                        |
+| `run_id`          | `str`  | UUID of the run                                                         |
+| `team_id`         | `int`  | Team ID                                                                 |
+| `repository`      | `str?` | Repository in `org/repo` format (nullable)                              |
+| `loop_id`         | `str?` | UUID of the loop that spawned this run, from run state (nullable)       |
+| `loop_trigger_id` | `str?` | UUID of the loop trigger that fired this run, from run state (nullable) |
+| `environment`     | `str`  | `cloud` or `local` (defaults to `cloud`)                                |
+| `mode`            | `str`  | Execution mode (e.g. `background`)                                      |
 
 ## Task Model Events
 
@@ -87,6 +89,19 @@ Additional properties:
 | `error_type`       | `str`   | Stable failure source: exception class name (workflow failures), `agent_reported`, `stale_queued_cleanup`, `workflow_start_failed`, `followup_delivery_failed`, `stale_run_reaped`; `unspecified` when unknown |
 | `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
 | `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
+
+## Loop Fire Metrics
+
+Source: `products/tasks/backend/metrics.py`, emitted from `products/tasks/backend/logic/services/loop_runs.py::fire_loop`.
+
+Prometheus counters (not `posthoganalytics.capture()` events):
+
+| Metric                                 | Labels   | Description                                                                                                                                                                 |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog_tasks_loop_fire_total`        | `reason` | One increment per `fire_loop()` call, labeled with the `LoopFireResult.reason` outcome (`created`, `deduped`, `overlap_skipped`, `rate_capped`, `disabled`, `gate_blocked`) |
+| `posthog_tasks_loop_auto_paused_total` | (none)   | One increment each time a loop is auto-paused after `consecutive_failures` reaches the threshold                                                                            |
+
+`fire_loop()` also logs `loop_fire_created` (standard Python logger, not analytics) with `loop_id`, `loop_trigger_id`, `task_id`, `task_run_id` and `actor_id` on every successful fire.
 
 ## Workflow Events
 

@@ -31,6 +31,18 @@ jest.mock('lib/components/CodeSnippet', () => ({
     Language: { JSON: 'json', Text: 'text' },
 }))
 
+// Monaco can't render in jsdom — stand it in for a marker that echoes the diff props we care about.
+jest.mock('lib/components/MonacoDiffEditor', () => ({
+    __esModule: true,
+    default: ({ original, modified }: { original?: string; modified?: string }) => (
+        <div data-attr="monaco-diff" data-original={original} data-modified={modified} />
+    ),
+}))
+
+jest.mock('react-intersection-observer', () => ({
+    useInView: () => ({ ref: () => {}, inView: true }),
+}))
+
 const rawToolCall: ToolInvocation = {
     toolCallId: 'tc-1',
     rawServerName: 'posthog',
@@ -72,14 +84,25 @@ describe('Sandbox approval input area', () => {
     })
 
     describe('PermissionInput', () => {
-        it('renders the approval prompt with the same two permission options', () => {
+        it('renders the one-voice card: headline sentence, tool identity, option rows', () => {
             render(<PermissionInput streamKey="conv-1" request={makeRequest()} />)
 
-            expect(screen.getByText('Approval required')).toBeInTheDocument()
+            expect(screen.getByText('The agent wants to create an insight.')).toBeInTheDocument()
             expect(screen.getByText('posthog - insight-create (MCP)')).toBeInTheDocument()
             expect(screen.getByText('Approve')).toBeInTheDocument()
             expect(screen.getByText('Decline')).toBeInTheDocument()
-            expect(screen.queryByText("Explain what you'd like instead.")).not.toBeInTheDocument()
+            // The redundant category rows are gone — the headline sentence carries the ask.
+            expect(screen.queryByText('Approval required')).not.toBeInTheDocument()
+        })
+
+        it('states the tool identity exactly once when the request has a title but no description', () => {
+            render(<PermissionInput streamKey="conv-1" request={makeRequest({ description: undefined })} />)
+
+            // getByText throws on multiple matches, so this also asserts the identity isn't duplicated
+            // between the headline and the evidence label.
+            expect(screen.getByText('posthog - insight-create (MCP)')).toBeInTheDocument()
+            // The raw adapter title must not ride in as a second statement of the same identity.
+            expect(screen.queryByText('Create insight')).not.toBeInTheDocument()
         })
 
         it('renders the unwrapped PostHog exec payload like PostHog Code', () => {
@@ -126,7 +149,7 @@ describe('Sandbox approval input area', () => {
             expect(respondToPermission).not.toHaveBeenCalled()
         })
 
-        it('sends feedback text through the reject_with_feedback option when it is the decline path', () => {
+        it('sends feedback text through the reject_with_feedback option, ignoring an empty submit', () => {
             render(
                 <PermissionInput
                     streamKey="conv-1"
@@ -139,10 +162,15 @@ describe('Sandbox approval input area', () => {
                 />
             )
 
-            fireEvent.click(screen.getByText("Explain what you'd like instead."))
-            const input = screen.getByPlaceholderText('Type your answer...')
+            fireEvent.click(screen.getByText('Decline with feedback'))
+            const input = screen.getByPlaceholderText('Tell the agent what to do differently')
+
+            // The legacy feedback-only decline needs text — an empty Enter is a no-op.
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(respondToPermission).not.toHaveBeenCalled()
+
             fireEvent.change(input, { target: { value: 'Use a funnel instead' } })
-            fireEvent.click(screen.getByText('Send'))
+            fireEvent.keyDown(input, { key: 'Enter' })
 
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',
@@ -151,28 +179,113 @@ describe('Sandbox approval input area', () => {
             })
         })
 
-        it('renders reject_once as a one-click decline with no feedback toggle', () => {
+        it('opens the note for a reject_once decline that supports feedback, declining plain on empty submit', () => {
             const request = makeRequest({
                 options: [
                     { optionId: 'opt-allow', name: 'Yes', kind: 'allow_once' },
+                    {
+                        optionId: 'opt-reject',
+                        name: 'Type here to tell the agent what to do differently',
+                        kind: 'reject_once',
+                        customInput: true,
+                    },
+                ],
+            })
+            render(<PermissionInput streamKey="conv-1" request={request} />)
+
+            // The interaction-describing wire name becomes a named choice; the note is opened, not sent.
+            fireEvent.click(screen.getByText('Do it differently…'))
+            const input = screen.getByPlaceholderText('Tell the agent what to do differently')
+            expect(respondToPermission).not.toHaveBeenCalled()
+
+            // An empty submit is the plain one-click decline.
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'opt-reject' })
+
+            // A typed note rides along as feedback.
+            respondToPermission.mockClear()
+            fireEvent.change(input, { target: { value: 'Try a different query' } })
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(respondToPermission).toHaveBeenCalledWith({
+                requestId: 'req-1',
+                optionId: 'opt-reject',
+                customInput: 'Try a different query',
+            })
+        })
+
+        it('activates rows with digit shortcuts but never while typing a note', () => {
+            const request = makeRequest({
+                options: [
+                    { optionId: 'opt-allow', name: 'Approve', kind: 'allow_once' },
                     { optionId: 'opt-reject', name: 'No', kind: 'reject_once', customInput: true },
                 ],
             })
             render(<PermissionInput streamKey="conv-1" request={request} />)
 
-            // No optional-feedback affordance — the decline is a plain one-click button.
-            expect(screen.queryByText('Add feedback…')).not.toBeInTheDocument()
-            fireEvent.click(screen.getByText('No'))
-            expect(respondToPermission).toHaveBeenCalledWith({
-                requestId: 'req-1',
-                optionId: 'opt-reject',
-            })
+            // '2' opens the feedback note; digits typed inside it must not activate rows.
+            fireEvent.keyDown(document.body, { key: '2' })
+            const input = screen.getByPlaceholderText('Tell the agent what to do differently')
+            fireEvent.keyDown(input, { key: '1' })
+            expect(respondToPermission).not.toHaveBeenCalled()
+
+            // Escape leaves the note; '1' back on the body approves.
+            fireEvent.keyDown(input, { key: 'Escape' })
+            fireEvent.keyDown(document.body, { key: '1' })
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'opt-allow' })
         })
 
-        // Plan approval keeps only the product's Auto and Accept edits continuation modes. Plan and the
-        // agent server's raw default mode are deliberately ignored even if the wire offers them.
+        it('caps a long payload behind a Show all expander', () => {
+            const bigArgs = JSON.stringify({ query: 'select 1', cols: Array.from({ length: 20 }, (_, i) => `c${i}`) })
+            render(
+                <PermissionInput
+                    streamKey="conv-1"
+                    request={makeRequest({
+                        rawToolCall: { ...rawToolCall, input: { command: `call execute-sql ${bigArgs}` } },
+                    })}
+                />
+            )
+
+            const snippet = (): HTMLElement =>
+                screen.getByText((_content, element) => element?.getAttribute('data-attr') === 'code-snippet')
+            expect(snippet().textContent).toContain('"c0"')
+            expect(snippet().textContent).not.toContain('"c19"')
+
+            fireEvent.click(screen.getByText(/^Show all \d+ lines$/))
+            expect(snippet().textContent).toContain('"c19"')
+        })
+
+        it('renders diff evidence instead of the raw payload when the tool call carries a diff', () => {
+            render(
+                <PermissionInput
+                    streamKey="conv-1"
+                    request={makeRequest({
+                        rawToolCall: {
+                            ...rawToolCall,
+                            contentBlocks: [
+                                { type: 'diff', path: 'source.hog', oldText: 'let a := 1', newText: 'let a := 2' },
+                            ],
+                        },
+                    })}
+                />
+            )
+
+            const diff = document.querySelector('[data-attr="monaco-diff"]')
+            expect(diff).not.toBeNull()
+            expect(diff?.getAttribute('data-original')).toBe('let a := 1')
+            expect(diff?.getAttribute('data-modified')).toBe('let a := 2')
+            expect(screen.getByText('+1')).toBeInTheDocument()
+            expect(screen.getByText('-1')).toBeInTheDocument()
+            expect(
+                screen.queryByText((_content, element) => element?.getAttribute('data-attr') === 'code-snippet')
+            ).not.toBeInTheDocument()
+        })
+
+        // Plan approval keeps only the product's Auto and Full auto continuation modes. Plan, the retired
+        // acceptEdits mode, and the agent server's raw default mode are deliberately ignored even if the
+        // wire offers them.
         const planWireOptions = [
             { optionId: 'bypassPermissions', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+            { optionId: 'auto', name: 'Yes, and use "auto" mode', kind: 'allow_always' },
             { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
             { optionId: 'plan', name: 'Stay in plan mode', kind: 'allow_always' },
             { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
@@ -213,34 +326,43 @@ describe('Sandbox approval input area', () => {
             expect(screen.getByText('Approve this plan to proceed?')).toBeInTheDocument()
         })
 
-        it('keeps the supported plan modes and approves with Auto as bypassPermissions', () => {
+        it('keeps the supported plan modes and approves with the default Auto as the auto wire option', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
-            // Auto is the user-facing label for the bypassPermissions wire option.
             expect(screen.getByText('Auto')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Approve and proceed'))
 
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',
-                optionId: 'bypassPermissions',
+                optionId: 'auto',
             })
         })
 
         it('pre-selects the remembered last-approved mode over Auto', () => {
+            window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'bypassPermissions')
+            render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
+
+            fireEvent.click(screen.getByText('Approve and proceed'))
+
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'bypassPermissions' })
+        })
+
+        it('falls back to Auto when the remembered mode is retired', () => {
             window.localStorage.setItem('posthog-ai.lastPlanApprovalMode', 'acceptEdits')
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
             fireEvent.click(screen.getByText('Approve and proceed'))
 
-            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'acceptEdits' })
+            expect(respondToPermission).toHaveBeenCalledWith({ requestId: 'req-1', optionId: 'auto' })
         })
 
-        it('opens the mode picker with only Auto and Accept edits', () => {
+        it('opens the mode picker with only Auto and Full auto', () => {
             render(<PermissionInput streamKey="conv-1" request={makePlanRequest()} />)
 
             fireEvent.click(screen.getByLabelText('Mode'))
 
-            expect(screen.getByText('Accept edits')).toBeInTheDocument()
+            expect(screen.getByText('Full auto')).toBeInTheDocument()
+            expect(screen.queryByText('Accept edits')).not.toBeInTheDocument()
             expect(screen.queryByText('Default')).not.toBeInTheDocument()
             expect(screen.queryByText('Plan')).not.toBeInTheDocument()
             expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument()
@@ -276,7 +398,7 @@ describe('Sandbox approval input area', () => {
             fireEvent.keyDown(document.body, { key: '1' })
             expect(respondToPermission).toHaveBeenCalledWith({
                 requestId: 'req-1',
-                optionId: 'bypassPermissions',
+                optionId: 'auto',
             })
         })
 
@@ -337,7 +459,8 @@ describe('Sandbox approval input area', () => {
                 <PermissionInput streamKey="conv-1" request={makeRequest({ title: 'Create a data retention plan' })} />
             )
 
-            expect(screen.getByText('Approval required')).toBeInTheDocument()
+            expect(screen.queryByText('Implementation Plan')).not.toBeInTheDocument()
+            expect(screen.getByText('Approve')).toBeInTheDocument()
         })
 
         it('falls back to showing every option when filtering would leave none', () => {

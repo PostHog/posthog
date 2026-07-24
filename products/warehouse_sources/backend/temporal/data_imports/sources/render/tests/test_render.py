@@ -280,6 +280,30 @@ class TestFanOut:
 
         assert batches == [[{"serviceId": "srv-2", "id": "dep-2"}]]
 
+    def test_custom_domains_400_for_unsupported_service_is_skipped(self) -> None:
+        # Render 400s /custom-domains for service types that can't have them (cron jobs, etc.);
+        # skip that parent instead of failing the whole sync.
+        batches, _, _ = _rows(
+            "custom_domains",
+            [
+                self.SERVICES_PAGE,
+                _response({"message": "Bad Request"}, status=400),
+                [{"customDomain": {"id": "dom-2"}}],
+            ],
+        )
+
+        assert batches == [[{"serviceId": "srv-2", "id": "dom-2"}]]
+
+    def test_400_still_fails_for_endpoints_without_skip_flag(self) -> None:
+        with pytest.raises(requests.HTTPError):
+            _rows(
+                "deploys",
+                [
+                    self.SERVICES_PAGE,
+                    _response({"message": "Bad Request"}, status=400),
+                ],
+            )
+
     def test_resume_skips_parents_before_bookmark_and_seeds_cursor(self) -> None:
         batches, session, _ = _rows(
             "deploys",

@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashb
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AshbySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

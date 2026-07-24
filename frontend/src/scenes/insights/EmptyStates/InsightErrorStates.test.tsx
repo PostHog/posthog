@@ -1,5 +1,7 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
+
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -49,5 +51,30 @@ describe('insight error states', () => {
             query_kind: null,
             query_id: 'test-query-id',
         })
+    })
+
+    // The retry button only offers a side action (query debugger link) when it has a query. Without
+    // one, `sideAction` must stay undefined so LemonButton doesn't render a stray empty side action.
+    it.each([
+        { name: 'without a query', query: undefined, expectsSideAction: false },
+        {
+            name: 'with a query',
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } },
+            expectsSideAction: true,
+        },
+    ])('retry button side action $name', ({ query, expectsSideAction }) => {
+        const { container } = render(<InsightErrorState onRetry={() => {}} query={query} />)
+
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
+        expect(container.querySelector('.LemonButtonWithSideAction') !== null).toBe(expectsSideAction)
+    })
+
+    it('shows support without retry guidance for persistent errors', () => {
+        preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+
+        render(<InsightErrorState title="There is a persistent problem." supportOnly />)
+
+        expect(screen.getByText('If this persists, submit a bug report.')).toBeTruthy()
+        expect(screen.queryByText(/try again/i)).toBeNull()
     })
 })

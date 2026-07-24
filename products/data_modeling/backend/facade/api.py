@@ -10,6 +10,8 @@ name on first access keeps this module off the ``django.setup()`` path.
 _B = "products.data_modeling.backend."
 
 _LAZY = {
+    "UnsatisfiableFrequencyError": "logic.freshness",
+    "UnsupportedFrequencyTargetError": "logic.freshness",
     "HasDependentsError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
@@ -18,6 +20,9 @@ _LAZY = {
     "materialize_saved_query": "logic.node_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "start_node_materialization": "logic.node_materialization",
+    "apply_saved_query_frequency_target": "logic.schedule_reconcile",
+    "tiered_schedules_enabled": "logic.schedule_reconcile",
+    "get_declared_target": "logic.node_frequency",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",

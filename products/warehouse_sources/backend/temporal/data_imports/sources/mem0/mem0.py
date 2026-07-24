@@ -1,24 +1,30 @@
-"""Thin Mem0 platform API client used by the data warehouse source.
+"""Mem0 platform data warehouse source, built on the shared ``rest_source`` framework.
 
 Reference: https://docs.mem0.ai/api-reference
 
-Everything in this module routes through ``make_tracked_session`` so outbound calls show up in
-our HTTP logs, OTel metrics, and sample-capture pipeline.
+All outbound HTTP goes through the framework's tracked session so calls show up in our HTTP logs,
+OTel metrics, and sample-capture pipeline. The API key travels via the framework ``auth`` config so
+it is redacted from logs and raised error messages.
 """
 
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin, urlparse
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib.parse import urljoin, urlparse
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
     ENTITIES_ENDPOINT,
     EVENTS_ENDPOINT,
@@ -27,26 +33,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     MEMORIES_ENDPOINT,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-
 # Every memory carries at least one owning entity id (user_id / agent_id / app_id / run_id are
 # required at add time), so OR-ing the wildcard over all four matches the whole store. A bare
 # {"user_id": "*"} would miss memories scoped only to an agent, app, or run.
 _MATCH_ALL_FILTER: dict[str, Any] = {"OR": [{"user_id": "*"}, {"agent_id": "*"}, {"app_id": "*"}, {"run_id": "*"}]}
 
 
-class Mem0RetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class Mem0ResumeConfig:
     """Resume state for a crashed/heartbeat-timed-out sync.
 
-    ``endpoint`` scopes the state so a memories page number is never replayed against events.
-    ``page`` is the next 1-indexed page for the memories endpoint; ``next_url`` is the next
-    envelope URL for the events endpoint; ``cutoff`` pins the incremental filter value the run
-    started with so a resumed attempt paginates the same server-side result set.
+    ``endpoint`` scopes the state so a memories cursor is never replayed against events.
+    ``next_url`` is the next-page envelope URL to resume from (memories and events both paginate
+    via a ``next`` link). ``cutoff`` pins the incremental filter value the run started with so a
+    resumed memories attempt paginates the same server-side result set. ``page`` is retained for
+    backward compatibility with resume state written by the pre-framework implementation.
     """
 
     endpoint: str
@@ -64,12 +65,12 @@ def _get_headers(api_key: str) -> dict[str, str]:
 
 def validate_credentials(api_key: str) -> bool:
     # GET /v1/ping/ is the cheap key probe the official mem0ai SDK uses on client init.
-    url = f"{MEM0_BASE_URL}/v1/ping/"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{MEM0_BASE_URL}/v1/ping/",
+        headers=_get_headers(api_key),
+    )
+    return ok
 
 
 def _format_cutoff(value: Any) -> str | None:
@@ -96,180 +97,69 @@ def _build_memories_filters(incremental_field: str, cutoff: str | None) -> dict[
 
 
 def _ensure_mem0_origin(url: str) -> str:
-    """Refuse pagination/resume URLs that leave the Mem0 API origin.
+    """Resolve a pagination/resume URL against the Mem0 API origin, refusing any that leave it.
 
-    The session carries the API key on every request, so following an off-origin ``next`` link
-    (from a tampered response, or a poisoned resume-state entry) would send the credential to an
-    arbitrary host. ``urljoin`` alone doesn't protect against absolute or scheme-relative URLs.
+    Mem0's ``next`` links are sometimes relative (e.g. ``/v1/events/?page=2``); resolving them
+    against the API base yields the absolute URL the request must target. The session carries the
+    API key on every request, so following an off-origin link (from a tampered response, or a
+    poisoned resume-state entry) would send the credential to an arbitrary host. Rejects any URL
+    that resolves to a scheme or host other than the Mem0 API origin — including a scheme-relative
+    ``//other-host`` link or an ``http://`` downgrade to the same host.
     """
-    parsed = urlparse(url)
+    resolved = urljoin(MEM0_BASE_URL, url)
+    parsed = urlparse(resolved)
     expected = urlparse(MEM0_BASE_URL)
     if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
-        raise ValueError(f"Refusing to follow a pagination URL off the Mem0 API origin: {url}")
-    return url
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            Mem0RetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
+        raise ValueError(
+            f"Refusing to follow a pagination URL off the Mem0 API origin: {parsed.scheme}://{parsed.netloc}"
         )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_json(
-    session: requests.Session,
-    method: str,
-    url: str,
-    logger: FilteringBoundLogger,
-    json_body: dict[str, Any] | None = None,
-) -> Any:
-    response = session.request(method, url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise Mem0RetryableError(f"Mem0 API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Mem0 API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    return resolved
 
 
-def _get_memories_rows(
-    session: requests.Session,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
-    resume: Mem0ResumeConfig | None,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-    incremental_field: str | None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = MEM0_ENDPOINTS[MEMORIES_ENDPOINT]
+class Mem0OriginPinnedPaginator(JSONResponsePaginator):
+    """A ``JSONResponsePaginator`` (follows the ``next`` link in the body) that refuses any
+    next-page or resume URL off the Mem0 API origin before a credentialed request is sent."""
 
-    if resume is not None and resume.page:
-        page = resume.page
-        cutoff = resume.cutoff
-    else:
-        page = 1
-        cutoff = (
-            _format_cutoff(db_incremental_field_last_value)
-            if should_use_incremental_field and db_incremental_field_last_value
-            else None
-        )
+    def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None:
+            self._next_url = _ensure_mem0_origin(self._next_url)
 
-    filters = _build_memories_filters(incremental_field or "updated_at", cutoff)
-    body = {"filters": filters}
-
-    while True:
-        params = urlencode({"page": page, "page_size": config.page_size})
-        data = _fetch_json(session, config.method, f"{MEM0_BASE_URL}{config.path}?{params}", logger, json_body=body)
-
-        rows = data.get("results") or []
-        if rows:
-            yield rows
-
-        if not data.get("next"):
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — the
-        # merge dedupes re-yielded rows on the primary key.
-        resumable_source_manager.save_state(Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, page=page, cutoff=cutoff))
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            state = {**state, "next_url": _ensure_mem0_origin(next_url)}
+        super().set_resume_state(state)
 
 
-def _get_entities_rows(
-    session: requests.Session,
-    logger: FilteringBoundLogger,
-    org_id: str | None,
-    project_id: str | None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = MEM0_ENDPOINTS[ENTITIES_ENDPOINT]
-    scope = {key: value for key, value in (("org_id", org_id), ("project_id", project_id)) if value}
-    url = f"{MEM0_BASE_URL}{config.path}"
-    if scope:
-        url = f"{url}?{urlencode(scope)}"
-
-    data = _fetch_json(session, config.method, url, logger)
-
-    # Documented as a bare JSON array; tolerate an envelope in case the API grows one.
-    rows = data.get("results") if isinstance(data, dict) else data
-    if rows:
-        yield rows
+def _base_client(api_key: str) -> ClientConfig:
+    return {
+        "base_url": MEM0_BASE_URL,
+        # Only the non-secret Accept header lives here; the key rides the framework auth so it is
+        # redacted from logs and error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {
+            "type": "api_key",
+            "api_key": f"Token {api_key}",
+            "name": "Authorization",
+            "location": "header",
+        },
+    }
 
 
-def _get_events_rows(
-    session: requests.Session,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
-    resume: Mem0ResumeConfig | None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = MEM0_ENDPOINTS[EVENTS_ENDPOINT]
-    url = (
-        _ensure_mem0_origin(resume.next_url)
-        if resume is not None and resume.next_url
-        else f"{MEM0_BASE_URL}{config.path}"
-    )
-
-    while True:
-        data = _fetch_json(session, config.method, url, logger)
-
-        rows = data.get("results") or []
-        if rows:
-            yield rows
-
-        next_url = data.get("next")
-        if not next_url:
-            break
-
-        url = _ensure_mem0_origin(urljoin(MEM0_BASE_URL, next_url))
-        resumable_source_manager.save_state(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=url))
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-    org_id: str | None = None,
-    project_id: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    session = make_tracked_session(headers=_get_headers(api_key))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.endpoint != endpoint:
-        resume = None
-
-    if endpoint == MEMORIES_ENDPOINT:
-        yield from _get_memories_rows(
-            session,
-            logger,
-            resumable_source_manager,
-            resume,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-            incremental_field,
-        )
-    elif endpoint == ENTITIES_ENDPOINT:
-        yield from _get_entities_rows(session, logger, org_id, project_id)
-    elif endpoint == EVENTS_ENDPOINT:
-        yield from _get_events_rows(session, logger, resumable_source_manager, resume)
-    else:
-        raise ValueError(f"Unknown Mem0 endpoint: {endpoint}")
+def _entities_unwrap(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Documented as a bare JSON array; tolerate a {"results": [...]} envelope in case the API
+    # grows one by exploding the wrapper into its rows.
+    if isinstance(item, dict) and isinstance(item.get("results"), list):
+        return item["results"]
+    return item
 
 
 def mem0_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -279,19 +169,33 @@ def mem0_source(
 ) -> SourceResponse:
     endpoint_config = MEM0_ENDPOINTS[endpoint]
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.endpoint != endpoint:
+        resume = None
+
+    client = _base_client(api_key)
+
+    if endpoint == MEMORIES_ENDPOINT:
+        resource = _memories_resource(
+            client,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            resume,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+    elif endpoint == ENTITIES_ENDPOINT:
+        resource = _entities_resource(client, team_id, job_id, org_id, project_id)
+    elif endpoint == EVENTS_ENDPOINT:
+        resource = _events_resource(client, team_id, job_id, resumable_source_manager, resume)
+    else:
+        raise ValueError(f"Unknown Mem0 endpoint: {endpoint}")
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-            org_id=org_id,
-            project_id=project_id,
-        ),
+        items=lambda: resource,
         primary_keys=endpoint_config.primary_keys,
         # The memories list exposes no sort parameter, so row order within a run is undefined.
         # "desc" makes the pipeline commit the incremental watermark only at successful end of
@@ -303,4 +207,142 @@ def mem0_source(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )
+
+
+def _memories_resource(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
+    resume: Mem0ResumeConfig | None,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> Any:
+    config = MEM0_ENDPOINTS[MEMORIES_ENDPOINT]
+
+    # On resume the pinned cutoff (not a freshly computed one) drives the filter, otherwise the
+    # resumed run paginates a different server-side result set than the pages already fetched.
+    if resume is not None and resume.next_url:
+        cutoff = resume.cutoff
+        initial_paginator_state: dict[str, Any] | None = {"next_url": resume.next_url}
+    else:
+        cutoff = (
+            _format_cutoff(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value
+            else None
+        )
+        initial_paginator_state = None
+
+    filters = _build_memories_filters(incremental_field or "updated_at", cutoff)
+
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": MEMORIES_ENDPOINT,
+                "endpoint": {
+                    "path": config.path,
+                    "method": "POST",
+                    "params": {"page": 1, "page_size": config.page_size},
+                    "json": {"filters": filters},
+                    "data_selector": "results",
+                    "paginator": Mem0OriginPinnedPaginator(),
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (the merge dedupes) rather than skipping it. The cutoff is pinned so a
+        # resumed run filters on the same value the original run started with.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(
+                Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=state["next_url"], cutoff=cutoff)
+            )
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _entities_resource(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    org_id: str | None,
+    project_id: str | None,
+) -> Any:
+    config = MEM0_ENDPOINTS[ENTITIES_ENDPOINT]
+
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": ENTITIES_ENDPOINT,
+                "endpoint": {
+                    "path": config.path,
+                    "method": "GET",
+                    "params": {"org_id": org_id, "project_id": project_id},
+                    "paginator": SinglePagePaginator(),
+                },
+                "data_map": _entities_unwrap,
+            }
+        ],
+    }
+
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
+def _events_resource(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[Mem0ResumeConfig],
+    resume: Mem0ResumeConfig | None,
+) -> Any:
+    config = MEM0_ENDPOINTS[EVENTS_ENDPOINT]
+
+    initial_paginator_state: dict[str, Any] | None = None
+    if resume is not None and resume.next_url:
+        # Validate the seeded resume URL before it is ever requested (poisoned resume state must
+        # not receive the credentialed request); the paginator re-checks on seed too.
+        initial_paginator_state = {"next_url": _ensure_mem0_origin(resume.next_url)}
+
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": EVENTS_ENDPOINT,
+                "endpoint": {
+                    "path": config.path,
+                    "method": "GET",
+                    "data_selector": "results",
+                    "paginator": Mem0OriginPinnedPaginator(),
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=state["next_url"]))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )

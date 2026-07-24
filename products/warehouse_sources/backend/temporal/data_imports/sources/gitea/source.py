@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GiteaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
     create_repo_webhook,
@@ -178,6 +178,7 @@ If automatic creation failed, your token needs admin access to the repository â€
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -195,7 +196,7 @@ If automatic creation failed, your token needs admin access to the repository â€
         return schemas
 
     def validate_credentials(
-        self, config: GiteaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GiteaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.base_url), team_id)
@@ -219,7 +220,9 @@ If automatic creation failed, your token needs admin access to the repository â€
             GITEA_WEBHOOK_RESOURCE_MAP[name] for name in eligible_schema_names if name in GITEA_WEBHOOK_RESOURCE_MAP
         ]
 
-    def create_webhook(self, config: GiteaSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: GiteaSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         # Gitea's webhook secret is creator-supplied, so mint one, hand it to Gitea as the
         # hook's config.secret, and return it via extra_inputs so it lands on the hog
         # function for signature verification.
@@ -236,6 +239,7 @@ If automatic creation failed, your token needs admin access to the repository â€
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         # Every mapped event, not just the enabled schemas': mirrors create_webhook's stance
         # and auto-heals webhooks created before GITEA_WEBHOOK_RESOURCE_MAP gained new events.
@@ -244,11 +248,13 @@ If automatic creation failed, your token needs admin access to the repository â€
             config.base_url, config.access_token, config.repository, webhook_url, desired_events
         )
 
-    def delete_webhook(self, config: GiteaSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: GiteaSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return delete_repo_webhook(config.base_url, config.access_token, config.repository, webhook_url)
 
     def get_external_webhook_info(
-        self, config: GiteaSourceConfig, webhook_url: str, team_id: int
+        self, config: GiteaSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         return get_repo_webhook_info(config.base_url, config.access_token, config.repository, webhook_url)
 

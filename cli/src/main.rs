@@ -17,6 +17,9 @@ fn main() {
     posthog_rs::flush();
 
     match result {
+        // A child process (the `api` proxy) failed: telemetry is flushed above,
+        // so exiting with the child's code here no longer loses events.
+        Ok(Some(code)) if code != 0 => std::process::exit(code),
         Ok(_) => {}
         Err(e) => {
             match e.exception_id {

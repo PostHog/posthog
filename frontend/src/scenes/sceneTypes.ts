@@ -1,5 +1,7 @@
 import { LogicWrapper } from 'kea'
 
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+
 import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
@@ -13,6 +15,7 @@ export enum Scene {
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
+    Alerts = 'Alerts',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -137,8 +140,14 @@ export enum Scene {
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
+    ReplayVision = 'ReplayVision',
+    ReplayVisionScanner = 'ReplayVisionScanner',
+    ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
+    ReplayVisionObservation = 'ReplayVisionObservation',
+    ReplayVisionAction = 'ReplayVisionAction',
+    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
+    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
-    RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -154,6 +163,8 @@ export enum Scene {
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Skill = 'Skill',
+    Skills = 'Skills',
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
@@ -193,15 +204,20 @@ export enum Scene {
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
     AIObservability = 'AIObservability',
+    AIObservabilityCluster = 'AIObservabilityCluster',
+    AIObservabilityClusters = 'AIObservabilityClusters',
     AIObservabilityDataset = 'AIObservabilityDataset',
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
+    AIObservabilityTag = 'AIObservabilityTag',
+    AIObservabilityTags = 'AIObservabilityTags',
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     MCPAnalytics = 'MCPAnalytics',
+    MCPAnalyticsToolDetail = 'MCPAnalyticsToolDetail',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -230,6 +246,12 @@ export interface SceneExport<T = SceneProps> {
     logic?: LogicWrapper
     /** product key associated with this scene - used for Quick Start setup tracking */
     productKey?: ProductKey
+    /**
+     * Declare this to have the app shell gate the scene behind the product's
+     * setup empty state until the product has received data (skippable, driven
+     * by real data detection). See lib/components/ProductEmptyState.
+     */
+    emptyState?: SceneProductEmptyState
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
@@ -334,8 +356,17 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
     [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
 
-    // Revenue analytics
-    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+    // Replay vision
+    [Scene.ReplayVision]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
+    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
+
+    // Toolbar
+    [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
 
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
@@ -382,13 +413,25 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // AI observability
     [Scene.AIObservability]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityCluster]: AccessControlResourceType.AiObservabilityClusters,
+    [Scene.AIObservabilityClusters]: AccessControlResourceType.AiObservabilityClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
+    [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
+
+    // MCP analytics
+    [Scene.MCPAnalytics]: AccessControlResourceType.McpAnalytics,
+    [Scene.MCPAnalyticsToolDetail]: AccessControlResourceType.McpAnalytics,
+
+    // Skills
+    [Scene.Skill]: AccessControlResourceType.LlmSkill,
+    [Scene.Skills]: AccessControlResourceType.LlmSkill,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

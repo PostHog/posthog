@@ -46,7 +46,7 @@ from posthog.rate_limit import UserInterviewInviteThrottle
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
-from ..facade.api import derive_auto_classifications, parse_interviewee_identifier
+from ..facade.api import SHARED_INTERVIEWEE_IDENTIFIER, derive_auto_classifications, parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
 from ..invite_email import (
     build_invite_email_context,
@@ -543,6 +543,21 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response.Response(UserInterviewSearchResultSerializer(results, many=True).data)
 
 
+# The shared-link sentinel and the `shared:` respondent namespace are internal markers that back a
+# topic's non-personalised link. A user-supplied interviewee identifier equal to one — or in the
+# `shared:` namespace — would collide on the unique (topic, interviewee_identifier) constraint and
+# silently merge with, or revoke, the topic's shared link. Reject them at every input boundary;
+# internal creation of the sentinel goes through the ORM directly, bypassing these serializers.
+_RESERVED_SHARED_IDENTIFIER_PREFIX = "shared:"
+
+
+def _reject_reserved_identifier(value: str) -> None:
+    if value == SHARED_INTERVIEWEE_IDENTIFIER or value.startswith(_RESERVED_SHARED_IDENTIFIER_PREFIX):
+        raise serializers.ValidationError(
+            "This identifier is reserved for shared interview links and can't be assigned to an interviewee."
+        )
+
+
 class UserInterviewTopicSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     interviewee_emails = serializers.ListField(
@@ -611,19 +626,15 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
     def validate_invite_message(self, value: str | None) -> str | None:
         return validate_invite_message(value)
 
-    MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
+    def validate_interviewee_distinct_ids(self, value: list[str]) -> list[str]:
+        for identifier in value:
+            _reject_reserved_identifier(identifier)
+        return value
 
-    def validate(self, attrs: dict) -> dict:
-        if not self._current(attrs, "interviewee_emails", []) and not self._current(
-            attrs, "interviewee_distinct_ids", []
-        ):
-            raise serializers.ValidationError(self.MISSING_TARGETING_ERROR)
-        return attrs
-
-    def _current(self, attrs: dict, field: str, default: Any) -> Any:
-        if field in attrs:
-            return attrs[field]
-        return getattr(self.instance, field, default)
+    # A topic needs no targeted interviewees to be valid: a non-personalised (shared) link is created
+    # for a zero-target topic — the whole point for reaching anonymous visitors we have no contact
+    # details for. The personalised flows (generate_links / send_invites) still guard the empty case
+    # with their own errors where they actually need targets.
 
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
@@ -703,6 +714,66 @@ class InterviewLinkSerializer(serializers.Serializer):
     )
 
 
+class SharedInterviewLinkSerializer(serializers.Serializer):
+    interview_url = serializers.URLField(
+        help_text=(
+            "Public, unauthenticated URL any respondent can open to start a new interview for this "
+            "topic. Backed by a topic-level SharingConfiguration access token — not tied to any "
+            "specific interviewee. Each visit is a new anonymous respondent who self-identifies with "
+            "a name; `distinct_id` and `session_id` query params on the URL are captured as "
+            "best-effort person/session linkage."
+        ),
+    )
+
+
+def _get_or_create_active_share(*, team: Team, **resource: Any) -> SharingConfiguration:
+    """Get the active (enabled, unexpired) SharingConfiguration for a user-interviews resource,
+    creating one if none exists. `resource` is the single FK kwarg identifying what's shared —
+    always `interviewee_context=` today (a real invitee, the caller's test link, or the topic's
+    shared-link sentinel). Callers own the surrounding transaction/locking."""
+    sharing_config = (
+        SharingConfiguration.objects.filter(team=team, enabled=True, **resource)
+        .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+        .order_by("-created_at")
+        .first()
+    )
+    if sharing_config is None:
+        sharing_config = SharingConfiguration.objects.create(team=team, enabled=True, **resource)
+    return sharing_config
+
+
+def _ensure_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team, created_by: User) -> SharingConfiguration:
+    """Get-or-create the topic's single shared (non-personalised) interview link.
+
+    Modelled exactly like the per-caller test link — an IntervieweeContext plus an enabled
+    SharingConfiguration — but keyed on a reserved sentinel identifier so the token belongs to the
+    whole topic: every visitor is a new anonymous respondent. No new model and no main-app schema
+    change; the unique (topic, interviewee_identifier) constraint guarantees one shared link per
+    topic and coalesces concurrent creates.
+    """
+    with transaction.atomic():
+        ic, _ = IntervieweeContext.objects.select_for_update().get_or_create(
+            team=team,
+            topic=topic,
+            interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+            defaults={"agent_context": "", "created_by": created_by},
+        )
+        return _get_or_create_active_share(team=team, interviewee_context=ic)
+
+
+def _disable_shared_link_for_topic(*, topic: UserInterviewTopic, team: Team) -> None:
+    """Revoke the topic's shared (non-personalised) interview link so an already-distributed URL stops
+    working. Disables every enabled SharingConfiguration on the topic's shared-link sentinel context —
+    mirrors `_disable_shares_for_identifiers` for the personalised links. A later `shared_link` POST
+    mints a fresh token (rotation)."""
+    SharingConfiguration.objects.filter(
+        team=team,
+        interviewee_context__topic=topic,
+        interviewee_context__interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER,
+        enabled=True,
+    ).update(enabled=False)
+
+
 def _dogfood_identifier(caller: User) -> str:
     """Identifier for the calling user's personal dogfood interviewee context.
 
@@ -736,18 +807,7 @@ def _ensure_dogfood_context(
                 "created_by": caller,
             },
         )
-        sharing_config = (
-            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
-            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-            .order_by("-created_at")
-            .first()
-        )
-        if sharing_config is None:
-            sharing_config = SharingConfiguration.objects.create(
-                team=team,
-                interviewee_context=ic,
-                enabled=True,
-            )
+        sharing_config = _get_or_create_active_share(team=team, interviewee_context=ic)
     return ic, sharing_config
 
 
@@ -780,18 +840,7 @@ def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, create
             defaults={"agent_context": "", "created_by": created_by},
         )
 
-        sharing_config = (
-            SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
-            .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
-            .order_by("-created_at")
-            .first()
-        )
-        if sharing_config is None:
-            sharing_config = SharingConfiguration.objects.create(
-                team=team,
-                interviewee_context=ic,
-                enabled=True,
-            )
+        sharing_config = _get_or_create_active_share(team=team, interviewee_context=ic)
 
         user_name, email = _parse_identifier(identifier)
         results.append(
@@ -858,6 +907,7 @@ class IntervieweeIdentifierRequestSerializer(serializers.Serializer):
     )
 
     def validate_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
         if _identifier_is_email(value) and len(value) > EMAIL_IDENTIFIER_MAX_LENGTH:
             raise serializers.ValidationError(
                 f"Email identifiers must be {EMAIL_IDENTIFIER_MAX_LENGTH} characters or fewer."
@@ -966,6 +1016,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
+        "shared_link",
         "links_csv",
         "send_invites",
         "add_interviewee",
@@ -1025,6 +1076,38 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in results
         ]
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        methods=["POST"],
+        request=None,
+        responses={200: OpenApiResponse(response=SharedInterviewLinkSerializer)},
+        description=(
+            "Get-or-create a single non-personalised (shared) interview link for this topic. Unlike "
+            "generate_links, the returned URL is not tied to a specific interviewee — every visitor "
+            "becomes a new anonymous respondent who self-identifies with a name. Idempotent: repeated "
+            "calls return the same active link. `distinct_id` and `session_id` query params appended "
+            "to the URL are captured as best-effort person/session linkage."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: OpenApiResponse(description="Shared link revoked; the already-distributed URL stops working.")},
+        description=(
+            "Revoke this topic's shared (non-personalised) interview link so an already-distributed URL "
+            "can no longer start interviews. Idempotent — a no-op when no active shared link exists. A "
+            "subsequent shared_link POST mints a fresh link (rotation)."
+        ),
+    )
+    @action(detail=True, methods=["post", "delete"], url_path="shared_link")
+    def shared_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        if request.method == "DELETE":
+            _disable_shared_link_for_topic(topic=topic, team=self.team)
+            return response.Response(status=status.HTTP_204_NO_CONTENT)
+        sharing_config = _ensure_shared_link_for_topic(topic=topic, team=self.team, created_by=cast(User, request.user))
+        payload = {"interview_url": absolute_uri(f"/interview/{sharing_config.access_token}")}
+        return response.Response(SharedInterviewLinkSerializer(payload).data)
 
     @extend_schema(
         request=None,
@@ -1357,6 +1440,10 @@ class IntervieweeContextSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_by", "created_at")
 
+    def validate_interviewee_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         topic_id = self.context["topic_id"]
         team = self.context["get_team"]()
@@ -1403,6 +1490,10 @@ class BulkIntervieweeContextItemSerializer(serializers.Serializer):
         max_length=10000,
         help_text="Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
     )
+
+    def validate_interviewee_identifier(self, value: str) -> str:
+        _reject_reserved_identifier(value)
+        return value
 
 
 class BulkIntervieweeContextRequestSerializer(serializers.Serializer):
@@ -1458,10 +1549,11 @@ class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # Hide the shared-link sentinel row — it's an internal marker, not a real interviewee.
         return queryset.filter(
             topic_id=self.parents_query_dict["topic_id"],
             team_id=self.parents_query_dict["team_id"],
-        )
+        ).exclude(interviewee_identifier=SHARED_INTERVIEWEE_IDENTIFIER)
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "topic_id": self.parents_query_dict["topic_id"]}

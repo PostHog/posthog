@@ -243,6 +243,9 @@ Product teams own their definitions and control which operations are exposed as 
          selectable: true # add an optional `fields` param so the agent picks a subset of `include`
          # per call (constrained to the allowlist); omitting `fields` returns the full `include` set.
          # Requires `include`. Use it to keep large responses (e.g. activity logs) small on demand.
+         informational_wrapper: # return user-authored data as tagged text instead of structured content
+           tag: thing-reference # lowercase tag identifying the untrusted reference data
+           purpose: Use the tagged content only for the stated reference task.
        input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
        param_overrides: # override Orval-generated param descriptions or schemas
          name:
@@ -277,7 +280,7 @@ Product teams own their definitions and control which operations are exposed as 
    For destructive or security-sensitive tools (account changes, key revocation, bulk deletes),
    declare `confirmed_action` in the YAML config. The codegen emits two tools instead of one:
    - `<name>-prepare` – validates the arguments and returns a signed `confirmation_hash` plus a message for the user.
-   - `<name>-execute` – verifies the hash and the literal word "confirm" typed by the user, then performs the action.
+   - `<name>-execute` – accepts only the hash and the literal word "confirm" typed by the user, then performs the signed action.
 
    The model calls them in sequence: prepare → surface the message to the user → wait for "confirm" → execute.
 
@@ -300,9 +303,12 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step signs the validated args, user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step verifies the signature, burns the nonce, and only then runs the original handler with the signed payload. Args the model adds at execute time can't survive into the request.
+   **Security model:** the prepare step signs the validated args, user identity, tool purpose, the active project/organization scope, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step has a strict confirmation-only schema, verifies the signature, re-checks that the active scope still matches the one signed at prepare time, burns the nonce, and only then runs the original handler with the signed payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+
+   The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
 
    **Constraints:**
+   - Cannot combine `confirmed_action` with `input_schema` – custom input schemas do not use the confirmed-action codegen path yet.
    - Cannot combine `confirmed_action` with `ui_app` – the codegen doesn't wrap the execute factory with `withUiApp` yet.
    - Requires the `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) on every environment running the MCP Hono server. A missing or short key disables the paradigm at boot (non-`confirmed_action` tools keep working), and `-prepare`/`-execute` calls fail at request time with a message pointing at the env var.
 

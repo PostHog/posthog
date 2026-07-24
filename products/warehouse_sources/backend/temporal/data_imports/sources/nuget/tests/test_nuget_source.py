@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NugetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuget import NugetSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.nuget import NugetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.settings import ENDPOINTS, NUGET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.source import NugetSource

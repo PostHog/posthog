@@ -5,7 +5,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.source import CampaynSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CampaynSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campayn import (
+    CampaynSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -139,3 +141,5 @@ class TestCampaynSource:
         assert kwargs["subdomain"] == "acme"
         assert kwargs["api_key"] == "campayn-key"
         assert kwargs["endpoint"] == "contacts"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id

@@ -18,6 +18,7 @@ import {
     InspectorListItemComment,
     InspectorListItemEvent,
     InspectorListItemExperimentVariant,
+    InspectorListItemMetricEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
@@ -32,6 +33,10 @@ function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
 
 function isExperimentVariantItem(x: InspectorListItem): x is InspectorListItemExperimentVariant {
     return x.type === 'experiment-variant'
+}
+
+function isMetricEventItem(x: InspectorListItem): x is InspectorListItemMetricEvent {
+    return x.type === 'metric-event'
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
@@ -68,6 +73,7 @@ function PlayerSeekbarTick({
         | InspectorListItemNotebookComment
         | InspectorListItemEvent
         | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
@@ -105,6 +111,10 @@ function PlayerSeekbarTick({
                     isExperimentVariantItem(item) ? (
                         <>
                             Saw variant "{item.data.variant}" of {item.data.experimentName}
+                        </>
+                    ) : isMetricEventItem(item) ? (
+                        <>
+                            Fired a {item.data.metricName} event ({item.data.experimentName})
                         </>
                     ) : isEventItem(item) ? (
                         <>
@@ -168,6 +178,7 @@ const MemoisedPlayerSeekbarTicks = memo(
             | InspectorListItemComment
             | InspectorListItemNotebookComment
             | InspectorListItemExperimentVariant
+            | InspectorListItemMetricEvent
         )[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
@@ -220,6 +231,7 @@ export function PlayerSeekbarTicks({
         | InspectorListItemComment
         | InspectorListItemNotebookComment
         | InspectorListItemExperimentVariant
+        | InspectorListItemMetricEvent
     )[]
     endTimeMs: number
     seekToTime: (timeInMilliseconds: number) => void

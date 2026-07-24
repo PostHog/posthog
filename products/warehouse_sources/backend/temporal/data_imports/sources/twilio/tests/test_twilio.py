@@ -1,39 +1,77 @@
+import json
 from datetime import UTC, date, datetime
+from typing import Any
 
 import pytest
 from unittest import mock
+
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import TWILIO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TwilioResumeConfig,
     _build_initial_params,
-    _build_initial_url,
     _format_filter_date,
-    get_rows,
     twilio_source,
     validate_credentials,
 )
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
 
-
-def _mock_response(status_code=200, body=None):
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = body if body is not None else {}
-    response.text = "error body"
-    return response
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the twilio module.
+TWILIO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio.make_tracked_session"
+)
 
 
-def _patch_session(responses):
-    session = mock.MagicMock()
-    session.get.side_effect = responses
-    patcher = mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio.make_tracked_session",
-        return_value=session,
+def _response(body: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and snapshot each request's url+params AT SEND TIME.
+
+    ``request.params``/``request.url`` are mutated in place across pages, so inspecting them after
+    the run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _make_manager(resume_state: TwilioResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return twilio_source(
+        auth=(ACCOUNT_SID, "token"),
+        account_sid=ACCOUNT_SID,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        **kwargs,
     )
-    return patcher, session
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatFilterDate:
@@ -108,19 +146,6 @@ class TestBuildInitialParams:
         assert params == {"PageSize": 1000}
 
 
-class TestBuildInitialUrl:
-    def test_url_contains_account_sid_path(self):
-        url = _build_initial_url(TWILIO_ENDPOINTS["messages"], ACCOUNT_SID, {"PageSize": 1})
-        assert url.startswith(f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?")
-        assert "PageSize=1" in url
-
-    def test_filter_operator_stays_literal(self):
-        url = _build_initial_url(
-            TWILIO_ENDPOINTS["messages"], ACCOUNT_SID, {"PageSize": 1000, "DateSent>": "2026-03-04"}
-        )
-        assert "DateSent>=2026-03-04" in url
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, schema_name, expected_valid",
@@ -134,91 +159,111 @@ class TestValidateCredentials:
             (500, None, False),
         ],
     )
-    def test_status_mapping(self, status_code, schema_name, expected_valid):
-        patcher, _ = _patch_session([_mock_response(status_code, {"message": "nope"})])
-        with patcher:
-            is_valid, _msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status_code, schema_name, expected_valid):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        is_valid, _msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
         assert is_valid is expected_valid
 
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_unauthorized_returns_actionable_message(self, mock_session):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
+        is_valid, msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID)
+        assert is_valid is False
+        assert msg is not None and "credentials" in msg.lower()
 
-class TestGetRows:
-    def _manager(self, can_resume=False, state=None):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = can_resume
-        manager.load_state.return_value = state
-        return manager
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_specific_schema_probes_endpoint_path(self, mock_session):
+        getter = mock_session.return_value.get
+        getter.return_value = mock.MagicMock(status_code=200)
+        validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, "messages")
+        probed_url = getter.call_args.args[0]
+        assert probed_url == f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?PageSize=1"
 
-    def test_paginates_via_next_page_uri_and_saves_state(self):
-        responses = [
-            _mock_response(
-                200,
-                {
-                    "messages": [{"sid": "SM1"}, {"sid": "SM2"}],
-                    "next_page_uri": "/2010-04-01/Accounts/x/Messages.json?Page=1",
-                },
-            ),
-            _mock_response(200, {"messages": [{"sid": "SM3"}], "next_page_uri": None}),
-        ]
-        patcher, session = _patch_session(responses)
-        manager = self._manager()
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_transport_error_is_not_valid(self, mock_session):
+        # validate_via_probe swallows the exception; the source must report "not validated".
+        mock_session.return_value.get.side_effect = Exception("boom")
+        is_valid, _msg = validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID)
+        assert is_valid is False
 
-        with patcher:
-            pages = list(
-                get_rows(
-                    auth=(ACCOUNT_SID, "token"),
-                    account_sid=ACCOUNT_SID,
-                    endpoint="messages",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
 
-        assert pages == [[{"sid": "SM1"}, {"sid": "SM2"}], [{"sid": "SM3"}]]
-        assert session.get.call_count == 2
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_next_page_uri_and_saves_absolute_state(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "messages": [{"sid": "SM1"}, {"sid": "SM2"}],
+                        "next_page_uri": "/2010-04-01/Accounts/x/Messages.json?Page=1",
+                    }
+                ),
+                _response({"messages": [{"sid": "SM3"}], "next_page_uri": None}),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("messages", manager))
+
+        assert [r["sid"] for r in rows] == ["SM1", "SM2", "SM3"]
+        assert session.send.call_count == 2
+        # First page targets the account resource path with the default page size.
+        assert snapshots[0]["url"] == f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json"
+        assert snapshots[0]["params"]["PageSize"] == 1000
+        # Second page follows the self-contained absolute next link, dropping the original params.
+        assert snapshots[1]["url"] == "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=1"
+        assert snapshots[1]["params"] == {}
         # State saved once, after the first page is yielded, pointing at the absolute next URL.
         manager.save_state.assert_called_once()
         saved = manager.save_state.call_args.args[0]
         assert isinstance(saved, TwilioResumeConfig)
         assert saved.next_url == "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=1"
 
-    def test_resumes_from_saved_state(self):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession):
+        session = MockSession.return_value
         resume_url = "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=5"
-        responses = [_mock_response(200, {"messages": [{"sid": "SM9"}], "next_page_uri": None})]
-        patcher, session = _patch_session(responses)
-        manager = self._manager(can_resume=True, state=TwilioResumeConfig(next_url=resume_url))
+        snapshots = _wire(session, [_response({"messages": [{"sid": "SM9"}], "next_page_uri": None})])
+        manager = _make_manager(TwilioResumeConfig(next_url=resume_url))
 
-        with patcher:
-            pages = list(
-                get_rows(
-                    auth=(ACCOUNT_SID, "token"),
-                    account_sid=ACCOUNT_SID,
-                    endpoint="messages",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
+        rows = _rows(_source("messages", manager))
 
-        assert pages == [[{"sid": "SM9"}]]
-        assert session.get.call_args_list[0].args[0] == resume_url
+        assert [r["sid"] for r in rows] == ["SM9"]
+        # The resumed run starts at the saved next-page link, not the base path.
+        assert snapshots[0]["url"] == resume_url
+        assert snapshots[0]["params"] == {}
 
-    def test_empty_page_terminates(self):
-        responses = [_mock_response(200, {"messages": [], "next_page_uri": None})]
-        patcher, _ = _patch_session(responses)
-        manager = self._manager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_terminates_without_checkpoint(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"messages": [], "next_page_uri": None})])
+        manager = _make_manager()
 
-        with patcher:
-            pages = list(
-                get_rows(
-                    auth=(ACCOUNT_SID, "token"),
-                    account_sid=ACCOUNT_SID,
-                    endpoint="messages",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
+        rows = _rows(_source("messages", manager))
 
-        assert pages == []
+        assert rows == []
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_param_is_sent_on_first_request(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"messages": [{"sid": "SM1"}], "next_page_uri": None})])
+
+        _rows(
+            _source(
+                "messages",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+                incremental_field="date_sent",
+            )
+        )
+
+        assert snapshots[0]["params"]["DateSent>"] == "2026-03-04"
 
 
 class TestTwilioSource:
@@ -234,13 +279,7 @@ class TestTwilioSource:
         ],
     )
     def test_source_response_shape(self, endpoint, expected_sort, expects_partition):
-        response = twilio_source(
-            auth=(ACCOUNT_SID, "token"),
-            account_sid=ACCOUNT_SID,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["sid"]
         assert response.sort_mode == expected_sort

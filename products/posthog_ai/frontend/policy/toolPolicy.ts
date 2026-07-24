@@ -6,21 +6,63 @@ import { resolveToolCall } from '../utils/toolResolver'
 export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
 
 /**
- * Default sandbox tool-permission policy, ported from Twig
- * (`packages/agent/src/adapters/claude/permissions/posthog-exec-gate.ts`).
+ * Client-side sandbox tool-permission policy.
  *
- * The deployed agent-server runs in `default` mode and asks for approval on every PostHog `exec`
- * call. We mirror Twig's policy on the client instead: auto-approve every built-in (default) tool
- * and every PostHog `exec` operation EXCEPT the destructive ones (update/delete/destroy/
- * partial-update), which still surface the approval card. Non-PostHog MCP tools fall outside the
- * default-allow contract and also prompt.
+ * The agent-server relays a permission request here in two cases: the exec sub-tool matched the
+ * server's `--posthogExecPermissionRegex` (relayed in every non-background run regardless of
+ * permission mode — see `POSTHOG_EXEC_PERMISSION_REGEX` in `products/tasks/backend/constants.py`,
+ * which must stay in sync with the destructive verbs and persist tools below), or the run's
+ * permission mode relays manual approvals and a client is connected. This policy decides which
+ * relayed requests auto-approve and which surface the approval card: built-ins and read-only
+ * PostHog `exec` auto-approve; destructive sub-tools prompt; persist/publish sub-tools prompt only
+ * on foreground streams; full-auto (`bypassPermissions`) runs answer everything.
  */
+
+/** Full-auto modes answer every relayed tool request without prompting (questions and plan approvals still surface). */
+export function isFullAutoMode(mode: string | null | undefined): boolean {
+    return mode === 'bypassPermissions'
+}
 
 /** A sub-tool is destructive when one of these verbs appears as a whole `-`-bounded segment. */
 const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i
 
+/**
+ * Destructive-annotated sub-tools whose names carry no destructive verb segment (publish, ship,
+ * merge, archive, …). Mirrors `POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS` in
+ * `products/tasks/backend/constants.py`, which a backend test keeps complete against the
+ * `annotations.destructive: true` tools in `products/*\/mcp/*.yaml` — update both together.
+ */
+const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
+    // confirmed_action tools register only `<name>-execute` (and `-prepare`); the bare name is
+    // never a runtime tool, so the destructive `-execute` variant is what must be gated.
+    'change-requests-approve-execute',
+    'change-requests-reject-execute',
+    'error-tracking-bypass-rules-create',
+    'error-tracking-issues-merge-create',
+    'error-tracking-issues-split-create',
+    'error-tracking-suppression-rules-create',
+    'experiment-ship-variant',
+    'external-data-schemas-resync',
+    'external-data-sources-repair-cdc-create',
+    'heatmaps-saved-regenerate',
+    'inbox-reports-bulk-set-state',
+    'inbox-reports-set-state',
+    'llma-prompt-label-set',
+    'organization-enforce-2fa',
+    'organization-enforce-2fa-execute',
+    'scout-scratchpad-forget',
+    'signals-scout-scratchpad-forget',
+    'skill-archive',
+    'user-interview-topics-remove-interviewee',
+    'visual-review-runs-finalize-create',
+    'workflows-discard-draft',
+    'workflows-publish',
+    'workflows-restore-revision',
+    'workflows-test-run',
+])
+
 export function isPostHogDestructiveSubTool(subTool: string): boolean {
-    return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool)
+    return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool) || POSTHOG_DESTRUCTIVE_SUB_TOOLS.has(subTool.toLowerCase())
 }
 
 export type PermissionDecision = 'auto_allow' | 'prompt'
@@ -82,7 +124,10 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
  * (background runs, headless runs, replays); the call site in `runStreamLogic`'s
  * `routePermissionRequest` forces the prompt path for foreground streams. Scoped to the product
  * families from the apply-back migration plan — every enabled tool that persists new content
- * (create/copy/add) or publishes to end users (launch/stop); add a sub-tool name here to extend it.
+ * (create/copy/add) or publishes to end users (launch/stop). To extend it, add the sub-tool name
+ * here AND to `POSTHOG_EXEC_PERMISSION_REGEX` in `products/tasks/backend/constants.py` — the
+ * server only relays sub-tools matching that regex, so a name missing there never reaches this
+ * gate in modes that don't relay manual approvals.
  */
 const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'dashboard-create',

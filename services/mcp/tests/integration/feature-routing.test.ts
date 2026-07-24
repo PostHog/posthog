@@ -62,6 +62,14 @@ describe('Feature Routing Integration', () => {
             ],
         },
         {
+            // Organization discovery must ship with the workspace navigation tools —
+            // otherwise an agent can switch orgs but has no way to enumerate them,
+            // stranding any project that lives in a different organization.
+            features: ['workspace'],
+            description: 'workspace feature includes organization discovery',
+            expectedTools: ['organizations-get', 'switch-organization', 'projects-get', 'switch-project'],
+        },
+        {
             features: ['invalid', 'flags', 'unknown'],
             description: 'valid tools ignoring invalid features',
             expectedTools: ['feature-flag-get-definition', 'create-feature-flag'],

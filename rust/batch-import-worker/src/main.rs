@@ -6,8 +6,9 @@ use batch_import_worker::{
     config::Config,
     context::AppContext,
     error::get_user_message,
-    job::{model::JobModel, Job},
+    job::{config::SinkConfig, model::JobModel, Job},
     metrics, staging,
+    trial::TrialJob,
 };
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
@@ -34,6 +35,23 @@ fn setup_tracing() {
 
 pub async fn index() -> &'static str {
     "batch import worker"
+}
+
+/// Pause a job whose initialization failed, so it isn't endlessly re-claimed;
+/// the developer message keeps the full error, the user sees the extracted one.
+async fn pause_job_on_init_error(model: &mut JobModel, context: Arc<AppContext>, e: &Error) {
+    let error_msg = format!("Job initialization failed for job {}: {:?}", model.id, e);
+    error!("{}", error_msg);
+    let user_facing_error_message = get_user_message(e);
+    if let Err(pause_err) = model
+        .pause(context, error_msg, Some(user_facing_error_message))
+        .await
+    {
+        error!(
+            "Failed to pause job after initialization error: {:?}",
+            pause_err
+        );
+    }
 }
 
 #[tokio::main]
@@ -191,27 +209,30 @@ pub async fn main() -> Result<(), Error> {
 
             info!("Claimed job: {:?}", model.id);
 
+            // Trial jobs (trial_s3 sink) take their own bounded, sequential path
+            // instead of the import pipeline.
+            if matches!(model.import_config.sink, SinkConfig::TrialS3 { .. }) {
+                match TrialJob::new(model.clone(), context.clone(), job_handle.clone()).await {
+                    Ok(trial_job) => {
+                        if let Err(e) = trial_job.run().await {
+                            // Like the import path, the job transitions itself
+                            // (pause/backoff) where it can; anything escaping here
+                            // is left for the lease to expire and a re-claim.
+                            error!("Error processing trial job: {:?}, dropping", e);
+                        }
+                    }
+                    Err(e) => {
+                        pause_job_on_init_error(&mut model, context.clone(), &e).await;
+                    }
+                }
+                continue;
+            }
+
             let mut next_step =
                 match Job::new(model.clone(), context.clone(), job_handle.clone()).await {
                     Ok(job) => Some(job),
                     Err(e) => {
-                        let error_msg =
-                            format!("Job initialization failed for job {}: {:?}", model.id, e);
-                        error!("{}", error_msg);
-                        let user_facing_error_message = get_user_message(&e);
-                        if let Err(pause_err) = model
-                            .pause(
-                                context.clone(),
-                                error_msg,
-                                Some(user_facing_error_message.to_string()),
-                            )
-                            .await
-                        {
-                            error!(
-                                "Failed to pause job after initialization error: {:?}",
-                                pause_err
-                            );
-                        }
+                        pause_job_on_init_error(&mut model, context.clone(), &e).await;
                         continue;
                     }
                 };

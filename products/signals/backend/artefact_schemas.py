@@ -186,6 +186,19 @@ class SuggestedReviewerEntry(BaseModel):
         default_factory=list,
         description="Commit evidence explaining why this reviewer is relevant.",
     )
+    reason: str | None = Field(
+        default=None,
+        description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
+    )
+    is_skill_owner: bool = Field(
+        default=False,
+        description=(
+            "True when this entry was injected by the scout owner guardrail (an editor-controlled "
+            "`LLMSkillOwner`), rather than derived from commit authorship. Such entries route the "
+            "report but must never select the autostart task identity — otherwise a skill editor "
+            "could name a privileged teammate as owner and have an implementation agent run as them."
+        ),
+    )
 
     @field_validator("github_login")
     @classmethod

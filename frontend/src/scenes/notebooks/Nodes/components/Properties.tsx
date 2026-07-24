@@ -28,6 +28,7 @@ export function Properties({
     type,
 }: PropertiesProps): JSX.Element | null {
     const [searchTerm, setSearchTerm] = useState('')
+    const [showPinnedOnly, setShowPinnedOnly] = useState(true)
     const { hideNullValues } = useValues(userPreferencesLogic)
     const { setHideNullValues } = useActions(userPreferencesLogic)
 
@@ -48,10 +49,14 @@ export function Properties({
             entries = entries.filter(([, value]) => value !== null)
         }
 
+        if (showPinnedOnly) {
+            entries = entries.filter(([key]) => pinnedProperties.includes(key))
+        }
+
         entries = sortProperties(entries, pinnedProperties)
 
         return Object.fromEntries(entries)
-    }, [properties, searchTerm, hideNullValues, pinnedProperties])
+    }, [properties, searchTerm, hideNullValues, showPinnedOnly, pinnedProperties])
 
     const numProperties = Object.keys(filteredProperties).length
     const totalProperties = Object.keys(properties).length
@@ -73,13 +78,16 @@ export function Properties({
                     label="Show null"
                     size="small"
                 />
+                <LemonCheckbox checked={showPinnedOnly} onChange={setShowPinnedOnly} label="Pinned only" size="small" />
             </div>
 
             {numProperties === 0 ? (
                 <div className="text-muted text-center py-2 text-xs">
-                    {searchTerm || hideNullValues
-                        ? `No properties match your filters (${totalProperties} total)`
-                        : 'No properties'}
+                    {showPinnedOnly && !searchTerm && !hideNullValues
+                        ? `No pinned properties (${totalProperties} total)`
+                        : searchTerm || hideNullValues || showPinnedOnly
+                          ? `No properties match your filters (${totalProperties} total)`
+                          : 'No properties'}
                 </div>
             ) : (
                 <div>
@@ -111,7 +119,7 @@ export function Properties({
                 </div>
             )}
 
-            {(searchTerm || hideNullValues) && numProperties > 0 && (
+            {(searchTerm || hideNullValues || showPinnedOnly) && numProperties > 0 && (
                 <div className="text-muted text-xs mt-1">
                     Showing {numProperties} of {totalProperties} properties
                 </div>

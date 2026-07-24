@@ -34,11 +34,11 @@ from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
 
 DAY_IN_SECONDS = 86400
@@ -181,7 +181,7 @@ class SharedTouchpointsPrecompute:
             if self._result is None:
                 window = timedelta(days=self._config.attribution_window_days)
                 self._range = (date_from, date_to)
-                self._result = ensure_precomputed(
+                self._result = marketing_ensure_precomputed(
                     team=self._team,
                     insert_query=build_touchpoints_precompute_query(),
                     time_range_start=date_from - window,
@@ -221,6 +221,9 @@ class ConversionGoalProcessor:
     # processor owns a clone (see HogQLTimings.clone_for_subquery); the runner merges them back once
     # the pool has joined. Defaults to a standalone instance for callers outside the read path.
     timings: HogQLTimings = dataclass_field(default_factory=HogQLTimings)
+    # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
+    # by the runner after the goal pool joins, to schedule one background revalidation for the read.
+    precompute_stale: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -568,7 +571,7 @@ class ConversionGoalProcessor:
             return None
 
         with self.timings.measure("ma_ensure_conversions"):
-            conversions_result = ensure_precomputed(
+            conversions_result = marketing_ensure_precomputed(
                 team=self.team,
                 insert_query=self.build_conversions_precompute_query(),
                 time_range_start=date_from,
@@ -578,6 +581,11 @@ class ConversionGoalProcessor:
             )
         if not conversions_result.ready:
             return None
+
+        # Either ensure may have been served from expired-within-grace rows rather than rebuilt. The
+        # runner collects this once the goal pool has joined and schedules the revalidation.
+        if touchpoints_result.stale or conversions_result.stale:
+            self.precompute_stale = True
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(

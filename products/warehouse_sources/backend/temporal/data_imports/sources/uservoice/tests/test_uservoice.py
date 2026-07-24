@@ -1,23 +1,75 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice import uservoice
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import PER_PAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.uservoice import (
     UservoiceResumeConfig,
-    _build_initial_params,
-    _build_url,
     _format_updated_after,
-    _next_page,
-    get_rows,
     normalize_subdomain,
     uservoice_source,
+    validate_credentials,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the uservoice module.
+USERVOICE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.uservoice.make_tracked_session"
+)
+
+
+def _response(response_key: str, items: list[dict[str, Any]], pagination: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({response_key: items, "pagination": pagination}).encode()
+    return resp
+
+
+def _make_manager(resume_state: UservoiceResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per prepare.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "suggestions", **kwargs: Any):
+    return uservoice_source(
+        subdomain="acme",
+        api_key="token",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
 
 
 class TestNormalizeSubdomain:
@@ -64,254 +116,149 @@ class TestFormatUpdatedAfter:
         assert "+00:00" not in result
 
 
-class TestBuildInitialParams:
-    def test_incremental_endpoint_with_value_adds_updated_after(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import (
-            USERVOICE_ENDPOINTS,
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_page_number(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response("suggestions", [{"id": 1}, {"id": 2}], {"page": 1, "total_pages": 2}),
+                _response("suggestions", [{"id": 3}], {"page": 2, "total_pages": 2}),
+            ],
         )
 
-        params = _build_initial_params(
-            USERVOICE_ENDPOINTS["suggestions"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params == {"per_page": PER_PAGE, "updated_after": "2026-03-04T02:58:14Z"}
-
-    def test_incremental_endpoint_without_value_omits_updated_after(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import (
-            USERVOICE_ENDPOINTS,
-        )
-
-        params = _build_initial_params(
-            USERVOICE_ENDPOINTS["suggestions"], should_use_incremental_field=True, db_incremental_field_last_value=None
-        )
-        assert params == {"per_page": PER_PAGE}
-
-    def test_full_refresh_endpoint_never_filters(self) -> None:
-        # labels has no server-side `updated_after`; a cursor value must not leak into the request.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import (
-            USERVOICE_ENDPOINTS,
-        )
-
-        params = _build_initial_params(
-            USERVOICE_ENDPOINTS["labels"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert params == {"per_page": PER_PAGE}
-
-
-class TestBuildUrl:
-    def test_no_params(self) -> None:
-        base = "https://acme.uservoice.com/api/v2/admin"
-        assert _build_url(base, "/suggestions", {}) == f"{base}/suggestions"
-
-    def test_encodes_params(self) -> None:
-        base = "https://acme.uservoice.com/api/v2/admin"
-        url = _build_url(base, "/suggestions", {"page": 2, "updated_after": "2026-03-04T02:58:14Z"})
-        assert url == f"{base}/suggestions?page=2&updated_after=2026-03-04T02%3A58%3A14Z"
-
-
-class TestNextPage:
-    def test_cursor_takes_priority(self) -> None:
-        # A present cursor is followed even when page metadata would say "last page".
-        result = _next_page({"cursor": "abc", "page": 3, "total_pages": 3}, current_page=3, item_count=100)
-        assert result is not None
-        assert result.cursor == "abc"
-        assert result.page is None
-
-    @parameterized.expand(
-        [
-            ("more_pages", {"page": 1, "total_pages": 3}, 1, 100, 2),
-            ("current_page_alias", {"current_page": 1, "total_pages": 2}, 1, 100, 2),
-        ]
-    )
-    def test_page_fallback_advances(
-        self, _name: str, pagination: dict, current_page: int, item_count: int, expected_page: int
-    ) -> None:
-        result = _next_page(pagination, current_page, item_count)
-        assert result is not None
-        assert result.cursor is None
-        assert result.page == expected_page
-
-    @parameterized.expand(
-        [
-            ("last_page", {"page": 3, "total_pages": 3}, 3, 50),
-            ("missing_meta_partial_page", {}, 1, 5),
-        ]
-    )
-    def test_terminates(self, _name: str, pagination: dict, current_page: int, item_count: int) -> None:
-        assert _next_page(pagination, current_page, item_count) is None
-
-    def test_missing_meta_full_page_keeps_going(self) -> None:
-        result = _next_page({}, current_page=1, item_count=PER_PAGE)
-        assert result is not None
-        assert result.page == 2
-
-
-class _FakeResumableManager:
-    def __init__(self, state: UservoiceResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[UservoiceResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> UservoiceResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: UservoiceResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
-    fetched: list[str] = []
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        fetched.append(url)
-        return pages[url]
-
-    monkeypatch.setattr(uservoice, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(uservoice, "make_tracked_session", lambda *a, **k: MagicMock())
-    return fetched
-
-
-def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) -> list[dict]:
-    rows: list[dict] = []
-    for batch in get_rows(
-        subdomain="acme",
-        api_key="token",
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(batch)
-    return rows
-
-
-class TestGetRows:
-    _BASE = "https://acme.uservoice.com/api/v2/admin"
-
-    def test_paginates_by_page_number(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}": {
-                "suggestions": [{"id": 1}, {"id": 2}],
-                "pagination": {"page": 1, "total_pages": 2},
-            },
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&page=2": {
-                "suggestions": [{"id": 3}],
-                "pagination": {"page": 2, "total_pages": 2},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="suggestions")
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
         assert [r["id"] for r in rows] == [1, 2, 3]
-        assert fetched == list(pages)
+        assert params[0]["per_page"] == PER_PAGE
+        assert "page" not in params[0]
+        assert params[1]["page"] == 2
+        # Checkpoint saved once after the first page (points at page 2); the last page ends it.
+        manager.save_state.assert_called_once_with(UservoiceResumeConfig(cursor=None, page=2))
 
-    def test_paginates_by_cursor(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}": {
-                "suggestions": [{"id": 1}],
-                "pagination": {"cursor": "CUR2"},
-            },
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&cursor=CUR2": {
-                "suggestions": [{"id": 2}],
-                "pagination": {},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="suggestions")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response("suggestions", [{"id": 1}], {"cursor": "CUR2"}),
+                _response("suggestions", [{"id": 2}], {}),
+            ],
+        )
 
-        assert [r["id"] for r in rows] == [1, 2]
-        assert fetched == list(pages)
-
-    def test_stops_on_non_advancing_cursor(self, monkeypatch: Any) -> None:
-        # A cursor that repeats itself must not loop forever.
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}": {
-                "suggestions": [{"id": 1}],
-                "pagination": {"cursor": "SAME"},
-            },
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&cursor=SAME": {
-                "suggestions": [{"id": 2}],
-                "pagination": {"cursor": "SAME"},
-            },
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="suggestions")
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
         assert [r["id"] for r in rows] == [1, 2]
+        assert "cursor" not in params[0]
+        assert params[1]["cursor"] == "CUR2"
+        manager.save_state.assert_called_once_with(UservoiceResumeConfig(cursor="CUR2", page=None))
 
-    def test_saves_resume_state_after_each_page_only_while_more_remain(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}": {
-                "suggestions": [{"id": 1}],
-                "pagination": {"page": 1, "total_pages": 2},
-            },
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&page=2": {
-                "suggestions": [{"id": 2}],
-                "pagination": {"page": 2, "total_pages": 2},
-            },
-        }
-        _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-        _collect(monkeypatch, manager, endpoint="suggestions")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_non_advancing_cursor(self, MockSession) -> None:
+        # A cursor that repeats itself must not loop forever, but both yielded pages are kept.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response("suggestions", [{"id": 1}], {"cursor": "SAME"}),
+                _response("suggestions", [{"id": 2}], {"cursor": "SAME"}),
+            ],
+        )
 
-        assert manager.saved == [UservoiceResumeConfig(cursor=None, page=2)]
+        rows = _rows(_source(_make_manager()))
+        assert [r["id"] for r in rows] == [1, 2]
 
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&page=2": {
-                "suggestions": [{"id": 2}],
-                "pagination": {"page": 2, "total_pages": 2},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(UservoiceResumeConfig(page=2)), endpoint="suggestions")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_meta_full_page_keeps_going(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PER_PAGE)]
+        params = _wire(
+            session,
+            [
+                _response("suggestions", full_page, {}),
+                _response("suggestions", [{"id": 999}], {}),
+            ],
+        )
 
+        rows = _rows(_source(_make_manager()))
+        assert len(rows) == PER_PAGE + 1
+        assert params[1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response("suggestions", [{"id": 2}], {"page": 2, "total_pages": 2})])
+
+        rows = _rows(_source(_make_manager(UservoiceResumeConfig(page=2))))
         assert [r["id"] for r in rows] == [2]
-        assert fetched == [f"{self._BASE}/suggestions?per_page={PER_PAGE}&page=2"]
+        assert params[0]["page"] == 2
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/suggestions?per_page={PER_PAGE}&cursor=CUR9": {
-                "suggestions": [{"id": 9}],
-                "pagination": {},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(
-            monkeypatch, _FakeResumableManager(UservoiceResumeConfig(cursor="CUR9")), endpoint="suggestions"
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response("suggestions", [{"id": 9}], {})])
 
+        rows = _rows(_source(_make_manager(UservoiceResumeConfig(cursor="CUR9"))))
         assert [r["id"] for r in rows] == [9]
-        assert fetched == [f"{self._BASE}/suggestions?per_page={PER_PAGE}&cursor=CUR9"]
+        assert params[0]["cursor"] == "CUR9"
 
-    def test_incremental_filter_added_to_request(self, monkeypatch: Any) -> None:
-        url = f"{self._BASE}/suggestions?per_page={PER_PAGE}&updated_after=2026-03-04T02%3A58%3A14Z"
-        pages = {url: {"suggestions": [{"id": 1}], "pagination": {"page": 1, "total_pages": 1}}}
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(
-            monkeypatch,
-            _FakeResumableManager(),
-            endpoint="suggestions",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_filter_added_to_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response("suggestions", [{"id": 1}], {"page": 1, "total_pages": 1})])
+
+        _rows(
+            _source(
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            )
         )
-        assert "updated_after=2026-03-04T02%3A58%3A14Z" in fetched[0]
+        assert params[0]["updated_after"] == "2026-03-04T02:58:14Z"
 
-    def test_stops_on_empty_response(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{self._BASE}/labels?per_page={PER_PAGE}": {"labels": [], "pagination": {"page": 1, "total_pages": 1}},
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="labels")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_never_filters(self, MockSession) -> None:
+        # labels has no server-side `updated_after`; a cursor value must not leak into the request.
+        session = MockSession.return_value
+        params = _wire(session, [_response("labels", [{"id": 1}], {"page": 1, "total_pages": 1})])
 
+        _rows(
+            _source(
+                _make_manager(),
+                endpoint="labels",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+            )
+        )
+        assert "updated_after" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_empty_response(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("labels", [], {"page": 1, "total_pages": 1})])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager, endpoint="labels"))
         assert rows == []
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_bearer_token_not_placed_in_plain_header(self, MockSession) -> None:
+        # The token rides the framework Bearer auth (redacted from logs), so only the non-secret
+        # Accept header is set directly on the session.
+        session = MockSession.return_value
+        _wire(session, [_response("suggestions", [{"id": 1}], {"page": 1, "total_pages": 1})])
+
+        _rows(_source(_make_manager()))
+        assert session.headers.get("Accept") == "application/json"
+        assert "Authorization" not in session.headers
 
 
-class TestUservoiceSourceResponse:
+class TestSourceResponse:
     @parameterized.expand(
         [
             # Incremental endpoints defer the watermark write to job end via "desc" (order is unverified).
@@ -322,15 +269,35 @@ class TestUservoiceSourceResponse:
         ]
     )
     def test_sort_mode_and_partitioning(self, endpoint: str, expected_sort: str, partition_key: str) -> None:
-        response = uservoice_source(
-            subdomain="acme",
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == expected_sort
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
+
+
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            ("ok", 200, True, 200),
+            ("unauthorized", 401, False, 401),
+            ("forbidden", 403, False, 403),
+        ]
+    )
+    @mock.patch(USERVOICE_SESSION_PATCH)
+    def test_maps_status(self, _name, status, expected_ok, expected_status, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        ok, code = validate_credentials("acme", "token")
+        assert ok is expected_ok
+        assert code == expected_status
+
+    @mock.patch(USERVOICE_SESSION_PATCH)
+    def test_transport_error_maps_to_none(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("acme", "token") == (False, None)
+
+    def test_bad_subdomain_raises(self) -> None:
+        # A malformed subdomain must surface as ValueError so the caller can show a precise message.
+        with pytest.raises(ValueError):
+            validate_credentials("acme/../evil", "token")

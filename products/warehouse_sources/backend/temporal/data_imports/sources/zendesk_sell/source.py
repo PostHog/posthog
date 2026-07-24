@@ -19,12 +19,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZendeskSellSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksell import (
+    ZendeskSellSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.zendesk_sell import (
     ZendeskSellResumeConfig,
     validate_credentials as validate_zendesk_sell_credentials,
@@ -89,27 +97,18 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # All endpoints are full refresh: the Core API has no server-side timestamp filter, so there's
-        # no cheap incremental sync. See zendesk_sell.py for details.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # no cheap incremental sync (INCREMENTAL_FIELDS is empty). See zendesk_sell.py for details.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ZendeskSellSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZendeskSellSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_zendesk_sell_credentials(config.access_token):
             return True, None
@@ -128,6 +127,7 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
         return zendesk_sell_source(
             access_token=config.access_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

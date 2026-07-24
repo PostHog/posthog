@@ -1469,6 +1469,36 @@ describe('taxonomicFilterLogic', () => {
             expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
         })
     })
+
+    describe('event feature flag properties are a separate group from event properties', () => {
+        let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            splitLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'eventFeatureFlagsSplit',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                ],
+            })
+            splitLogic.mount()
+        })
+
+        afterEach(() => {
+            splitLogic.unmount()
+        })
+
+        const isFeatureFlagParam = (endpoint: string | undefined): string | null =>
+            new URLSearchParams((endpoint ?? '').split('?')[1] ?? '').get('is_feature_flag')
+
+        it.each([
+            { groupType: TaxonomicFilterGroupType.EventFeatureFlags, expected: 'true' },
+            { groupType: TaxonomicFilterGroupType.EventProperties, expected: 'false' },
+        ])('$groupType endpoint filters is_feature_flag=$expected', ({ groupType, expected }) => {
+            const group = splitLogic.values.taxonomicGroups.find((g) => g.type === groupType)
+            expect(isFeatureFlagParam(group?.endpoint)).toBe(expected)
+        })
+    })
 })
 
 describe('redistributeTopMatches', () => {

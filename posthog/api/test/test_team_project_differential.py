@@ -19,11 +19,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # Project ↔ Team is 1:1 and share the same numeric id. This suite makes real HTTP calls to BOTH and asserts the
 # responses (and resulting DB state for writes) are identical. Any divergence fails — there is no "probably fine".
 #
-# Fields a client legitimately sees on /api/projects/ but not /api/environments/ — both are project-only on
-# master (product_description is a Project concept; is_pending_deletion was added project-side). Extra fields on
-# the redirect target are safe. Everything else must match exactly.
-PROJECT_ONLY_DETAIL_FIELDS = {"product_description", "is_pending_deletion"}
-
 # Read-only fields whose VALUE legitimately differs but is semantically equivalent, so byte-equality is not
 # required (only presence + non-null). Currently just `created_at`: /api/environments/ returns Team.created_at
 # and /api/projects/ returns Project.created_at — two rows created milliseconds apart in the same transaction.
@@ -83,7 +78,9 @@ class TestReadParity(DifferentialParityBase):
         proj = self.client.get(self.project_url())
         self.assertEqual(env.status_code, status.HTTP_200_OK, env.json())
         self.assertEqual(proj.status_code, status.HTTP_200_OK, proj.json())
-        self.assert_bodies_equal(env.json(), proj.json(), allow_project_only=PROJECT_ONLY_DETAIL_FIELDS)
+        # The env→project rewrite serves /api/environments/ through the project viewset, so the body is
+        # byte-identical to /api/projects/ — the former project-only fields now appear on both.
+        self.assert_bodies_equal(env.json(), proj.json())
 
     def test_list_parity(self):
         env = self.client.get("/api/environments/")
@@ -345,7 +342,7 @@ WRITE_ACTION_CASES = [
         "logs_config",
         "patch",
         "logs_config/",
-        {"logs_distinct_id_attribute_key": "myDistinctId"},
+        {"logs_distinct_id_attribute_keys": ["myDistinctId"]},
         status.HTTP_200_OK,
         "full_body",
     ),
@@ -434,19 +431,18 @@ class TestWriteActionParity(DifferentialParityBase):
 # assertion is unrunnable locally regardless of endpoint. That dimension is covered on CI by the factory suite.
 
 
-class TestLifecycleMethodDivergences(DifferentialParityBase):
-    """CREATE and DELETE are the ONLY methods that intentionally differ between the two surfaces. Both
-    differences pre-date this change and are deliberate. These tests pin the current behavior so it cannot
-    change silently, and so the env→project redirect decision is made with full awareness of them."""
+class TestLifecycleMethodParity(DifferentialParityBase):
+    """CREATE and DELETE used to be the only methods that diverged between the two surfaces. The env→project
+    rewrite now serves /api/environments/ through the project viewset, so these too behave identically. These
+    tests pin that unified behavior so a regression in the rewrite (or a re-divergence) fails loudly."""
 
     def _make_twin(self) -> tuple[Project, Team]:
         project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         return project, team
 
-    def test_create_divergence_env_blocked_project_allowed(self):
-        # Top-level environment creation is disabled (multiple environments per project were rolled back), so no
-        # client can currently create via /api/environments/. /api/projects/ create works. The redirect therefore
-        # does not need to preserve env-create — there is nothing to preserve.
+    def test_create_env_matches_project_via_rewrite(self):
+        # Top-level env creation used to be blocked; the rewrite now serves POST /api/environments/ through
+        # /api/projects/, so both create a project identically.
         from posthog.constants import AvailableFeature
 
         self.organization.available_product_features = [
@@ -455,11 +451,11 @@ class TestLifecycleMethodDivergences(DifferentialParityBase):
         self.organization.save()
         env = self.client.post("/api/environments/", {"name": "x"}, format="json")
         proj = self.client.post("/api/projects/", {"name": "x"}, format="json")
-        self.assertEqual(env.status_code, status.HTTP_400_BAD_REQUEST, env.json())
+        self.assertEqual(env.status_code, status.HTTP_201_CREATED, env.json())
         self.assertEqual(proj.status_code, status.HTTP_201_CREATED, proj.json())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    def test_delete_common_case_parity_but_project_is_a_superset(self, mock_start_workflow):
+    def test_delete_env_matches_project_via_rewrite(self, mock_start_workflow):
         project_a, team_a = self._make_twin()
         project_b, team_b = self._make_twin()
 
@@ -470,15 +466,13 @@ class TestLifecycleMethodDivergences(DifferentialParityBase):
         self.assertEqual(env.status_code, status.HTTP_204_NO_CONTENT, env.content)
         self.assertEqual(proj.status_code, status.HTTP_204_NO_CONTENT, proj.content)
 
-        # INTENTIONAL DIVERGENCE (pinned): env deletes a single team (project_id=None); project cascades the
-        # whole project (project_id set + all child team_ids) AND additionally enforces a last-project active-
-        # subscription guard. In the 1:1 world the data actually removed is equivalent, but post-redirect an
-        # env DELETE would inherit the project guard/cascade. This requires explicit product sign-off.
-        # Both routes now start the same Temporal workflow; the env delete runs first, the project delete second.
+        # The rewrite means an env DELETE now runs the project-delete path: it cascades the whole project
+        # (project_id set + child team_ids) exactly like the /api/projects/ route, rather than the old
+        # single-team delete (project_id=None). Both routes start the same Temporal workflow.
         self.assertEqual(mock_start_workflow.call_count, 2)
         env_kwargs = mock_start_workflow.call_args_list[0].kwargs
         proj_kwargs = mock_start_workflow.call_args_list[1].kwargs
-        self.assertIsNone(env_kwargs["project_id"])
+        self.assertEqual(env_kwargs["project_id"], project_a.id)
         self.assertEqual(proj_kwargs["project_id"], project_b.id)
         self.assertEqual(env_kwargs["team_ids"], [team_a.id])
         self.assertEqual(proj_kwargs["team_ids"], [team_b.id])

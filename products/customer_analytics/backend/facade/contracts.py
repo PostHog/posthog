@@ -155,6 +155,39 @@ class ExternalAccount:
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """An active relationship assignment on the external list wire shape.
+
+    Carries the assigned user's id and current email plus their display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has no name set.
+    """
+
+    user_id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
+
+    external_id: str
+    name: str
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
+
+
 class ExternalAccountUpdateError(Enum):
     """Failure modes of the external account write, each mapping to a distinct
     HTTP response in the view."""
@@ -314,6 +347,8 @@ class CustomPropertyDefinitionView:
     description: str | None = None
     display_type: str = "text"
     target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
@@ -349,6 +384,32 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
+    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
+    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    latest_run: "CustomPropertySyncRunView | None" = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySyncRunView:
+    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
+    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
+    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+
+    id: UUID | None = None
+    trigger: str = ""
+    status: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    rows_read: int = 0
+    changed: int = 0
+    existing: int = 0
+    produced: int = 0
+    skipped_missing_person: int = 0
+    error: str | None = None
+    created_at: datetime | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -474,3 +535,46 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+class AnnouncementValidationError(ValueError):
+    def __init__(self, detail: str | dict[str, str]) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementChannelView:
+    id: str
+    name: str
+    is_member: bool
+    customer_name: str | None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementDeliveryView:
+    id: UUID | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    status: str = ""
+    error: str = ""
+    slack_message_ts: str = ""
+    sent_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementView:
+    # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
+    # message + channels; channels is write-only and always returned empty.
+    id: UUID | None = None
+    short_id: str = ""
+    message: str = ""
+    status: str = ""
+    total_channels: int = 0
+    sent_count: int = 0
+    failed_count: int = 0
+    sent_at: datetime | None = None
+    created_at: datetime | None = None
+    created_by: UserBasicInfo | None = None
+    deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
+    channels: list[str] = field(default_factory=list)

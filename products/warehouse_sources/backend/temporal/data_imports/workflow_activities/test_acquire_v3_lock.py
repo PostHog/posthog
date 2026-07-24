@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import WorkflowExecutionStatus
 
@@ -25,6 +25,11 @@ SOURCE_ID = uuid.uuid4()
 WORKFLOW_RUN_ID = "run-abc-123"
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock"
+
+
+def _uuid7_token(age_seconds: float) -> str:
+    ms = int((datetime.now(UTC) - timedelta(seconds=age_seconds)).timestamp() * 1000)
+    return str(uuid.UUID(int=(ms << 80) | (0x7 << 76) | (0x2 << 62)))
 
 
 class TestCheckPipelineVersionActivity:
@@ -86,6 +91,7 @@ class TestAcquireV3PipelineLockActivity:
         [True, False],
         ids=["lock_free", "lock_held"],
     )
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
     @patch(f"{MODULE}._take_over_lock_if_holder_finished", return_value=False)
     @patch(f"{MODULE}.acquire_v3_pipeline_lock")
     @patch(f"{MODULE}.activity")
@@ -96,9 +102,11 @@ class TestAcquireV3PipelineLockActivity:
         mock_activity: MagicMock,
         mock_acquire: MagicMock,
         mock_take_over: MagicMock,
+        mock_write_meta: MagicMock,
         lock_acquired: bool,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
         mock_acquire.return_value = lock_acquired
 
         result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
@@ -108,9 +116,16 @@ class TestAcquireV3PipelineLockActivity:
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
         if lock_acquired:
             mock_take_over.assert_not_called()
+            # Without meta, a later contender can't describe this workflow pre-job-row
+            # and the takeover race guard degrades to the age grace.
+            mock_write_meta.assert_called_once_with(
+                TEAM_ID, str(SCHEMA_ID), run_id=WORKFLOW_RUN_ID, workflow_id="wf-abc-123"
+            )
         else:
             mock_take_over.assert_called_once()
+            mock_write_meta.assert_not_called()
 
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
     @patch(f"{MODULE}._take_over_lock_if_holder_finished", return_value=True)
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=False)
     @patch(f"{MODULE}.activity")
@@ -121,6 +136,7 @@ class TestAcquireV3PipelineLockActivity:
         mock_activity: MagicMock,
         _mock_acquire: MagicMock,
         _mock_take_over: MagicMock,
+        _mock_write_meta: MagicMock,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
 
@@ -160,43 +176,124 @@ class TestTakeOverStaleLock:
         assert self._run() is True
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None))
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None, False))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_holder_workflow_running(
-        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock
+        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock, _meta: MagicMock
     ) -> None:
         assert self._run() is False
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None))
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None, False))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_describe_fails(
-        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock
+        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock, _meta: MagicMock
     ) -> None:
         assert self._run() is False
 
+    @pytest.mark.parametrize(
+        "holder_status, expected_takeover",
+        [
+            (WorkflowExecutionStatus.RUNNING, False),
+            (WorkflowExecutionStatus.COMPLETED, True),
+            (WorkflowExecutionStatus.TERMINATED, True),
+        ],
+        ids=["running_fails_closed", "completed_takes_over", "terminated_takes_over"],
+    )
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.release_v3_pipeline_lock")
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.COMPLETED, None))
+    @patch(f"{MODULE}.sync_connect")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta")
     @patch(f"{MODULE}.close_old_connections")
-    @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
-    def test_takes_over_when_no_job_row(
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    def test_no_job_row_with_meta_asks_temporal(
         self,
-        _holder: MagicMock,
+        mock_holder: MagicMock,
         _close: MagicMock,
-        _describe: MagicMock,
+        mock_meta: MagicMock,
+        mock_job_model: MagicMock,
+        mock_sync_connect: MagicMock,
         mock_release: MagicMock,
         mock_acquire: MagicMock,
+        holder_status: WorkflowExecutionStatus,
+        expected_takeover: bool,
     ) -> None:
-        assert self._run() is True
-        mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
+        # Core race: meta lets us ask Temporal instead of assuming a pre-job-row
+        # holder crashed; a young token proves Temporal's answer beats the age grace.
+        holder_token = _uuid7_token(age_seconds=2)
+        mock_holder.return_value = holder_token
+        mock_meta.return_value = {"run_id": holder_token, "workflow_id": "wf-holder-1"}
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
+        handle = MagicMock()
+        handle.describe = AsyncMock(return_value=MagicMock(status=holder_status))
+        mock_sync_connect.return_value.get_workflow_handle.return_value = handle
+
+        assert self._run() is expected_takeover
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with("wf-holder-1", run_id=holder_token)
+        if expected_takeover:
+            mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), holder_token)
+        else:
+            mock_release.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "holder_age_seconds, meta, expected_takeover",
+        [
+            (60, None, False),
+            (7200, None, True),
+            (60, {"run_id": "some-other-run", "workflow_id": "wf-stale"}, False),
+            (None, None, True),
+        ],
+        ids=[
+            "young_holder_fails_closed",
+            "old_holder_takes_over",
+            "stale_meta_ignored_grace_applies",
+            "undecodable_token_takes_over",
+        ],
+    )
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.release_v3_pipeline_lock")
+    @patch(f"{MODULE}.sync_connect")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
+    def test_no_job_row_without_meta_applies_age_grace(
+        self,
+        mock_holder: MagicMock,
+        _close: MagicMock,
+        mock_meta: MagicMock,
+        mock_job_model: MagicMock,
+        mock_sync_connect: MagicMock,
+        mock_release: MagicMock,
+        mock_acquire: MagicMock,
+        holder_age_seconds: float | None,
+        meta: dict | None,
+        expected_takeover: bool,
+    ) -> None:
+        # Legacy/crash path (no usable meta): without a workflow_id the token's
+        # UUIDv7 age decides; undecodable tokens keep today's take-over behavior.
+        holder_token = _uuid7_token(holder_age_seconds) if holder_age_seconds is not None else self.HOLDER_TOKEN
+        mock_holder.return_value = holder_token
+        mock_meta.return_value = meta
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
+
+        assert self._run() is expected_takeover
+        mock_sync_connect.assert_not_called()
+        if expected_takeover:
+            mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), holder_token)
+        else:
+            mock_release.assert_not_called()
 
     @pytest.mark.parametrize(
         "holder_status",
         ["Completed", "Failed"],
         ids=["holder_completed", "holder_failed"],
     )
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.release_v3_pipeline_lock")
     @patch(f"{MODULE}.close_old_connections")
@@ -207,17 +304,19 @@ class TestTakeOverStaleLock:
         _close: MagicMock,
         mock_release: MagicMock,
         mock_acquire: MagicMock,
+        _meta: MagicMock,
         holder_status: str,
     ) -> None:
         holder_job = MagicMock()
         holder_job.status = holder_status
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
         ):
             assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
 
+    @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
     @patch(f"{MODULE}._take_over_stale_running_job", return_value=False)
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
@@ -226,12 +325,13 @@ class TestTakeOverStaleLock:
         _holder: MagicMock,
         _close: MagicMock,
         mock_stale: MagicMock,
+        _meta: MagicMock,
     ) -> None:
         holder_job = MagicMock()
         holder_job.status = "Running"
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
         ):
             assert self._run() is False
         mock_stale.assert_called_once()

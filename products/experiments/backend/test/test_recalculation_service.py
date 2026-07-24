@@ -24,6 +24,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.recalculation import (
     build_timeseries_cold_start_payload,
+    get_active_recalculation,
     get_latest_recalculation,
     get_live_query_progress,
     get_recalculation_by_id,
@@ -174,14 +175,23 @@ class TestRecalculationService(BaseTest):
         row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
         assert row.trigger == trigger
 
-    def test_get_latest_recalculation_returns_most_recent_completed(self):
-        # get_latest_recalculation filters to status='completed' (powers GET /metrics_recalculation/latest).
+    def test_latest_stays_terminal_while_a_run_is_active(self):
+        # Reload while recalculating: the terminal results must keep coming back from get_latest_recalculation
+        # while get_active_recalculation separately surfaces the executing run for the client to poll.
         exp = self._launched_experiment()
+        done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+        pending = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        latest = get_latest_recalculation(exp)
+        active = get_active_recalculation(exp)
+        assert latest is not None and latest.id == done.id
+        assert active is not None and active.id == pending.id
+
+    def test_get_latest_recalculation_returns_most_recent_completed(self):
+        exp = self._launched_experiment(flag_key="latest-terminal")
         first_done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+        # A force-failed tombstone (no metric_errors) has nothing to display and must not shadow older results.
         ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="failed")
         second_done = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
-        # A pending run created AFTER the latest completed one must NOT be returned.
-        ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
         latest = get_latest_recalculation(exp)
         assert latest is not None
         assert latest.id == second_done.id
@@ -189,17 +199,52 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            ("never_ran", []),
-            ("only_pending", ["pending"]),
-            ("only_failed", ["failed"]),
-            ("only_in_progress", ["in_progress"]),
+            # (name, row_kwargs, stale_created_at, expect_active, expect_latest)
+            ("never_ran", None, False, False, False),
+            ("fresh_pending", {"status": "pending"}, False, True, False),
+            ("fresh_in_progress", {"status": "in_progress", "started_at": "now"}, False, True, False),
+            ("stale_pending", {"status": "pending"}, True, False, False),
+            ("stale_in_progress", {"status": "in_progress", "started_at": "old"}, False, False, False),
+            ("completed", {"status": "completed"}, False, False, True),
+            (
+                "failed_finalized_with_errors",
+                {"status": "failed", "completed_at": "now", "metric_errors": {"m1": {"message": "boom"}}},
+                False,
+                False,
+                True,
+            ),
+            # Finalized run whose failures live only in FAILED result rows (crash between the result write
+            # and the metric_errors write): still the latest terminal run, must not be hidden.
+            ("failed_finalized_without_errors", {"status": "failed", "completed_at": "now"}, False, False, True),
+            # No completed_at means the finalize step never ran: a trigger-failure tombstone or a
+            # superseded row. Nothing to display, must not shadow older results.
+            ("failed_tombstone", {"status": "failed"}, False, False, False),
         ]
     )
-    def test_get_latest_recalculation_none_when_no_completed(self, name: str, statuses: list[str]):
+    def test_latest_and_active_row_eligibility(
+        self, name: str, row_kwargs: dict | None, stale_created_at: bool, expect_active: bool, expect_latest: bool
+    ):
         exp = self._launched_experiment(flag_key=f"latest-{name}")
-        for status in statuses:
-            ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status=status)
-        assert get_latest_recalculation(exp) is None
+        row = None
+        if row_kwargs is not None:
+            kwargs = dict(row_kwargs)
+            if kwargs.get("started_at") == "now":
+                kwargs["started_at"] = timezone.now()
+            elif kwargs.get("started_at") == "old":
+                kwargs["started_at"] = timezone.now() - timedelta(hours=2)
+            if kwargs.get("completed_at") == "now":
+                kwargs["completed_at"] = timezone.now()
+            row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, **kwargs)
+            if stale_created_at:
+                # created_at uses auto_now_add so it has to be moved after create.
+                ExperimentMetricsRecalculation.objects.filter(id=row.id).update(
+                    created_at=timezone.now() - timedelta(hours=2)
+                )
+
+        active = get_active_recalculation(exp)
+        latest = get_latest_recalculation(exp)
+        assert (active.id if active else None) == (row.id if row and expect_active else None)
+        assert (latest.id if latest else None) == (row.id if row and expect_latest else None)
 
     def test_get_recalculation_by_id_returns_row(self):
         exp = self._launched_experiment()

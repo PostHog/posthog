@@ -536,6 +536,22 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('display fallback', () => {
+        it('renders the line chart for display types without a trends renderer', async () => {
+            // `Auto` is schema-valid on a trends query (reachable via the API/MCP) but has no
+            // dedicated branch in the trends render dispatch — it must not blank the tile.
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display: ChartDisplayType.Auto },
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('trend-line-graph')).toBeInTheDocument()
+            })
+        })
+    })
+
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
             renderInsight({ query: buildTrendsQuery() })

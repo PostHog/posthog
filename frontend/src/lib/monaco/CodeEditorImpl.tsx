@@ -11,6 +11,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
@@ -530,6 +531,10 @@ export function CodeEditor({
                 })
             )
         }
+        // Fix Monaco's broken right-click "Paste" by overriding the command rather than adding a
+        // second menu item (see enableClipboardPaste).
+        monacoDisposables.current.push(enableClipboardPaste(editor))
+
         if (autoFocus) {
             editor.focus()
             const model = editor.getModel()

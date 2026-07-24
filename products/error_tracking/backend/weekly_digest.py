@@ -359,12 +359,8 @@ def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
 
 
 def _source_maps_wizard_command() -> str:
-    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend.
-
-    Appends ``--region eu`` on EU Cloud so the wizard uploads to the right region.
-    """
-    region_flag = " --region eu" if (settings.CLOUD_DEPLOYMENT or "").upper() == "EU" else ""
-    return f"npx -y @posthog/wizard@latest upload-source-maps{region_flag}"
+    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend."""
+    return "npx -y @posthog/wizard@latest upload-source-maps"
 
 
 def get_source_maps_recommendation_for_team(team: Team) -> dict | None:

@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElevenLabsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -100,6 +102,7 @@ Grant the following read permissions when creating the key:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = ELEVENLABS_ENDPOINTS[endpoint]
@@ -119,7 +122,11 @@ Grant the following read permissions when creating the key:
         return schemas
 
     def validate_credentials(
-        self, config: "ElevenLabsSourceConfig", team_id: int, schema_name: Optional[str] = None
+        self,
+        config: "ElevenLabsSourceConfig",
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_elevenlabs_credentials(config.api_key, schema_name)
 
@@ -135,7 +142,8 @@ Grant the following read permissions when creating the key:
         return elevenlabs_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

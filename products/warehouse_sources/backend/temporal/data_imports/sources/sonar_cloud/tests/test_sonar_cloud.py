@@ -1,41 +1,81 @@
+import json
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import sonar_cloud
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import MAX_PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
     SonarCloudResumeConfig,
     _base_url,
     _total,
-    get_rows,
     sonar_cloud_source,
     validate_credentials,
 )
 
-
-class FakeResumeManager(ResumableSourceManager[SonarCloudResumeConfig]):
-    """Minimal ResumableSourceManager stand-in that records saved state without touching Redis."""
-
-    def __init__(self, state: SonarCloudResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SonarCloudResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SonarCloudResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SonarCloudResumeConfig) -> None:
-        self.saved.append(data)
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the sonar_cloud module.
+SONAR_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud.make_tracked_session"
+)
+LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud.logger"
 
 
-def _page(rows: list[dict[str, Any]], total: int) -> dict[str, Any]:
-    return {"components": rows, "paging": {"pageIndex": 1, "pageSize": MAX_PAGE_SIZE, "total": total}}
+def _response(
+    rows: list[dict[str, Any]], total: int | None, *, key: str = "components", flat_total: bool = False
+) -> Response:
+    body: dict[str, Any] = {key: rows}
+    if total is not None:
+        # metrics/search reports p/ps/total at the top level; issues/projects nest total under `paging`.
+        body["total" if flat_total else "paging"] = total if flat_total else {"total": total}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: SonarCloudResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of inspecting it after the run.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, region: str = "eu"):
+    return sonar_cloud_source(
+        token="t",
+        organization="org",
+        region=region,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job",
+        resumable_source_manager=manager,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestBaseUrl:
@@ -66,99 +106,113 @@ class TestTotal:
         assert _total(data) == expected
 
 
-class TestGetRowsPagination:
-    def test_stops_on_short_page(self) -> None:
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_short_page(self, MockSession) -> None:
         # A page smaller than the requested size means we've reached the end; the loop must stop rather
-        # than requesting an empty next page forever.
-        pages = [_page([{"key": "a"}, {"key": "b"}], total=2)]
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(sonar_cloud, "_fetch", side_effect=pages) as fetch:
-                batches = list(get_rows("t", "org", "eu", "projects", MagicMock(), FakeResumeManager()))
-        assert [r["key"] for batch in batches for r in batch] == ["a", "b"]
-        assert fetch.call_count == 1
+        # than requesting an empty next page.
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"key": "a"}, {"key": "b"}], total=2)])
 
-    def test_walks_multiple_pages_until_total(self) -> None:
+        manager = _make_manager()
+        rows = _rows(_source("projects", manager))
+
+        assert [r["key"] for r in rows] == ["a", "b"]
+        assert session.send.call_count == 1
+        assert params[0]["p"] == 1
+        assert params[0]["ps"] == MAX_PAGE_SIZE
+        assert params[0]["organization"] == "org"
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_multiple_pages_until_total(self, MockSession) -> None:
+        session = MockSession.return_value
         full = [{"key": str(i)} for i in range(MAX_PAGE_SIZE)]
-        pages = [
-            {"components": full, "paging": {"total": MAX_PAGE_SIZE + 1}},
-            {"components": [{"key": "last"}], "paging": {"total": MAX_PAGE_SIZE + 1}},
-        ]
-        manager = FakeResumeManager()
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(sonar_cloud, "_fetch", side_effect=pages) as fetch:
-                batches = list(get_rows("t", "org", "eu", "projects", MagicMock(), manager))
-        assert fetch.call_count == 2
-        assert sum(len(b) for b in batches) == MAX_PAGE_SIZE + 1
+        params = _wire(
+            session,
+            [_response(full, total=MAX_PAGE_SIZE + 1), _response([{"key": "last"}], total=MAX_PAGE_SIZE + 1)],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("projects", manager))
+
+        assert session.send.call_count == 2
+        assert len(rows) == MAX_PAGE_SIZE + 1
+        assert params[0]["p"] == 1
+        assert params[1]["p"] == 2
         # State is saved after yielding the first (full) page so a crash re-yields rather than skips.
-        assert manager.saved == [SonarCloudResumeConfig(page=2)]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == SonarCloudResumeConfig(page=2)
 
-    def test_resumes_from_saved_page(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
         # Resume state points at page 2; the first request must be for page 2, not page 1.
-        pages = [{"components": [{"key": "p2"}], "paging": {"total": MAX_PAGE_SIZE + 1}}]
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(sonar_cloud, "_build_url", wraps=sonar_cloud._build_url) as build:
-                with patch.object(sonar_cloud, "_fetch", side_effect=pages):
-                    list(
-                        get_rows(
-                            "t", "org", "eu", "projects", MagicMock(), FakeResumeManager(SonarCloudResumeConfig(page=2))
-                        )
-                    )
-        assert build.call_args_list[0].kwargs.get("params", build.call_args_list[0].args[2])["p"] == 2
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"key": "p2"}], total=MAX_PAGE_SIZE + 1)])
 
-    def test_result_cap_stops_and_warns(self) -> None:
+        manager = _make_manager(SonarCloudResumeConfig(page=2))
+        _rows(_source("projects", manager))
+
+        assert params[0]["p"] == 2
+
+    @mock.patch(LOGGER_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_result_cap_stops_and_warns(self, MockSession, mock_logger) -> None:
         # The v1 API hard-caps results at 10000 rows; the loop must stop at the cap even when the
         # reported total is higher, and it should log that rows were dropped.
+        session = MockSession.return_value
         cap_pages = 10000 // MAX_PAGE_SIZE
         full = [{"key": str(i)} for i in range(MAX_PAGE_SIZE)]
-        pages = [{"components": full, "paging": {"total": 999999}} for _ in range(cap_pages)]
-        logger = MagicMock()
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(sonar_cloud, "_fetch", side_effect=pages) as fetch:
-                list(get_rows("t", "org", "eu", "projects", logger, FakeResumeManager()))
-        assert fetch.call_count == cap_pages
-        assert logger.warning.called
+        _wire(session, [_response(full, total=999999) for _ in range(cap_pages)])
+
+        _rows(_source("projects", _make_manager()))
+
+        assert session.send.call_count == cap_pages
+        assert mock_logger.warning.called
 
 
-class TestGetRowsNonPaginated:
-    def test_quality_gates_single_request(self) -> None:
-        data = {"qualitygates": [{"id": "1", "name": "Sonar way"}]}
-        manager = FakeResumeManager()
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=MagicMock()):
-            with patch.object(sonar_cloud, "_fetch", return_value=data) as fetch:
-                batches = list(get_rows("t", "org", "eu", "quality_gates", MagicMock(), manager))
-        assert fetch.call_count == 1
-        assert batches == [[{"id": "1", "name": "Sonar way"}]]
-        assert manager.saved == []
+class TestNonPaginated:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_quality_gates_single_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1", "name": "Sonar way"}], total=None, key="qualitygates")])
+
+        manager = _make_manager()
+        rows = _rows(_source("quality_gates", manager))
+
+        assert session.send.call_count == 1
+        assert rows == [{"id": "1", "name": "Sonar way"}]
+        manager.save_state.assert_not_called()
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, 200), (401, 401), (403, 403), (500, 500)])
     def test_returns_status_code(self, status: int, expected: int) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status)
-        with patch.object(sonar_cloud, "make_tracked_session", return_value=session):
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status)
+        with mock.patch(SONAR_SESSION_PATCH, return_value=session):
             assert validate_credentials("token", "org", "eu") == expected
 
     def test_transport_failure_returns_zero(self) -> None:
-        with patch.object(sonar_cloud, "make_tracked_session", side_effect=Exception("boom")):
+        with mock.patch(SONAR_SESSION_PATCH, side_effect=Exception("boom")):
             assert validate_credentials("token", "org", "eu") == 0
 
 
 class TestSourceResponse:
     def test_partitioned_endpoint(self) -> None:
-        response = sonar_cloud_source("t", "org", "eu", "issues", MagicMock(), FakeResumeManager())
+        response = _source("issues", _make_manager())
         assert response.name == "issues"
         assert response.primary_keys == ["key"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["creationDate"]
 
     def test_non_partitioned_endpoint(self) -> None:
-        response = sonar_cloud_source("t", "org", "eu", "metrics", MagicMock(), FakeResumeManager())
+        response = _source("metrics", _make_manager())
         assert response.partition_mode is None
         assert response.partition_keys is None
 
     def test_quality_gates_merge_on_id(self) -> None:
         # Quality gate rows carry `id`/`name` but no `key`; merging on the default `key` primary key
         # would never dedupe and duplicate rows on every sync.
-        response = sonar_cloud_source("t", "org", "eu", "quality_gates", MagicMock(), FakeResumeManager())
+        response = _source("quality_gates", _make_manager())
         assert response.primary_keys == ["id"]

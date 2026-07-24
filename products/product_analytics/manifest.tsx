@@ -21,7 +21,6 @@ import { AlertType } from 'products/alerts/frontend/types'
 
 import {
     DashboardType,
-    FileSystemIconColor,
     InsightSceneSource,
     InsightShortId,
     InsightType,
@@ -95,8 +94,6 @@ export const manifest: ProductManifest = {
         insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
         insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
-        alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
-        alerts: (): string => `/insights?tab=alerts`,
         insightQuickStart: (): string => '/insights/quick-start',
     },
     fileSystemTypes: {
@@ -114,7 +111,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.TRENDS }),
             iconType: 'insight/trends',
-            iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.trends,
             sceneKeys: ['Insight'],
         },
@@ -123,7 +119,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.FUNNELS }),
             iconType: 'insight/funnels',
-            iconColor: ['var(--color-insight-funnel-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.funnel,
             sceneKeys: ['Insight'],
         },
@@ -132,7 +127,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.RETENTION }),
             iconType: 'insight/retention',
-            iconColor: ['var(--color-insight-retention-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.retention,
             sceneKeys: ['Insight'],
         },
@@ -141,7 +135,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.PATHS }),
             iconType: 'insight/paths',
-            iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.paths,
             sceneKeys: ['Insight'],
         },
@@ -150,7 +143,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),
             iconType: 'insight/stickiness',
-            iconColor: ['var(--color-insight-stickiness-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
             sceneKeys: ['Insight'],
         },
@@ -159,7 +151,6 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: urls.insightNew({ type: InsightType.LIFECYCLE }),
             iconType: 'insight/lifecycle',
-            iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
             sceneKeys: ['Insight'],
         },
@@ -171,7 +162,6 @@ export const manifest: ProductManifest = {
             // the SQL editor href doesn't, so set the label explicitly to stay consistent.
             displayLabel: 'New SQL',
             iconType: 'insight/hog',
-            iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.sql,
             sceneKeys: ['Insight'],
         },

@@ -8,7 +8,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import JenkinsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
+    JenkinsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )

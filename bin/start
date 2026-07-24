@@ -5,6 +5,13 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+# All worktrees share one infra stack under the "posthog" compose project. Pin it
+# here so it never silently falls back to the worktree folder name when direnv
+# hasn't exported it (.envrc) — that mismatch makes wait-for-docker query the wrong
+# project and report db/redis/clickhouse/kafka as "missing" while docker ps shows
+# them running. An explicit override still wins.
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-posthog}"
+
 # 1Password: auto-resolve op:// references in .env.local.
 # Must run before lock acquisition: `exec op run ...` keeps the bash fds open
 # in the op-run process, so if we held fd 9's flock here the re-exec'd child
@@ -138,6 +145,24 @@ export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://pos
 # Set HOGLI_SKIP_ZOMBIE_CHECK=1 to skip. Never let it fail the script (set -e).
 if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
+fi
+
+# Warn about a duplicate infra stack under a different compose project. It binds the
+# same host ports as "$COMPOSE_PROJECT_NAME", so our clickhouse/kafka can't start and
+# get stuck in "Created" — the "database missing" hang. Advisory only (never fail).
+foreign_stacks=$(docker ps --filter 'label=com.docker.compose.service=clickhouse' \
+    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+    | grep -vx "$COMPOSE_PROJECT_NAME" | sort -u || true)
+if [[ -n "$foreign_stacks" ]]; then
+    echo "⚠️  Another dev infra stack is running under a different compose project:"
+    while IFS= read -r stack; do
+        [[ -n "$stack" ]] && echo "     • $stack"
+    done <<< "$foreign_stacks"
+    echo "   It holds the same host ports as '$COMPOSE_PROJECT_NAME', so clickhouse/kafka"
+    echo "   here may fail to start and get reported as 'missing'. Tear it down with:"
+    while IFS= read -r stack; do
+        [[ -n "$stack" ]] && echo "     docker compose -p $stack -f docker-compose.dev.yml down --remove-orphans"
+    done <<< "$foreign_stacks"
 fi
 
 # Geo files
