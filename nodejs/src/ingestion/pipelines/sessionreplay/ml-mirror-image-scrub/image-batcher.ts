@@ -27,6 +27,14 @@ interface ScrubbedRef {
     image: ScrubbedImage
 }
 
+/** Carries the window slot so a completion can be matched back to its position, which is what
+ *  lets offsets retire in order even though scrubs finish out of order. */
+interface SettledScrub {
+    slot: number
+    scrubbed: ScrubbedRef | null
+    error?: unknown
+}
+
 export interface ImageBatcherOptions {
     flushIntervalMs: number
     maxImages: number
@@ -41,7 +49,7 @@ export class ImageBatcher {
     private bufferBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
-    private readonly chunkSize: number
+    private readonly maxInFlight: number
     private readonly scrubConcurrency: ConcurrencyController
     /**
      * Refs this pod has resolved, either by buffering the scrubbed bytes or by having the sidecar
@@ -62,65 +70,117 @@ export class ImageBatcher {
         private readonly options: ImageBatcherOptions,
         nowMs: number
     ) {
-        // The concurrency doubles as the chunk stride below; 0 would spin the loop forever and NaN
-        // would skip it entirely (committing offsets for unprocessed messages), so fail at boot.
-        this.chunkSize = Math.floor(options.scrubConcurrency)
-        if (!Number.isInteger(this.chunkSize) || this.chunkSize < 1) {
+        // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
+        // offsets for unprocessed messages. Fail at boot rather than either.
+        this.maxInFlight = Math.floor(options.scrubConcurrency)
+        if (!Number.isInteger(this.maxInFlight) || this.maxInFlight < 1) {
             throw new Error(`scrubConcurrency must be a positive number, got ${options.scrubConcurrency}`)
         }
         this.lastFlushMs = nowMs
-        this.scrubConcurrency = new ConcurrencyController(this.chunkSize)
+        this.scrubConcurrency = new ConcurrencyController(this.maxInFlight)
         this.seenRefs = new RefDedupCache('image_scrub_consumer', options.dedupMaxRefs)
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        // Skips must resolve before chunking: a duplicate left in a chunk still holds a concurrency
-        // slot and completes instantly, so the chunk ends with its one distinct image and the batch
-        // serializes behind the barriers, running one scrub at a time whatever scrubConcurrency says.
+        // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
+        // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
         const planned = this.planBatch(messages)
 
-        // Scrub in concurrency-sized chunks with the capacity bounds applied between chunks: scrubbed
-        // outputs can dwarf their inputs (a sub-MB input can come back as a multi-MB full-resolution
-        // PNG), so retaining a whole poll batch of them before the first bound check can hold
-        // gigabytes. Peak memory is now ~maxBytes plus one chunk's outputs.
+        // A sliding window rather than fixed groups: every completion immediately admits the next
+        // image, so the sidecar never waits on the slowest member of a group before being given more
+        // work. Grouping used to gate throughput on E[slowest of N] instead of E[mean], which on a
+        // spread-out scrub-time distribution leaves a large share of the sidecar's cores idle.
         //
-        // The deadline covers scrub time only: the timer is armed per chunk with the remaining
-        // budget and disarmed before any mid-batch flush, so slow-but-succeeding S3 writes (each
-        // bounded by their own timeout) can't burn the scrub budget and turn into an abort/replay
-        // loop misattributed to the sidecar.
+        // Admission is what bounds memory: scrubbed outputs can dwarf their inputs (a sub-MB input
+        // can come back as a multi-MB full-resolution PNG), so submitting a whole poll batch at once
+        // could hold gigabytes. Peak is ~maxBytes plus the outputs of one window.
+        //
+        // The deadline covers scrub time only: the timer is armed around each wait and the elapsed
+        // time charged to the budget, so slow-but-succeeding S3 writes (each bounded by their own
+        // timeout) can't burn the scrub budget and turn into an abort/replay loop misattributed to
+        // the sidecar.
         const controller = new AbortController()
         let scrubBudgetMs = this.options.maxBatchScrubMs
         let spanStart = 0
-        for (let i = 0; i < planned.length; i += this.chunkSize) {
-            const chunk = planned.slice(i, i + this.chunkSize)
-            const chunkStartMs = performance.now()
+        let nextToSubmit = 0
+        let retired = 0
+        const settled = new Array<boolean>(planned.length).fill(false)
+        const inFlight = new Map<number, Promise<SettledScrub>>()
+        // Results wait here until their slot retires, so the buffer only ever holds images whose
+        // offsets have been recorded. Without it a flush could persist an image while a still-running
+        // predecessor kept its offset unrecorded, and a later batch failure would rewrite it under a
+        // fresh shard key. Staged bytes count towards capacity, which is what bounds this.
+        const staged = new Array<ScrubbedRef | null>(planned.length).fill(null)
+        let stagedCount = 0
+        let stagedBytes = 0
+
+        while (nextToSubmit < planned.length || inFlight.size > 0) {
+            while (
+                nextToSubmit < planned.length &&
+                inFlight.size < this.maxInFlight &&
+                !this.overCapacity(stagedCount, stagedBytes)
+            ) {
+                inFlight.set(nextToSubmit, this.submitScrub(nextToSubmit, planned[nextToSubmit], controller))
+                nextToSubmit++
+            }
+            // Only reachable over capacity with work left: flush to make room rather than spin.
+            if (inFlight.size === 0) {
+                await this.flushOrThrow(nowMs)
+                continue
+            }
+
+            const waitStartMs = performance.now()
             const timer = setTimeout(() => controller.abort(), scrubBudgetMs)
-            let scrubbed: ScrubbedRef[]
+            let done: SettledScrub
             try {
-                scrubbed = await this.scrubChunk(chunk, controller)
-            } catch (e) {
-                ImageScrubConsumerMetrics.incBatchFailed('scrub')
-                throw e
+                done = await Promise.race(inFlight.values())
             } finally {
                 clearTimeout(timer)
+                scrubBudgetMs -= performance.now() - waitStartMs
             }
-            scrubBudgetMs -= performance.now() - chunkStartMs
-            for (const { ref, image } of scrubbed) {
-                this.buffer.push(image)
-                this.bufferBytes += image.bytes.length
-                this.seenRefs.add(ref)
+            inFlight.delete(done.slot)
+            if (done.error !== undefined) {
+                controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
+                ImageScrubConsumerMetrics.incBatchFailed('scrub')
+                throw done.error
             }
-            // The span also covers the skipped messages between this chunk's entries, which are done
-            // too and would otherwise replay forever. Offsets are only ever *stored* by a flush,
-            // after the buffer holding these images is durably written, so a mid-batch flush records
-            // exactly the progress it persisted and a later failure replays only from there.
-            const spanEnd = chunk[chunk.length - 1].index + 1
-            this.recordOffsets(messages.slice(spanStart, spanEnd))
-            spanStart = spanEnd
-            if (this.overCapacity()) {
+            if (done.scrubbed) {
+                staged[done.slot] = done.scrubbed
+                stagedCount += 1
+                stagedBytes += done.scrubbed.image.bytes.length
+            }
+
+            // Completions arrive out of order, so only the contiguous run from the front is safe to
+            // commit: anything past a still-running image would commit an offset for work that has
+            // not happened. The span also covers the skipped messages between retired entries, which
+            // are done too and would otherwise replay forever. Offsets are only ever *stored* by a
+            // flush, after the buffer holding these images is durably written.
+            settled[done.slot] = true
+            const retiredBefore = retired
+            while (retired < planned.length && settled[retired]) {
+                const ready = staged[retired]
+                if (ready) {
+                    this.buffer.push(ready.image)
+                    this.bufferBytes += ready.image.bytes.length
+                    // Marked here rather than on completion: a staged image is a local that a thrown
+                    // batch discards, so a ref marked before retirement could be skipped on replay
+                    // without ever having been persisted.
+                    this.seenRefs.add(ready.ref)
+                    staged[retired] = null
+                    stagedCount -= 1
+                    stagedBytes -= ready.image.bytes.length
+                }
+                retired++
+            }
+            if (retired > retiredBefore) {
+                const spanEnd = planned[retired - 1].index + 1
+                this.recordOffsets(messages.slice(spanStart, spanEnd))
+                spanStart = spanEnd
+            }
+            if (this.overCapacity(stagedCount, stagedBytes)) {
                 await this.flushOrThrow(nowMs)
             }
         }
@@ -164,22 +224,20 @@ export class ImageBatcher {
         }
     }
 
-    private async scrubChunk(planned: PlannedScrub[], controller: AbortController): Promise<ScrubbedRef[]> {
-        try {
-            const scrubbed = await Promise.all(
-                planned.map((p) =>
-                    this.scrubConcurrency.run({
-                        fn: () =>
-                            this.scrubOne(p, controller.signal).then((image) => (image ? { ref: p.ref, image } : null)),
-                        abortController: controller,
-                    })
-                )
+    /**
+     * Failures resolve rather than reject so the caller can race the whole window without the losing
+     * promises becoming unhandled rejections when the batch aborts.
+     */
+    private submitScrub(slot: number, p: PlannedScrub, controller: AbortController): Promise<SettledScrub> {
+        return this.scrubConcurrency
+            .run({
+                fn: () => this.scrubOne(p, controller.signal),
+                abortController: controller,
+            })
+            .then(
+                (image): SettledScrub => ({ slot, scrubbed: image ? { ref: p.ref, image } : null }),
+                (error): SettledScrub => ({ slot, scrubbed: null, error: error ?? new Error('scrub failed') })
             )
-            return scrubbed.filter((entry): entry is ScrubbedRef => entry !== null)
-        } catch (e) {
-            controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
-            throw e
-        }
     }
 
     private async flushOrThrow(nowMs: number): Promise<void> {
@@ -205,8 +263,12 @@ export class ImageBatcher {
         return { pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
     }
 
-    private overCapacity(): boolean {
-        return this.buffer.length >= this.options.maxImages || this.bufferBytes >= this.options.maxBytes
+    /** Staged results are counted so a slow slot holding back retirement still applies backpressure. */
+    private overCapacity(stagedCount = 0, stagedBytes = 0): boolean {
+        return (
+            this.buffer.length + stagedCount >= this.options.maxImages ||
+            this.bufferBytes + stagedBytes >= this.options.maxBytes
+        )
     }
 
     private shouldFlush(nowMs: number): boolean {
