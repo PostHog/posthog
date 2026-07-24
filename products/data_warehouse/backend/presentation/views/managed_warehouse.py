@@ -887,6 +887,60 @@ def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Re
     return resp
 
 
+def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
+    """Deprovision the org's managed warehouse ahead of an organization deletion.
+
+    Called from the organization-deletion Temporal workflow while the ``DuckgresServer``
+    row still exists (the Django cascade destroys it with the org). Without this call the
+    duckgres warehouse outlives the organization fully alive: external writers keep
+    ingesting into it, storage keeps being metered, and its credentials stay valid — while
+    the Django pointer to it is gone.
+
+    No-op for orgs without a managed warehouse (mirrors ``block_team_deletion``'s gating,
+    so unrelated org deletions never touch the control plane). Idempotent against
+    duckgres: 404 (warehouse unknown to the control plane) and 409 (teardown already
+    started or finished — deprovision is not re-POSTable) are treated as converged. Any
+    other failure raises so the Temporal activity retries; once retries are exhausted the
+    workflow logs loudly and proceeds rather than wedging the org deletion on a duckgres
+    outage.
+    """
+    # Keep ducklake.models off the core import path.
+    from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+
+    org_id = str(organization_id)
+    if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
+        return
+
+    # Backend caller: bypass the user-facing feature flag so the deletion never depends on
+    # flag evaluation on the Temporal worker.
+    resp = deprovision(organization_id, require_enabled=False)
+    if status.is_success(resp.status_code):
+        logger.info(
+            "Managed warehouse deprovisioning started for organization deletion",
+            organization_id=org_id,
+        )
+        return
+    if resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+        logger.info(
+            "Managed warehouse already deprovisioned or unknown to duckgres; continuing organization deletion",
+            organization_id=org_id,
+            status_code=resp.status_code,
+        )
+        return
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
+        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
+        # row): there is no control plane to deprovision against.
+        logger.warning(
+            "Managed warehouse deprovisioning skipped: provisioning API not configured",
+            organization_id=org_id,
+        )
+        return
+    raise RuntimeError(
+        f"duckgres deprovision failed with status {resp.status_code} for organization {org_id}; "
+        "the org's managed warehouse must be deprovisioned before the Django cascade drops its pointer"
+    )
+
+
 def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
     """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
     # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.

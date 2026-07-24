@@ -45,7 +45,7 @@ CORE_ACTIVITY_ORDER = [
 ]
 
 
-def _recording_activities(calls: list[str]) -> list:
+def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset()) -> list:
     """Mock every delete_teams activity by name; each records its invocation order."""
 
     def _team_activity(name: str):
@@ -54,6 +54,10 @@ def _recording_activities(calls: list[str]) -> list:
             calls.append(name)
 
         return _fn
+
+    @activity.defn(name="deprovision_managed_warehouse_activity")
+    async def deprovision_managed_warehouse_activity(inputs: OrganizationRecordInputs) -> None:
+        calls.append("deprovision_managed_warehouse_activity")
 
     @activity.defn(name="delete_project_record_activity")
     async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
@@ -71,13 +75,15 @@ def _recording_activities(calls: list[str]) -> list:
     async def send_organization_deleted_email_activity(inputs: OrganizationEmailInputs) -> None:
         calls.append("send_organization_deleted_email_activity")
 
-    return [
+    mocks = [
         *[_team_activity(name) for name in CORE_ACTIVITY_ORDER],
+        deprovision_managed_warehouse_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
         send_project_deleted_email_activity,
         send_organization_deleted_email_activity,
     ]
+    return [fn for fn in mocks if fn.__name__ not in exclude]
 
 
 async def _run(workflow, inputs, calls: list[str]) -> None:
@@ -145,6 +151,7 @@ async def test_organization_workflow_deletes_record_then_emails():
         calls,
     )
     assert calls == [
+        "deprovision_managed_warehouse_activity",
         *CORE_ACTIVITY_ORDER,
         "delete_organization_record_activity",
         "send_organization_deleted_email_activity",
@@ -212,6 +219,48 @@ async def test_transient_error_is_retried():
     await _run_core_with(activities)  # completes despite the first failure
 
     assert len(attempts) == 2  # retried once, then succeeded
+
+
+async def test_warehouse_deprovision_failure_does_not_block_org_deletion():
+    # Deprovisioning the managed warehouse is best-effort: a duckgres outage must not wedge the
+    # organization deletion — the workflow logs the orphaned warehouse and proceeds once the
+    # activity has exhausted its retries.
+    attempts: list[str] = []
+    calls: list[str] = []
+
+    @activity.defn(name="deprovision_managed_warehouse_activity")
+    async def failing_deprovision(inputs: OrganizationRecordInputs) -> None:
+        attempts.append("attempt")
+        raise RuntimeError("duckgres control plane unavailable")
+
+    activities = [
+        *_recording_activities(calls, exclude=frozenset({"deprovision_managed_warehouse_activity"})),
+        failing_deprovision,
+    ]
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=WORKFLOWS,
+            activities=activities,
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteOrganizationWorkflow.run,
+                DeleteOrganizationWorkflowInputs(
+                    team_ids=[1],
+                    organization_id="11111111-1111-1111-1111-111111111111",
+                    user_id=7,
+                    organization_name="org",
+                    project_names=["a"],
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert len(attempts) == 5  # exhausted SIDE_EFFECT_RETRY_POLICY, then swallowed
+    assert "delete_organization_record_activity" in calls  # deletion still ran to completion
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():
