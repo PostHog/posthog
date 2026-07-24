@@ -85,13 +85,20 @@ class ExposureQueryBuilder:
         """
         query = parse_select(
             """
-            WITH first_exposures AS (
+            WITH exposure_events AS (
                 SELECT
                     {entity_key} AS entity_id,
-                    {variant_expr} AS variant,
-                    toDate(toString(min(timestamp))) AS day
+                    {variant_property} AS variant_value,
+                    timestamp AS timestamp
                 FROM events
                 WHERE {exposure_predicate}
+            ),
+            first_exposures AS (
+                SELECT
+                    entity_id AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM exposure_events
                 GROUP BY entity_id
             )
 
@@ -106,7 +113,8 @@ class ExposureQueryBuilder:
             """,
             placeholders={
                 "entity_key": parse_expr(self.context.entity_key),
-                "variant_expr": self.build_variant_expr_for_mean(),
+                "variant_property": self.build_variant_property(),
+                "variant_expr": self.build_variant_expr_for_mean(variant_property=ast.Field(chain=["variant_value"])),
                 "exposure_predicate": self.build_exposure_predicate(),
             },
         )
@@ -254,32 +262,64 @@ class ExposureQueryBuilder:
             )
         )
 
-    def select_query(self) -> ast.SelectQuery:
+    def select_query(self, attribution_fields: list[tuple[str, ast.Expr]] | None = None) -> ast.SelectQuery:
         if self.preaggregation_job_ids and not self.context.breakdowns:
+            # Data warehouse metrics (the only callers passing attribution_fields) skip precomputation,
+            # so the precomputed table — which has no raw event columns to attribute — is never reached here.
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
-        return self._build_exposure_select_query()
+        return self._build_exposure_select_query(attribution_fields=attribution_fields)
 
-    def _build_exposure_select_query(self) -> ast.SelectQuery:
-        exposure_query = parse_select(
+    def _build_exposure_select_query(
+        self, attribution_fields: list[tuple[str, ast.Expr]] | None = None
+    ) -> ast.SelectQuery:
+        # Resolve the entity (person-overrides join) and project the raw variant property per event
+        # in an inner scope. Aggregating the variant directly over the raw materialized property while
+        # grouping by the person-join key fails to resolve in the ClickHouse analyzer for the default
+        # EXCLUDE handling ("Not found column uniqExact(...) in block"). Splitting the person-id
+        # resolution from the aggregation lets the outer query group by a plain entity_id column and
+        # aggregate a plain projected column, mirroring the precomputed CTE form.
+        #
+        # ``attribution_fields`` are extra raw-event expressions (e.g. a data warehouse join key)
+        # attributed to the first exposure via argMin. They must be projected in the inner scope too,
+        # since the outer query can only see columns the inner subquery exposes.
+        inner_query = parse_select(
             """
                 SELECT
                     {entity_key} AS entity_id,
-                    {variant_expr} AS variant,
-                    min(timestamp) AS first_exposure_time,
-                    max(timestamp) AS last_exposure_time,
-                    argMin(uuid, timestamp) AS exposure_event_uuid,
-                    argMin(`$session_id`, timestamp) AS exposure_session_id
+                    {variant_property} AS variant_value,
+                    timestamp AS timestamp,
+                    uuid AS exposure_event_uuid,
+                    `$session_id` AS exposure_session_id
                     -- breakdown columns added programmatically below
                 FROM events
                 WHERE {exposure_predicate}
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.context.entity_key),
+                "variant_property": self.build_variant_property(),
+                "exposure_predicate": self.build_exposure_predicate(),
+            },
+        )
+        assert isinstance(inner_query, ast.SelectQuery)
+
+        exposure_query = parse_select(
+            """
+                SELECT
+                    entity_id AS entity_id,
+                    {variant_expr} AS variant,
+                    min(timestamp) AS first_exposure_time,
+                    max(timestamp) AS last_exposure_time,
+                    argMin(exposure_event_uuid, timestamp) AS exposure_event_uuid,
+                    argMin(exposure_session_id, timestamp) AS exposure_session_id
+                    -- breakdown columns added programmatically below
+                FROM {inner_query}
                 GROUP BY entity_id
                 -- breakdown columns added programmatically below
             """,
             placeholders={
-                "entity_key": parse_expr(self.context.entity_key),
-                "variant_expr": self.build_variant_expr_for_mean(),
-                "exposure_predicate": self.build_exposure_predicate(),
+                "inner_query": inner_query,
+                "variant_expr": self.build_variant_expr_for_mean(variant_property=ast.Field(chain=["variant_value"])),
             },
         )
         assert isinstance(exposure_query, ast.SelectQuery)
@@ -293,10 +333,26 @@ class ExposureQueryBuilder:
             # (from their first exposure), preventing duplicate counting when users
             # have multiple exposures with different breakdown property values
             for alias, expr in breakdown_exprs:
-                # Use argMin to attribute breakdown value from first exposure
-                # This matches the variant attribution logic
-                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                # Project the raw breakdown value in the inner scope, then argMin over the projected
+                # column in the outer aggregation (matching the variant attribution logic).
+                raw_alias = f"{alias}_raw"
+                inner_query.select.append(ast.Alias(alias=raw_alias, expr=expr))
+                breakdown_attributed = parse_expr(
+                    "argMin({raw}, timestamp)", placeholders={"raw": ast.Field(chain=[raw_alias])}
+                )
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
+
+        # Attribute extra raw-event fields (data warehouse join keys) to first exposure. Project the
+        # raw value in the inner scope, then argMin over the projected column in the outer aggregation.
+        for alias, raw_expr in attribution_fields or []:
+            raw_alias = f"{alias}_raw"
+            inner_query.select.append(ast.Alias(alias=raw_alias, expr=raw_expr))
+            exposure_query.select.append(
+                ast.Alias(
+                    alias=alias,
+                    expr=parse_expr("argMin({raw}, timestamp)", placeholders={"raw": ast.Field(chain=[raw_alias])}),
+                )
+            )
 
         # Filter out users whose conversion window hasn't elapsed yet
         maturity_having = self._maturity_having()
@@ -416,23 +472,32 @@ class ExposureQueryBuilder:
 
         return query_string, placeholders
 
-    def build_variant_expr_for_mean(self) -> ast.Expr:
+    def build_variant_expr_for_mean(self, variant_property: ast.Expr | None = None) -> ast.Expr:
         """
         Builds the variant selection expression for mean metrics based on multiple variant handling.
+
+        ``variant_property`` overrides the expression the aggregation runs over. Callers that
+        aggregate over the raw event property directly in a person-overrides join block must
+        instead project the property in an inner scope and pass the projected column here — a bare
+        ``uniqExact``/``any`` over a materialized property grouped by the person-join key fails to
+        resolve in the ClickHouse analyzer ("Not found column ... in block"). Defaults to the raw
+        property for callers that already run in a flat scope.
         """
+        if variant_property is None:
+            variant_property = self.build_variant_property()
 
         if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
                 "argMin({variant_property}, timestamp)",
                 placeholders={
-                    "variant_property": self.build_variant_property(),
+                    "variant_property": variant_property,
                 },
             )
         else:
             return parse_expr(
                 "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
-                    "variant_property": self.build_variant_property(),
+                    "variant_property": variant_property,
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )

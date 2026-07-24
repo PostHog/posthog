@@ -3,7 +3,13 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from posthog.test.base import (
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    materialized,
+    snapshot_clickhouse_queries,
+)
 
 from django.test import override_settings
 
@@ -1297,3 +1303,62 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(result.baseline.sum, 1)
         self.assertEqual(result.variant_results[0].sum, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_mean_metric_with_materialized_feature_flag_response(self):
+        # Regression: with the default EXCLUDE multiple-variant handling, the exposure query
+        # aggregates the variant with if(uniqExact(...) > 1, ..., any(...)) over $feature_flag_response.
+        # When that property is a materialized column and the aggregation is grouped over the
+        # person-overrides join key, ClickHouse fails to resolve the aggregate ("Not found column
+        # uniqExact(...) in block"), so results can't load at all. Materialize the column so the
+        # query runs the exact shape that broke in production.
+        with materialized("events", "$feature_flag_response"):
+            feature_flag = self.create_feature_flag()
+            experiment = self.create_experiment(feature_flag=feature_flag)
+
+            metric = ExperimentMeanMetric(
+                source=EventsNode(
+                    event="purchase",
+                    math=ExperimentMetricMathType.SUM,
+                    math_property="amount",
+                ),
+            )
+            experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+            experiment.metrics = [metric.model_dump(mode="json")]
+            experiment.save()
+
+            feature_flag_property = f"$feature/{feature_flag.key}"
+            for variant, purchase_count in [("control", 6), ("test", 8)]:
+                for i in range(10):
+                    _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                    _create_event(
+                        team=self.team,
+                        event="$feature_flag_called",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:00:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "$feature_flag_response": variant,
+                            "$feature_flag": feature_flag.key,
+                        },
+                    )
+                    if i < purchase_count:
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_{variant}_{i}",
+                            timestamp="2020-01-02T12:01:00Z",
+                            properties={feature_flag_property: variant, "amount": 10},
+                        )
+
+            flush_persons_and_events()
+
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+            assert result.baseline is not None
+            assert result.variant_results is not None
+            self.assertEqual(result.baseline.sum, 60)
+            self.assertEqual(result.variant_results[0].sum, 80)
+            self.assertEqual(result.baseline.number_of_samples, 10)
+            self.assertEqual(result.variant_results[0].number_of_samples, 10)

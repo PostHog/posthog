@@ -173,24 +173,15 @@ class MeanQueryBuilder:
         # Use MetricSourceInfo abstraction for source metadata
         source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
 
-        # Build exposure query with exposure_identifier for data warehouse
-        exposure_query = self._b._get_exposure_query()
+        # Build exposure query with exposure_identifier for data warehouse. The identifier is attributed
+        # to the first exposure via argMin (from first exposure) — this prevents fan-out when a user has
+        # multiple exposures with different join key values, without adding it to GROUP BY.
+        attribution_fields: list[tuple[str, ast.Expr]] = []
         if source_info.kind == "datawarehouse":
             assert isinstance(self._b.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self._b.metric.source.events_join_key.split("."))
-
-            # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-            # This prevents fan-out when a user has multiple exposures with different join key values
-            exposure_query.select.append(
-                ast.Alias(
-                    alias="exposure_identifier",
-                    expr=ast.Call(
-                        name="argMin",
-                        args=[ast.Field(chain=events_join_key_parts), ast.Field(chain=["timestamp"])],
-                    ),
-                )
-            )
-            # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
+            attribution_fields.append(("exposure_identifier", ast.Field(chain=events_join_key_parts)))
+        exposure_query = self._b._get_exposure_query(attribution_fields=attribution_fields)
 
         metric_predicate = self._b._build_metric_predicate(
             table_alias=source_info.table_name,

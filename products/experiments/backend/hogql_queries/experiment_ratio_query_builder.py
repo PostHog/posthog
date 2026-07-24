@@ -232,44 +232,22 @@ class RatioQueryBuilder:
         denom_entity_field = denom_source_info.entity_key
         denom_timestamp_field = denom_source_info.timestamp_field
 
-        # Build exposure query with conditional exposure_identifier(s)
-        exposure_query = self._b._get_exposure_query()
-        if num_source_info.kind == "datawarehouse" or denom_source_info.kind == "datawarehouse":
-            # Add exposure_identifier fields for data warehouse joins
-            # Support different join keys for numerator and denominator
-            if num_source_info.kind == "datawarehouse":
-                num_source = cast(ExperimentDataWarehouseNode, self._b.metric.numerator)
-                num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
+        # Build exposure query with conditional exposure_identifier(s). Each identifier is attributed to
+        # the first exposure via argMin — this prevents fan-out when a user has multiple exposures with
+        # different join key values, without adding it to GROUP BY. Numerator and denominator can use
+        # different join keys.
+        attribution_fields: list[tuple[str, ast.Expr]] = []
+        if num_source_info.kind == "datawarehouse":
+            num_source = cast(ExperimentDataWarehouseNode, self._b.metric.numerator)
+            num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
+            attribution_fields.append(("exposure_identifier_num", ast.Field(chain=num_join_key_parts)))
 
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
-                exposure_query.select.append(
-                    ast.Alias(
-                        alias="exposure_identifier_num",
-                        expr=ast.Call(
-                            name="argMin",
-                            args=[ast.Field(chain=num_join_key_parts), ast.Field(chain=["timestamp"])],
-                        ),
-                    )
-                )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
+        if denom_source_info.kind == "datawarehouse":
+            denom_source = cast(ExperimentDataWarehouseNode, self._b.metric.denominator)
+            denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
+            attribution_fields.append(("exposure_identifier_denom", ast.Field(chain=denom_join_key_parts)))
 
-            if denom_source_info.kind == "datawarehouse":
-                denom_source = cast(ExperimentDataWarehouseNode, self._b.metric.denominator)
-                denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
-
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
-                exposure_query.select.append(
-                    ast.Alias(
-                        alias="exposure_identifier_denom",
-                        expr=ast.Call(
-                            name="argMin",
-                            args=[ast.Field(chain=denom_join_key_parts), ast.Field(chain=["timestamp"])],
-                        ),
-                    )
-                )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
+        exposure_query = self._b._get_exposure_query(attribution_fields=attribution_fields)
 
         # Build join conditions for pre-aggregation CTEs based on DW scenario
         if num_source_info.kind == "datawarehouse":
