@@ -824,6 +824,34 @@ class TestCDCExtractActivity:
 
         mock_get_adapter.assert_not_called()
 
+    @patch("products.data_warehouse.backend.facade.api.delete_cdc_extraction_schedule")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unsupported_source_type_self_heals_schedule(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_delete_schedule,
+    ):
+        # A source whose type has no CDC adapter (e.g. MSSQL) must delete its own schedule
+        # instead of raising on every tick and retrying forever.
+        source = _make_source()
+        source.source_type = "MSSQL"
+        MockSourceModel.objects.get.return_value = source
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_delete_schedule.assert_called_once_with(str(source.id))
+        mock_get_schemas.assert_not_called()
+        mock_get_adapter.assert_not_called()
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
