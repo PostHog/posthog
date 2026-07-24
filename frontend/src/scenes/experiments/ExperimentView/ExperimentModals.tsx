@@ -215,7 +215,6 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
@@ -290,7 +289,6 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
-                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -394,7 +392,7 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    {!conclusionFirst && <ConclusionForm />}
+                    <ConclusionForm />
                     {cleanupPrAvailable && (
                         <LemonCheckbox
                             checked={openCleanupPr}

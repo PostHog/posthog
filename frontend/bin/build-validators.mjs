@@ -27,7 +27,6 @@ ajv.addSchema(schema)
 const validators = [
     'AnyPropertyFilter',
     'WebAnalyticsPropertyFilters',
-    'RevenueAnalyticsPropertyFilters',
     'SessionPropertyFilter',
     'CompareFilter',
     'ExperimentMetric',

@@ -4,6 +4,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from clickhouse_driver.errors import ServerException
+
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.warehouse_sources.backend.models.table import DataWarehouseTable, run_chdb_query
 
 
@@ -33,6 +37,16 @@ class TestDataWarehouseTableColumnOrder(BaseTest):
         table.set_columns({"z": {"clickhouse": "String"}, "a": {"clickhouse": "String"}})
 
         assert table.column_order == ["z", "a"]
+
+
+class TestSafeExposeChError:
+    # ClickHouseAtCapacity is a DRF APIException with no `.message`, so the capacity check
+    # must run before the message-matching loop — reordering them would reintroduce an
+    # AttributeError on every capacity error during column introspection.
+    @pytest.mark.parametrize("code", [202, 439])  # TOO_MANY_SIMULTANEOUS_QUERIES, CANNOT_SCHEDULE_TASK
+    def test_capacity_errors_surface_as_clickhouse_at_capacity(self, code: int) -> None:
+        with pytest.raises(ClickHouseAtCapacity):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
 
 class TestRunChdbQuery:
