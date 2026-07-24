@@ -87,7 +87,7 @@ SESSION_OVERLAP_BUFFER = timedelta(days=1)
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
 
-# One row per $session_id, aggregated straight from events. The column shape
+# One row per $session_id, aggregated from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
 # if per-team volume ever warrants materialising it. __SEARCH__ / __ORDER__ are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
@@ -99,30 +99,45 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # why a session straddling the window boundary reports full (not clipped) start/end/
 # duration/count, and why its detail view (bounded by session_start) shows every event.
 #
-# NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
-# `$session_id` is a materialised events column; the `properties.` accessor renders it
-# null-wrapped in SELECT but the raw column in HAVING/ORDER, so the search HAVING would
-# mismatch the GROUP BY key and ClickHouse rejects it. The bare field renders the raw
-# column consistently across SELECT/GROUP/HAVING/ORDER.
+# The event scan and $session_id resolution live in an inner subquery; the outer
+# GROUP BY / HAVING / ORDER only touch the plain `session_id` alias and aggregate
+# outputs. Referencing the raw `$session_id` field directly in an aggregating query's
+# GROUP BY/ORDER makes ClickHouse intermittently reject the query with "Not found
+# column `$session_id` in block" (the aggregation projection prints the special
+# `$`-prefixed identifier inconsistently). Resolving it once in the subquery keeps the
+# special field out of the aggregation scope entirely — the same shape the sibling
+# harness-breakdown query uses. The subquery keeps the event + timestamp WHERE filters,
+# so the events sort key still prunes the scan.
 _MCP_SESSIONS_SQL = """
 SELECT
-    $session_id AS session_id,
+    session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     count() AS tool_call_count,
-    groupUniqArray(properties.$mcp_tool_name) AS tools_used,
-    argMax(distinct_id, timestamp) AS distinct_id,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name
-FROM events
-WHERE event = {event}
-    -- Buffered range so an overlapping session's events outside the window still
-    -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
-    AND timestamp >= {scan_from}
-    AND timestamp <= {scan_to}
-    -- $session_id is a materialised String column — '' (not NULL) for sessionless
-    -- events — so a bare `!= ''` drops them without a coalesce.
-    AND $session_id != ''
+    groupUniqArray(tool_name) AS tools_used,
+    argMax(event_distinct_id, timestamp) AS distinct_id,
+    argMax(client_name, timestamp) AS mcp_client_name
+FROM (
+    -- Inner columns are named so they don't collide with the outer aggregate aliases
+    -- (distinct_id / mcp_client_name); the post-aggregation search HAVING then resolves
+    -- those names unambiguously to the aggregates, not the raw per-event columns.
+    SELECT
+        $session_id AS session_id,
+        timestamp,
+        distinct_id AS event_distinct_id,
+        properties.$mcp_tool_name AS tool_name,
+        properties.$mcp_client_name AS client_name
+    FROM events
+    WHERE event = {event}
+        -- Buffered range so an overlapping session's events outside the window still
+        -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
+        -- $session_id is a materialised String column — '' (not NULL) for sessionless
+        -- events — so a bare `!= ''` drops them without a coalesce.
+        AND $session_id != ''
+)
 GROUP BY session_id
 -- Session-level inclusion: at least one event inside the requested window.
 HAVING countIf(timestamp >= {window_from} AND timestamp <= {window_to}) > 0

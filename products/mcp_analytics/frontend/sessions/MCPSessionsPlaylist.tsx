@@ -136,7 +136,7 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 function SessionsListPanel(): JSX.Element {
     const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting, selectSession } =
         useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId } =
+    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId, loadError } =
         useValues(mcpSessionsLogic)
 
     return (
@@ -203,6 +203,15 @@ function SessionsListPanel(): JSX.Element {
                         {Array.from({ length: 6 }).map((_, i) => (
                             <Skeleton key={i} className="h-12 w-full" />
                         ))}
+                    </div>
+                ) : loadError && sessions.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 p-4 text-center text-sm text-secondary">
+                        <span>Could not load MCP sessions.</span>
+                        <div data-quill>
+                            <Button variant="outline" size="sm" onClick={() => loadSessions()}>
+                                Try again
+                            </Button>
+                        </div>
                     </div>
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">No MCP sessions yet</div>
