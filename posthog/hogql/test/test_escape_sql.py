@@ -29,13 +29,17 @@ _ROUNDTRIP_IDENTIFIER_SAMPLES = [
     "`a\\`b`",
     "with space",
     "a.b.c",
+    "$session_id",
 ]
 
 
 class TestPrintString(BaseTest):
     def test_sanitize_hogql_identifier(self):
         self.assertEqual(escape_hogql_identifier("a"), "a")
-        self.assertEqual(escape_hogql_identifier("$browser"), "$browser")
+        # `$`-containing names are backtick-quoted, matching escape_clickhouse_identifier.
+        self.assertEqual(escape_hogql_identifier("$browser"), "`$browser`")
+        self.assertEqual(escape_hogql_identifier("$session_id"), "`$session_id`")
+        self.assertEqual(escape_hogql_identifier("mat_$ai_trace_id"), "`mat_$ai_trace_id`")
         self.assertEqual(escape_hogql_identifier("0asd"), "`0asd`")
         self.assertEqual(escape_hogql_identifier("123"), "`123`")
         self.assertEqual(escape_hogql_identifier("event"), "event")

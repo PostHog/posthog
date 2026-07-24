@@ -241,7 +241,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.warnings[0].message,
             "Property 'country_code' was not found in this project taxonomy. Did you mean '$geoip_country_code'?",
         )
-        self.assertEqual(metadata.warnings[0].fix, "properties.$geoip_country_code")
+        self.assertEqual(metadata.warnings[0].fix, "properties.`$geoip_country_code`")
 
     def test_metadata_warns_for_unknown_property_array_access(self):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
@@ -309,7 +309,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         warning = self._select(query).warnings[0]
 
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
-        self.assertEqual(replaced, "SELECT properties.$geoip_country_code FROM events")
+        self.assertEqual(replaced, "SELECT properties.`$geoip_country_code` FROM events")
 
     def test_metadata_event_literal_fix_escapes_quote_in_suggestion(self):
         EventDefinition.objects.create(team=self.team, name="o'brien")

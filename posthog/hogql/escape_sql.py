@@ -38,16 +38,19 @@ def escape_param_clickhouse(value: str) -> str:
     return "'{}'".format("".join(singlequote_escape_chars_map.get(c, c) for c in str(value)))
 
 
-# Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
+# Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_hogql_identifier(identifier: str | int) -> str:
     if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
         return str(identifier)
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
-    # HogQL allows dollars in the identifier.
-    if re.match(
-        r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
-    ):  # Same regex as the frontend escapePropertyAsHogQlIdentifier
+    # Keep this in lockstep with escape_clickhouse_identifier: `$` is NOT a bare-identifier character here, so a
+    # `$`-containing name is backtick-quoted in both escapers. When the two disagreed (HogQL left `$` bare while
+    # ClickHouse quoted it), the alias derived from an expression's HogQL print left `$` bare, e.g.
+    # `any(events.`$session_id`) AS `any(events.$session_id)``, spelling the same column two ways in one query.
+    # ClickHouse's distributed execution then rejects it with NotFoundColumnInBlock when matching the coordinator
+    # projection against the remote block's column list.
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
