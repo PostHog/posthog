@@ -88,9 +88,17 @@ def join_with_error_tracking_fingerprint_issue_state_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name="cityHash64",
-                args=[ast.Field(chain=[join_to_add.from_table, "properties", "$exception_fingerprint"])],
+            # Alias the hash so ClickHouse names this join-key column after the alias rather than deriving
+            # a name from the expression. When `$exception_fingerprint` is a materialized column, that read
+            # becomes `mat_$exception_fingerprint`, whose `$` forces backtick-quoting; the derived names then
+            # differ only in backtick quoting (`cityHash64(mat_$exception_fingerprint)` vs the backticked
+            # form) and ClickHouse's analyzer can't reconcile them, failing the query with "Not found column".
+            left=ast.Alias(
+                alias="event_fingerprint_hash",
+                expr=ast.Call(
+                    name="cityHash64",
+                    args=[ast.Field(chain=[join_to_add.from_table, "properties", "$exception_fingerprint"])],
+                ),
             ),
             right=ast.Field(chain=[join_to_add.to_table, "fp_hash"]),
         ),
