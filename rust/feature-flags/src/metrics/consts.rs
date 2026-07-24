@@ -26,7 +26,7 @@ pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_fi
 // Incremented once per cohort whose filters fail dependency extraction or evaluation
 // with CohortFiltersParsingError — most commonly a malformed leaf of a known type
 // (CohortValuesItem::MalformedKnownType), but also excessive nesting depth or other
-// structural errors. Cohort and team ids are in the companion warn log, not metric
+// structural errors. Cohort and team ids are in the companion debug log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on

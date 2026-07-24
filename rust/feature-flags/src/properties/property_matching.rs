@@ -396,7 +396,7 @@ pub fn match_property(
                 to_f64_representation(&bounds[0]),
                 to_f64_representation(&bounds[1]),
             ) {
-                (Some(low), Some(high)) => (low, high),
+                (Some(low), Some(high)) if !low.is_nan() && !high.is_nan() => (low, high),
                 _ => {
                     return Err(FlagMatchingError::ValidationError(
                         "between/not_between operator requires numeric values".to_string(),
@@ -1657,8 +1657,15 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Missing person property is not a match
+        // Missing person property is not a match, for both between and not_between
         assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        assert!(
+            !match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
+        );
 
         // Non-numeric person property value is a validation error (like Gt/Lt), which
         // cohort evaluation resolves to a non-match
@@ -1689,6 +1696,8 @@ mod test_match_properties {
     #[test_case(json!([70000, 75000, 80000]); "three elements")]
     #[test_case(json!(["a", "b"]); "non-numeric bounds")]
     #[test_case(json!([80000, 70000]); "min greater than max")]
+    #[test_case(json!(["NaN", 80000]); "NaN lower bound")]
+    #[test_case(json!([70000, "NaN"]); "NaN upper bound")]
     fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
         for operator in [OperatorType::Between, OperatorType::NotBetween] {
             let property = PropertyFilter {
