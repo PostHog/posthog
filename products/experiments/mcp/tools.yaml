@@ -919,11 +919,16 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get experiment timeseries results
+        title: Get experiment metric results over time
         description: >
-            Get day-by-day experiment results for a specific metric. Requires metric_uuid and fingerprint as query
-            parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint
-            is computed from its configuration).
+            Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the
+            experiment. For an experiment's current results across all metrics, which is what "how is this experiment
+            doing" almost always means, use experiments-metrics-recalculation-latest instead.
+
+
+            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
+            — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to
+            fetch the experiment first.
 
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,
@@ -1128,13 +1133,108 @@ tools:
         enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Recalculate experiment metrics
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Start a fresh calculation of every metric on this experiment against the latest data. Use this when the user
+            asks to refresh, recalculate, or re-run results, or when results returned by
+            experiments-metrics-recalculation-latest look stale. Reading results does NOT trigger a new run — this tool
+            is the only way to start one.
+
+
+            This queues background work that can take minutes on large experiments. Safe to call more than once: if a
+            run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of
+            starting a second one.
+
+
+            The response has no results array — the run has only just been queued. Take the returned id and poll
+            experiments-metrics-recalculation-retrieve with it, or call experiments-metrics-recalculation-latest, until
+            status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight
+            loop; wait a few seconds between checks.
+        param_overrides:
+            id:
+                cast: string-int
     experiments-metrics-recalculation-latest-retrieve:
         operation: experiments_metrics_recalculation_latest_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Get experiment results
+        description: >
+            The default way to read an experiment's current results. Requires an experiment ID. If you don't have the
+            ID, load the finding-experiments skill to resolve the user's reference first. To interpret what the numbers
+            mean, load the diagnosing-experiment-results skill.
+
+
+            Returns the most recent completed metrics run for the experiment: a results array with one entry per metric,
+            each carrying per-variant statistics (exposures, counts, means, credible intervals, chance to beat control,
+            significance), plus run-level status, created_at, completed_at, and query_to (the data freshness cutoff
+            these numbers were computed against — use it to tell the user how fresh the results are).
+
+
+            This is a pure read and never starts a calculation, so the numbers can be stale. If the user wants fresh
+            numbers, or query_to is old, call experiments-metrics-recalculation-create and then poll.
+
+
+            Two fields matter for reading the response correctly. active_run is present when a run is currently
+            executing — the returned results are from the previous run, and you can poll active_run.id with
+            experiments-metrics-recalculation-retrieve for live progress. result_source is 'timeseries_fallback' when
+            the experiment has never completed a run and these numbers are a cold-start placeholder built from daily
+            timeseries data, rather than 'recalculation' for a real run; say so if you report those numbers.
+
+
+            Returns 404 when the experiment has no results at all yet, which usually means it has not run long enough or
+            has never been calculated.
+        param_overrides:
+            id:
+                cast: string-int
     experiments-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Get experiment recalculation run
+        description: >
+            Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a
+            run you started with experiments-metrics-recalculation-create, or the active_run.id returned by
+            experiments-metrics-recalculation-latest.
+
+
+            To read an experiment's current results without a specific run id, use
+            experiments-metrics-recalculation-latest instead.
+
+
+            Returns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and
+            failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once
+            metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics
+            between failed attempts; ignore entries for metrics that already have a result, as those are stale.
+
+
+            Returns 404 if the run id does not exist or belongs to a different experiment.
+        param_overrides:
+            id:
+                cast: string-int
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve
         enabled: false
