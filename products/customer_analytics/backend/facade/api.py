@@ -566,6 +566,7 @@ def set_external_account_custom_properties(
     *,
     properties: dict[str, Any],
     created_by_id: int | None = None,
+    workflow_id: str | None = None,
 ) -> contracts.ExternalAccountCustomPropertiesResult:
     """Set custom property values on an account by definition id, for the external API.
 
@@ -594,6 +595,7 @@ def set_external_account_custom_properties(
                 account_id=account.id,
                 properties=properties,
                 created_by_id=created_by_id,
+                workflow_id=workflow_id,
             )
     except _custom_property_values_logic.CustomPropertyDefinitionNotFound as exc:
         return contracts.ExternalAccountCustomPropertiesResult(
@@ -2392,7 +2394,7 @@ def set_custom_property_value(
     definition_id: str | UUID,
     value: Any,
     *,
-    created_by_id: int | None = None,
+    actor: "User | None" = None,
 ) -> contracts.CustomPropertyValue:
     if _source_backed_definition_ids(team_id, [definition_id]):
         raise CustomPropertyValueSourceManaged(
@@ -2403,7 +2405,8 @@ def set_custom_property_value(
         account_id=account_id,
         definition_id=definition_id,
         value=value,
-        created_by_id=created_by_id,
+        created_by_id=actor.id if actor else None,
+        actor=actor,
     )
     return _to_custom_property_value(row)
 

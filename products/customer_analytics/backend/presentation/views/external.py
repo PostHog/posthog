@@ -550,7 +550,9 @@ class ExternalAccountCustomPropertiesView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        result = facade.set_external_account_custom_properties(team.id, external_id, properties=data["properties"])
+        result = facade.set_external_account_custom_properties(
+            team.id, external_id, properties=data["properties"], workflow_id=_workflow_id_from_request(request)
+        )
         if result.values is None:
             return _custom_properties_error_response(result)
 
