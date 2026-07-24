@@ -9,7 +9,7 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
-from django.http import HttpRequest, StreamingHttpResponse
+from django.http import HttpRequest
 from django.http.response import HttpResponseBase
 from django.shortcuts import render
 from django.template.loader import render_to_string
@@ -20,6 +20,7 @@ from django.utils.safestring import SafeString
 import structlog
 
 from posthog.admin.inline_registry import register_admin_inline
+from posthog.api.streaming import streaming_response
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
@@ -491,7 +492,9 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
             yield tail
 
-        return StreamingHttpResponse(_stream())
+        # No ORM work happens inside the stream (inputs are prefetched above), so the
+        # request-thread connections can be released before streaming starts.
+        return streaming_response(_stream(), content_type="text/html; charset=utf-8")
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         # A new version is almost always a tweak of the newest one: prefill everything
