@@ -10,7 +10,6 @@ metadata:
         app.kubernetes.io/instance: test-release
         app.kubernetes.io/version: "latest"
         app.kubernetes.io/managed-by: Helm
-
 ---
 # Source: posthog-metrics-agent/templates/secret.yaml
 apiVersion: v1
@@ -26,7 +25,6 @@ metadata:
 type: Opaque
 data:
     posthog-api-key: cGhjX3Rlc3Q=
-
 ---
 # Source: posthog-metrics-agent/templates/configmap.yaml
 apiVersion: v1
@@ -41,7 +39,6 @@ metadata:
         app.kubernetes.io/managed-by: Helm
 data:
     config.yaml: |
-        
         receivers:
             prometheus:
                 config:
@@ -71,7 +68,6 @@ data:
                               - source_labels: [__meta_kubernetes_pod_name]
                                 action: replace
                                 target_label: pod
-        
         processors:
             # Shed load instead of buffering unbounded memory when PostHog is unreachable.
             memory_limiter:
@@ -79,7 +75,6 @@ data:
                 limit_mib: 512
                 spike_limit_mib: 128
             batch:
-        
         exporters:
             otlphttp:
                 # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
@@ -90,11 +85,9 @@ data:
                     authorization: 'Bearer ${env:POSTHOG_API_KEY}'
                 retry_on_failure:
                     enabled: true
-        
         extensions:
             health_check:
                 endpoint: 0.0.0.0:13133
-        
         service:
             extensions: [health_check]
             pipelines:
@@ -102,7 +95,6 @@ data:
                     receivers: [prometheus]
                     processors: [memory_limiter, batch]
                     exporters: [otlphttp]
-
 ---
 # Source: posthog-metrics-agent/templates/clusterrole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -123,7 +115,6 @@ rules:
     - apiGroups: [discovery.k8s.io]
       resources: [endpointslices]
       verbs: [get, list, watch]
-
 ---
 # Source: posthog-metrics-agent/templates/clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -144,7 +135,6 @@ subjects:
     - kind: ServiceAccount
       name: test-release-posthog-metrics-agent
       namespace: default
-
 ---
 # Source: posthog-metrics-agent/templates/deployment.yaml
 apiVersion: apps/v1
