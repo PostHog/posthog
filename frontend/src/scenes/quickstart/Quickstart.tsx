@@ -1536,7 +1536,7 @@ const INSTALL_MODE_CARDS: {
     {
         value: 'local',
         title: 'Agent runs in your terminal',
-        description: 'One command. It edits your code locally and you commit.',
+        description: 'One command. It edits your code locally and you commit. We pay for the inference.',
         icon: <IconTerminal />,
     },
     {
