@@ -57,7 +57,7 @@ let res := fetch('https://a.klaviyo.com/api/profile-import', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Klaviyo-API-Key {inputs.apiKey}',
-        'revision': '2024-10-15',
+        'revision': '2026-04-15',
         'Content-Type': 'application/json'
     },
     'body': body
@@ -195,7 +195,7 @@ let res := fetch('https://a.klaviyo.com/api/events', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Klaviyo-API-Key {inputs.apiKey}',
-        'revision': '2024-10-15',
+        'revision': '2026-04-15',
         'Content-Type': 'application/json'
     },
     'body': body
