@@ -49,14 +49,14 @@ CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> bool:
     """Post to the review channel when a request is submitted for ClickHouse Team approval.
 
-    Returns True when the channel was notified or no webhook is configured (nothing to do), and
-    False when a configured webhook POST failed — the caller surfaces that so the operator can
-    post the request manually. Never raises: a flaky Slack POST must not roll back the submit.
+    Returns True only when the channel was actually notified; False when it wasn't — the POST
+    failed, or no webhook is configured. The caller surfaces that so the operator can post the
+    request manually. Never raises: a flaky Slack POST must not roll back the submit.
     """
     webhook_url = settings.DATA_DELETION_SLACK_WEBHOOK_URL
     if not webhook_url:
         logger.info("data_deletion_slack_not_configured", request_id=str(obj.pk))
-        return True
+        return False
 
     # The email local part is usually the submitter's Slack handle, so render it as a mention.
     # A plain "@handle" won't hard-ping without the Slack member id, but it lets a reviewer spot
@@ -693,8 +693,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             else:
                 messages.warning(
                     request,
-                    "Request submitted and is now pending ClickHouse Team approval, but notifying the review "
-                    "channel on Slack failed. Please post the request link in the channel manually.",
+                    "Request submitted and is now pending ClickHouse Team approval, but the review channel "
+                    "on Slack was not notified. Please post the request link in the channel manually.",
                 )
         else:
             messages.success(

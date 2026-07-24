@@ -455,20 +455,21 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertIn("@jane.doe", body)
         self.assertNotIn("jane.doe@posthog.com", body)
 
-    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
     @parameterized.expand(
         [
-            ("slack_sent", None, "success"),
-            ("slack_failed", requests.RequestException("boom"), "warning"),
+            ("slack_sent", "https://hooks.slack.test/T/B/xxx", None, "success"),
+            ("slack_failed", "https://hooks.slack.test/T/B/xxx", requests.RequestException("boom"), "warning"),
+            ("webhook_not_configured", "", None, "warning"),
         ]
     )
-    def test_submit_message_reflects_slack_delivery(self, _name, post_side_effect, expected_level):
+    def test_submit_message_reflects_slack_delivery(self, _name, webhook_url, post_side_effect, expected_level):
         request = self._property_removal_request(properties=["$ip"])
         path = f"/admin/posthog/datadeletionrequest/{request.pk}/submit/"
         http_request = self.factory.post(path, {})
         http_request.user = self.user
         _attach_messages(http_request)
         with (
+            override_settings(DATA_DELETION_SLACK_WEBHOOK_URL=webhook_url),
             patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse),
             patch(
                 "posthog.admin.admins.data_deletion_request_admin.requests.post",
@@ -477,12 +478,11 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         ):
             response = self.admin.submit_view(http_request, str(request.pk))
 
-        # A Slack failure must never roll back the submit...
+        # A failed or unconfigured Slack notification must never roll back the submit...
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.PENDING)
-        # ...but the operator's flash message must reflect whether the review channel was notified,
-        # rather than always claiming plain success.
+        # ...but the operator is told plain success only when the review channel was actually notified.
         levels = [m.level_tag for m in get_messages(http_request)]
         self.assertEqual(levels, [expected_level])
 
