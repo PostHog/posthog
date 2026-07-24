@@ -1,0 +1,47 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .dryrun-meta { color: var(--body-quiet-color, #666); margin-bottom: 16px; }
+    table.dryrun-results { border-collapse: collapse; width: 100%; }
+    table.dryrun-results th, table.dryrun-results td {
+        text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--hairline-color, #e8e8e8);
+        vertical-align: top;
+    }
+    table.dryrun-results th { text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
+    .verdict { font-weight: 700; text-transform: uppercase; font-size: 12px; }
+    .verdict-true { color: #2f9e44; }
+    .verdict-false { color: #e03131; }
+    .verdict-unknown { color: var(--body-quiet-color, #888); }
+    .verdict-error { color: #e8590c; }
+    .dryrun-summary { margin-top: 16px; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} <span style="opacity:0.6">(inactive)</span>{% endif %}</h1>
+<p class="dryrun-meta">
+    Model {{ config.model }} &middot;
+    {{ total }} most recent archived orgs{% if contains %} matching &ldquo;{{ contains }}&rdquo;{% endif %} &middot;
+    rows appear as verdicts come back &middot; nothing was persisted.
+</p>
+<div class="module">
+<table class="dryrun-results">
+    <thead>
+        <tr>
+            <th>Company</th>
+            <th>Domain</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+            <th>Reasoning</th>
+        </tr>
+    </thead>
+    <tbody>
+<!--ROWS-->
+    </tbody>
+</table>
+</div>
+<p class="dryrun-summary"><!--SUMMARY--></p>
+<p><a href="{% url 'admin:growth_enrichmentpromptconfig_changelist' %}" class="button">&larr; Back to prompt configs</a></p>
+{% endblock %}

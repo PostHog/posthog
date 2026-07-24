@@ -173,6 +173,12 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Append-only raw provider-payload archive written by the internal enrichment path;
         # no API endpoint, never looked up by user-supplied ID.
         "OrganizationEnrichmentFetch",
+        # Internal classifier config edited only via staff Django admin; no API endpoint,
+        # never looked up by user-supplied ID.
+        "EnrichmentPromptConfig",
+        # Shadow classifier output written only by the batch runner, read-only in admin;
+        # no API endpoint, never looked up by user-supplied ID.
+        "EnrichmentLabelResult",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",

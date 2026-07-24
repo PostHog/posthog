@@ -1,22 +1,42 @@
+import asyncio
+from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest
+from django.http.response import HttpResponseBase
+from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
 from django.utils.safestring import SafeString
 
 import structlog
 
 from posthog.admin.inline_registry import register_admin_inline
+from posthog.api.streaming import streaming_response
+from posthog.llm.gateway_client import get_llm_client
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.models import ProductPushCampaign
+from products.growth.backend.enrichment.labels import (
+    UNKNOWN,
+    classify_payload,
+    recent_latest_fetches_qs,
+    signup_domain_for_organization,
+)
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichmentFetch,
+    ProductPushCampaign,
+)
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -271,3 +291,288 @@ def _next_up_preview(organization: Organization) -> str:
 # Surface the inline on core's Organization admin page without core importing the
 # product. OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
 register_admin_inline(Organization, ProductPushCampaignInline)
+
+
+def _config_has_results(config: EnrichmentPromptConfig) -> bool:
+    return EnrichmentLabelResult.objects.filter(label_name=config.name, prompt_version=config.version).exists()
+
+
+# Runtime constraints only (the model keeps plain fields): curated gateway models and the
+# archived-Harmonic payload paths worth feeding a prompt. Extend freely; stored rows with
+# values outside these lists still render (choices are unioned with the instance's values).
+GATEWAY_MODEL_CHOICES = [
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "claude-fable-5",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+]
+
+HARMONIC_INPUT_FIELD_CHOICES = [
+    ("name", "Company name"),
+    ("description", "Description"),
+    ("website.url", "Website URL"),
+    ("companyType", "Company type"),
+    ("headcount", "Headcount"),
+    ("tagsV2", "Tags (tagsV2)"),
+    ("funding.fundingStage", "Funding stage"),
+    ("funding.fundingTotal", "Total funding"),
+    ("funding.lastFundingAt", "Last funding date"),
+    ("funding.investors", "Investors"),
+    ("location.country", "Country"),
+    ("foundingDate.date", "Founding date"),
+]
+
+
+class EnrichmentPromptConfigForm(forms.ModelForm):
+    """Label-owner-facing form: dropdowns and checkboxes instead of free text, so a new
+    version is a guided copy-and-tweak rather than hand-typed JSON."""
+
+    class Meta:
+        model = EnrichmentPromptConfig
+        fields = "__all__"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        instance: EnrichmentPromptConfig | None = self.instance if self.instance.pk else None
+        if "model" in self.fields:
+            models_list = list(GATEWAY_MODEL_CHOICES)
+            if instance and instance.model and instance.model not in models_list:
+                models_list.append(instance.model)
+            self.fields["model"] = forms.ChoiceField(
+                choices=[(m, m) for m in models_list],
+                help_text="Routed through the internal LLM gateway.",
+            )
+        if "input_fields" in self.fields:
+            paths = list(HARMONIC_INPUT_FIELD_CHOICES)
+            if instance:
+                known = {value for value, _ in paths}
+                paths += [(p, p) for p in instance.input_fields if p not in known]
+            self.fields["input_fields"] = forms.MultipleChoiceField(
+                choices=paths,
+                widget=forms.CheckboxSelectMultiple,
+                required=False,
+                label="Input fields",
+                help_text="Archived Harmonic payload fields passed to the prompt as the Company data block.",
+            )
+        if "version" in self.fields:
+            self.fields["version"].help_text = (
+                "Immutable once the batch runner stores results. Iterating = add a new row "
+                "with a new version, e.g. ai-pilled-v2."
+            )
+        if "prompt_text" in self.fields:
+            self.fields["prompt_text"].help_text = (
+                "{email} is replaced with the signup email domain at runtime. The JSON output "
+                "instruction is appended automatically - describe only the judgment."
+            )
+        if "is_active" in self.fields:
+            self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
+
+
+# Bounded so the synchronous admin dry-run stays a short page load, not a batch job.
+_DRY_RUN_SAMPLE = 10
+_DRY_RUN_MAX_SAMPLE = 100
+_DRY_RUN_WORKERS = 5
+
+
+@admin.register(EnrichmentPromptConfig)
+class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
+    form = EnrichmentPromptConfigForm
+    list_display = ("name", "version", "model", "is_active", "created_by", "created_at")
+    list_filter = ("name", "is_active")
+    search_fields = ("name", "version")
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    list_select_related = ("created_by",)
+    actions = ("dry_run_selected",)
+
+    @admin.action(description="Dry run on recent archived orgs (persists nothing)")
+    def dry_run_selected(self, request: HttpRequest, queryset: Any) -> HttpResponseBase | None:
+        config = queryset.first()
+        if config is None or queryset.count() != 1:
+            self.message_user(request, "Select exactly one config to dry-run.", level=messages.WARNING)
+            return None
+
+        # First POST comes from the changelist action; show the options page. The options
+        # page posts back with apply=1 (standard admin intermediate-page pattern).
+        if "apply" not in request.POST:
+            return render(
+                request,
+                "admin/growth/enrichment_dry_run_form.html",
+                {"config": config, "max_sample": _DRY_RUN_MAX_SAMPLE},
+            )
+
+        try:
+            sample = min(max(int(request.POST.get("sample") or _DRY_RUN_SAMPLE), 1), _DRY_RUN_MAX_SAMPLE)
+        except ValueError:
+            sample = _DRY_RUN_SAMPLE
+        contains = (request.POST.get("contains") or "").strip()
+
+        candidates = recent_latest_fetches_qs()
+        if contains:
+            candidates = candidates.filter(
+                Q(payload__name__icontains=contains) | Q(organization__name__icontains=contains)
+            )
+        fetches = list(candidates.select_related("organization")[:sample])
+
+        # All ORM work happens here on the request thread; workers only make LLM calls.
+        inputs = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
+        client = get_llm_client(product="growth")
+
+        def _classify(pair: tuple[OrganizationEnrichmentFetch, str | None]) -> dict[str, Any]:
+            fetch, signup_domain = pair
+            company = fetch.payload.get("name") or fetch.organization.name
+            try:
+                verdict = classify_payload(config, fetch.payload, signup_domain, client)
+            except Exception as e:
+                return {
+                    "company": company,
+                    "domain": signup_domain,
+                    "verdict": "ERROR",
+                    "confidence": "-",
+                    "reasoning": str(e)[:200],
+                }
+            return {
+                "company": company,
+                "domain": signup_domain,
+                "verdict": str(verdict.get(config.name)).lower(),
+                "confidence": f"{verdict.get('confidence', 0.0):.2f}",
+                "reasoning": verdict.get("reasoning", ""),
+            }
+
+        # Stream the results page: shell first, then one row per verdict as each LLM call
+        # completes, then the summary — a 100-org run shows progress instead of a blank wait.
+        shell = render_to_string(
+            "admin/growth/enrichment_dry_run.html",
+            {"config": config, "total": len(inputs), "contains": contains},
+            request=request,
+        )
+        head, rest = shell.split("<!--ROWS-->")
+        mid, tail = rest.split("<!--SUMMARY-->")
+
+        def _row_html(row: dict[str, Any]) -> str:
+            return format_html(
+                "<tr><td>{}</td><td>{}</td>"
+                '<td><span class="verdict verdict-{}">{}</span></td>'
+                "<td>{}</td><td>{}</td></tr>\n",
+                row["company"],
+                row["domain"] or "-",
+                row["verdict"].lower(),
+                row["verdict"],
+                row["confidence"],
+                row["reasoning"],
+            )
+
+        # Async iterator on purpose: under ASGI, Django fully buffers a *sync* iterator
+        # before sending anything, which silently defeats the streaming.
+        async def _stream() -> AsyncIterator[str]:
+            yield head
+            unknown = errors = 0
+            if not inputs:
+                yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
+            else:
+                loop = asyncio.get_running_loop()
+                pool = ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS)
+                try:
+                    for task in asyncio.as_completed([loop.run_in_executor(pool, _classify, pair) for pair in inputs]):
+                        row = await task
+                        unknown += row["verdict"] == UNKNOWN
+                        errors += row["verdict"] == "ERROR"
+                        yield _row_html(row)
+                finally:
+                    pool.shutdown(wait=False)
+            yield mid
+            yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
+            yield tail
+
+        # No ORM work happens inside the stream (inputs are prefetched above), so the
+        # request-thread connections can be released before streaming starts.
+        return streaming_response(_stream(), content_type="text/html; charset=utf-8")
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
+        # A new version is almost always a tweak of the newest one: prefill everything
+        # except the version string, which the owner must choose.
+        initial: dict[str, Any] = dict(super().get_changeform_initial_data(request))
+        latest = EnrichmentPromptConfig.objects.order_by("-created_at").first()
+        if latest is not None and "name" not in initial:
+            initial.update(
+                {
+                    "name": latest.name,
+                    "prompt_text": latest.prompt_text,
+                    "model": latest.model,
+                    "input_fields": latest.input_fields,
+                }
+            )
+        return initial
+
+    def get_readonly_fields(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> tuple[str, ...]:
+        readonly: tuple[str, ...] = ("id", "created_by", "created_at")
+        # Belt for the model save() guard: render the frozen fields read-only so the label
+        # owner sees "make a new version" instead of a save error.
+        if obj is not None and _config_has_results(obj):
+            readonly = (*readonly, *EnrichmentPromptConfig.FROZEN_FIELDS)
+        return readonly
+
+    def has_delete_permission(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> bool:
+        if obj is not None and _config_has_results(obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
+        # Bulk delete uses queryset.delete(), which skips the model's provenance guard —
+        # route through instance deletes so it always runs.
+        for config in queryset:
+            config.delete()
+
+    def save_model(self, request: HttpRequest, obj: EnrichmentPromptConfig, form: Any, change: bool) -> None:
+        if not change and request.user.is_authenticated:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(EnrichmentLabelResult)
+class EnrichmentLabelResultAdmin(admin.ModelAdmin):
+    """Read-only: rows are written only by the batch runner."""
+
+    list_display = ("organization_link", "label_name", "prompt_version", "verdict", "model", "created_at")
+    list_filter = ("label_name", "prompt_version")
+    search_fields = ("organization__name",)
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    list_select_related = ("organization",)
+    readonly_fields = (
+        "id",
+        "organization",
+        "fetch",
+        "label_name",
+        "prompt_version",
+        "prompt_hash",
+        "model",
+        "output",
+        "created_at",
+    )
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    @admin.display(description="Organization", ordering="organization__name")
+    def organization_link(self, result: EnrichmentLabelResult) -> SafeString:
+        url = reverse("admin:posthog_organization_change", args=[result.organization_id])
+        return format_html('<a href="{}">{}</a>', url, result.organization.name)
+
+    @admin.display(description="Verdict")
+    def verdict(self, result: EnrichmentLabelResult) -> str:
+        return str(result.output.get(result.label_name, "?"))

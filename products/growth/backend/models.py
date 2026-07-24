@@ -1,4 +1,9 @@
-from django.db import models
+import json
+import hashlib
+from typing import Any
+
+from django.core.exceptions import ValidationError
+from django.db import models, transaction
 from django.db.models import Q
 
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
@@ -140,6 +145,149 @@ class OrganizationEnrichmentFetch(UUIDModel):
         indexes = [
             models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time"),
         ]
+
+
+class EnrichmentPromptConfig(UUIDModel):
+    """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
+
+    Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
+    creating new rows through Django admin, without a deploy. A version is immutable once any
+    EnrichmentLabelResult references it — an in-place edit would silently invalidate every stored
+    result stamped with that version, and the idempotent batch runner would never recompute.
+
+    The guard lives in save()/delete(), so queryset update()/bulk_update()/raw SQL bypass it —
+    always mutate configs through instances (admin does).
+    """
+
+    # Everything that changes the classifier's behavior. An edit to any of these is a new
+    # version (new row), never an in-place change — see save().
+    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "input_fields")
+
+    # Label this config computes, e.g. "ai_pilled".
+    name = models.CharField(max_length=128)
+    # Human-readable classifier version, e.g. "ai-pilled-clay-v1".
+    version = models.CharField(max_length=128)
+    prompt_text = models.TextField()
+    model = models.CharField(max_length=128)
+    # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
+    input_fields = models.JSONField(default=list)
+    # The version the batch runner computes; at most one active row per label (enforced below).
+    is_active = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["name", "version"], name="growth_prompt_config_name_version"),
+            models.UniqueConstraint(
+                fields=["name"], condition=Q(is_active=True), name="growth_prompt_config_one_active"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} {self.version}"
+
+    @property
+    def content_hash(self) -> str:
+        """Hash of the behavior-defining fields, stamped onto every result so results stay
+        self-describing even if this row is later deleted."""
+        content = json.dumps(
+            {
+                "prompt_text": self.prompt_text,
+                "model": self.model,
+                "input_fields": self.input_fields,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def _has_results(self, name: str, version: str) -> bool:
+        return EnrichmentLabelResult.objects.filter(label_name=name, prompt_version=version).exists()
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.pk:
+            super().save(*args, **kwargs)
+            return
+        # Row lock pairs with the batch runner, which takes the same lock (and re-checks the
+        # content hash) before inserting each result — so edits and result creation serialize
+        # and neither side can invalidate the other mid-flight.
+        with transaction.atomic():
+            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
+            if persisted is not None and self._has_results(persisted.name, persisted.version):
+                changed = [f for f in self.FROZEN_FIELDS if getattr(self, f) != getattr(persisted, f)]
+                if changed:
+                    raise ValidationError(
+                        f"Config {persisted.name} {persisted.version} has stored results; "
+                        f"{', '.join(changed)} cannot change. Create a new row with a new version instead."
+                    )
+            super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        if not self.pk:
+            return super().delete(*args, **kwargs)
+        with transaction.atomic():
+            # Guard on the locked row's persisted values, not this instance's — a stale
+            # in-memory copy could otherwise pass the check against an old name/version.
+            persisted = EnrichmentPromptConfig.objects.select_for_update().filter(pk=self.pk).first()
+            if persisted is not None and self._has_results(persisted.name, persisted.version):
+                raise ValidationError(
+                    f"Config {persisted.name} {persisted.version} has stored results and is part of their "
+                    "provenance; deactivate it instead of deleting."
+                )
+            return super().delete(*args, **kwargs)
+
+
+class EnrichmentLabelResult(UUIDModel):
+    """One classifier verdict for one org under one prompt version, computed from one archived fetch.
+
+    Shadow-only in v0: nothing consumes these rows (no group/person properties, no events);
+    they are queryable in Postgres/warehouse only. Keying on the fetch means a re-enriched org
+    naturally gets recomputed under the same version instead of being frozen — which matters
+    most for `unknown` verdicts from empty payloads, which would otherwise be permanent.
+    """
+
+    # db_constraint=False keeps CreateModel off posthog_organization's lock path (hot table)
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="enrichment_label_results",
+    )
+    # Exactly which archived payload was classified.
+    fetch = models.ForeignKey(
+        "growth.OrganizationEnrichmentFetch",
+        on_delete=models.CASCADE,
+        related_name="label_results",
+    )
+    label_name = models.CharField(max_length=128)
+    prompt_version = models.CharField(max_length=128)
+    # EnrichmentPromptConfig.content_hash at compute time, so the result is self-describing
+    # even if the config row is deleted.
+    prompt_hash = models.CharField(max_length=64)
+    model = models.CharField(max_length=128)
+    # {"ai_pilled": true|false|"unknown", "confidence": float, "reasoning": str}
+    output = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "label_name", "prompt_version", "fetch"],
+                name="growth_label_result_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["label_name", "prompt_version"], name="growth_label_result_version"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization_id} {self.label_name} {self.prompt_version}"
 
 
 class EnrichmentSignupSnapshot(UUIDModel):
