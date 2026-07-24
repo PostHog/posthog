@@ -930,6 +930,74 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_lt_without_space_is_comparison_not_tag(self):
+            # A `<` written without a trailing space (e.g. `a<b and c`) must stay
+            # the comparison operator and not be misread as a HogQLX opening tag.
+            # Regression: the lexer's opening-tag heuristic used to enter tag mode
+            # for `<ident WS alnum` / `<ident WS >`, breaking saved queries with
+            # `expected ), got Gt`.
+            # `a<b and c` — comparison followed by AND, identical to the spaced form.
+            self.assertEqual(self._expr("a<b and c"), self._expr("a < b and c"))
+            self.assertEqual(
+                self._expr("a<b and c"),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["a"]),
+                            right=ast.Field(chain=["b"]),
+                            op=ast.CompareOperationOp.Lt,
+                        ),
+                        ast.Field(chain=["c"]),
+                    ],
+                ),
+            )
+            # `x <col > y` — chained comparison; the trailing `>` used to be
+            # re-tokenised as a tag close.
+            self.assertEqual(self._expr("x <col > y"), self._expr("x < col > y"))
+            self.assertEqual(
+                self._expr("x <col > y"),
+                ast.CompareOperation(
+                    left=ast.CompareOperation(
+                        left=ast.Field(chain=["x"]),
+                        right=ast.Field(chain=["col"]),
+                        op=ast.CompareOperationOp.Lt,
+                    ),
+                    right=ast.Field(chain=["y"]),
+                    op=ast.CompareOperationOp.Gt,
+                ),
+            )
+            # Two space-less comparisons joined by AND (numbers avoid any
+            # identifier-name ambiguity).
+            self.assertEqual(self._expr("1<2 and 3<4"), self._expr("1 < 2 and 3 < 4"))
+            # `a<b/c` — the `/` after the name is division, not a self-closing tag.
+            self.assertEqual(self._expr("a<b/c"), self._expr("a < b / c"))
+
+        def test_hogqlx_tags_still_parse_after_lt_tightening(self):
+            # Genuine HogQLX tags must keep working: an attribute (`attr=`), an
+            # immediate close (`<tag>`), and a self-close (`/>`) are all still
+            # recognised as tags rather than comparisons.
+            self.assertEqual(
+                self._expr("<Sparkline data={a} />"),
+                ast.HogQLXTag(
+                    kind="Sparkline",
+                    attributes=[ast.HogQLXAttribute(name="data", value=ast.Field(chain=["a"]))],
+                ),
+            )
+            self.assertEqual(
+                self._expr("<b>{event}</b>"),
+                ast.HogQLXTag(
+                    kind="b",
+                    attributes=[ast.HogQLXAttribute(name="children", value=[ast.Field(chain=["event"])])],
+                ),
+            )
+            self.assertEqual(
+                cast(ast.SelectQuery, self._select("select <span>hi there</span>")).select[0],
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="hi there")])],
+                ),
+            )
+
         def test_mysql_hash_comments(self):
             self.assertEqual(
                 self._select("select 1 # mysql comment"),
@@ -3554,7 +3622,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-            # 5. Sequence that *is* a tag: `<b …`  → should now fail to parse
+            # 5. `<b` followed by a bare word is the `<` operator, not a tag, so
+            #    this parses as the comparison `a < b` with a dangling `c` — which
+            #    is a syntax error (a trailing token), just not a tag error.
             with self.assertRaises(SyntaxError):
                 self._expr("a <b c")
 
