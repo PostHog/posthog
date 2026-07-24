@@ -14,9 +14,11 @@ from parameterized import parameterized
 from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
+    UNFILTERED_EARLIEST_TIMESTAMP_FLOOR,
     _coerce_to_datetime,
     _get_earliest_timestamp_cache_key,
     format_label_date,
@@ -531,7 +533,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
         captured: dict[str, object] = {}
 
-        def capture(query, team, user=None):
+        def capture(query, team, user=None, settings=None):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
@@ -548,3 +550,46 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.assertEqual(captured["product"], expected_product)
         self.assertEqual(captured["feature"], expected_feature)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong),
+        ]
+    )
+    def test_series_earliest_timestamp_falls_back_when_query_times_out(self, _name, exception_class):
+        # The ascending single-row scan is unbounded for large teams / rare events and can blow past
+        # the execution limit. It must fail soft to the 1980 floor so the "all time" insight still
+        # loads, instead of letting the timeout take the whole insight down.
+        node = EventsNode(event="$pageview")
+        cache_key = _get_earliest_timestamp_cache_key(self.team, node)
+
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=exception_class(),
+        ):
+            result = get_earliest_timestamp_from_series(self.team, [node])
+
+        self.assertEqual(result, EARLIEST_EVENT_TIMESTAMP)
+        # The fallback is cached so a cold lookup doesn't re-run the runaway scan on every request.
+        self.assertEqual(cache.get(cache_key), EARLIEST_EVENT_TIMESTAMP)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut),
+            ("estimated_too_long", ClickHouseEstimatedQueryExecutionTimeTooLong),
+        ]
+    )
+    def test_unfiltered_earliest_timestamp_falls_back_when_query_times_out(self, _name, exception_class):
+        # On timeout the unfiltered lookup falls back to the 2015 floor (the "all time" lower bound),
+        # not the "now - delta" no-events fallback that would collapse the range to a week.
+        cache_key = f"earliest_timestamp_unfiltered_{self.team.pk}"
+
+        with patch(
+            "posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query",
+            side_effect=exception_class(),
+        ):
+            result = get_earliest_timestamp_unfiltered(self.team)
+
+        self.assertEqual(result, UNFILTERED_EARLIEST_TIMESTAMP_FLOOR)
+        self.assertEqual(cache.get(cache_key), UNFILTERED_EARLIEST_TIMESTAMP_FLOOR)
