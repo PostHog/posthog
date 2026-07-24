@@ -448,7 +448,7 @@ from posthog.ai.prompts import Prompts
 posthog = Posthog(
     '${projectApiKey}',
     host='${host}',
-    personal_api_key='<personal_api_key>',  # scope: llm_prompt:read
+    secret_key='<personal_api_key>',  # scope: llm_prompt:read
 )
 prompts = Prompts(posthog)
 

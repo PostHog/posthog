@@ -14,10 +14,10 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
-# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
-# still receives the field and usage is metered by access method; flipping to True (phase 2)
-# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
-# enforcement can be reverted without a code change.
+# Deprecated insight `dashboards` field: session-authenticated callers always need to opt in with
+# `include_dashboards`. While False, API-token callers still receive the field; flipping to True
+# enforces the opt-in for them too. Env-toggleable so token enforcement can be reverted without a
+# code change.
 INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
 
 ####
@@ -1179,20 +1179,15 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
-# Teams allowed to precompute *any* web analytics query, not just the
-# single-`$host`-exact filter shape the general gate permits. For these teams the
-# eligibility gate skips the filter-shape restriction (arbitrary property filters
-# become distinct cache keys via `property_to_expr`) and flips the per-query
-# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
-# it off). Membership here also implies precompute enrollment, so a team need not
-# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
-# default (project 2) and comma-separated env-var override as the enrollment list.
-WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
-    int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
-]
+# Upper bound on the number of distinct precompute shapes (query cache keys) a single
+# team may have live at once. Any filter combination becomes its own shape, so a
+# pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,
+# not a quota: a team builds shapes freely until it reaches this many, after which only
+# *new* shapes fall back to the live query — existing shapes keep serving and refreshing.
+# Sized well above any realistic team; 0 disables the cap.
+WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
 # when nothing in the query (property filters, conversion goal, test-account filters,

@@ -65,7 +65,7 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     same call. There is always a default (the canonical), so no minimum floor is needed.
     """
 
-    # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC
+    # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_skill RBAC
     # gate must apply — INTERNAL short-circuits AccessControlPermission before it checks anything.
     scope_object = "llm_skill"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
