@@ -11,6 +11,17 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+class NonReportableApplicationError(ApplicationError, NonReportableError):
+    """An ApplicationError that must not be reported to error tracking.
+
+    Behaves like any other ApplicationError to Temporal — it still fails the activity, honors the
+    retry policy, and carries a `type` a workflow can branch on — but the activity interceptor's
+    skip-list drops it via the NonReportableError marker instead of capturing it. Use it when an
+    expected, handled condition needs to fail the activity as an ApplicationError yet would only be
+    noise in error tracking (e.g. a short upstream outage the workflow already retries then fails
+    open on)."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

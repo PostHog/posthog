@@ -15,6 +15,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.temporal.common.errors import NonReportableError
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
@@ -156,6 +157,9 @@ def test_embedding_failure_classification_and_capture(
     assert error.value.type == expected_type
     assert error.value.non_retryable is expected_non_retryable
     assert capture_exception.called is expect_captured
+    # Fail-open outages must be NonReportableError so the Temporal activity interceptor drops them
+    # too — the activity-level skip alone left them escaping to the interceptor and getting captured.
+    assert isinstance(error.value, NonReportableError) is not expect_captured
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
