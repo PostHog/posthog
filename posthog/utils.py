@@ -568,6 +568,7 @@ def _build_template_context(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.project import Project
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
@@ -639,13 +640,23 @@ def _build_template_context(
                     )
                     posthog_app_context["current_team"] = team_serialized.data
 
-                with tracer.start_as_current_span("template.project_serializer"):
-                    project_serialized = ProjectSerializer(
-                        user.team.project,
-                        context={"request": request, "user_permissions": user_permissions},
-                        many=False,
-                    )
-                    posthog_app_context["current_project"] = project_serialized.data
+                # During async project deletion the Project row is removed by a Temporal workflow
+                # while the team still resolves, leaving the non-null project FK dangling for a brief
+                # window. Skip serializing it here; the frontend routes to the project-pending-deletion
+                # screen instead of the app load crashing on Project.DoesNotExist.
+                try:
+                    project = user.team.project
+                except Project.DoesNotExist:
+                    project = None
+
+                if project is not None:
+                    with tracer.start_as_current_span("template.project_serializer"):
+                        project_serialized = ProjectSerializer(
+                            project,
+                            context={"request": request, "user_permissions": user_permissions},
+                            many=False,
+                        )
+                        posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 event_info = get_default_event_info(user.team)
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
