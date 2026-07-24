@@ -1569,19 +1569,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 
-                    // Auto-pin items the manifest marks `pinnedByDefault` once their flag is on.
-                    for (const product of allProducts) {
-                        if (
-                            product.pinnedByDefault &&
-                            product.flag &&
-                            (featureFlags as Record<string, boolean>)[product.flag] &&
-                            !selectedProductPaths.has(product.path)
-                        ) {
-                            selectedProductPaths.add(product.path)
-                            selectedProducts.push(product)
-                        }
-                    }
-
                     const imports = selectedProducts
                         .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
                         .map((i) => ({

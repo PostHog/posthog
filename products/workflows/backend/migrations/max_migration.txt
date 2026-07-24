@@ -1,1 +1,1 @@
-0011_hogflowrevision
+0012_hogflow_encrypted_inputs

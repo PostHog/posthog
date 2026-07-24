@@ -92,7 +92,6 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
-    isRevenueExampleEventsQuery,
     isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
@@ -757,10 +756,7 @@ export function DataTable({
                         onRowCollapse: (row: DataTableRow, rowIndex: number) =>
                             toggleRowExpanded(getExpandedRowKey(row, rowIndex)),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
-                            if (
-                                (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) &&
-                                Array.isArray(result)
-                            ) {
+                            if (isEventsQuery(query.source) && Array.isArray(result)) {
                                 return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
                             }
                             if (result && !Array.isArray(result)) {

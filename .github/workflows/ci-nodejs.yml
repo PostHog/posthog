@@ -140,6 +140,27 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            # for security reasons, external builds (forks) don't use the shared WebDAV cache
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
@@ -174,6 +195,27 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            # for security reasons, external builds (forks) don't use the shared WebDAV cache
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
@@ -266,6 +308,22 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            # for security reasons, external builds (forks) don't use the shared WebDAV cache
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -289,8 +347,11 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack, SeaweedFS
+              # seaweedfs backs the blob-store integration tests; the profile-scoped
+              # stack launch above never starts it (it sits in the replay/agents
+              # profiles), so start it explicitly here — no profiles overlay in play.
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -355,6 +416,13 @@ jobs:
                   # Create dedicated persons database for postgres-parity tests
                   cd nodejs && pnpm run setup:test:persons-parity
 
+            # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
+            - name: Prepare Node.js workspace
+              env:
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: 3
+              run: bin/turbo --filter=@posthog/nodejs prepare
+
             - name: Test with Jest
               id: run-jest
               # continue-on-error so the quarantine gate below is the verdict — it passes when
@@ -403,8 +471,10 @@ jobs:
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret); cli-version pinned, not 'latest' (skips the release redirect).
-            # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-            # this gate skips, so nothing uploads and no known flakes are quarantined.
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -424,7 +494,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure step
             # so a real failure still triggers it via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && steps.quarantine_gate.outcome != 'success' }}
+              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -504,6 +574,22 @@ jobs:
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
+
+            # for security reasons, external builds (forks) don't use the shared WebDAV cache
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
+            - name: Install sccache
+              if: env.RUNS_ON_INTERNAL_PR == 'true'
+              uses: ./.github/actions/setup-sccache
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

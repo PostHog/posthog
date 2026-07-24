@@ -355,7 +355,7 @@ export interface LoopTriggerWriteApi {
     type: LoopTriggerTypeEnumApi
     /** Whether this trigger is active. Disabling pauses only this trigger. */
     enabled?: boolean
-    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
     config?: unknown
 }
 
@@ -1311,6 +1311,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
  * * `loop` - Loop
+ * * `mcp_analytics` - MCP Analytics
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1332,6 +1333,7 @@ export const OriginProductEnumApi = {
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
     Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
 } as const
 
 /**
@@ -1369,7 +1371,8 @@ export interface TaskCreateApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1504,7 +1507,8 @@ export interface TaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1624,7 +1628,8 @@ export interface PatchedTaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

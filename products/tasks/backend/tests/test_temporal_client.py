@@ -209,7 +209,7 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         self.assertIsNone(run.completed_at)
 
     @parameterized.expand([("sync",), ("async",)])
-    def test_captures_sandbox_event_ingest_flag_before_starting_workflow(self, executor: str) -> None:
+    def test_captures_run_feature_flags_before_starting_workflow(self, executor: str) -> None:
         run = self._create_run()
         client = Mock()
         client.start_workflow = AsyncMock()
@@ -229,14 +229,19 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
-        flag.assert_called_once_with(
-            "tasks-cloud-runs-sandbox-event-ingest",
-            distinct_id="process_task_workflow",
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
+        # Patching the shared posthoganalytics module attribute covers both evaluation
+        # sites (event ingest in client.py, telemetry in feature_flags.py).
+        self.assertEqual(flag.call_count, 2)
+        for flag_key in ("tasks-cloud-runs-sandbox-event-ingest", "tasks-agent-run-otel-telemetry"):
+            flag.assert_any_call(
+                flag_key,
+                distinct_id="process_task_workflow",
+                groups={"organization": str(self.organization.id)},
+                group_properties={"organization": {"id": str(self.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
 
     def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
         run = self._create_run()

@@ -49,6 +49,7 @@ from posthog.schema import (
     MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolFailuresQuery,
     MCPToolNeighborsQuery,
     MCPToolQualityDailyStatsQuery,
@@ -356,6 +357,7 @@ RunnableQueryNode = Union[
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
+    MCPToolFailureOccurrencesQuery,
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
     MCPToolQualityRowsQuery,
@@ -738,104 +740,6 @@ def get_query_runner(
             user=user,
         )
 
-    if kind == "RevenueAnalyticsGrossRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-            RevenueAnalyticsGrossRevenueQueryRunner,
-        )
-
-        return RevenueAnalyticsGrossRevenueQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMetricsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
-            RevenueAnalyticsMetricsQueryRunner,
-        )
-
-        return RevenueAnalyticsMetricsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsMRRQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
-            RevenueAnalyticsMRRQueryRunner,
-        )
-
-        return RevenueAnalyticsMRRQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
-        )
-
-        return RevenueAnalyticsOverviewQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueAnalyticsTopCustomersQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
-            RevenueAnalyticsTopCustomersQueryRunner,
-        )
-
-        return RevenueAnalyticsTopCustomersQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleEventsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
-            RevenueExampleEventsQueryRunner,
-        )
-
-        return RevenueExampleEventsQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
-            RevenueExampleDataWarehouseTablesQueryRunner,
-        )
-
-        return RevenueExampleDataWarehouseTablesQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
     if kind == "ErrorTrackingQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
@@ -1032,6 +936,17 @@ def get_query_runner(
 
         return MCPToolFailuresQueryRunner(
             query=cast(MCPToolFailuresQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolFailureOccurrencesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolFailureOccurrencesQueryRunner
+
+        return MCPToolFailureOccurrencesQueryRunner(
+            query=cast(MCPToolFailureOccurrencesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

@@ -473,6 +473,9 @@ class TestDatabricksSource:
             "[SCHEMA_NOT_FOUND] The schema 'analytics' cannot be found.",
             "PERMISSION_DENIED: User does not have USE SCHEMA on Schema 'analytics'.",
             "[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`information_schema`.`columns` cannot be found.",
+            # Workspace IP ACL rejection — matched on the stable phrase, ignoring the appended IP
+            # address and workspace id.
+            "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
         ],
     )
     def test_permanent_failures_are_non_retryable(self, source, error_msg):
@@ -510,6 +513,11 @@ class TestDatabricksSource:
                 "[TABLE_OR_VIEW_NOT_FOUND] The table or view `information_schema`.`columns` cannot be found.",
                 "Unity Catalog",
             ),
+            (
+                "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
+                "IP access control list",
+            ),
+            ("[RESOURCE_DOES_NOT_EXIST] Warehouse abc123 does not exist.", "SQL warehouse"),
             ("something totally unexpected", "Could not connect to Databricks"),
         ],
     )

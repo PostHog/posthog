@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",

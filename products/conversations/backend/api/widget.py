@@ -13,9 +13,7 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 
 import uuid
 import logging
-from urllib.parse import urlparse
 
-from django.conf import settings
 from django.db.models import F, Q
 
 from rest_framework import serializers, status
@@ -54,19 +52,6 @@ from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
-
-_REGION_BY_SUBDOMAIN = {"us": "US", "eu": "EU"}
-
-
-def _infer_posthog_region(current_url: str) -> str | None:
-    """Map a *.posthog.com app URL to its cloud region (US/EU), or None if not inferable."""
-    try:
-        hostname = urlparse(current_url).hostname or ""
-    except ValueError:
-        return None
-    if not hostname.endswith(".posthog.com"):
-        return None
-    return _REGION_BY_SUBDOMAIN.get(hostname.split(".")[0])
 
 
 class IdentityVerificationFailed(Exception):
@@ -125,6 +110,34 @@ class WidgetMessageView(APIView):
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
+            try:
+                # Track rejected submissions server-side so they're queryable even when the
+                # client-side event is blocked (ad blockers, network drops). Field names and
+                # value lengths only — never message content. An over-long auto-captured
+                # session_context value (e.g. current_url) is a known rejection cause.
+                # This endpoint is public and unauthenticated, so session_context is
+                # attacker-controlled: bound both the number of fields and the key length we
+                # record so a request stuffed with many keys can't inflate the event payload.
+                raw_session_context = request.data.get("session_context")
+                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+                session_context_field_lengths = {}
+                if isinstance(raw_session_context, dict):
+                    for key, value in list(raw_session_context.items())[:20]:
+                        if isinstance(key, str) and isinstance(value, str):
+                            session_context_field_lengths[key[:100]] = len(value)
+                report_team_action(
+                    team,
+                    "support ticket send failed",
+                    {
+                        "channel_source": "widget",
+                        "reason": "validation_error",
+                        "error_fields": sorted(serializer.errors.keys()),
+                        "session_context_field_count": session_context_field_count,
+                        "session_context_field_lengths": session_context_field_lengths,
+                    },
+                )
+            except Exception as e:
+                capture_exception(e)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -148,12 +161,6 @@ class WidgetMessageView(APIView):
         traits = serializer.validated_data.get("traits", {})
         session_id = serializer.validated_data.get("session_id")
         session_context = serializer.validated_data.get("session_context", {})
-
-        # For PostHog's internal support project, infer the region from the app URL
-        # so ticket-based "login as customer" can route staff to the right region.
-        if team.pk == settings.POSTHOG_INTERNAL_TEAM_ID and (current_url := session_context.get("current_url")):
-            if region := _infer_posthog_region(current_url):
-                traits["region"] = region
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")

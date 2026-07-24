@@ -27,10 +27,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionEnabledPermission,
-    ReplayVisionQualityEnabledPermission,
-)
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
@@ -233,7 +230,7 @@ class ReplayScannerPromptSuggestionViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionQualityEnabledPermission]
+    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
 
