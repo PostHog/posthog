@@ -67,6 +67,17 @@ class TestDeepLinks(ProvisioningTestBase):
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "deep_links_not_enabled"
 
+    def test_outstanding_token_of_hmac_configured_partner_rejected(self):
+        token = self._get_bearer_token()
+        self.partner.provisioning_auth_method = "hmac"
+        self.partner.save(update_fields=["provisioning_auth_method"])
+        res = self._post_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            token=token,
+        )
+        assert res.status_code == 401
+
     def test_deep_link_with_path_redirects_there(self):
         token = self._get_bearer_token()
         target = f"/project/{self.team.id}/replay/019e6d10-c3b0-7000-8000-000000000000"

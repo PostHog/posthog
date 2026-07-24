@@ -52,7 +52,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
+from posthog.scopes import effective_ceiling, narrow_scopes_to_ceiling, scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
@@ -172,6 +172,11 @@ def account_requests(request: Request) -> Response:
         return typed_error_response("invalid_request", "email is required")
 
     scopes = data.get("scopes", [])
+    if not scopes:
+        # Resolve the default before any consent state is created, so the consent
+        # page displays exactly what the token exchange will later grant. Matches
+        # /authorize: an empty app ceiling resolves to the unprivileged set.
+        scopes = sorted(effective_ceiling(partner.ceiling_scopes))
     expires_at_str = data.get("expires_at", "")
     configuration = data.get("configuration") or {}
 
@@ -1078,8 +1083,17 @@ def _exchange_authorization_code(request: Request) -> Response:
         # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
         # ceiling has to be enforced here before the token is created by hand.
         app_scopes = locked_app.ceiling_scopes if locked_app else []
-        # A request with no explicit scopes gets the app's full ceiling.
-        requested_scopes = scopes if scopes else app_scopes
+        # Codes are minted with their scopes already resolved (account_requests
+        # defaults an omitted list to the app ceiling before consent), so an empty
+        # list means a stale or hand-crafted code. Defaulting at exchange time would
+        # grant scopes the consent screen never displayed.
+        if not scopes:
+            _capture_provisioning_event("token_exchange", "empty_scopes", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_scope", "error_description": "Authorization code carries no scopes; re-authorize."},
+                status=400,
+            )
+        requested_scopes = scopes
         if not scopes_within_ceiling(requested_scopes, app_scopes):
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
             return Response(
@@ -2477,6 +2491,12 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     # Check if token belongs to any active provisioning partner's app
     app = access_token.application
     if app and app.is_provisioning_partner:
+        # Only bearer/pkce partners are supported. An app configured with any other
+        # auth method (e.g. a leftover hmac partner row) must fail closed here, or its
+        # outstanding bearer tokens could still reach the resource and deep-link
+        # endpoints without the second factor that method implied.
+        if app.provisioning_auth_method not in ("bearer", "pkce"):
+            return (error_response("unauthorized", "Authentication failed", status=401), None, None)
         if not app.provisioning_active:
             return (error_response("unauthorized", "Partner is deactivated", status=401), None, None)
         if not app.provisioning_can_provision_resources:

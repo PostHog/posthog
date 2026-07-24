@@ -109,11 +109,31 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
             "error_description": "Unknown application for this authorization code",
         }
 
-    def test_empty_scopes_default_to_app_ceiling(self):
+    def test_code_with_empty_scopes_rejected(self):
         code, verifier = self._mint_auth_code(scopes=[])
         res = self._exchange_code(code, verifier)
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_scope"
+
+    def test_omitted_request_scopes_resolve_to_app_ceiling(self):
+        partner_token = self._get_bearer_token()
+        verifier, challenge = self._pkce_pair()
+        res = self._post_with_bearer(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_scopeless",
+                "email": "scopeless-user@example.com",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            token=partner_token,
+        )
         assert res.status_code == 200
-        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        code = res.json()["oauth"]["code"]
+
+        exchange = self._exchange_code(code, verifier)
+        assert exchange.status_code == 200
+        token = OAuthAccessToken.objects.get(token=exchange.json()["access_token"])
         assert set(token.scope.split()) == set(TEST_PARTNER_SCOPES)
 
     def test_refresh_token_rotation_is_single_use(self):
