@@ -2,16 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonSkeleton,
-    LemonTable,
-    LemonTag,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
@@ -49,10 +40,6 @@ export function ManagedSourcesTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
-    if (availableSourcesLoading) {
-        return <LemonSkeleton />
-    }
-
     return (
         <div>
             <div className="flex gap-2 justify-between items-center mb-4">
@@ -66,7 +53,8 @@ export function ManagedSourcesTable(): JSX.Element {
             <LemonTable
                 id="managed-sources"
                 dataSource={filteredManagedSources}
-                loading={dataWarehouseSourcesLoading}
+                loading={dataWarehouseSourcesLoading || availableSourcesLoading}
+                loadingSkeletonRows={3}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
                 emptyState={
