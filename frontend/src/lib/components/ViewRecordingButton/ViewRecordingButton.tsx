@@ -39,6 +39,8 @@ type ViewRecordingProps = {
     openPlayerIn?: RecordingPlayerType
     matchingEvents?: MatchedRecording[]
     hasRecording?: boolean
+    /** When no recording is linked, offer this URL as the alternative way to find recordings (e.g. the person's Session replay tab). */
+    sessionReplayFallbackUrl?: string
     /** If true, automatically check if a recording exists for this session via batched API call */
     checkRecordingExists?: boolean
     /** Opt in to fetching the AI summary outcome and surfacing it as a tooltip. Also gated on REPLAY_VIDEO_BASED_SUMMARIZATION. */
@@ -70,6 +72,7 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     hasRecording,
+    sessionReplayFallbackUrl,
     checkRecordingExists = false,
     checkSummaryOutcome = false,
     summaryOutcome,
@@ -109,6 +112,7 @@ export default function ViewRecordingButton({
         matchingEvents,
         openPlayerIn,
         hasRecording,
+        sessionReplayFallbackUrl,
     })
 
     // Outcome precedence: live progress beats parent-supplied prop beats persisted fetch.
@@ -232,30 +236,49 @@ export default function ViewRecordingButton({
 export const recordingDisabledReason = (
     sessionId: string | undefined,
     recordingStatus: string | undefined,
-    hasRecording?: boolean
+    hasRecording?: boolean,
+    sessionReplayFallbackUrl?: string
 ): JSX.Element | string | null => {
+    // Offered on the "no recording for this user/event" cases so the message points to a way forward
+    // instead of reading like replay is switched off for the whole project.
+    const fallbackHint = sessionReplayFallbackUrl ? (
+        <>
+            {' '}
+            You can still <Link to={sessionReplayFallbackUrl}>browse this person's sessions</Link> in Session replay.
+        </>
+    ) : null
+
     if (!sessionId && hasRecording === false) {
-        return 'No recording for this event'
+        return (
+            <>
+                No recording is linked to this event. Replay may not have been active for this user, or the event was
+                sent without a session ID (common for backend events).{' '}
+                <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids">Learn how</Link> to
+                attach a session ID.{fallbackHint}
+            </>
+        )
     } else if (!sessionId) {
         return (
             <>
-                No session ID associated with this event.{' '}
+                No session ID is associated with this event.{' '}
                 <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids">Learn how</Link> to
-                set it on all events.
+                set it on all events.{fallbackHint}
             </>
         )
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
         return (
             <>
-                Replay was not active when capturing this event.{' '}
+                Replay was not active when this event was captured, so there is no recording for it.{' '}
                 <Link to="https://posthog.com/docs/session-replay/troubleshooting#recordings-are-not-being-captured">
                     Learn why
                 </Link>{' '}
-                not all recordings are captured.
+                not all sessions are recorded.{fallbackHint}
             </>
         )
     } else if (hasRecording === false) {
-        return 'No recording for this event'
+        return (
+            <>No recording is linked to this event. Replay may not have been active for this session.{fallbackHint}</>
+        )
     }
     return null
 }
@@ -289,6 +312,7 @@ export function useRecordingButton({
     matchingEvents,
     openPlayerIn,
     hasRecording,
+    sessionReplayFallbackUrl,
 }: ViewRecordingProps): {
     onClick: () => void
     disabledReason: JSX.Element | string | null
@@ -313,7 +337,7 @@ export function useRecordingButton({
         }
     }
 
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording, sessionReplayFallbackUrl)
     const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus, hasRecording)
 
     return { onClick, disabledReason, warningReason }

@@ -38,6 +38,7 @@ import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisp
 import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
@@ -49,6 +50,7 @@ import {
     AccessControlResourceType,
     ActorType,
     ExporterFormat,
+    PersonsTabType,
     PropertiesTimelineFilterType,
     PropertyDefinitionType,
 } from '~/types'
@@ -464,6 +466,13 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
 
     const matchedRecordings = actor.matched_recordings || []
 
+    // When a dropped-off person has no matched recording, point them at that person's Session replay tab
+    // rather than leaving the disabled button implying replay is off for the whole project.
+    const personRecordingsUrl =
+        !isGroupType(actor) && !isSession && bestDistinctId
+            ? `${urls.personByDistinctId(bestDistinctId)}#activeTab=${PersonsTabType.SESSION_RECORDINGS}`
+            : undefined
+
     return (
         <div className="relative border rounded bg-surface-primary">
             <div className="flex items-center gap-2 p-2">
@@ -543,6 +552,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
                         hasRecording={matchedRecordings.length > 0}
+                        sessionReplayFallbackUrl={personRecordingsUrl}
                     />
                 )}
             </div>
