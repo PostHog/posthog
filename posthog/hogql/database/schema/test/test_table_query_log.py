@@ -49,3 +49,10 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    def test_status_is_cast_to_string(self):
+        # `type` is an Enum8 with no `= 0` member; without the toString() cast a row holding the
+        # implicit 0 default makes clickhouse-driver's enum decoder raise KeyError: 0.
+        response = execute_hogql_query("select status from query_log limit 10", self.team)
+        assert response.clickhouse is not None
+        assert "toString(query_log_archive.type)" in response.clickhouse
