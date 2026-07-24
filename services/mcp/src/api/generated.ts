@@ -52832,11 +52832,14 @@ export namespace Schemas {
     }
 
     export interface PatchedTeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key?: string;
       /**
-         * Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute.
-         * @maxLength 200
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
          */
-      logs_distinct_id_attribute_key?: string;
+      logs_distinct_id_attribute_keys?: string[];
       /**
          * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order; the first key with a value wins. Defaults to ['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
          * @maxItems 10
@@ -67929,11 +67932,14 @@ export namespace Schemas {
     }
 
     export interface TeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key: string;
       /**
-         * Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute.
-         * @maxLength 200
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
          */
-      logs_distinct_id_attribute_key: string;
+      logs_distinct_id_attribute_keys: string[];
       /**
          * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order; the first key with a value wins. Defaults to ['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
          * @maxItems 10

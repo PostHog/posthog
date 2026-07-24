@@ -12,19 +12,21 @@ import * as zod from 'zod'
 /**
  * Logs product configuration for this project, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
  */
-export const organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeyMax = 200
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax = 200
+
+export const organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax = 10
 
 export const organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax = 200
 
 export const organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax = 10
 
 export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
-    logs_distinct_id_attribute_key: zod
-        .string()
-        .max(organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeyMax)
+    logs_distinct_id_attribute_keys: zod
+        .array(zod.string().max(organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax))
+        .max(organizationsProjectsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax)
         .optional()
         .describe(
-            "Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute."
+            "Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes."
         ),
     logs_session_id_attribute_keys: zod
         .array(zod.string().max(organizationsProjectsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax))
@@ -38,19 +40,21 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
 /**
  * Logs product configuration for this environment, including the attribute keys that correlate logs with other products (person distinct ID and session ID).
  */
-export const environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeyMax = 200
+export const environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax = 200
+
+export const environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax = 10
 
 export const environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax = 200
 
 export const environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax = 10
 
 export const EnvironmentsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
-    logs_distinct_id_attribute_key: zod
-        .string()
-        .max(environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeyMax)
+    logs_distinct_id_attribute_keys: zod
+        .array(zod.string().max(environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax))
+        .max(environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax)
         .optional()
         .describe(
-            "Log attribute key whose value should match a person's distinct_id. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to 'posthogDistinctId' — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Override only if your pipeline emits a different attribute."
+            "Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes."
         ),
     logs_session_id_attribute_keys: zod
         .array(zod.string().max(environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax))

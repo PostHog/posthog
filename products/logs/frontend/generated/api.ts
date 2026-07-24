@@ -109,7 +109,7 @@ export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationI
 export const organizationsProjectsLogsConfigPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedTeamLogsConfigApi?: PatchedTeamLogsConfigApi,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
     options?: RequestInit
 ): Promise<TeamLogsConfigApi> => {
     return apiMutator<TeamLogsConfigApi>(getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id), {
@@ -148,7 +148,7 @@ export const getEnvironmentsLogsConfigPartialUpdateUrl = (projectId: string, id:
 export const environmentsLogsConfigPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedTeamLogsConfigApi?: PatchedTeamLogsConfigApi,
+    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
     options?: RequestInit
 ): Promise<TeamLogsConfigApi> => {
     return apiMutator<TeamLogsConfigApi>(getEnvironmentsLogsConfigPartialUpdateUrl(projectId, id), {
