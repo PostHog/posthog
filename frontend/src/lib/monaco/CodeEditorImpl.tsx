@@ -424,6 +424,13 @@ export function CodeEditor({
         hideCursorInOverviewRuler: false,
         overviewRulerLanes: 3,
         overflowWidgetsDomNode: monacoRoot,
+        // Disable Monaco's unicode highlighting. It's noise in a source-code editor, and its
+        // worker code path overflows the stack on Firefox ("too much recursion" in the editor worker).
+        unicodeHighlight: {
+            nonBasicASCII: false,
+            ambiguousCharacters: false,
+            invisibleCharacters: false,
+        },
         ...options,
         padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
         scrollbar: {
