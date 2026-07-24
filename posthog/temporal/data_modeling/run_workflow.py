@@ -23,7 +23,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import OperationalError, transaction
 
 import pyarrow as pa
 import deltalake
@@ -798,6 +798,12 @@ async def update_table_row_count(
                 ValueError(f"Could not find DataWarehouseTable record for saved query {saved_query.name}")
             )
             await logger.aexception("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
+    except OperationalError as e:
+        # Transient pooled-connection drops here just leave row_count briefly stale (this is a
+        # fire-and-forget post-step); the workflow recovers on its own, so don't report them as issues.
+        await logger.awarning(
+            "Skipping row count update for table %s due to database error: %s", saved_query.name, str(e)
+        )
     except Exception as e:
         capture_exception(e)
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
