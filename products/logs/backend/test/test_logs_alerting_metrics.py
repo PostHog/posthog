@@ -1,4 +1,5 @@
 import datetime as dt
+from contextlib import nullcontext
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -45,32 +46,44 @@ class TestRecordHistogram:
         mock_hist.record.assert_called_once_with(dt.timedelta(milliseconds=150))
 
 
-class TestExecutionTimeRecorder:
-    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_records_completed_on_success(self, mock_get_meter: MagicMock):
-        mock_meter = MagicMock()
-        mock_hist = MagicMock()
-        mock_meter.create_histogram_timedelta.return_value = mock_hist
-        mock_get_meter.return_value = mock_meter
+@pytest.mark.parametrize(
+    "execution_error,expected_status,expected_exception",
+    [
+        pytest.param(None, "COMPLETED", "", id="completed"),
+        pytest.param(ValueError("boom"), "FAILED", "ValueError", id="failed"),
+    ],
+)
+def test_execution_time_recorder_attributes(
+    execution_error: Exception | None, expected_status: str, expected_exception: str
+) -> None:
+    mock_meter = MagicMock()
+    mock_histogram = MagicMock()
+    mock_meter.create_histogram_timedelta.return_value = mock_histogram
+    mock_get_meter = MagicMock(return_value=mock_meter)
 
-        with ExecutionTimeRecorder("test_histogram"):
-            pass
+    with (
+        patch("products.logs.backend.temporal.metrics.get_metric_meter", new=mock_get_meter),
+        patch("posthog.temporal.common.metrics.get_metric_meter", new=mock_get_meter),
+        pytest.raises(ValueError, match="boom") if execution_error else nullcontext(),
+    ):
+        with ExecutionTimeRecorder(
+            "logs_alerting_cycle_duration_ms",
+            description="Full alert check cycle duration",
+            histogram_attributes={"activity_type": "discover_cohorts_activity"},
+        ):
+            if execution_error:
+                raise execution_error
 
-        call_args = mock_get_meter.call_args[0][0]
-        assert call_args["status"] == "COMPLETED"
-
-    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_records_failed_on_exception(self, mock_get_meter: MagicMock):
-        mock_meter = MagicMock()
-        mock_hist = MagicMock()
-        mock_meter.create_histogram_timedelta.return_value = mock_hist
-        mock_get_meter.return_value = mock_meter
-
-        try:
-            with ExecutionTimeRecorder("test_histogram"):
-                raise ValueError("boom")
-        except ValueError:
-            pass
-
-        call_args = mock_get_meter.call_args[0][0]
-        assert call_args["status"] == "FAILED"
+    mock_get_meter.assert_called_once_with(
+        {
+            "activity_type": "discover_cohorts_activity",
+            "status": expected_status,
+            "exception": expected_exception,
+        }
+    )
+    mock_meter.create_histogram_timedelta.assert_called_once_with(
+        name="logs_alerting_cycle_duration_ms",
+        description="Full alert check cycle duration",
+        unit="ms",
+    )
+    mock_histogram.record.assert_called_once()
