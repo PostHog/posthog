@@ -19,10 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType } from '~/types'
 
-import {
-    AssigneeDisplay,
-    AssigneeResolver,
-} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeDisplay, AssigneeResolver } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
