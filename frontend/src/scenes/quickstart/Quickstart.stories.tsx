@@ -266,6 +266,17 @@ export const CardsOnlyVariant: Story = {
     decorators: Base.decorators,
 }
 
+/** test2 pre-ingestion: the page collapses to the focused install view — wizard CTA + per-tool setup, no cards */
+export const FocusedInstall: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
+            [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
+        },
+    },
+    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
+}
+
 /** Nothing has sent data in the window: every event-based tool decays back to ready/needs setup */
 export const QuietProject: Story = {
     decorators: [mswDecorator(scenarioMocks({}))],

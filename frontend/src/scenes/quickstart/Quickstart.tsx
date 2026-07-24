@@ -1435,6 +1435,68 @@ function PublicationsSection(): JSX.Element | null {
     )
 }
 
+// Pre-ingestion view for the test2 arm: one job — get the first event in. Wizard progress
+// takes over as the hero when a run is active; otherwise the wizard CTA leads with the
+// per-product setup path (tailored SDK instructions) as the alternative. No product cards:
+// pre-install, card content goes untouched while setup entries carry all the traffic.
+function QuickstartFocusedInstall(): JSX.Element {
+    const { featuredProducts } = useValues(quickstartLogic)
+    const { openToolSetupModal } = useActions(quickstartLogic)
+
+    return (
+        <section className="max-w-2xl">
+            <QuickstartWizardProgress
+                fallback={
+                    <div className="flex flex-col gap-4">
+                        <SectionHeader
+                            title="Get your first event in"
+                            subtitle="Nothing else in PostHog works until your product sends an event. The wizard installs the SDK and instruments key events for you."
+                        />
+                        <div>
+                            <QuickstartInstallationLink />
+                        </div>
+                        <div>
+                            <SubsectionHeader title="Or set up a specific tool by hand" />
+                            <div className="flex flex-wrap gap-2">
+                                {featuredProducts.map((product) => (
+                                    <LemonButton
+                                        key={product.key}
+                                        type="secondary"
+                                        size="small"
+                                        icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
+                                        onClick={() => {
+                                            captureQuickstartAction('set_up_product', product.key, {
+                                                source: 'focused_install',
+                                            })
+                                            openToolSetupModal(product.key)
+                                        }}
+                                        data-attr={`quickstart-focused-setup-${product.key}`}
+                                    >
+                                        {product.name}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        </div>
+                        <p className="text-secondary text-sm mb-0">
+                            Your tools light up here as soon as your data arrives.
+                        </p>
+                    </div>
+                }
+            >
+                {(progress) => (
+                    <div className="flex flex-col gap-4">
+                        <SectionHeader
+                            title="Installation in progress"
+                            subtitle="Waiting for your first event. Most projects see one within a few minutes of running the app with the SDK installed."
+                        />
+                        <QuickstartInstallationProgress progress={progress} />
+                    </div>
+                )}
+            </QuickstartWizardProgress>
+        </section>
+    )
+}
+
 export function Quickstart(): JSX.Element {
     const { featuredProducts, additionalProducts, activeProductCount, totalProductCount, activationDataLoading } =
         useValues(quickstartLogic)
@@ -1451,6 +1513,8 @@ export function Quickstart(): JSX.Element {
     }
     // test2 stops at the product cards: no guides, companions, or publications below
     const showBelowCardsSections = quickstartVariant === 'test'
+    // test2 pre-ingestion: the page has one job (first event), so product cards wait for data
+    const focusedInstall = quickstartVariant === 'test2' && !installationComplete
 
     return (
         // Capped and centered like onboarding's product selection: full-width reads stretched
@@ -1505,36 +1569,43 @@ export function Quickstart(): JSX.Element {
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                         <ProjectToken inline />
-                        <QuickstartInstallationPrompt installationComplete={installationComplete} />
+                        {/* In focused-install mode the wizard progress renders as the page hero instead */}
+                        {!focusedInstall && (
+                            <QuickstartInstallationPrompt installationComplete={installationComplete} />
+                        )}
                     </div>
                 </section>
             </div>
 
-            <section>
-                <div className="flex flex-wrap items-start justify-between gap-x-8">
-                    <SectionHeader
-                        title={QUICKSTART_PRODUCT_LAYOUT.featured.title}
-                        subtitle={QUICKSTART_PRODUCT_LAYOUT.featured.description}
-                    />
-                    <HeaderStat icon={<IconApps />}>
-                        {activeProductCount} of {totalProductCount} live
-                        {activationDataLoading && <Spinner textColored />}
-                    </HeaderStat>
-                </div>
-                {featuredProducts.length > 0 ? (
-                    <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
-                        {featuredProducts.map((product) => (
-                            <QuickstartProductCard key={product.key} product={product} />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="rounded border border-dashed p-6 text-center text-secondary">
-                        Add a product from Explore more tools to keep its setup and activity here.
-                    </div>
-                )}
-            </section>
+            {focusedInstall && <QuickstartFocusedInstall />}
 
-            {additionalProducts.length > 0 && (
+            {!focusedInstall && (
+                <section>
+                    <div className="flex flex-wrap items-start justify-between gap-x-8">
+                        <SectionHeader
+                            title={QUICKSTART_PRODUCT_LAYOUT.featured.title}
+                            subtitle={QUICKSTART_PRODUCT_LAYOUT.featured.description}
+                        />
+                        <HeaderStat icon={<IconApps />}>
+                            {activeProductCount} of {totalProductCount} live
+                            {activationDataLoading && <Spinner textColored />}
+                        </HeaderStat>
+                    </div>
+                    {featuredProducts.length > 0 ? (
+                        <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
+                            {featuredProducts.map((product) => (
+                                <QuickstartProductCard key={product.key} product={product} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="rounded border border-dashed p-6 text-center text-secondary">
+                            Add a product from Explore more tools to keep its setup and activity here.
+                        </div>
+                    )}
+                </section>
+            )}
+
+            {!focusedInstall && additionalProducts.length > 0 && (
                 <section>
                     <SectionHeader
                         title={QUICKSTART_PRODUCT_LAYOUT.additional.title}
