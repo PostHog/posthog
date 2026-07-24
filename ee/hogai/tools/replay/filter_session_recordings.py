@@ -4,6 +4,7 @@ from typing import Any, Literal
 import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
@@ -24,6 +25,14 @@ from products.replay.backend.prompts import (
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 
 logger = structlog.get_logger(__name__)
+
+
+def _format_validation_error(error: ValidationError) -> str:
+    """Flatten a DRF ValidationError into a plain, model-readable sentence."""
+    detail = error.detail
+    if isinstance(detail, list):
+        return " ".join(str(item) for item in detail)
+    return str(detail)
 
 
 class FilterSessionRecordingsToolArgs(BaseModel):
@@ -168,6 +177,13 @@ class FilterSessionRecordingsTool(MaxTool):
         try:
             query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
                 recordings_query
+            )
+        except ValidationError as e:
+            # Expected bad input, e.g. the model referenced a cohort or action that doesn't exist.
+            # Surface it to the model so it can self-correct, without polluting error tracking.
+            content = (
+                f"⚠️ Couldn't apply these session recordings filters: {_format_validation_error(e)} "
+                "Remove or correct the offending filter (for example a cohort that doesn't exist), then try again."
             )
         except Exception as e:
             capture_exception(e)

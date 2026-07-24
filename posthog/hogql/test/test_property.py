@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EmptyPropertyFilter,
@@ -920,6 +921,11 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
+
+    def test_cohort_filter_nonexistent_raises_validation_error(self):
+        # A hallucinated / deleted cohort ID must surface as ValidationError, not a bare Cohort.DoesNotExist
+        with self.assertRaises(ValidationError):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": 999999999}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
