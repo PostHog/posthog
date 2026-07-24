@@ -29,6 +29,35 @@ describe('RefDedupCache', () => {
         expect(await probe(name, 'would_hit')).toBe(1)
     })
 
+    it('credits one eviction with one verdict, however often the evicted ref is probed', async () => {
+        // Reading the ghost through `get` renews its recency, so a ref that is probed but never
+        // re-added (the sidecar rejected it, or its produce failed) pins itself and scores would_hit
+        // on every later batch. That inflates the ratio in the "buy more memory" direction, on the
+        // one metric whose whole job is deciding whether to spend memory.
+        const name = 'test_repeat_probe'
+        const cache = new RefDedupCache(name, 2, 1)
+        cache.add('a')
+        cache.add('b')
+        cache.add('c') // evicts 'a'
+
+        for (let i = 0; i < 5; i++) {
+            expect(cache.has('a')).toBe(false)
+        }
+
+        expect(await probe(name, 'would_hit')).toBe(1)
+        expect(await probe(name, 'would_miss')).toBe(4)
+    })
+
+    it.each([
+        ['a typo parsed to NaN', NaN],
+        ['the source default copied verbatim, which parseFloat truncates', 1.5],
+        ['a negative that would otherwise silently disable dedup', -1],
+    ])('rejects %s at construction rather than at first use', (_case, max) => {
+        // lru-cache throws on these too, but names neither the cache nor the knob, so the lane
+        // crash-loops on a message an operator cannot act on.
+        expect(() => new RefDedupCache('test_validation', max)).toThrow(/test_validation ref cache max/)
+    })
+
     it('does not probe while the cache still has room, so an unfilled cache reads as sized correctly', async () => {
         // Evictions are the only thing that can put a ref in the ghost list, so a cache that never
         // fills must report no would_hit at all rather than blaming capacity for ordinary misses.

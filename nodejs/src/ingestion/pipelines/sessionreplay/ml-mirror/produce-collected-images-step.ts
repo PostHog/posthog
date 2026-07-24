@@ -8,15 +8,13 @@ import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 /**
- * The Rust collector dedupes within one message; this bounds cross-message re-produces (the same
- * sprite recurring in every snapshot of a session, and across the sessions one pod happens to hold).
- * It is the only thing standing between a hot sprite and one produce per recurrence, so capacity
- * translates directly into scrub-topic volume: a ref evicted before its next sighting is re-produced
- * and re-scrubbed. Budget ~200 B per entry (the ref plus the LRU's own bookkeeping, not the ~60 B of
- * string), so this is ~100 MB against the lane's 8 GB pods. Duplicates that slip past it are only
- * wasted topic bytes — the consumer dedupes by ref too, so re-produces are idempotent. LRU eviction,
- * never wholesale clears: clearing forgets every hot sprite at once and re-produces the whole working
- * set each time the cap is hit.
+ * The Rust collector only dedupes within one message, leaving this as the sole thing between a hot
+ * sprite and one produce per recurrence, so capacity translates directly into scrub-topic volume: a
+ * ref evicted before its next sighting is re-produced and re-scrubbed. Budget ~200 B per entry (the
+ * LRU's bookkeeping dominates the ~60 B ref), so this is ~100 MB against the 8000M mirror container
+ * in https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-mirror/values.yaml,
+ * which also holds the anonymizer's packed image buffers. Overflowing it costs topic bytes rather
+ * than correctness, since the consumer dedupes by ref too.
  */
 const PRODUCED_REF_CACHE_MAX = 500_000
 

@@ -241,7 +241,88 @@ describe('ImageBatcher', () => {
         }
     )
 
-    it('dedupMaxRefs 0 disables dedup instead of skipping everything or throwing', async () => {
+    it('rescrubs an image whose batch failed rather than pod-deduping the replay away', async () => {
+        // A ref is marked seen only once its image is buffered. Marking it at plan time, or inside
+        // scrubOne, reads as a harmless simplification and silently drops the image instead: the
+        // replay is pod-deduped, its offset advances, and nothing ever writes it. No error, no
+        // counter, and every other test still green.
+        let attempts = 0
+        const flakyClient = {
+            scrub: (b: Buffer) => {
+                attempts += 1
+                return attempts === 1 ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            flakyClient,
+            options,
+            0
+        )
+        const sprite = Buffer.from('sprite')
+
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)).rejects.toThrow('sidecar down')
+        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 2)
+
+        expect(store.writes.flat()).toHaveLength(1)
+    })
+
+    it('advances every partition past the duplicates it skipped, not just the one it scrubbed on', async () => {
+        // The span walk is the one place that can commit an offset for a message it never processed,
+        // and that failure is silent permanent loss. Both partitions here end on a duplicate, so the
+        // trailing skips are only covered if the final recordOffsets spans the whole batch.
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            offsets,
+            scrubClient,
+            options,
+            0
+        )
+        const a = Buffer.from('a')
+        const b = Buffer.from('b')
+
+        await batcher.handleBatch(
+            [msg(0, 100, pt(1), a), msg(1, 200, pt(1), b), msg(0, 101, pt(1), a), msg(1, 201, pt(1), b)],
+            1
+        )
+
+        expect(offsets.received.at(-1)).toEqual(
+            expect.arrayContaining([
+                { topic: 'session_replay_image_scrub', partition: 0, offset: 102 },
+                { topic: 'session_replay_image_scrub', partition: 1, offset: 202 },
+            ])
+        )
+    })
+
+    it('stops re-sending an image the sidecar permanently rejected', async () => {
+        // A 422/413 is a verdict on the content, so every later copy would earn the same rejection.
+        // Without marking it, the most broken images are the ones that keep costing sidecar calls.
+        let calls = 0
+        const rejectingClient = {
+            scrub: () => {
+                calls += 1
+                return Promise.resolve(null)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            rejectingClient,
+            options,
+            0
+        )
+        const broken = Buffer.from('broken')
+
+        await batcher.handleBatch([msg(0, 0, pt(1), broken)], 1)
+        await batcher.handleBatch([msg(0, 1, pt(1), broken)], 2)
+
+        expect(calls).toBe(1)
+    })
+
+    it('dedupMaxRefs 0 disables the cross-batch cache but never intra-batch dedup', async () => {
         const store = new FakeStore()
         const batcher = new ImageBatcher(
             store as unknown as ImageShardStore,
@@ -254,8 +335,11 @@ describe('ImageBatcher', () => {
         const sprite = Buffer.from('sprite')
         await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
         await batcher.handleBatch([msg(0, 1, pt(1), sprite)], 2)
-
         expect(store.writes.flat()).toHaveLength(2)
+
+        // Intra-batch dedup keeps no state between batches, so turning the cache off cannot reach it.
+        await batcher.handleBatch([msg(0, 2, pt(1), sprite), msg(0, 3, pt(1), sprite)], 3)
+        expect(store.writes.flat()).toHaveLength(3)
     })
 
     test.each([[0], [NaN], [-1]])('rejects scrubConcurrency %p at construction', (scrubConcurrency) => {

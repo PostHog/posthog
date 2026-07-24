@@ -2,10 +2,9 @@ import { LRUCache } from 'lru-cache'
 import { Counter, Gauge } from 'prom-client'
 
 /**
- * One ref in this many is remembered after eviction. The ghost list holds keys only and, in sampled
- * space, spans the same number of evictions as the cache holds entries, so a ghost hit means a cache
- * of twice the capacity would still have been holding that ref. Sampling keeps the diagnostic near
- * 6% of the cache's own memory, which is what makes it affordable to leave on across the fleet.
+ * In sampled space the ghost list spans as many evictions as the cache holds entries, so a ghost hit
+ * means a cache of twice the capacity would still have held that ref. Sampling keeps the diagnostic
+ * near 6% of the cache's own memory, which is what makes it affordable to leave on across the fleet.
  */
 const GHOST_SAMPLE_RATE = 16
 
@@ -21,10 +20,19 @@ const capacityProbeTotal = new Counter({
     labelNames: ['cache', 'verdict'],
 })
 
-const entriesGauge = new Gauge({
+/** Read at scrape time by the entries gauge, which keeps the hot path free of a gauge write per ref. */
+const liveCaches = new Map<string, RefDedupCache>()
+
+// Never referenced again: constructing it registers it, and it pulls its own values at scrape time.
+new Gauge({
     name: 'ml_mirror_ref_cache_entries',
     help: 'Refs currently held in a dedup cache. Below the capacity gauge means the cache has never filled, so it cannot be undersized',
     labelNames: ['cache'],
+    collect() {
+        for (const [name, cache] of liveCaches) {
+            this.labels(name).set(cache.size)
+        }
+    },
 })
 
 const capacityGauge = new Gauge({
@@ -60,9 +68,15 @@ export class RefDedupCache {
         max: number,
         private readonly ghostSampleRate: number = GHOST_SAMPLE_RATE
     ) {
-        capacityGauge.labels(name).set(Math.max(0, max))
-        entriesGauge.labels(name).set(0)
-        if (max <= 0) {
+        // These arrive from env, where `overrideConfigWithEnv` parseFloats whatever it is given: the
+        // source default is written `1_000_000`, which parses to 1, and a typo parses to NaN. Both
+        // reach lru-cache as a `max` it rejects with an error naming neither the knob nor the cache.
+        if (!Number.isInteger(max) || max < 0) {
+            throw new Error(`${name} ref cache max must be 0 or a positive integer, got ${max}`)
+        }
+        liveCaches.set(name, this)
+        capacityGauge.labels(name).set(max)
+        if (max === 0) {
             this.cache = null
             this.ghost = null
             return
@@ -90,25 +104,28 @@ export class RefDedupCache {
             return true
         }
         if (this.isSampled(ref)) {
-            capacityProbeTotal.labels(this.name, this.ghost?.get(ref) ? 'would_hit' : 'would_miss').inc()
+            // peek, not get: reading through `get` would renew the ghost entry's own recency, letting
+            // a ref that is probed but never re-added pin itself and score would_hit indefinitely.
+            // Dropping it on a hit keeps one eviction worth exactly one verdict.
+            const wouldHit = this.ghost?.peek(ref) === true
+            if (wouldHit) {
+                this.ghost?.delete(ref)
+            }
+            capacityProbeTotal.labels(this.name, wouldHit ? 'would_hit' : 'would_miss').inc()
         }
         return false
     }
 
     public add(ref: string): void {
-        if (!this.cache) {
-            return
-        }
-        this.cache.set(ref, true)
-        entriesGauge.labels(this.name).set(this.cache.size)
+        this.cache?.set(ref, true)
     }
 
     public delete(ref: string): void {
-        if (!this.cache) {
-            return
-        }
-        this.cache.delete(ref)
-        entriesGauge.labels(this.name).set(this.cache.size)
+        this.cache?.delete(ref)
+    }
+
+    public get size(): number {
+        return this.cache?.size ?? 0
     }
 
     private isSampled(ref: string): boolean {
