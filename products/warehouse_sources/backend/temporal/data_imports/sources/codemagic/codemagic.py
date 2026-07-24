@@ -99,6 +99,9 @@ def codemagic_source(
                 "location": "header",
             },
             "paginator": paginator,
+            # The token rides in a custom header that `requests` preserves across cross-origin
+            # redirects, so following a 3xx could replay it off-host. Pin to the base host.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -144,7 +147,7 @@ def codemagic_source(
 
 
 def validate_credentials(api_token: str) -> tuple[bool, str | None]:
-    response = make_tracked_session(redact_values=(api_token,)).get(
+    response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
         f"{BASE_URL}/apps",
         headers={"x-auth-token": api_token},
     )

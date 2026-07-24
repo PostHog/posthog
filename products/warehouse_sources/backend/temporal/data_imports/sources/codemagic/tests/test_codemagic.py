@@ -139,6 +139,39 @@ class TestCodemagicSourceResumeBehavior:
             list(cast(Iterable[Any], response.items()))
             return mock_session, sent_params
 
+    def test_sync_client_does_not_follow_redirects(self) -> None:
+        # The token rides in a custom header requests preserves across cross-origin redirects, so
+        # the sync client must pin allow_redirects off. RESTClient forwards the client config's
+        # value into every send().
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        send_kwargs: list[dict[str, Any]] = []
+        response_iter = iter([_make_http_response({"applications": []})])
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            send_kwargs.append(kwargs)
+            return next(response_iter)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            response = codemagic_source(
+                api_token="test-token",
+                endpoint="Applications",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
+
     def test_applications_endpoint_is_a_single_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -311,7 +344,8 @@ class TestValidateCredentials:
 
             validate_credentials("secret-token")
 
-        mock_make_session.assert_called_once_with(redact_values=("secret-token",))
+        # allow_redirects=False keeps the custom-header token from following a 3xx off-host.
+        mock_make_session.assert_called_once_with(redact_values=("secret-token",), allow_redirects=False)
         mock_session.get.assert_called_once_with(
             "https://api.codemagic.io/apps", headers={"x-auth-token": "secret-token"}
         )
