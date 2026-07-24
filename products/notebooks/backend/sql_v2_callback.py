@@ -10,12 +10,14 @@ import json
 from django.core import signing
 from django.db.models import Q
 from django.http import JsonResponse
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
+from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -97,9 +99,28 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
-    run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    # Claim the RUNNING -> terminal transition with a status-guarded UPDATE so exactly one
+    # delivery wins it — concurrent re-deliveries must not each report the run's metrics.
+    # A loser still writes the row (the deliberate upsert: a late real result may overwrite
+    # an interrupt placeholder), it just doesn't report.
+    won_transition = bool(
+        NotebookNodeRun.objects.for_team(team_id)
+        .filter(id=run.id, status=NotebookNodeRun.Status.RUNNING)
+        .update(
+            status=run.status,
+            envelope=run.envelope,
+            result_id=run.result_id,
+            error=run.error,
+            updated_at=timezone.now(),
+        )
+    )
+    if not won_transition:
+        run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
     _store_frame_snapshot(run, frames, team_id)
+
+    if won_transition:
+        record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})
 

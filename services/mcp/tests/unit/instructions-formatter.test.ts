@@ -309,34 +309,46 @@ describe('InstructionsFormatter', () => {
         const surfaces: {
             name: string
             render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+            mustPrecede: string[]
         }[] = [
             {
                 name: 'buildToolsInstructions',
                 render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+                mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
                     formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
                 name: 'buildExecCommandReference',
                 render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+                mustPrecede: ['SCHEMA DRILL-DOWN RULE', '### Retrieving data'],
             },
         ]
 
-        it.each(surfaces)('$name includes metric discovery only when the catalog exists', ({ render }) => {
-            const formatter = new InstructionsFormatter()
-            const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
-            expect(flagOn).toContain('#### Metric discovery (semantic layer)')
-            expect(flagOn).toContain('system.information_schema.metrics')
+        it.each(surfaces)(
+            '$name puts gated metric routing before generic analytics guidance',
+            ({ render, mustPrecede }) => {
+                const formatter = new InstructionsFormatter()
+                const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
+                const metricRoutingPosition = flagOn.indexOf('#### Metric discovery (semantic layer)')
+                expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
+                expect(flagOn).toContain('system.information_schema.metrics')
+                expect(flagOn).toContain('data-catalog-metric-run')
+                for (const genericGuidance of mustPrecede) {
+                    expect(metricRoutingPosition).toBeLessThan(flagOn.indexOf(genericGuidance))
+                }
 
-            // Flag-off must be byte-identical to a context without the field, so orgs
-            // without the catalog are never steered at a table that doesn't exist.
-            const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
-            expect(flagOff).not.toContain('#### Metric discovery')
-            expect(flagOff).toBe(render(formatter, fullCtx))
-        })
+                // Flag-off must be byte-identical to a context without the field, so orgs
+                // without the catalog are never steered at a table that doesn't exist.
+                const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
+                expect(flagOff).not.toContain('#### Metric discovery')
+                expect(flagOff).toBe(render(formatter, fullCtx))
+            }
+        )
 
         it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
             const formatter = new InstructionsFormatter()

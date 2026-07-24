@@ -116,11 +116,16 @@ Leave **Account ID** blank to use the first account your key can access, or set 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CallRailSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CallRailSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_callrail_credentials(config.api_key):
             return True, None

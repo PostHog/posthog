@@ -109,6 +109,32 @@ class LoopsAPITestCase(TestCase):
 
 
 class LoopCRUDAPITest(LoopsAPITestCase):
+    @parameterized.expand(
+        [
+            ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
+            (
+                "pinned_glm_with_unsupported_effort",
+                "claude",
+                "@cf/zai-org/glm-5.2",
+                "medium",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_validates_model_and_reasoning_effort(
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+    ):
+        payload = self._valid_loop_payload(
+            runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
+        )
+
+        response = self.owner_client.post(self._loops_url(), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+
     def test_create_list_retrieve_update_delete_loop(self):
         payload = self._valid_loop_payload(
             name="Weekly digest",
@@ -628,6 +654,77 @@ class LoopScheduleTriggerValidationAPITest(LoopsAPITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.content)
+
+
+class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        mock_github = self._start_patch("products.tasks.backend.facade.loops.GitHubIntegration")
+        mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/repo"}]
+
+    def _github_trigger(self, events: list, filters: dict | None = None) -> dict:
+        config: dict = {"github_integration_id": self.integration.id, "repository": "acme/repo", "events": events}
+        if filters is not None:
+            config["filters"] = filters
+        return {"type": "github", "config": config}
+
+    @parameterized.expand(
+        [
+            ("bare_event", ["issues"], None, ["issues"], {}),
+            ("bare_event_with_action_filter", ["issues"], {"actions": ["opened"]}, ["issues"], {"actions": ["opened"]}),
+            ("singular_action_alias", ["issues"], {"action": "opened"}, ["issues"], {"actions": ["opened"]}),
+            ("dotted_shorthand", ["issues.opened"], None, ["issues"], {"actions": ["opened"]}),
+            (
+                "dotted_shorthand_duplicates",
+                ["issues.opened", "issues.opened"],
+                None,
+                ["issues"],
+                {"actions": ["opened"]},
+            ),
+            (
+                "dotted_shorthand_multiple_actions",
+                ["issues.opened", "issues.reopened"],
+                None,
+                ["issues"],
+                {"actions": ["opened", "reopened"]},
+            ),
+            (
+                "dotted_shorthand_merges_with_explicit_actions",
+                ["pull_request.opened"],
+                {"actions": ["synchronize"]},
+                ["pull_request"],
+                {"actions": ["synchronize", "opened"]},
+            ),
+        ]
+    )
+    def test_event_shorthand_normalization(self, _name, events, filters, expected_events, expected_filters):
+        created = self._create_loop(self.owner_client, triggers=[self._github_trigger(events, filters)])
+        config = created["triggers"][0]["config"]
+        self.assertEqual(config["events"], expected_events)
+        self.assertEqual(config["filters"], expected_filters)
+
+    @parameterized.expand(
+        [
+            ("unknown_event", ["nonsense"]),
+            ("unknown_dotted_event", ["nonsense.opened"]),
+            ("dotted_event_with_empty_action", ["issues."]),
+            # Shorthand mixed with a bare event is ambiguous: the folded actions filter would
+            # silently apply to the bare event too.
+            ("shorthand_mixed_with_bare_event", ["issues.opened", "push"]),
+            ("shorthand_mixed_with_its_own_bare_event", ["issues.opened", "issues"]),
+            # Cross-event shorthand would flatten into a cartesian product: pull_request.opened
+            # would fire here even though only pull_request.synchronize was requested.
+            ("shorthand_spanning_multiple_events", ["issues.opened", "pull_request.synchronize"]),
+        ]
+    )
+    def test_invalid_events_are_rejected(self, _name, events):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[self._github_trigger(events)]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
 
 
 class LoopServiceReadbackAPITest(LoopsAPITestCase):

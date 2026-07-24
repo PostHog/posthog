@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_connect_gone_away,
     _is_transient_connect_reset,
     _is_transient_connect_timeout,
+    _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
     _is_transient_vitess_dial_timeout,
@@ -925,6 +926,9 @@ class TestIsTransientConnectDrop:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
             # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
             "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+            # A raw socket close (TCP RST/FIN) mid-handshake, with unread bytes still buffered.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "(Closed before TLS handshake with data in recv buffer. (_ssl.c:1032))",
         ],
     )
     def test_matches_ssl_peer_close_on_connect(self, message):
@@ -1450,6 +1454,36 @@ class TestIsTransientVitessReparent:
         assert not _is_transient_vitess_reparent(ValueError("reparent operation in progress"))
 
 
+class TestIsTransientMetadataQueryReset:
+    def test_matches_connection_reset_mid_query(self):
+        # A peer reset landing on an already-open connection while a metadata query (e.g.
+        # `get_table_metadata`'s information_schema lookup) was in flight — an overloaded
+        # server or a proxy/load-balancer cycling its backend, not a bad query plan.
+        assert _is_transient_metadata_query_reset(
+            pymysql.err.OperationalError(
+                2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Same code without the peer-reset signature is the bad-plan/filesort-timeout
+            # symptom `_is_bad_plan_error` handles instead — must not be absorbed here.
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_metadata_query_reset(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_metadata_query_reset(ConnectionResetError("[Errno 104] Connection reset by peer"))
+
+
 class TestRetryOnTransientTabletUnavailable:
     @staticmethod
     def _unavailable() -> pymysql.err.OperationalError:
@@ -1483,6 +1517,17 @@ class TestRetryOnTransientTabletUnavailable:
             "there may be a reparent operation in progress",
         )
         operation = MagicMock(side_effect=[reparent, "ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == 2
+
+    def test_retries_metadata_query_connection_reset_then_succeeds(self, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        reset = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+        )
+        operation = MagicMock(side_effect=[reset, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -1876,6 +1921,22 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process (connect-time and streaming-query FORCE INDEX fallback); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Transient lost-connection error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -168,7 +168,7 @@ jobs:
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run

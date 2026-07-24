@@ -1,16 +1,22 @@
+import re
 import json
+import threading
 import statistics
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Optional
 
+from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
 
 import dagster
+import structlog
 from dagster import Backoff, Jitter, RetryPolicy
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
@@ -21,8 +27,29 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
+    can_use_lazy_precompute as can_use_goals_lazy_precompute,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import BACKGROUND_WARMING_TRIGGERS
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+    can_use_lazy_precompute as can_use_overview_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    can_use_lazy_precompute as can_use_frustration_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_paths_lazy_precompute,
+)
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+    can_use_lazy_precompute as can_use_vitals_paths_lazy_precompute,
+)
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
+
+if TYPE_CHECKING:
+    from posthog.hogql_queries.query_runner import QueryRunner
 
 WARMING_SHAPES_SELECTED_GAUGE = Gauge(
     "posthog_web_analytics_warming_shapes_selected",
@@ -31,8 +58,10 @@ WARMING_SHAPES_SELECTED_GAUGE = Gauge(
 WARMING_QUERIES_COUNTER = Counter(
     "posthog_web_analytics_warming_queries_total",
     "Web analytics warming outcomes per query shape",
-    ["outcome"],  # warmed | skipped_fresh | failed | unsupported
+    ["outcome"],  # warmed | skipped_fresh | skipped_duplicate | skipped_raw_low_demand | failed | unsupported
 )
+
+logger = structlog.get_logger(__name__)
 
 cache_warming_retry_policy = RetryPolicy(
     max_retries=3,
@@ -89,8 +118,113 @@ def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
     return {**query_json, "useWebAnalyticsPrecompute": True}
 
 
+# Warmed bucket depth. ~88% of web analytics requests fit inside 7 days but 93%
+# fit inside 30 (-14d/-28d/-30d/month-start make up the difference); since
+# per-day buckets are immutable and shared across date ranges, building 30 days
+# once covers every narrower request at no recurring cost.
+WARMING_EXPANDED_DATE_FROM = "-30d"
+
+# Relative date_from presets that are always narrower than 30 days. -Nh/-Nd/-Nw
+# forms are matched by pattern and compared in days; absolute dates and wider
+# presets (mStart, all, yStart, -90d, …) are left untouched. Months/years are
+# deliberately unmatched: -1m can span 31 days, so expanding it would narrow it.
+_SUB_30D_DATE_FROM_PRESETS = frozenset({"dStart", "-1dStart", "wStart", "-1wStart"})
+_SUB_30D_DATE_FROM_RE = re.compile(r"^-(\d+)([hdw])$")
+_HOURS_PER_DAY = 24
+_DAYS_PER_WEEK = 7
+
+
+def _is_within_30_days(date_from: str | None) -> bool:
+    if not date_from:
+        return True  # unset falls back to the -7d default
+    if date_from in _SUB_30D_DATE_FROM_PRESETS:
+        return True
+    match = _SUB_30D_DATE_FROM_RE.match(date_from)
+    if not match:
+        return False
+    value, unit = int(match.group(1)), match.group(2)
+    if unit == "h":
+        return value < 30 * _HOURS_PER_DAY
+    if unit == "w":
+        return value * _DAYS_PER_WEEK < 30
+    return value < 30
+
+
+def maybe_expand_warming_date_range(query_json: dict) -> dict:
+    """Deepen a bucket-building replay's date range to WARMING_EXPANDED_DATE_FROM.
+
+    Only date_from moves (earlier), so the built buckets are a strict superset of
+    the requested range. Applies only to shapes on the precompute path: for an
+    opted-out shape the replay's exact result-cache row is the whole value of
+    warming it, so its range must stay faithful.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    date_range = query_json.get("dateRange") or {}
+    if not _is_within_30_days(date_range.get("date_from")):
+        return query_json
+    return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
+
+
+# Family-level eligibility dispatch, mirroring each runner's own lazy-path
+# entry points (stats_table tries three families; a shape is lazy-served iff
+# any accepts). Keyed by query kind — only LAZY_PRECOMPUTE_QUERY_KINDS appear.
+_LAZY_FAMILY_CHECKS: dict[str, tuple] = {
+    "WebOverviewQuery": (can_use_overview_lazy_precompute,),
+    "WebStatsTableQuery": (
+        can_use_paths_lazy_precompute,
+        can_use_frustration_lazy_precompute,
+        can_use_stats_lazy_precompute,
+    ),
+    "WebGoalsQuery": (can_use_goals_lazy_precompute,),
+    "WebVitalsPathBreakdownQuery": (can_use_vitals_paths_lazy_precompute,),
+}
+
+
+def _is_lazy_eligible(runner: "QueryRunner", query_json: dict) -> bool:
+    family_checks = _LAZY_FAMILY_CHECKS.get(query_json.get("kind", ""), ())
+    return any(check(runner) for check in family_checks)
+
+
+def build_replay_runner(team: Team, query_json: dict) -> tuple[Optional["QueryRunner"], dict, bool]:
+    """Build the runner for a warming replay, widening the date range only for
+    shapes the lazy path will actually serve. Returns (runner, replay json,
+    lazy-eligible) — the caller holds raw-path replays to a higher demand bar.
+
+    The per-query opt-in does not guarantee the lazy path: shapes the gates
+    reject (conversion goals, sampling, unsupported breakdowns/metrics like
+    bounce rate, …) execute on the raw path, where a widened replay would be a
+    30-day scan the tenant never ran — background load outside their request
+    throttles, mintable up to MAX_SHAPES_PER_TEAM per hour. Those shapes replay
+    with their faithful original range instead. Eligibility is decided by the
+    same per-family `can_use_lazy_precompute` dispatch the runner uses, so this
+    check and execution can't disagree. Under the warming tag the enrollment
+    gate is bypassed by design — building buckets for not-yet-enrolled teams is
+    the warmer's purpose — so the decision rests on the shape itself.
+    """
+    expanded_json = maybe_expand_warming_date_range(query_json)
+    if expanded_json is query_json:
+        runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+        if runner is None:
+            return None, query_json, False
+        return runner, query_json, _is_lazy_eligible(runner, query_json)
+
+    runner = get_query_runner_or_none(query=expanded_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
+    if runner is None:
+        return None, expanded_json, False
+    if _is_lazy_eligible(runner, expanded_json):
+        return runner, expanded_json, True
+    return (
+        get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC),
+        query_json,
+        False,
+    )
+
+
 def queries_to_keep_fresh(
-    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 10, max_shapes: int = 20000
+    context: dagster.OpExecutionContext, days: int = 2, minimum_query_count: int = 2, max_shapes: int = 40000
 ) -> list[dict]:
     """Fleet-wide demand selection: every (team, query shape) with at least
     `minimum_query_count` runs in the window, hottest first, capped at
@@ -207,73 +341,114 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     return queries
 
 
+# Demand bar for shapes that replay on the raw path (not lazy-eligible). The
+# min-2 selection floor is safe for bucket-backed shapes but would let raw
+# replays amplify a tenant's two runs into hourly background scans.
+RAW_REPLAY_MIN_QUERY_COUNT = 10
+
+# Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
+# reads/inserts), so a small pool cuts wall time ~8x at the widened selection
+# size; kept well under the OFFLINE per-user query-slot budget so a build wave
+# can't starve other traffic (the same slot pool the inline-build saturation
+# incidents exhausted).
+WARMING_SHAPE_CONCURRENCY = 8
+
+
 @dagster.op(retry_policy=cache_warming_retry_policy)
 def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) -> None:
-    queries_warmed = 0
-    queries_skipped = 0
-    queries_failed = 0
-    queries_unsupported = 0
+    team_ids = {q["team_id"] for q in queries}
+    teams: dict[int, Team] = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
+    missing_teams = team_ids - teams.keys()
+    if missing_teams:
+        context.log.warning(f"{len(missing_teams)} teams not found, skipping their shapes")
 
-    teams: dict[int, Team | None] = {}
+    # Selection groups by raw JSON text, so differently-encoded rows can
+    # normalize to one cache key; first worker to claim it warms, the rest skip.
+    seen_cache_keys: set[tuple[int, str]] = set()
+    seen_lock = threading.Lock()
 
-    for query_info in queries:
-        team_id = query_info["team_id"]
-        query_json = query_info["query_json"]
-        normalized_query_hash = query_info["normalized_query_hash"]
-
-        if team_id not in teams:
-            try:
-                teams[team_id] = Team.objects.get(pk=team_id)
-            except Team.DoesNotExist:
-                context.log.warning(f"Team {team_id} not found, skipping")
-                teams[team_id] = None
-        team = teams[team_id]
+    def _warm_one(query_info: dict) -> str:
+        team = teams.get(query_info["team_id"])
         if team is None:
-            continue
+            return "team_missing"
+        query_json = query_info["query_json"]
 
         try:
-            # Tag before any runner work so the whole request — including the lazy
-            # precompute gate, which lets warming traffic through regardless of the
-            # rollout flag — is classified as background warming.
-            tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
+            # Query tags are thread-local, so they must be set here in the worker
+            # — not in the op thread — or the replay loses its background-warming
+            # identity, which both the lazy gate's rollout bypass and the
+            # selection's self-feedback exclusion key on (the eager warmer's
+            # missing-tags warnings came from exactly this). Reset first: pool
+            # threads are reused, and tags a previous shape's runner added
+            # (client_query_id, cache key, …) would otherwise leak into this one.
+            reset_query_tags()
+            tag_queries(team_id=team.pk, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
             query_json = maybe_opt_into_lazy_precompute(query_json)
 
             # None only for kinds without a get_query_runner branch — the backstop
             # for runnerless kinds the selection doesn't know to exclude yet.
             # Validation errors on supported kinds still raise into the failure path.
-            runner = get_query_runner_or_none(
-                query=query_json,
-                team=team,
-                limit_context=LimitContext.QUERY_ASYNC,
-            )
+            runner, query_json, lazy_eligible = build_replay_runner(team, query_json)
             if runner is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="unsupported").inc()
-                queries_unsupported += 1
-                continue
+                return "unsupported"
 
-            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=runner.get_cache_key())
+            # Raw-path replays keep the pre-widening demand bar: a lazy-eligible
+            # shape amortizes into shared immutable buckets (steady-state cost is
+            # one cheap today-bucket refresh), but an ineligible shape replays as
+            # a full live query every stale hour — with the min-2 floor a tenant
+            # could mint MAX_SHAPES_PER_TEAM such shapes from two runs each and
+            # have the warmer amplify them outside request throttles.
+            if not lazy_eligible and query_info.get("query_count", 0) < RAW_REPLAY_MIN_QUERY_COUNT:
+                WARMING_QUERIES_COUNTER.labels(outcome="skipped_raw_low_demand").inc()
+                return "skipped_raw_low_demand"
+
+            cache_key = runner.get_cache_key()
+            with seen_lock:
+                if (team.pk, cache_key) in seen_cache_keys:
+                    WARMING_QUERIES_COUNTER.labels(outcome="skipped_duplicate").inc()
+                    return "skipped_duplicate"
+                seen_cache_keys.add((team.pk, cache_key))
+
+            cache_manager = DjangoCacheQueryCacheManager(team_id=team.pk, cache_key=cache_key)
             cached_data = cache_manager.get_cache_data()
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
-                is_stale = runner._is_stale(last_refresh)
-
-                if not is_stale:
+                if not runner._is_stale(last_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
-                    queries_skipped += 1
-                    continue
+                    return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
-            queries_warmed += 1
-
+            return "warmed"
         except Exception as e:
-            context.log.exception(f"Error warming query {normalized_query_hash} for team {team_id}")
+            # Module logger, not context.log: Dagster's log manager isn't
+            # guaranteed thread-safe, and workers fail concurrently.
+            logger.exception(
+                "web_analytics_warming_shape_failed",
+                team_id=team.pk,
+                normalized_query_hash=query_info["normalized_query_hash"],
+            )
             capture_exception(e)
             WARMING_QUERIES_COUNTER.labels(outcome="failed").inc()
-            queries_failed += 1
+            return "failed"
+        finally:
+            # Pool threads hold their own Django connections; drop expired ones so
+            # a long pass doesn't accumulate stale connections per thread.
+            close_old_connections()
+
+    outcomes: dict[str, int] = {}
+    with ThreadPoolExecutor(max_workers=WARMING_SHAPE_CONCURRENCY) as pool:
+        for outcome in pool.map(_warm_one, queries):
+            outcomes[outcome] = outcomes.get(outcome, 0) + 1
+
+    queries_warmed = outcomes.get("warmed", 0)
+    queries_skipped = outcomes.get("skipped_fresh", 0)
+    queries_failed = outcomes.get("failed", 0)
+    queries_unsupported = outcomes.get("unsupported", 0)
 
     context.log.info(
         f"Warmed {queries_warmed} queries ({queries_skipped} already fresh, "

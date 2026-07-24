@@ -161,6 +161,17 @@ class SessionMetadata(BaseModel, frozen=True):
         return self.model_dump(mode="json", exclude_none=True)
 
 
+class NavigationEntry(BaseModel, frozen=True):
+    """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
+
+    rec_t: int = Field(ge=0)
+    # Interned `window_N` token, matching what the events tool returns. None when the session has no window ids.
+    window: str | None = None
+    url: str
+    # First entry seen for a window token other than the session's initial one (a tab or window opening).
+    new_window: bool = False
+
+
 class ScannerLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
@@ -171,6 +182,9 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
+    # Chronological URL-change timeline rendered into the preamble. Defaults keep pre-existing Redis blobs loadable.
+    navigation: list[NavigationEntry] = Field(default_factory=list)
+    navigation_dropped: int = Field(default=0, ge=0)
     metadata: SessionMetadata
     # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
     distinct_id: str | None = None

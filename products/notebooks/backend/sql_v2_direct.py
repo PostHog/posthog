@@ -25,6 +25,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import envelope as kernel_envelope
 from products.notebooks.backend.sql_v2 import DISPLAY_PAGE_LIMIT, RESULT_CACHE_ROWS
+from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -93,29 +95,23 @@ def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) 
         )
 
 
-def _finish_direct_run(
-    run: NotebookNodeRun, status: NotebookNodeRun.Status, envelope: dict | None, error: str | None
-) -> bool:
-    """Move a RUNNING run to a terminal state; return whether this call won the transition.
+def _query_status_timings(status: Any) -> dict[str, float]:
+    """Decompose a completed QueryStatus into phase timings for the run envelope.
 
-    Guarded on the current status so concurrent pollers are idempotent and a completed
-    query can never overwrite an interrupt — the opposite of the kernel callback's
-    deliberate upsert, because here nothing later holds a truer outcome. Refreshes
-    `run` either way so the caller always sees the row that won.
+    `queued_s` is enqueue -> Celery pickup (slot/queue wait); `clickhouse_s` is pickup ->
+    completion — HogQL compile plus the ClickHouse execution, the closest server-side
+    proxy for "how long the query itself took". Both are the decomposition fields
+    sql_v2_observability.md gap 1 called for.
     """
-    updated = (
-        NotebookNodeRun.objects.for_team(run.team_id)
-        .filter(id=run.id, status=NotebookNodeRun.Status.RUNNING)
-        .update(
-            status=status,
-            envelope=envelope,
-            result_id=(envelope or {}).get("result_id"),
-            error=error,
-            updated_at=timezone.now(),
-        )
-    )
-    run.refresh_from_db()
-    return bool(updated)
+    timings: dict[str, float] = {}
+    start_time = getattr(status, "start_time", None)
+    pickup_time = getattr(status, "pickup_time", None)
+    end_time = getattr(status, "end_time", None)
+    if start_time and pickup_time:
+        timings["queued_s"] = round(max((pickup_time - start_time).total_seconds(), 0.0), 3)
+    if pickup_time and end_time:
+        timings["clickhouse_s"] = round(max((end_time - pickup_time).total_seconds(), 0.0), 3)
+    return timings
 
 
 def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
@@ -139,11 +135,11 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         if run.status == NotebookNodeRun.Status.RUNNING and age_seconds > DIRECT_RUN_RESULT_GRACE_SECONDS:
             # The watchdog the kernel lane never had: with no status left to complete
             # this run, waiting longer cannot help.
-            _finish_direct_run(
+            finish_node_run(
                 run,
                 NotebookNodeRun.Status.FAILED,
-                envelope=None,
                 error="The query expired before completing. Re-run it.",
+                outcome=OUTCOME_TIMED_OUT,
             )
         return None
 
@@ -152,7 +148,7 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     if status.error:
         if run.status == NotebookNodeRun.Status.RUNNING:
             message = status.error_message or "Query execution failed."
-            _finish_direct_run(run, NotebookNodeRun.Status.FAILED, envelope=None, error=message)
+            finish_node_run(run, NotebookNodeRun.Status.FAILED, error=message)
         return None
 
     results: dict[str, Any] = status.results or {}
@@ -170,7 +166,10 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
             types,
             has_more=fetched_has_more or len(rows) > DISPLAY_PAGE_LIMIT,
         )
-        _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=envelope, error=None)
+        timings = _query_status_timings(status)
+        if timings:
+            envelope["timings"] = timings
+        finish_node_run(run, NotebookNodeRun.Status.DONE, envelope=envelope, error=None)
         # Lost transitions land here too (an interrupt, or another poller); the
         # refreshed row's status decides whether the rows may be served.
         if run.status != NotebookNodeRun.Status.DONE:

@@ -66,6 +66,7 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
@@ -243,6 +244,12 @@ class LLMPromptViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
 
+        log_llm_prompt_activity(
+            team=self.team,
+            user=cast(User, self.request.user),
+            prompt_name=instance.name,
+            activity="created",
+        )
         report_user_action(
             cast(User, self.request.user),
             "llma prompt created",
@@ -403,7 +410,7 @@ class LLMPromptViewSet(
             return auth_error
 
         try:
-            prompt_versions = archive_prompt(self.team, prompt_name)
+            prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
 

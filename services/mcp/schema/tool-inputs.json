@@ -489,8 +489,15 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string",
-                    "description": "The insight ID or short_id to run."
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
                 },
                 "output_format": {
                     "default": "optimized",
@@ -750,6 +757,87 @@
                     "enum": ["full", "preview", "none"]
                 }
             }
+        },
+        "PropertyDefinitionUpdateInputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "description": "Description explaining what the property represents",
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "Tags to organize properties by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\"). Warning: this REPLACES the property's entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "property_type": {
+                    "description": "The data type of the property. Controls how the property is parsed, displayed, and filtered.",
+                    "type": "string",
+                    "enum": ["DateTime", "String", "Numeric", "Boolean", "Duration"]
+                },
+                "verified": {
+                    "description": "Mark as verified to indicate the property is correctly instrumented and safe to use",
+                    "type": "boolean"
+                },
+                "hidden": {
+                    "description": "Mark property as no longer used. Hides it from the UI while preserving historical data",
+                    "type": "boolean"
+                }
+            }
+        },
+        "PropertyDefinitionUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "propertyName": {
+                    "type": "string",
+                    "description": "The exact name of the property to update (e.g. \"$browser\", \"plan_type\")"
+                },
+                "type": {
+                    "default": "event",
+                    "description": "Which property taxonomy the property belongs to. Defaults to \"event\" (event properties).",
+                    "type": "string",
+                    "enum": ["event", "person", "group", "session"]
+                },
+                "groupTypeIndex": {
+                    "description": "Required when type is \"group\": the zero-based index of the group type the property belongs to.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining what the property represents",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize properties by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\"). Warning: this REPLACES the property's entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "property_type": {
+                            "description": "The data type of the property. Controls how the property is parsed, displayed, and filtered.",
+                            "type": "string",
+                            "enum": ["DateTime", "String", "Numeric", "Boolean", "Duration"]
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the property is correctly instrumented and safe to use",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark property as no longer used. Hides it from the UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    },
+                    "description": "The property definition data to update"
+                }
+            },
+            "required": ["propertyName", "data"]
         },
         "ReadDataSchemaSchema": {
             "type": "object",

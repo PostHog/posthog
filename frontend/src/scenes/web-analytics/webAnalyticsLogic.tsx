@@ -2716,7 +2716,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 title: 'Active Hours',
                                 linkText: 'Unique users',
                                 canOpenModal: true,
-                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                canOpenInsight: true,
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
@@ -2785,7 +2785,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 title: 'Active Hours',
                                 linkText: 'Total pageviews',
                                 canOpenModal: true,
-                                canOpenInsight: !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT],
+                                canOpenInsight: true,
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
@@ -3318,11 +3318,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (active_hours_tab && active_hours_tab !== values._activeHoursTab) {
                 actions.setActiveHoursTab(active_hours_tab)
             }
-            if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
-                actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            if (path_cleaning !== undefined) {
+                const parsedPathCleaning = [true, 'true', 1, '1'].includes(path_cleaning)
+                if (parsedPathCleaning !== values._isPathCleaningEnabled) {
+                    actions.setIsPathCleaningEnabled(parsedPathCleaning)
+                }
             }
-            if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
+            if (filter_test_accounts !== undefined) {
+                const parsedFilterTestAccounts = [true, 'true', 1, '1'].includes(filter_test_accounts)
+                if (parsedFilterTestAccounts !== values.shouldFilterTestAccounts) {
+                    actions.setShouldFilterTestAccounts(parsedFilterTestAccounts)
+                }
             }
             if (
                 compare_filter &&

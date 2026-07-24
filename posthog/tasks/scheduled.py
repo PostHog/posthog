@@ -78,7 +78,10 @@ from products.conversations.backend.tasks import (
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
+from products.data_warehouse.backend.facade.tasks import (
+    reconcile_all_managed_warehouse_tables_task,
+    send_external_data_failure_digest_catchup,
+)
 from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -93,7 +96,7 @@ from products.feature_flags.backend.tasks import (
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import sync_pending_signals_refund_credits
+from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -108,7 +111,10 @@ from products.tasks.backend.facade.tasks import (
     sweep_loop_task_retention_task,
 )
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
-from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    reap_stale_prewarm_heatmaps,
+    report_stuck_heatmap_screenshots,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -282,6 +288,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sync pending signals refund credits",
     )
 
+    # Keep the signals repository area-activity cache warm - weekly, Monday early morning
+    sender.add_periodic_task(
+        crontab(day_of_week="mon", hour="5", minute="35"),
+        refresh_signal_repository_activity.s(),
+        name="refresh signals repository activity",
+    )
+
     # Loop task retention sweep - daily at 4:30 AM
     add_periodic_task_with_expiry(
         sender,
@@ -419,6 +432,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=5 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reap_stale_prewarm_heatmaps.s(),
+        name="reap stale prewarm heatmap screenshots",
+        expires_seconds=10 * 60,
+    )
+
     # Auth token cache verification - every 6 hours at minute 40
     # Verifies per-token auth cache entries against the database,
     # deleting stale entries that signal-based invalidation may have missed.
@@ -502,6 +523,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Background net for tables created while nobody visits the warehouse status page. Each
+    # reconcile opens a real warehouse session (one worker pod, billed compute), so the sweep is
+    # deliberately infrequent — the 60s-coalesced status-read path is the interactive fast path.
+    sender.add_periodic_task(
+        crontab(minute="17,47"),
+        reconcile_all_managed_warehouse_tables_task.s(),
+        name="reconcile managed warehouse SQL editor tables",
+        expires=1800,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
