@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 // Shared scaffolding for the Quickstart scene stories. Not a *.stories.* file on purpose:
 // Storybook must not pick it up as a stories module.
 import { useMountedLogic } from 'kea'
@@ -101,43 +103,63 @@ export interface ScenarioResources {
     tickets?: number
 }
 
-/** One place to shape every data source the scene reads, so each story is a plain scenario */
-export const scenarioMocks = (signals: Partial<QuickstartToolSignals>, resources: ScenarioResources = {}): Mocks => ({
-    get: {
-        '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
-        '/api/billing/': billingJson,
-        // liveEventsHostOrigin() points at the Storybook origin, so the live users chip gets a count
-        '/stats': { users_on_product: 342 },
-        '/api/environments/:team_id/logs/has_logs': { hasLogs: resources.hasLogs ?? false },
-        '/api/environments/:team_id/external_data_sources/': {
-            results: Array.from({ length: resources.sources ?? 0 }, (_, index) => ({ id: String(index) })),
+/** One place to shape every data source the scene reads, so each story is a plain scenario.
+ *
+ * Pass `installation` for pre-install stories: useInstallationComplete polls loadCurrentTeam
+ * every 2s, so the team endpoints must serve the story's installation state — an imperative
+ * decorator alone gets overwritten by the first poll. */
+export const scenarioMocks = (
+    signals: Partial<QuickstartToolSignals>,
+    resources: ScenarioResources = {},
+    installation: InstallationState = 'complete'
+): Mocks => {
+    const installationComplete = installation === 'complete'
+    const mockTeam = {
+        ...MOCK_DEFAULT_TEAM,
+        completed_snippet_onboarding: installationComplete,
+        ingested_event: installationComplete,
+        has_completed_onboarding_for: installationComplete ? { product_analytics: true } : {},
+    }
+    return {
+        get: {
+            '/api/environments/@current/': mockTeam,
+            '/api/projects/@current/': mockTeam,
+            '/api/environments/:team_id/': mockTeam,
+            '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+            '/api/billing/': billingJson,
+            // liveEventsHostOrigin() points at the Storybook origin, so the live users chip gets a count
+            '/stats': { users_on_product: 342 },
+            '/api/environments/:team_id/logs/has_logs': { hasLogs: resources.hasLogs ?? false },
+            '/api/environments/:team_id/external_data_sources/': {
+                results: Array.from({ length: resources.sources ?? 0 }, (_, index) => ({ id: String(index) })),
+            },
+            '/api/environments/:team_id/hog_flows/': {
+                results: Array.from({ length: resources.workflows ?? 0 }, (_, index) => ({
+                    id: String(index),
+                    status: 'active',
+                    trigger: { type: index < (resources.eventTriggeredWorkflows ?? 0) ? 'event' : 'manual' },
+                })),
+            },
+            '/api/environments/:team_id/error_tracking/symbol_sets/': { count: resources.symbolSets ?? 0, results: [] },
+            '/api/environments/:team_id/hog_functions/': { count: resources.errorAlerts ?? 0, results: [] },
+            '/api/projects/:team_id/conversations/tickets/': { count: resources.tickets ?? 0, results: [] },
+            '/api/projects/:projectId/wizard/sessions/latest/': () => [204, ''],
+            '/api/projects/:project_id/tasks/:task_id/runs/:run_id/stream': () =>
+                new Response(TASK_RUN_STREAM_BODY, {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/event-stream' },
+                }),
+            '/api/projects/:project_id/wizard/sessions/stream': () => [404],
+            'https://posthog.com/rss.xml': () =>
+                new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
         },
-        '/api/environments/:team_id/hog_flows/': {
-            results: Array.from({ length: resources.workflows ?? 0 }, (_, index) => ({
-                id: String(index),
-                status: 'active',
-                trigger: { type: index < (resources.eventTriggeredWorkflows ?? 0) ? 'event' : 'manual' },
-            })),
+        post: {
+            // Serves both the signals aggregate and the replay count: the replay loader
+            // reads the first column, so keep totalEvents as a plausible recordings number
+            '/api/environments/:team_id/query': { results: [signalsRow(signals)] },
         },
-        '/api/environments/:team_id/error_tracking/symbol_sets/': { count: resources.symbolSets ?? 0, results: [] },
-        '/api/environments/:team_id/hog_functions/': { count: resources.errorAlerts ?? 0, results: [] },
-        '/api/projects/:team_id/conversations/tickets/': { count: resources.tickets ?? 0, results: [] },
-        '/api/projects/:projectId/wizard/sessions/latest/': () => [204, ''],
-        '/api/projects/:project_id/tasks/:task_id/runs/:run_id/stream': () =>
-            new Response(TASK_RUN_STREAM_BODY, {
-                status: 200,
-                headers: { 'Content-Type': 'text/event-stream' },
-            }),
-        '/api/projects/:project_id/wizard/sessions/stream': () => [404],
-        'https://posthog.com/rss.xml': () =>
-            new Response(BLOG_RSS, { status: 200, headers: { 'Content-Type': 'application/rss+xml' } }),
-    },
-    post: {
-        // Serves both the signals aggregate and the replay count: the replay loader
-        // reads the first column, so keep totalEvents as a plausible recordings number
-        '/api/environments/:team_id/query': { results: [signalsRow(signals)] },
-    },
-})
+    }
+}
 
 /** The "team mid-journey" scenario shared by both variants' base stories */
 export const richScenarioDecorators = [

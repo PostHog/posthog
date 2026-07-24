@@ -60,12 +60,12 @@ export const HeroEventsOnly: Story = {
 
 /** State A: pre-ingestion, the page collapses to the focused install view — wizard CTA + per-tool setup, no cards */
 export const FocusedInstall: Story = {
-    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
+    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}, {}, 'not_started'))],
 }
 
 /** State B: a wizard run is active pre-ingestion, so its progress is the page hero */
 export const WizardRunning: Story = {
-    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
+    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}, {}, 'running'))],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
     play: async () => {
         await waitFor(

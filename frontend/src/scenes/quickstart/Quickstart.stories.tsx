@@ -48,12 +48,12 @@ export const QuietProject: Story = {
 
 /** Fresh account without a wizard run: the header links back to the onboarding installation step. */
 export const InstallationNotStarted: Story = {
-    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
+    decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}, {}, 'not_started'))],
 }
 
 /** Fresh account with a wizard run: a compact status chip gets its own row below the token and the global FAB stays hidden. */
 export const InstallationRunning: Story = {
-    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
+    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}, {}, 'running'))],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
     play: async () => {
         await waitFor(
