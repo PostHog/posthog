@@ -174,6 +174,13 @@ export function initKea({
                 if (isCancellation) {
                     return
                 }
+                // A 403 on a read is an access-gate decision (feature-flag or RBAC gating) that scene
+                // and nav gates already handle — expected control flow, not a code error. The toast is
+                // suppressed for it above; don't log or report it to error tracking either, so a
+                // flag-gated product's access denials don't pile up as exception noise.
+                if (isLoadAction && error?.status === 403) {
+                    return
+                }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
