@@ -1126,11 +1126,11 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Code invites ---
+# --- Desktop invites ---
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Code invite for a user.
+    """Redeem a PostHog Desktop invite for a user.
 
     Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
     redemption row. A fresh redemption takes a row lock on the invite, re-checks

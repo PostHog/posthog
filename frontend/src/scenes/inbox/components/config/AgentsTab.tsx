@@ -48,7 +48,7 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 
 /**
  * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
- * PostHog Code desktop Agents view. Composes Connections, the agent roster,
+ * PostHog Desktop Agents view. Composes Connections, the agent roster,
  * Slack, and MCP servers. Session-analysis and data-source setup
  * render inline (replacing the roster) when their sub-flow is open.
  */

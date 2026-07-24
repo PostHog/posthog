@@ -1548,7 +1548,7 @@ export function Quickstart(): JSX.Element {
             <section>
                 <SectionHeader
                     title="Guides, Products, and publications"
-                    subtitle="Open setup guides, configure Slack or MCP, install PostHog Code, and read recent publications."
+                    subtitle="Open setup guides, configure Slack or MCP, install PostHog Desktop, and read recent publications."
                 />
                 <div className="flex flex-col gap-6">
                     <div>
@@ -1626,13 +1626,13 @@ export function Quickstart(): JSX.Element {
                         </div>
                     </div>
                     <div>
-                        <SubsectionHeader title="Slack, MCP, and PostHog Code" />
+                        <SubsectionHeader title="Slack, MCP, and PostHog Desktop" />
                         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                             <LearnCard
                                 icon={<IconLogomark />}
-                                title="PostHog Code"
+                                title="PostHog Desktop"
                                 description="Use context from PostHog while querying data or changing code from your editor or terminal."
-                                buttonLabel="Get PostHog Code"
+                                buttonLabel="Get PostHog Desktop"
                                 to="https://posthog.com/code"
                                 targetBlank
                                 action="open_posthog_code"
