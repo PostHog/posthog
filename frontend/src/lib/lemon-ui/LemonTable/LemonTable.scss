@@ -351,6 +351,13 @@
 
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
+    // When the table scrolls its own content, pin the header to the top of the scrollport
+    .LemonTable--content-scroll .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 7; // Above sticky/pinned column cells (6), below the scroll-shadow overlay (8)
+    }
+
     .LemonTable__header--sticky,
     .LemonTable__cell--sticky,
     .LemonTable__header--pinned,
