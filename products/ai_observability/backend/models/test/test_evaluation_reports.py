@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 from django.utils import timezone
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus, EvaluationStatusReason
 
 
 class TestEvaluationReportModel(BaseTest):
@@ -189,6 +189,21 @@ class TestEvaluationReportDeletionCascade(BaseTest):
         self.assertFalse(report.enabled)
         # Disabling only pauses the report; it is not soft-deleted like the delete cascade does.
         self.assertFalse(report.deleted)
+
+    def test_erroring_evaluation_temporarily_suspends_its_report(self) -> None:
+        evaluation = self._create_evaluation()
+        report = self._report_for(evaluation)
+
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_RATE_LIMITED)
+
+        report.refresh_from_db()
+        self.assertTrue(report.enabled)
+        self.assertNotIn(report.id, EvaluationReport.objects.deliverable().values_list("id", flat=True))
+
+        evaluation.enabled = True
+        evaluation.save()
+
+        self.assertIn(report.id, EvaluationReport.objects.deliverable().values_list("id", flat=True))
 
     def test_deleting_evaluation_leaves_other_evaluations_reports_alone(self):
         keep = self._report_for(self._create_evaluation())

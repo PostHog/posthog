@@ -267,9 +267,9 @@ def evaluation_saved(sender, instance, created, **kwargs):
 
     if instance.deleted:
         EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
-    elif not instance.enabled:
-        # A disabled (paused) evaluation produces no new runs, so its reports would otherwise keep
-        # emitting empty digests. Cascade the disable to keep report state in sync with the eval.
+    elif instance.status == EvaluationStatus.PAUSED:
+        # A user pause should persist on the report too. Error states are only filtered from delivery
+        # temporarily so the report can resume when the evaluation recovers.
         EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False, enabled=True).update(enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise

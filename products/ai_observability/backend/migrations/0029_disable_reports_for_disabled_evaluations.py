@@ -2,17 +2,15 @@ from django.db import migrations
 
 
 def disable_reports_for_disabled_evaluations(apps, schema_editor):
-    # Backfill for the enabled-cascade added to the Evaluation post_save signal: reports attached to
-    # an already-disabled (paused) evaluation predate the cascade and are still enabled, so they keep
-    # emitting empty digests. Deleted evaluations are handled separately by 0007, so scope to
-    # not-deleted evaluations here. The affected set is small (a few hundred rows), so a single
-    # unbatched UPDATE holds locks only momentarily.
+    # Backfill reports attached to evaluations that users explicitly paused. Error states also set
+    # enabled=False, but must preserve the report preference so delivery can resume after recovery.
+    # Deleted evaluations are handled separately by 0007.
     Evaluation = apps.get_model("ai_observability", "Evaluation")
     EvaluationReport = apps.get_model("ai_observability", "EvaluationReport")
 
-    disabled_eval_ids = Evaluation.objects.filter(enabled=False, deleted=False).values_list("id", flat=True)
+    paused_eval_ids = Evaluation.objects.filter(status="paused", deleted=False).values_list("id", flat=True)
     EvaluationReport.objects.filter(
-        evaluation_id__in=disabled_eval_ids,
+        evaluation_id__in=paused_eval_ids,
         deleted=False,
         enabled=True,
     ).update(enabled=False)
