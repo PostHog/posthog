@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
@@ -75,9 +76,19 @@ class TestHogFlowRevisions(APIBaseTest):
         )
 
     def _stage_draft(self, flow_id: str, url: str = "https://changed.example.com"):
+        # Graph content edits over MCP go through the surgical graph endpoint (a plain update
+        # rejects actions/edges outright), so drafts are staged the way real agents stage them.
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": [_trigger_action(), _webhook_action(url=url)]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": url}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()
@@ -157,16 +168,32 @@ class TestHogFlowRevisions(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("draft_staging", {"actions": [_trigger_action(), _webhook_action(url="https://d.example.com")]}, "mcp"),
-            ("metadata_only", {"name": "Renamed"}, None),
-            ("status_only", {"status": "draft"}, None),
+            # MCP graph edits go through the graph endpoint (a plain update rejects actions/edges)
+            (
+                "draft_staging",
+                "/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "update_action",
+                            "id": "action_1",
+                            "patch": {"config": {"inputs": {"url": {"value": "https://d.example.com"}}}},
+                        }
+                    ]
+                },
+                "mcp",
+            ),
+            ("metadata_only", "", {"name": "Renamed"}, None),
+            ("status_only", "", {"status": "draft"}, None),
         ]
     )
-    def test_non_content_writes_do_not_append_revisions(self, _name, payload, client_header):
+    def test_non_content_writes_do_not_append_revisions(self, _name, path_suffix, payload, client_header):
         flow_id = self._create_active_flow()
         with patch(FLAG_PATH, return_value=True):
             extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload, **extra)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}{path_suffix}", payload, **extra
+            )
             assert response.status_code == 200, response.json()
             assert self._list_revisions(flow_id) == []
         assert response.json()["version"] == 1
@@ -248,6 +275,10 @@ class TestHogFlowRevisions(APIBaseTest):
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://example.com"]
 
+        # Restore must stay distinguishable from a plain edit in the audit trail
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "revision_restored"
+
     @patch(FLAG_PATH, return_value=True)
     def test_rollback_round_trip_restores_live_and_prunes_redirects(self, _flag):
         # Publish v2 deleting a step (parked runs get a redirect), then roll back to v1: the step
@@ -270,11 +301,8 @@ class TestHogFlowRevisions(APIBaseTest):
 
     def _stage_draft_delete_action_1(self, flow_id: str) -> None:
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {
-                "actions": [_trigger_action(), _webhook_action("action_2")],
-                "edges": [{"from": "trigger_node", "to": "action_2", "type": "continue"}],
-            },
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()

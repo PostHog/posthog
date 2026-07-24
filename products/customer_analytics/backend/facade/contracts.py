@@ -347,6 +347,8 @@ class CustomPropertyDefinitionView:
     description: str | None = None
     display_type: str = "text"
     target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
@@ -375,6 +377,7 @@ class CustomPropertySourceView:
     source_column: str | None = ""
     key_column: str = ""
     column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -382,6 +385,32 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
+    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
+    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    latest_run: "CustomPropertySyncRunView | None" = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySyncRunView:
+    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
+    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
+    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+
+    id: UUID | None = None
+    trigger: str = ""
+    status: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    rows_read: int = 0
+    changed: int = 0
+    existing: int = 0
+    produced: int = 0
+    skipped_missing_person: int = 0
+    error: str | None = None
+    created_at: datetime | None = None
 
 
 @stdlib_dataclass(frozen=True)

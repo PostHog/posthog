@@ -3,8 +3,10 @@ from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
 
 from django.core.exceptions import FieldError
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -12,6 +14,9 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission
+from rest_framework.views import APIView
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
@@ -33,17 +38,25 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import (
+    DEFAULT_TARGET_WIDTHS,
+    MAX_TARGET_WIDTHS,
+    PREWARM_PREVIEW_WIDTH,
+    PREWARM_TTL,
+)
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
@@ -162,6 +175,41 @@ def parse_fold_summary_row(row: Any) -> dict[str, Any]:
         "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
         "median_viewport_height": median,
     }
+
+
+def anchor_url_pattern(value: str) -> str:
+    """Anchor (and loosen unescaped `*`) a raw url_pattern the same way the heatmaps ClickHouse
+    query does, so callers matching against it in Python (e.g. permission checks) stay consistent
+    with the anchored regex `match(current_url, {url_pattern})` uses in DEFAULT_QUERY/EVENTS_QUERY."""
+    validated_value = value
+
+    # we insist on the pattern being anchored
+    if not value.startswith("^"):
+        validated_value = f"^{value}"
+    if not value.endswith("$"):
+        validated_value = f"{validated_value}$"
+
+    # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
+    # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
+    # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
+    # KLUDGE: but you could send a+ and it would match aaaaa
+    validated_value = "".join(
+        [f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c for i, c in enumerate(validated_value)]
+    )
+
+    return validated_value
+
+
+def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> tuple[str | None, str | None]:
+    """Resolve which of url_exact/url_pattern the query actually filters on when both are supplied,
+    so every caller (the request serializer and the permission check) authorizes and queries the
+    same value: equal values keep url_exact, differing values keep url_pattern (matching
+    HeatmapsRequestSerializer.validate())."""
+    if isinstance(url_exact, str) and isinstance(url_pattern, str):
+        if url_exact == url_pattern:
+            return url_exact, None
+        return None, url_pattern
+    return url_exact, url_pattern
 
 
 class HeatmapsRequestSerializer(serializers.Serializer):
@@ -288,36 +336,16 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate_url_pattern(self, value: str | None) -> str | None:
         if value is None:
             return None
-
-        validated_value = value
-
-        # we insist on the pattern being anchored
-        if not value.startswith("^"):
-            validated_value = f"^{value}"
-        if not value.endswith("$"):
-            validated_value = f"{validated_value}$"
-
-        # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
-        # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
-        # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
-        # KLUDGE: but you could send a+ and it would match aaaaa
-        validated_value = "".join(
-            [
-                f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c
-                for i, c in enumerate(validated_value)
-            ]
-        )
-
-        return validated_value
+        return anchor_url_pattern(value)
 
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
-        if isinstance(url_exact, str) and isinstance(url_pattern, str):
-            if url_exact == url_pattern:
-                values.pop("url_pattern")
-            else:
-                values.pop("url_exact")
+        resolved_exact, resolved_pattern = resolve_url_filter(url_exact, url_pattern)
+        if resolved_exact is None and url_exact is not None:
+            values.pop("url_exact")
+        if resolved_pattern is None and url_pattern is not None:
+            values.pop("url_pattern")
 
         if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
             raise serializers.ValidationError("filter_test_accounts must be a boolean")
@@ -422,10 +450,80 @@ class HeatmapEventsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(required=True)
 
 
+class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
+    """
+    `HeatmapViewSet`/`LegacyHeatmapViewSet` share `scope_object = "heatmap"` with
+    `SavedHeatmapViewSet`, whose rows can carry independent object-level access grants.
+    `list`/`events` have no bindable object of their own — they're arbitrary ClickHouse
+    aggregate queries filtered by `url_exact`/`url_pattern` request params — so without this
+    override, the base class's "has ANY specific-object grant for this resource type"
+    fallback would let a viewer of ONE saved heatmap read aggregate click/event data for ANY
+    url on the site.
+
+    Scope the fallback down: a specific-object grant only satisfies this permission for a
+    `url_exact` request that matches a `SavedHeatmap.data_url` (or `url`, its default) the user
+    has at least the required access level on — the same value the in-app heatmap overlay always
+    queries with (see heatmapDataLogic.ts). `url_pattern` requests always require resource-level
+    access: the query matches the pattern against every row in the dataset, so an object grant for
+    one saved heatmap can't bound what a broad pattern is allowed to read.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if is_service_auth(request):
+            return True
+
+        uac = self._get_user_access_control(request, view)
+        required_level = self._get_required_access_level(request, view)
+
+        if not required_level:
+            return True
+
+        if uac.check_access_level_for_resource("heatmap", required_level=required_level):
+            return True
+
+        try:
+            team = view.team
+        except (ValueError, KeyError):
+            return True
+
+        # Resolve the same way HeatmapsRequestSerializer does — otherwise a caller could get
+        # authorized against url_exact while the query that actually runs reads url_pattern (or
+        # vice versa), authorizing one URL and querying another. `validate_url_pattern` anchors
+        # the raw url_pattern *before* `validate()` compares it against url_exact, so a raw
+        # url_pattern equal to url_exact no longer matches once anchored — apply the same
+        # transform here, or a caller could send matching raw url_exact/url_pattern values to get
+        # authorized as an exact match while the anchored pattern actually executes.
+        raw_url_pattern = request.query_params.get("url_pattern")
+        anchored_url_pattern = anchor_url_pattern(raw_url_pattern) if raw_url_pattern else raw_url_pattern
+        url_exact, _ = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
+        if not url_exact:
+            # A url_pattern query matches every row whose current_url satisfies the pattern, not
+            # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns
+            # (and requests with no URL filter at all) require resource-level "heatmap" access.
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        # Prewarm rows are speculative implementation details, not user-saved authorization anchors.
+        # Their creators implicitly own them, so including them would turn prewarming into aggregate-data access.
+        candidates = SavedHeatmap.objects.filter(team=team, deleted=False, is_prewarm=False)
+        for candidate in candidates:
+            candidate_url = candidate.data_url or candidate.url
+            # Match the same way the aggregate query does: url_exact ignores a trailing slash
+            # (`trimRight(current_url, '/')`).
+            if candidate_url.rstrip("/") == url_exact.rstrip("/") and uac.check_access_level_for_object(
+                candidate, required_level=required_level
+            ):
+                return True
+
+        self.message = f"You do not have {required_level} access to this resource."
+        return False
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
+    permission_classes = [HeatmapAggregateQueryScopingPermission]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
@@ -735,7 +833,7 @@ class HeatmapSnapshotMetadataSerializer(serializers.Serializer):
     )
 
 
-class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+class HeatmapScreenshotResponseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     snapshots = serializers.SerializerMethodField(
         help_text="Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint."
@@ -760,6 +858,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "exception",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -876,7 +975,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
 
         if not snapshot:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
                 "generating",
@@ -889,7 +988,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             return _finish(http_response, "served")
         elif snapshot.content_location:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(
                     {**response_serializer.data, "error": "Content location not implemented yet"},
@@ -900,7 +999,7 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 served_width=snapshot.width,
             )
         else:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
             return _finish(
                 response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
                 "generating",
@@ -908,6 +1007,15 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
+
+
+def validate_page_url(value: str) -> str:
+    if any(c in _URL_PATTERN_CHARS for c in value):
+        raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
+    ok, err = is_url_allowed(value)
+    if not ok:
+        raise serializers.ValidationError(err or "URL not allowed")
+    return value
 
 
 class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
@@ -923,12 +1031,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     )
 
     def validate_url(self, value: str) -> str:
-        if any(c in _URL_PATTERN_CHARS for c in value):
-            raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
-        ok, err = is_url_allowed(value)
-        if not ok:
-            raise serializers.ValidationError(err or "URL not allowed")
-        return value
+        return validate_page_url(value)
 
     class Meta:
         model = SavedHeatmap
@@ -981,8 +1084,39 @@ class SavedHeatmapListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Total number of saved heatmaps matching the filters.")
 
 
-class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+class HeatmapPrewarmRequestSerializer(serializers.Serializer):
+    url = serializers.CharField(
+        help_text="Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed."
+    )
+    block_consent_modals = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, ask the headless browser to dismiss cookie/consent banners before capturing. "
+        "Must match the value used at creation time for the prewarmed render to be reused.",
+    )
+
+    def validate_url(self, value: str) -> str:
+        return validate_page_url(value)
+
+
+class HeatmapPrewarmResourceAccessPermission(BasePermission):
+    message = "You do not have editor access to this resource."
+
+    def has_permission(self, request: request.Request, view: APIView) -> bool:
+        saved_heatmap_view = cast("SavedHeatmapViewSet", view)
+        if saved_heatmap_view.action != "prewarm" or is_service_auth(request):
+            return True
+
+        return saved_heatmap_view.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level="editor"
+        )
+
+
+class SavedHeatmapViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
+):
     scope_object = "heatmap"
+    permission_classes = [HeatmapPrewarmResourceAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()
@@ -992,13 +1126,30 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     pagination_class = None
 
     def get_throttles(self):
-        if self.action == "create":
+        if self.action in ("create", "prewarm"):
             # More restrictive rate limiting for expensive screenshot generation
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
+
+    def _find_reusable_prewarm(self, url: str, block_consent_modals: bool) -> SavedHeatmap | None:
+        cutoff = timezone.now() - PREWARM_TTL
+        return (
+            SavedHeatmap.objects.filter(
+                team=self.team,
+                url=url,
+                block_consent_modals=block_consent_modals,
+                is_prewarm=True,
+                deleted=False,
+                type=SavedHeatmap.Type.SCREENSHOT,
+                status__in=[SavedHeatmap.Status.PROCESSING, SavedHeatmap.Status.COMPLETED],
+                created_at__gte=cutoff,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     @extend_schema(
         parameters=[SavedHeatmapListQuerySerializer],
@@ -1013,7 +1164,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
         qs = (
             self.safely_get_queryset(self.get_queryset())
-            .filter(deleted=False)
+            .filter(deleted=False, is_prewarm=False)
             .select_related("created_by")
             .order_by("-updated_at")
         )
@@ -1039,9 +1190,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         limit = max(1, min(params["limit"], 500))
         offset = max(0, params["offset"])
         count = qs.count()
-        results = qs[offset : offset + limit]
+        # Materialize to a list (rather than passing the queryset slice through) so
+        # UserAccessControlSerializerMixin recognizes it as a batch and preloads object
+        # access controls once, instead of querying per-row.
+        results = list(qs[offset : offset + limit])
 
-        data = HeatmapScreenshotResponseSerializer(results, many=True).data
+        data = HeatmapScreenshotResponseSerializer(results, many=True, context=self.get_serializer_context()).data
         return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1062,19 +1216,63 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
         block_consent_modals = serializer.validated_data.get("block_consent_modals", False)
 
-        screenshot = SavedHeatmap.objects.create(
-            team=self.team,
-            name=name,
-            url=url,
-            data_url=data_url,
-            target_widths=widths,
-            type=heatmap_type,
-            block_consent_modals=block_consent_modals,
-            created_by=cast(User, request.user),
-            status=SavedHeatmap.Status.PROCESSING
+        reused_prewarm = (
+            self._find_reusable_prewarm(url, block_consent_modals)
             if heatmap_type == SavedHeatmap.Type.SCREENSHOT
-            else SavedHeatmap.Status.COMPLETED,
+            else None
         )
+
+        enqueue_render = heatmap_type == SavedHeatmap.Type.SCREENSHOT
+
+        screenshot: SavedHeatmap | None = None
+        prewarm_in_flight = False
+        if reused_prewarm is not None:
+            # Lock the row so this promotion can't interleave with the render task's completion check.
+            with transaction.atomic():
+                locked = (
+                    SavedHeatmap.objects.select_for_update()
+                    .filter(team=self.team, id=reused_prewarm.id, is_prewarm=True)
+                    .first()
+                )
+                if locked is not None:
+                    prewarm_in_flight = locked.status == SavedHeatmap.Status.PROCESSING
+                    locked.name = name
+                    locked.data_url = data_url
+                    locked.target_widths = widths
+                    locked.type = heatmap_type
+                    locked.created_by = cast(User, request.user)
+                    locked.is_prewarm = False
+                    if not prewarm_in_flight:
+                        locked.status = SavedHeatmap.Status.PROCESSING
+                    locked.save()
+                    screenshot = locked
+            if screenshot is not None:
+                enqueue_render = enqueue_render and not prewarm_in_flight
+                posthoganalytics.capture(
+                    distinct_id=str(self.team.uuid),
+                    event="heatmap prewarm used",
+                    properties={
+                        "team_id": self.team.id,
+                        "url": url,
+                        "prewarm_in_flight": prewarm_in_flight,
+                    },
+                    groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                )
+
+        if screenshot is None:
+            screenshot = SavedHeatmap.objects.create(
+                team=self.team,
+                name=name,
+                url=url,
+                data_url=data_url,
+                target_widths=widths,
+                type=heatmap_type,
+                block_consent_modals=block_consent_modals,
+                created_by=cast(User, request.user),
+                status=SavedHeatmap.Status.PROCESSING
+                if heatmap_type == SavedHeatmap.Type.SCREENSHOT
+                else SavedHeatmap.Status.COMPLETED,
+            )
 
         log_activity(
             organization_id=cast(User, request.user).current_organization_id
@@ -1089,9 +1287,48 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             was_impersonated=is_impersonated(request),
         )
 
-        if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
+        if enqueue_render:
             generate_heatmap_screenshot.delay(screenshot.id)
 
+        response_serializer = HeatmapScreenshotResponseSerializer(screenshot, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=HeatmapPrewarmRequestSerializer,
+        responses={
+            200: HeatmapScreenshotResponseSerializer,
+            201: HeatmapScreenshotResponseSerializer,
+        },
+        description="Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or "
+        "closer to ready) by the time the user reaches the generation screen. Renders a single preview width. "
+        "Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same "
+        "URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a "
+        "heatmap is later created for the same URL.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["heatmap:write"])
+    def prewarm(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = HeatmapPrewarmRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        url = serializer.validated_data["url"]
+        block_consent_modals = serializer.validated_data.get("block_consent_modals", False)
+
+        existing = self._find_reusable_prewarm(url, block_consent_modals)
+        if existing is not None:
+            return response.Response(HeatmapScreenshotResponseSerializer(existing).data, status=status.HTTP_200_OK)
+
+        screenshot = SavedHeatmap.objects.create(
+            team=self.team,
+            name="",
+            url=url,
+            data_url=url,
+            target_widths=[PREWARM_PREVIEW_WIDTH],
+            type=SavedHeatmap.Type.SCREENSHOT,
+            block_consent_modals=block_consent_modals,
+            created_by=cast(User, request.user),
+            status=SavedHeatmap.Status.PROCESSING,
+            is_prewarm=True,
+        )
+        generate_heatmap_screenshot.delay(screenshot.id)
         return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -1108,7 +1345,8 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         ):
             self._regenerate(obj)
 
-        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=None,
@@ -1125,7 +1363,8 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             )
 
         self._regenerate(obj)
-        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(obj, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
     def _regenerate(self, obj: SavedHeatmap) -> None:
         obj.status = SavedHeatmap.Status.PROCESSING
@@ -1144,6 +1383,20 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         obj = self.get_object()
         old_url = obj.url
         old_block_consent_modals = obj.block_consent_modals
+
+        url_fields_changed = any(
+            field in request.data and request.data[field] != getattr(obj, field) for field in ("url", "data_url")
+        )
+        if url_fields_changed and not self.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level="editor"
+        ):
+            # An object-level grant authorizes edits to *this* heatmap only. Letting that grant also
+            # cover retargeting its url/data_url would let the grantee move which page's aggregate
+            # data HeatmapAggregateQueryScopingPermission's object-grant fallback authorizes — escaping
+            # the grant's intended scope. Require resource-level access to move the URL a grant is
+            # anchored to.
+            raise PermissionDenied("You do not have permission to change the URL of this heatmap.")
+
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
@@ -1164,4 +1417,5 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
             was_impersonated=is_impersonated(request),
         )
-        return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
+        response_serializer = HeatmapScreenshotResponseSerializer(updated, context=self.get_serializer_context())
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)

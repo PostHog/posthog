@@ -33,7 +33,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.integration import Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -59,7 +60,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
 
@@ -143,6 +144,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
         # GitHub event or API. See products/tasks/docs/LOOPS.md.
         LOOP = "loop", "Loop"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -230,7 +233,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     archived = models.BooleanField(
         default=False,
         help_text=(
-            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "If true, the task is hidden from default list responses. Used by PostHog Desktop clients "
             "to share archive state across desktop and mobile."
         ),
     )
@@ -528,7 +531,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_integration = (
+            Integration.objects.filter(team=team, kind="github")
+            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+            .first()
+        )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1363,7 +1371,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # Local url-based MCP servers imported from the creating client (PostHog Desktop),
     # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
     # header values carry credentials; never exposed through API responses.
     imported_mcp_servers = EncryptedJSONStringField(
@@ -1669,6 +1677,8 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
+        self._mirror_logs_to_posthog_logs(entries)
+
         if is_new_file and ttl_days is not None:
             try:
                 object_storage.tag(
@@ -1685,6 +1695,41 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
+
+        Fire-and-forget: mirroring failures must never break the run's log write.
+        """
+        from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
+        from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
+
+        if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
+            return
+
+        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
+        # state at dispatch; fail closed while the stamp is absent.
+        if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
+            return
+
+        try:
+            origin_product = self.task.origin_product
+            if not mirroring_enabled(origin_product):
+                return
+
+            mirror_entries(
+                entries,
+                team_id=self.team_id,
+                task_id=str(self.task_id),
+                run_id=str(self.id),
+                origin_product=origin_product,
+            )
+        except Exception as e:
+            logger.warning(
+                "task_run.mirror_logs_to_posthog_logs_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def effective_rtk(self) -> bool | None:
         """rtk posture for analytics: the launch-persisted effective value, falling
@@ -2408,7 +2453,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 
 class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Code access."""
+    """Invite codes for PostHog Desktop access."""
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
@@ -2453,7 +2498,7 @@ class CodeInvite(UUIDModel):
 
 
 class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Code invite."""
+    """Tracks each redemption of a PostHog Desktop invite."""
 
     invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
@@ -2476,7 +2521,7 @@ TASK_PRESENCE_TTL_SECONDS = 60
 class TaskPresence(TeamScopedRootMixin):
     """Per-device 'this user is actively watching this task' beacon.
 
-    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    Created/refreshed by the desktop and mobile PostHog Desktop clients while a
     task screen is foregrounded. The push fanout consults this table to skip
     devices that are demonstrably already watching the task, so we don't fire
     phantom notifications at a phone while the user is mid-conversation with

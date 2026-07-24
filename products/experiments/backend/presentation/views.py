@@ -29,6 +29,8 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -56,6 +58,7 @@ from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
+    ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
@@ -368,7 +371,7 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
-        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # Ending or shipping with open_cleanup_pr=true starts a Desktop task that opens a pull
         # request. Starting a task is a task write, so require task:write on the token, not
         # just experiment:write.
         if self.action in ("end", "ship_variant"):
@@ -379,11 +382,11 @@ class EnterpriseExperimentsViewSet(
         return None
 
     def _check_cleanup_pr_access(self, request: Request) -> None:
-        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        """Opening a cleanup PR starts a Desktop task on the user's behalf. The task:write
         scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Code product access instead."""
+        has no scopes, so gate every caller on PostHog Desktop product access instead."""
         if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -574,9 +577,9 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Status of the flag-cleanup Code task opened for this experiment.
+        Status of the flag-cleanup Desktop task opened for this experiment.
 
-        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
         removes the experiment's feature-flag code and opens a draft pull request. This
         returns that task's latest run status and the PR URL once one is opened. Poll
         until is_terminal is true. Returns 404 when no cleanup task was opened.
@@ -613,6 +616,46 @@ class EnterpriseExperimentsViewSet(
             }
         )
         return Response(response_serializer.data)
+
+    @validated_request(
+        query_serializer=ExperimentActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
+            404: OpenApiResponse(response=None),
+        },
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """
+        Change history for this experiment.
+
+        Returns a paginated audit trail of changes to the experiment and its holdouts
+        and shared metrics: who made each change, what changed (field-level before/after
+        values), and when. Ordered newest first.
+        """
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
+
+        experiment: Experiment = self.get_object()
+
+        # Holdout and shared-metric changes log under the Experiment scope with the child
+        # object's own id, so they need their own type-matched clauses. The experiment's own
+        # clause must exclude those detail types in turn: an unrelated holdout or shared
+        # metric whose pk collides with this experiment's id would otherwise leak in.
+        activity_filter = Q(item_id=str(experiment.id)) & ~Q(detail__type__in=["holdout", "shared_metric"])
+        if experiment.holdout_id is not None:
+            activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
+        saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
+        if saved_metric_ids:
+            activity_filter |= Q(item_id__in=saved_metric_ids, detail__type="shared_metric")
+
+        activity_query = (
+            ActivityLog.objects.select_related("user")
+            .filter(activity_filter, team_id=self.team_id, scope="Experiment")
+            .order_by("-created_at")
+        )
+        activity_page = get_activity_page(activity_query, limit, page)
+        return activity_page_response(activity_page, limit, page, request)
 
     @extend_schema(
         request=None,

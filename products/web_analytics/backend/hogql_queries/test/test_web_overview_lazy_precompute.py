@@ -189,23 +189,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
-        self._seed_two_sessions()
-        # $pathname is not in the MVP allowlist → gate returns False → no job created.
-        with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_session_property_falls_through(self):
-        # Session-level filters never qualify for MVP — only EventPropertyFilter on $host.
+        # Session and cohort filters fall through — precompute only serves event/person
+        # filters, since the live path applies session/cohort filters differently.
         with self._enable_lazy():
             self._run(
                 self._build_query(
@@ -398,18 +384,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     # --- Group B: gate strictness -------------------------------------------
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_multiple_host_filters_fall_through(self):
-        # Gate accepts at most one user-supplied property — multi-host inputs
-        # collide on a single-filter cache key and must be rejected.
-        self._seed_two_sessions()
-        host_a = EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)
-        host_b = EventPropertyFilter(key="$host", value="other.com", operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[host_a, host_b]))
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
         # `events.$session_id_uuid` would produce `uniqState(UUID)` which the
         # `(uniq, String)` column rejects non-retryably. Gate must refuse.
@@ -418,22 +392,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query.modifiers = HogQLQueryModifiers(sessionsV2JoinMode=SessionsV2JoinMode.UUID)
         with self._enable_lazy():
             self._run(query)
-
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand(
-        [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        self._seed_two_sessions()
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[prop]))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
@@ -617,28 +575,27 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None, f"expected fall-back to raw when current precompute not ready, got {result!r}"
 
-    # --- Group D: unrestricted teams ----------------------------------------
+    # --- Group D: enrolled teams (arbitrary filters) ----------------------------------------
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_creates_job_for_multi_non_host_filter(self):
-        # Filters the restricted gate rejects (multiple, non-`$host`,
-        # non-`exact`) precompute fine for an unrestricted team. No org flag
-        # needed — membership in the unrestricted list implies enrollment.
+    def test_enrolled_team_creates_job_for_multi_non_host_filter(self):
+        # Filters the old restriction rejected (multiple, non-`$host`, non-`exact`)
+        # precompute fine for any enrolled team.
         self._seed_two_sessions()
         props = [
             EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
             EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
         ]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(properties=props))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_distinct_filters_get_distinct_cache_entries(self):
+    def test_enrolled_team_distinct_filters_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(properties=chrome))
             chrome_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
             PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
@@ -652,20 +609,20 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_untouched_toggle_creates_job(self):
-        # Unrestricted teams default to opt-out: an untouched toggle (None) still
+    def test_enrolled_team_untouched_toggle_creates_job(self):
+        # Enrolled teams default to opt-out: an untouched toggle (None) still
         # precomputes.
         self._seed_two_sessions()
         query = self._build_query()
         query.useWebAnalyticsPrecompute = None
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_explicit_opt_out_falls_through(self):
+    def test_enrolled_team_explicit_opt_out_falls_through(self):
         self._seed_two_sessions()
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
@@ -756,7 +713,7 @@ class TestWebOverviewSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             return LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
 
         with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist,
         ):
             runner = self._make_runner(properties=properties, filter_test_accounts=cohort_test_filter)
@@ -825,7 +782,7 @@ class TestWebOverviewSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
         )
 
         with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
         ):
             runner = self._make_runner(
