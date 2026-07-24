@@ -423,6 +423,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if session_properties:
             optional_exprs.append(property_to_expr(session_properties, team=self._team, scope="replay"))
 
+        # Flag-dependency filters (type "flag", operator "flag_evaluates_to") are evaluated at the
+        # feature-flag exposure layer, not in HogQL — property_to_expr treats them as a no-op. They
+        # have no recording-level translation here, so they're stripped below and cleanly skipped
+        # rather than routed through UnexpectedQueryProperties.
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
             capture_exception(UnexpectedQueryProperties(remaining_properties))
