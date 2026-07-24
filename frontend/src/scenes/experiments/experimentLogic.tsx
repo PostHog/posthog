@@ -576,7 +576,9 @@ export interface experimentLogicValues {
     firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
     flagVariantsRemoved: boolean
     flagVariantsRemovedAt: string | null
-    flagVariantsRemovedInfo: { changedAt: string | null } | null
+    flagVariantsRemovedInfo: {
+        changedAt: string | null
+    } | null
     formMode: FormModes
     freezeExposureLoading: boolean
     getExperimentMetricType: (metric: ExperimentMetricUnion | undefined) => ExperimentMetricType
@@ -1088,6 +1090,9 @@ export interface experimentLogicActions {
     setFeatureFlagValidationError: (error: string) => {
         error: string
     }
+    setFlagVariantsRemoved: (changedAt: string | null) => {
+        changedAt: string | null
+    }
     setFreezeExposureLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -1234,9 +1239,6 @@ export interface experimentLogicActions {
         excluded: boolean
         variantKey: string
     }
-    setFlagVariantsRemoved: (changedAt: string | null) => {
-        changedAt: string | null
-    }
     stopAutoRefreshInterval: () => {
         value: true
     }
@@ -1328,6 +1330,16 @@ export interface experimentLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
+        flagVariantsRemoved: (
+            flagVariantsRemovedInfo: {
+                changedAt: string | null
+            } | null
+        ) => boolean
+        flagVariantsRemovedAt: (
+            flagVariantsRemovedInfo: {
+                changedAt: string | null
+            } | null
+        ) => string | null
         experimentId: (arg: any) => Experiment['id']
         formMode: (arg: any) => FormModes
         isExperimentDraft: (experiment: Experiment) => boolean
