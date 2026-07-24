@@ -38,6 +38,15 @@ ERROR_TYPE_TO_CODE: dict[type, str] = {
 
 _MAX_ERROR_EVENT_MESSAGE_LENGTH = 500
 
+# Read-limit failures (TOO_MANY_BYTES / TOO_MANY_ROWS) all subclass ExposedCHQueryError, so without
+# a dedicated message they inherit its generic "try refreshing" text — misleading here, because the
+# query will always scan too much and refreshing never helps. Point at the real fix instead.
+BYTE_LIMIT_MESSAGE = (
+    "This experiment metric scans too much data to load. "
+    "Try a shorter analysis time range or narrowing the metric's scope. "
+    "Refreshing the page won't help on its own."
+)
+
 logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -86,6 +95,11 @@ def get_user_friendly_message(error: Exception) -> str | None:
     # Look for exact type match first
     if error_type in ERROR_TYPE_MESSAGES:
         return ERROR_TYPE_MESSAGES[error_type]
+
+    # Read-limit failures subclass ExposedCHQueryError, so catch them before the isinstance loop
+    # below would hand back its generic "refresh the page" message.
+    if classify_experiment_query_error(error) == "byte_limit":
+        return BYTE_LIMIT_MESSAGE
 
     # Check if error is an instance of any of the registered types
     for registered_type, message in ERROR_TYPE_MESSAGES.items():
