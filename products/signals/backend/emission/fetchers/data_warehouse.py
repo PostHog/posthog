@@ -4,6 +4,7 @@ from typing import Any
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -40,12 +41,19 @@ def data_warehouse_record_fetcher(
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
-    # None of the data comes externally (neither limits of table name), so it's safe to use f-string interpolation
+    # `fields`, `where_clause`, and `partition_field` are trusted static config (defined in each source's
+    # emitter module, never derived from external data) and may contain HogQL expressions like
+    # `JSONExtractString(fields, 'summary') AS summary`, so they're interpolated as raw text.
     fields_sql = ", ".join(config.fields)
+    # The table name IS derived from external data (`get_data_warehouse_table_name` builds keys like
+    # `github.<owner>.<repo>.issues`, and repo names routinely contain dashes), so escape each
+    # dot-separated segment as a HogQL identifier. Splitting on "." matches how the database registers
+    # warehouse tables (as a chain), so slashes/dashes/dots in a segment survive parsing.
+    table_expr = ".".join(escape_hogql_identifier(part) for part in table_name.split("."))
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
     query = f"""
         SELECT {fields_sql}
-        FROM {table_name}
+        FROM {table_expr}
         WHERE {where_sql}
         LIMIT {config.max_records}
     """
