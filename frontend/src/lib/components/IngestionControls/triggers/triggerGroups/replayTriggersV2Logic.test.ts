@@ -206,4 +206,55 @@ describe('replayTriggersV2Logic', () => {
             })
         })
     })
+
+    describe('legacy fallback throttling', () => {
+        const recordEverythingGroup = {
+            id: 'g1',
+            name: 'Record all sessions',
+            sampleRate: 1,
+            conditions: { matchType: 'all' as const },
+        }
+        const selectiveGroup = {
+            id: 'g2',
+            name: 'Checkout',
+            sampleRate: 1,
+            conditions: { matchType: 'all' as const, urls: [{ url: '^/checkout$', matching: 'regex' as const }] },
+        }
+        const sampledEverythingGroup = {
+            id: 'g3',
+            name: 'Half of all sessions',
+            sampleRate: 0.5,
+            conditions: { matchType: 'all' as const },
+        }
+
+        it.each([
+            [
+                'record-everything group + restrictive legacy rate throttles older SDKs',
+                [recordEverythingGroup],
+                '0.05',
+                true,
+            ],
+            ['record-everything group with legacy rate already at 100% is fine', [recordEverythingGroup], '1', false],
+            ['record-everything group with no legacy rate set is fine', [recordEverythingGroup], null, false],
+            ['selective group does not count as record-everything', [selectiveGroup], '0.05', false],
+            ['conditionless group below 100% is not record-everything', [sampledEverythingGroup], '0.05', false],
+        ])('%s', async (_description, groups, sampleRate, expected) => {
+            teamLogic.actions.loadCurrentTeamSuccess({ id: 1, session_recording_sample_rate: sampleRate } as any)
+            logic.actions.setTriggerGroupsConfig({ version: 2, groups })
+
+            await expectLogic(logic).toMatchValues({
+                legacyFallbackThrottlesRecordEverything: expected,
+            })
+        })
+
+        it('aligning the legacy fallback sets the legacy sample rate to 100%', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ id: 1, session_recording_sample_rate: '0.05' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.alignLegacyFallbackToRecordEverything()
+            }).toDispatchActions(['alignLegacyFallbackToRecordEverythingSuccess'])
+
+            expect(parseFloat(teamLogic.values.currentTeam?.session_recording_sample_rate ?? '')).toEqual(1)
+        })
+    })
 })
