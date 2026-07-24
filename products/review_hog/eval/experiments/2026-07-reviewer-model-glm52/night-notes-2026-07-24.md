@@ -8,13 +8,13 @@ Dump: `runs/C-gpt55-xhigh-1.md` (funnel 4 chunks / 7 units / 10 raw / 7 dedup / 
 
 **Root cause — deterministic model refusals.** Every failed perspective attempt (14 of 17) ended with ACP `stopReason: "refusal"` ~90–130s into the turn (from S3 turn logs, `_posthog/turn_complete`):
 
-| chunk | perspective attempts | refused | completed |
-| ----- | -------------------- | ------- | --------- |
-| c1 (review_hog backend + generated TS) | 4 | 4 | 0 |
-| c2 (stamphog backend/facade) | 4 | 4 | 0 |
-| c3 (pr-approval-agent tools) | 6 | 3 | 3 |
-| c4 (docs) | 0 (selector pruned) | — | — |
-| blind-spots c1–c4 | 4 | 0 | 4 |
+| chunk                                  | perspective attempts | refused | completed |
+| -------------------------------------- | -------------------- | ------- | --------- |
+| c1 (review_hog backend + generated TS) | 4                    | 4       | 0         |
+| c2 (stamphog backend/facade)           | 4                    | 4       | 0         |
+| c3 (pr-approval-agent tools)           | 6                    | 3       | 3         |
+| c4 (docs)                              | 0 (selector pruned)  | —       | —         |
+| blind-spots c1–c4                      | 4                    | 0       | 4         |
 
 gpt-5.5's provider-side safety layer declines the perspective-review turn on the security-heavy chunks (the PR's provenance/spoofing/token-gating code), with or without the perspective skill loaded. Blind-spot prompts (audit the wave's findings for gaps) never refused. Validation (opus-4-8, Claude adapter) unaffected.
 

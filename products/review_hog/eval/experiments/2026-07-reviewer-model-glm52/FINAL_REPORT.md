@@ -23,17 +23,17 @@ conditions that would flip it are at the end.
 
 Two runs per arm (adaptive design: round 1 split → round 2 triggered). Labels map to dumps in `runs/`.
 
-| | A1 (Sonnet) | A2 (Sonnet) | B1 (GLM) | B2 (GLM) |
-|---|---|---|---|---|
-| Finder units | 13 | 12 | 12 | 13 |
-| Raw → dedup → pipeline-valid | 25→20→3 | 26→24→5 | 21→17→2 | 24→19→2 |
-| **Independently verified real** | **7/20** | **7/24** | **3/17** | **4/19** |
-| …of which must_fix / should_fix | 0 / 4 | 1 / 1 | 1 / 0 | 2 / 0 |
-| Review stage (selection→last finder) | 44m38s | 30m11s | 42m41s | 65m39s |
-| Finder-stage cost | ~$28.92¹ | ~$30¹ | $41.62² | $49.51² |
-| Total run cost | $46.52 | $56.47 | ~$55.04 | ~$63.92 |
-| Model purity (finder gens) | ~80%³ | ~80%³ | **100%** | **100%** |
-| Turn parse failures (retried) | 1 | 3 | 0 | 0 |
+|                                      | A1 (Sonnet) | A2 (Sonnet) | B1 (GLM) | B2 (GLM) |
+| ------------------------------------ | ----------- | ----------- | -------- | -------- |
+| Finder units                         | 13          | 12          | 12       | 13       |
+| Raw → dedup → pipeline-valid         | 25→20→3     | 26→24→5     | 21→17→2  | 24→19→2  |
+| **Independently verified real**      | **7/20**    | **7/24**    | **3/17** | **4/19** |
+| …of which must_fix / should_fix      | 0 / 4       | 1 / 1       | 1 / 0    | 2 / 0    |
+| Review stage (selection→last finder) | 44m38s      | 30m11s      | 42m41s   | 65m39s   |
+| Finder-stage cost                    | ~$28.92¹    | ~$30¹       | $41.62²  | $49.51²  |
+| Total run cost                       | $46.52      | $56.47      | ~$55.04  | ~$63.92  |
+| Model purity (finder gens)           | ~80%³       | ~80%³       | **100%** | **100%** |
+| Turn parse failures (retried)        | 1           | 3           | 0        | 0        |
 
 ¹ Includes Opus-fallback bleed (see caveats). ² GLM is unpriced at the gateway (`gw $0.00`); computed
 from token counts × litellm CF pricing ($1.40/M in, $4.40/M out) — **zero cache reads**, all input fresh.
@@ -133,18 +133,18 @@ perspective skill**; unit reviews were assembled across refusal-interrupted resu
 
 ### Runs C/D
 
-| | C1 (gpt-5.5) | C2 (gpt-5.5) | D1 (Opus 4.8) | D2 (Opus 4.8) |
-|---|---|---|---|---|
-| Status | **hard fail** (chunks 1–2 lost) | valid w/ caveats | valid, clean | valid, clean |
-| Finder units | 7 | 12 | 13 | 12 |
-| Raw → dedup → pipeline-valid | 10→7→0 | 14→10→2 | 14→14→1 | 16→16→1 |
-| **Independently verified real** | **0/7** | **3/10** | **2/14** | **3/16** |
-| …of which must_fix / should_fix | 0 / 0 | 2 / 0 | 0 / 1 | 0 / 1 |
-| Review stage (selection→last finder) | 63m35s¹ | 69m01s¹ | **26m22s** | **24m16s** |
-| Finder-stage cost | $13.28² | $24.26² | $44.37 | $40.40 |
-| Total run cost | ~$21 | ~$36 | $57.52 | $52.26 |
-| Model purity (finder gens) | 100% | 100% | 100%³ | 100%³ |
-| Unit retries | 8 (refusals) | 14 (refusals) | 0 | 0 |
+|                                      | C1 (gpt-5.5)                    | C2 (gpt-5.5)     | D1 (Opus 4.8) | D2 (Opus 4.8) |
+| ------------------------------------ | ------------------------------- | ---------------- | ------------- | ------------- |
+| Status                               | **hard fail** (chunks 1–2 lost) | valid w/ caveats | valid, clean  | valid, clean  |
+| Finder units                         | 7                               | 12               | 13            | 12            |
+| Raw → dedup → pipeline-valid         | 10→7→0                          | 14→10→2          | 14→14→1       | 16→16→1       |
+| **Independently verified real**      | **0/7**                         | **3/10**         | **2/14**      | **3/16**      |
+| …of which must_fix / should_fix      | 0 / 0                           | 2 / 0            | 0 / 1         | 0 / 1         |
+| Review stage (selection→last finder) | 63m35s¹                         | 69m01s¹          | **26m22s**    | **24m16s**    |
+| Finder-stage cost                    | $13.28²                         | $24.26²          | $44.37        | $40.40        |
+| Total run cost                       | ~$21                            | ~$36             | $57.52        | $52.26        |
+| Model purity (finder gens)           | 100%                            | 100%             | 100%³         | 100%³         |
+| Unit retries                         | 8 (refusals)                    | 14 (refusals)    | 0             | 0             |
 
 ¹ Dominated by the refusal→poll-timeout product bug (below), not review work.
 ² Gateway-priced; overstated — OpenAI-side cache reads (~90% of input on warm turns) never reach
@@ -153,12 +153,12 @@ perspective skill**; unit reviews were assembled across refusal-interrupted resu
 
 ### 4-way scoreboard (identical counting rule across all 8 runs)
 
-| model | verified real | precision | must_fix / should_fix / consider | review stage | finder cost/run |
-|---|---|---|---|---|---|
-| M1 Sonnet 5 (X+P) | 14/44 | 31.8% | 1 / 5 / 8 | 30–45m | ~$29–31 |
-| M2 GLM 5.2 (Y+Q) | 7/36 | 19.4% | 3 / 1 / 3 | 43–66m | ~$42–50 |
-| M3 gpt-5.5 (R+T) | 3/17 | 17.6% | 2 / 0 / 1 | n/a¹ | ~$13–24² |
-| M4 Opus 4.8 (U+V) | 5/30 | 16.7% | 0 / 2 / 2⁴ | **24–26m** | ~$40–44 |
+| model             | verified real | precision | must_fix / should_fix / consider | review stage | finder cost/run |
+| ----------------- | ------------- | --------- | -------------------------------- | ------------ | --------------- |
+| M1 Sonnet 5 (X+P) | 14/44         | 31.8%     | 1 / 5 / 8                        | 30–45m       | ~$29–31         |
+| M2 GLM 5.2 (Y+Q)  | 7/36          | 19.4%     | 3 / 1 / 3                        | 43–66m       | ~$42–50         |
+| M3 gpt-5.5 (R+T)  | 3/17          | 17.6%     | 2 / 0 / 1                        | n/a¹         | ~$13–24²        |
+| M4 Opus 4.8 (U+V) | 5/30          | 16.7%     | 0 / 2 / 2⁴                       | **24–26m**   | ~$40–44         |
 
 ⁴ Plus one anomalous verdict (V13: `is_real=true` + severity `not_an_issue` — real-but-trivial).
 
@@ -193,7 +193,7 @@ operational failure mode (refusals, MCP flake) makes it unusable in this pipelin
    71,483 input tokens) but `$ai_generation` records `cache_read=0` for every gpt-5.5 gen — cost
    attribution over-prices Codex runs and hides caching efficiency.
 4. **120MB handoff-pack uploads fail:** every Codex turn log ends with `Direct artifact upload
-   failed … fetch failed` + `Discarding handoff checkpoint (packBytes≈120MB)` — the handoff
+failed … fetch failed` + `Discarding handoff checkpoint (packBytes≈120MB)` — the handoff
    checkpoint never survives; worth a look independent of this experiment.
 
 ## Recommendation
@@ -203,7 +203,7 @@ For the two new arms specifically:
 
 - **Opus 4.8 @ xhigh: no.** The speed win is real (24–26 min review stage vs Sonnet’s 30–45; ~45 min full runs vs ~67–85;
   fastest wall-clock runs of the experiment at ~45 min) and it runs operationally clean, but as a
-  *reviewer* it delivered the worst verified yield of the four (5/30, zero must_fix, flagship bug
+  _reviewer_ it delivered the worst verified yield of the four (5/30, zero must_fix, flagship bug
   missed twice) at ~40% higher finder cost than Sonnet. All three blind judges ranked it last. If
   review latency ever becomes the binding constraint, revisit with a recall-oriented prompt/skill
   tune — selectivity, not capability, looks like the limiter.
@@ -216,7 +216,7 @@ Revisit GLM 5.2 if any of these change:
 
 1. **Prompt caching lands on the GLM path** — the cost disadvantage (its biggest practical negative)
    inverts: GLM's raw token flow is smaller than Sonnet's.
-2. **A "deep-catch" slot exists** — GLM as an *additional* blind-spot/perspective lens (not a
+2. **A "deep-catch" slot exists** — GLM as an _additional_ blind-spot/perspective lens (not a
    replacement) is the strongest configuration this data supports: low overlap + repeatable depth
    means the union catches more; cost of one extra unit per chunk is the trade.
 3. **Validator calibration improves** — GLM's noise (80%) currently survives dedup and burns validator

@@ -1,8 +1,8 @@
 # Reviewer-quality run — `D-opus48-xhigh-1`
 
 - **Dumped:** 2026-07-24T02:24:47+00:00
-- **Report id:** `019f91c6-f61c-7f78-b31a-ddbd6a76f556`  ·  **PR:** https://github.com/PostHog/posthog/pull/72680
-- **Head:** `1341596e721880256a1afb79bbc881364d00e302`  ·  **run_count:** 1  ·  **status:** idle
+- **Report id:** `019f91c6-f61c-7f78-b31a-ddbd6a76f556` · **PR:** https://github.com/PostHog/posthog/pull/72680
+- **Head:** `1341596e721880256a1afb79bbc881364d00e302` · **run_count:** 1 · **status:** idle
 - **Wall-clock:** 2724s (45.4 min)
 
 ## Config snapshot
@@ -14,19 +14,20 @@
 
 | chunks | review units | raw issues | after dedup | passed validator |
 | ------ | ------------ | ---------- | ----------- | ---------------- |
-| 4 | 13 | 14 | 14 | 1 |
+| 4      | 13           | 14         | 14          | 1                |
 
 - **review units** = every (perspective|blind-spot × chunk) sandbox review that ran = the model-held-constant cost proxy.
+
 ### Cache-aware spend (local `$ai_generation`, best-effort)
 
-| model | stage | gens | fresh in | cache write | cache read | output | >200K gens | true $ | gw $ |
-| ----- | ----- | ---- | -------- | ----------- | ---------- | ------ | ---------- | ------ | ---- |
-| claude-opus-4-8 | review | 198 | 225,134 | 1,901,923 | 22,808,441 | 277,743 | 3 | $31.36 | $31.36 |
-| claude-opus-4-8 | validation | 103 | 79,530 | 614,115 | 12,038,044 | 112,873 | 2 | $13.08 | $13.08 |
-| claude-opus-4-8 | blind-spot | 85 | 95,637 | 796,437 | 8,882,636 | 124,611 | 0 | $13.01 | $13.01 |
-| claude-sonnet-5 | dedup | 1 | 9,759 | 0 | 0 | 1,504 | 0 | $0.03 | $0.03 |
-| claude-sonnet-5 | other:perspective_selection | 1 | 9,029 | 0 | 0 | 1,573 | 0 | $0.03 | $0.03 |
-| **total** |  | **388** | **419,089** | **3,312,475** | **43,729,121** | **518,304** | **5** | **$57.52** | **$57.52** |
+| model           | stage                       | gens    | fresh in    | cache write   | cache read     | output      | >200K gens | true $     | gw $       |
+| --------------- | --------------------------- | ------- | ----------- | ------------- | -------------- | ----------- | ---------- | ---------- | ---------- |
+| claude-opus-4-8 | review                      | 198     | 225,134     | 1,901,923     | 22,808,441     | 277,743     | 3          | $31.36     | $31.36     |
+| claude-opus-4-8 | validation                  | 103     | 79,530      | 614,115       | 12,038,044     | 112,873     | 2          | $13.08     | $13.08     |
+| claude-opus-4-8 | blind-spot                  | 85      | 95,637      | 796,437       | 8,882,636      | 124,611     | 0          | $13.01     | $13.01     |
+| claude-sonnet-5 | dedup                       | 1       | 9,759       | 0             | 0              | 1,504       | 0          | $0.03      | $0.03      |
+| claude-sonnet-5 | other:perspective_selection | 1       | 9,029       | 0             | 0              | 1,573       | 0          | $0.03      | $0.03      |
+| **total**       |                             | **388** | **419,089** | **3,312,475** | **43,729,121** | **518,304** | **5**      | **$57.52** | **$57.52** |
 
 - `true $` = list-price back-calc (fresh 1× + cache write 1.25× + cache read 0.1× + output); `gw $` = gateway `$ai_total_cost_usd` (LiteLLM). Δ (priced buckets) = +0.0%.
 - naive method (all prompt tokens at input price): $250.16 — 4.3× the true cost; never gate on it.
@@ -40,39 +41,38 @@
 
 ### Turn-1 cache reads per sandbox unit (cross-sandbox sharing tripwire)
 
-| unit | step | first gen | t1 cache read | t1 cache write | models |
-| ---- | ---- | --------- | ------------- | -------------- | ------ |
-| …6e580bf3 | issues-review-p3-c3 | 01:40:26 | 0 | 46,915 | claude-opus-4-8 |
-| …ffa0103b | issues-review-p2-c3 | 01:40:27 | 0 | 46,914 | claude-opus-4-8 |
-| …d027bad0 | issues-review-p2-c2 | 01:40:28 | 0 | 60,993 | claude-opus-4-8 |
-| …2dba1b1d | issues-review-p1-c3 | 01:40:29 | 0 | 46,916 | claude-opus-4-8 |
-| …fcf984de | issues-review-p3-c1 | 01:40:29 | 17,141 | 41,587 | claude-opus-4-8 |
-| …480f3a49 | issues-review-p3-c2 | 01:40:30 | 17,141 | 43,853 | claude-opus-4-8 |
-| …58b95f34 | issues-review-p2-c1 | 01:40:31 | 17,141 | 41,583 | claude-opus-4-8 |
-| …3236e305 | issues-review-p1-c1 | 01:40:31 | 17,141 | 41,584 | claude-opus-4-8 |
-| …a1566830 | issues-review-p1-c2 | 01:40:31 | 17,141 | 43,853 | claude-opus-4-8 |
-| …317d7b86 | blind-spots-c2 | 01:55:58 | 0 | 63,953 | claude-opus-4-8 |
-| …b31ab1e0 | blind-spots-c4 | 01:55:58 | 0 | 43,363 | claude-opus-4-8 |
-| …d65a66ed | blind-spots-c3 | 01:55:59 | 0 | 49,165 | claude-opus-4-8 |
-| …e19927db | blind-spots-c1 | 01:55:59 | 0 | 60,589 | claude-opus-4-8 |
-| …7a623e92 | validation-c1 | 02:07:12 | 0 | 39,729 | claude-opus-4-8 |
-| …6a945bab | validation-c3 | 02:07:15 | 0 | 39,374 | claude-opus-4-8 |
-| …ef8ca86a | validation-c2 | 02:07:35 | 17,141 | 23,194 | claude-opus-4-8 |
+| unit      | step                | first gen | t1 cache read | t1 cache write | models          |
+| --------- | ------------------- | --------- | ------------- | -------------- | --------------- |
+| …6e580bf3 | issues-review-p3-c3 | 01:40:26  | 0             | 46,915         | claude-opus-4-8 |
+| …ffa0103b | issues-review-p2-c3 | 01:40:27  | 0             | 46,914         | claude-opus-4-8 |
+| …d027bad0 | issues-review-p2-c2 | 01:40:28  | 0             | 60,993         | claude-opus-4-8 |
+| …2dba1b1d | issues-review-p1-c3 | 01:40:29  | 0             | 46,916         | claude-opus-4-8 |
+| …fcf984de | issues-review-p3-c1 | 01:40:29  | 17,141        | 41,587         | claude-opus-4-8 |
+| …480f3a49 | issues-review-p3-c2 | 01:40:30  | 17,141        | 43,853         | claude-opus-4-8 |
+| …58b95f34 | issues-review-p2-c1 | 01:40:31  | 17,141        | 41,583         | claude-opus-4-8 |
+| …3236e305 | issues-review-p1-c1 | 01:40:31  | 17,141        | 41,584         | claude-opus-4-8 |
+| …a1566830 | issues-review-p1-c2 | 01:40:31  | 17,141        | 43,853         | claude-opus-4-8 |
+| …317d7b86 | blind-spots-c2      | 01:55:58  | 0             | 63,953         | claude-opus-4-8 |
+| …b31ab1e0 | blind-spots-c4      | 01:55:58  | 0             | 43,363         | claude-opus-4-8 |
+| …d65a66ed | blind-spots-c3      | 01:55:59  | 0             | 49,165         | claude-opus-4-8 |
+| …e19927db | blind-spots-c1      | 01:55:59  | 0             | 60,589         | claude-opus-4-8 |
+| …7a623e92 | validation-c1       | 02:07:12  | 0             | 39,729         | claude-opus-4-8 |
+| …6a945bab | validation-c3       | 02:07:15  | 0             | 39,374         | claude-opus-4-8 |
+| …ef8ca86a | validation-c2       | 02:07:35  | 17,141        | 23,194         | claude-opus-4-8 |
 
 - units with turn-1 cache_read > 0: **6/16** (report the distribution, not a median).
 
-
 ## Stage timing (wall-clock)
 
-| stage | duration |
-| ----- | -------- |
-| fetch + snapshot | 0s |
-| chunking | 0s |
-| perspective selection | 18s |
-| review wave (perspectives) | 15m 29s |
-| blind-spot sweep | 10m 52s |
-| dedup (incl. combine/clean) | 18s |
-| validation | 17m 57s |
+| stage                       | duration |
+| --------------------------- | -------- |
+| fetch + snapshot            | 0s       |
+| chunking                    | 0s       |
+| perspective selection       | 18s      |
+| review wave (perspectives)  | 15m 29s  |
+| blind-spot sweep            | 10m 52s  |
+| dedup (incl. combine/clean) | 18s      |
+| validation                  | 17m 57s  |
 
 - **Review stage total (selection → last finder unit, wave + blind-spot):** 26m 22s — the reviewer-model speed comparison number.
 - Derived from artefact `created_at` (persisted on completion); only meaningful for fresh, non-resumed runs.
@@ -86,28 +86,28 @@
 
 ## Per-review-unit breakdown
 
-| pass | chunk | perspective | raw issues |
-| ---- | ----- | ----------- | ---------- |
-| 1 | 1 | review-hog-perspective-contracts-security | 1 |
-| 1 | 2 | review-hog-perspective-contracts-security | 1 |
-| 1 | 3 | review-hog-perspective-contracts-security | 2 |
-| 2 | 1 | ? | 0 |
-| 2 | 2 | review-hog-perspective-logic-correctness | 2 |
-| 2 | 3 | review-hog-perspective-logic-correctness | 2 |
-| 3 | 1 | review-hog-perspective-performance-reliability | 2 |
-| 3 | 2 | review-hog-perspective-performance-reliability | 2 |
-| 3 | 3 | ? | 0 |
-| 1000 | 1 | review-hog-blind-spots-general | 1 |
-| 1000 | 2 | review-hog-blind-spots-general | 1 |
-| 1000 | 3 | ? | 0 |
-| 1000 | 4 | ? | 0 |
+| pass | chunk | perspective                                    | raw issues |
+| ---- | ----- | ---------------------------------------------- | ---------- |
+| 1    | 1     | review-hog-perspective-contracts-security      | 1          |
+| 1    | 2     | review-hog-perspective-contracts-security      | 1          |
+| 1    | 3     | review-hog-perspective-contracts-security      | 2          |
+| 2    | 1     | ?                                              | 0          |
+| 2    | 2     | review-hog-perspective-logic-correctness       | 2          |
+| 2    | 3     | review-hog-perspective-logic-correctness       | 2          |
+| 3    | 1     | review-hog-perspective-performance-reliability | 2          |
+| 3    | 2     | review-hog-perspective-performance-reliability | 2          |
+| 3    | 3     | ?                                              | 0          |
+| 1000 | 1     | review-hog-blind-spots-general                 | 1          |
+| 1000 | 2     | review-hog-blind-spots-general                 | 1          |
+| 1000 | 3     | ?                                              | 0          |
+| 1000 | 4     | ?                                              | 0          |
 
 ## Findings (post-dedup) with validator verdict
 
 ### [❌ dismissed] consider · security — products/review_hog/backend/api/settings.py:27-32
 
 **Enable path for stamphog_review_inbox_prs has no server-side precondition, only a client-side one**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** `stamphog_review_inbox_prs` is a freely-writable serializer field with no server-side validation tying it to `stamphog_connected`. The precondition ('only takes effect when the project has a synced, enabled Stamphog repository') is enforced only in the frontend (CodeReviewScene.tsx renders the switch disabled when `!stamphog_connected`). A direct PATCH to the settings endpoint — or the generated MCP client, which exposes this field as a plain optional boolean — can set the toggle true on a team with no reviewable Stamphog repo. This matters because when true the toggle ultimately authorizes hosted Stamphog to post a real GitHub approval on a bot-authored draft PR (a security-relevant, approve-first action). The only thing between 'toggle set via API' and a posted approval is the gating re-checked downstream in the queued Celery task and the webhook-leg positive-identification carve-out; the API layer itself asserts no precondition. The current behavior is a documented no-op when no repo config exists, so this is defense-in-depth rather than an active vulnerability, but the API contract does not reflect the precondition the product relies on.
 - **Suggestion:** Consider validating the enable path server-side to mirror the UI guard and make the contract self-consistent: in the serializer's `validate_stamphog_review_inbox_prs` (or `validate`), reject enabling the toggle when `has_reviewable_repo_config(self.context['get_team']()...team_id)` is False, so the only defense against an accidental real approval isn't solely the downstream task's checks. If keeping the permissive-write-plus-downstream-no-op design is deliberate (as the receiver comment states), document on the field's `help_text` that enabling without a connected repo is accepted and silently no-ops, so API/MCP consumers understand the toggle can be set in a state the UI forbids.
@@ -121,22 +121,22 @@ _perspective: review-hog-perspective-contracts-security  ·  directly-related: T
 ### [❌ dismissed] should_fix · security — products/stamphog/backend/tasks/tasks.py:1109-1112,1178-1183
 
 **Receiver leg stamps self-driving provenance without positive re-identification**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** `process_inbox_pr_review` (leg 1) accepts `pr_url`, `acting_user_id`, `signal_report_id`, and `task_run_id` from the `queue_inbox_pr_review` facade and stamps them straight into `output["inbox_review"]`, which is the sole thing that flips `self_driving_review=True` in the engine and bypasses the bot-author refusal, draft prerequisite, review-mode, and author-write-permission gates. Unlike the webhook leg (`_inbox_rereview_carve_out`), leg 1 performs no positive identification: it never confirms the PR at `pr_url` is actually a non-internal signals-implementation run for `team_id` (no `find_signal_implementation_run` call), never checks the PR is bot-authored/draft/repo-native, and never validates that `acting_user_id`/`signal_report_id` belong to the team. It simply fetches whatever PR sits at `pr_url` within a synced+enabled config for the team and posts a real, head-pinned GitHub APPROVE on it as self-driving. The webhook leg deliberately hardens this exact boundary — its team re-check is commented as 'belt and braces for the boundary a compromised or refactored facade would otherwise silently widen' — but leg 1 has no equivalent, so a bug or future refactor in review_hog's TaskRun receiver (e.g. firing with a pr_url from a non-signal task, or a task in another team) would silently widen the carve-out into auto-approving an arbitrary PR with no human in the loop. The inputs are internal today, but a real GitHub approval that can satisfy required reviews is a high-value action to leave protected only by an upstream caller's correctness.
 - **Suggestion:** Give leg 1 the same positive identification the webhook leg has: before stamping `inbox_review` provenance, call `find_signal_implementation_run(team_id=team_id, repository=repository, pr_url=pr_url, head_branch=<pr head ref>)` and bail (no-op) if it returns None or its `run_id`/`signal_report_id` don't match the caller-supplied values. At minimum, re-verify the fetched PR is bot-authored (reuse `_is_bot_authored(pr)`) and that the resolved run is a non-internal signal task for `team_id`, so leg 1 fails closed rather than trusting the facade caller for the entire self-driving carve-out.
 - **Validator:** - **Checked:** Leg 1 `process_inbox_pr_review` (stamphog `tasks/tasks.py:1109-1245`), its full caller chain, the webhook leg `_inbox_rereview_carve_out` (`tasks/tasks.py:144-215`), the `queue_inbox_pr_review` facade (`facade/api.py:128-155`), review_hog's `handle_task_run_saved` receiver (`receivers.py:72-141`), and `find_signal_implementation_run` (tasks `facade/api.py:484`).
-- **Found:** The premise "leg 1 performs no positive identification" is true of leg 1 *in isolation*, but the identification is done by its sole production caller. The only caller of `queue_inbox_pr_review` is `_start_stamphog_review`, reached from `handle_task_run_saved`, which fires only when `task.signal_report_id is not None` (receivers.py:98) and `not task.internal` (receivers.py:104), with `pr_url` taken from *that same task run's* own `output` (receivers.py:93), scoped to `instance.team_id`, and the `stamphog_review_inbox_prs` toggle checked (receivers.py:126). That is verbatim the "non-internal task carrying a signal report in the given team" shape `find_signal_implementation_run` asserts — the exact check the issue wants leg 1 to duplicate. All other symbol references in the PR are the facade definition, docs, and tests; no endpoint or command feeds an external `pr_url`.
+- **Found:** The premise "leg 1 performs no positive identification" is true of leg 1 _in isolation_, but the identification is done by its sole production caller. The only caller of `queue_inbox_pr_review` is `_start_stamphog_review`, reached from `handle_task_run_saved`, which fires only when `task.signal_report_id is not None` (receivers.py:98) and `not task.internal` (receivers.py:104), with `pr_url` taken from _that same task run's_ own `output` (receivers.py:93), scoped to `instance.team_id`, and the `stamphog_review_inbox_prs` toggle checked (receivers.py:126). That is verbatim the "non-internal task carrying a signal report in the given team" shape `find_signal_implementation_run` asserts — the exact check the issue wants leg 1 to duplicate. All other symbol references in the PR are the facade definition, docs, and tests; no endpoint or command feeds an external `pr_url`.
 - **Found:** Leg 1 is team-scoped throughout — repo config `for_team(team_id).filter(repository__iexact=…, enabled=True, connected_by_user_id__isnull=False)` (tasks.py:1140), PR fetched via that team's installation, and `ReviewRun.objects.for_team(team_id)`. A wrong `pr_url` can only ever resolve inside a repo the team already has a synced+enabled Stamphog config for, or it no-ops (tasks.py:1151). So there is no tenant-isolation hole.
-- **Found:** The webhook leg needs inline `find_signal_implementation_run` because its entry point is an untrusted external GitHub payload with no prior identification (the lookup is its *primary* ID; the team re-check is the belt-and-braces layer on top). Leg 1's entry point is a trusted internal `TaskRun` post_save where identification is intrinsic to the trigger conditions. The asymmetry is justified by entry-point trust, not an omission.
+- **Found:** The webhook leg needs inline `find_signal_implementation_run` because its entry point is an untrusted external GitHub payload with no prior identification (the lookup is its _primary_ ID; the team re-check is the belt-and-braces layer on top). Leg 1's entry point is a trusted internal `TaskRun` post_save where identification is intrinsic to the trigger conditions. The asymmetry is justified by entry-point trust, not an omission.
 - **Impact:** The issue itself concedes "the inputs are internal today"; its harm scenario is explicitly conditioned on "a bug or future refactor in review_hog's TaskRun receiver." That is defense-in-depth against a hypothetical future regression — a speculative what-if that cannot occur given the current call sites, and a case already handled by the parent caller. Under the validation criteria (precision over recall; drop speculative and already-handled findings; on the fence → drop), it does not meet the keep bar. The suggestion is a reasonable hardening, but not a currently-reachable defect.
 
 ### [❌ dismissed] consider · code_quality — products/stamphog/backend/facade/api.py:120-124
 
 **has_reviewable_repo_config omits the provider filter its sibling queries apply**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
-- **Problem:** has_reviewable_repo_config filters on enabled + connected_by_user_id + non-blank installation_id, but unlike its two sibling resolvers it does not filter provider="github". The receiver leg (process_inbox_pr_review, which filters `provider="github", repository__iexact=..., enabled=True, connected_by_user_id__isnull=False`) and _resolve_repo_config both scope to provider="github". This function drives the UI's `stamphog_connected` flag / the inbox toggle's enabled state. Today GitHub is the only provider so the result is identical, but the divergence is latent: if any non-GitHub provider config is ever added, has_reviewable_repo_config would report the toggle as actionable while every actual review path (which is provider-scoped) fails to find a matching config — the exact silent-no-op the docstring says this check exists to prevent.
+- **Problem:** has_reviewable_repo_config filters on enabled + connected_by_user_id + non-blank installation_id, but unlike its two sibling resolvers it does not filter provider="github". The receiver leg (process_inbox_pr_review, which filters `provider="github", repository__iexact=..., enabled=True, connected_by_user_id__isnull=False`) and \_resolve_repo_config both scope to provider="github". This function drives the UI's `stamphog_connected` flag / the inbox toggle's enabled state. Today GitHub is the only provider so the result is identical, but the divergence is latent: if any non-GitHub provider config is ever added, has_reviewable_repo_config would report the toggle as actionable while every actual review path (which is provider-scoped) fails to find a matching config — the exact silent-no-op the docstring says this check exists to prevent.
 - **Suggestion:** Add `provider="github"` to the filter so it matches the reviewability predicate the review paths actually use: `.filter(provider="github", enabled=True, connected_by_user_id__isnull=False).exclude(installation_id="")`. This keeps the UI's connected signal in lockstep with what reviews can run on.
 - **Validator:** - **Checked:** `has_reviewable_repo_config` (stamphog `facade/api.py:120-124`) against the review-path queries it's compared to, plus the `StamphogRepoConfig.provider` field (`models.py:26-29`), the write paths (`presentation/serializers.py` field config, `presentation/views.py:201`/`:308`), and every `provider=` filter in the backend.
 - **Found:** The omission is real — `has_reviewable_repo_config` filters `.filter(enabled=True, connected_by_user_id__isnull=False).exclude(installation_id="")` with no `provider="github"`, whereas `process_inbox_pr_review` (`tasks.py:1140`) and `_resolve_repo_config` (`tasks.py:186`) scope to `provider="github"`. (Note the sibling `get_repo_config` at `facade/api.py:108` also omits it, so the "all siblings filter provider" framing is partial.)
@@ -146,21 +146,21 @@ _perspective: review-hog-perspective-logic-correctness  ·  directly-related: Tr
 ### [❌ dismissed] consider · code_quality — products/tasks/backend/facade/api.py:501-505
 
 **find_signal_implementation_run's branch fallback resolves non-deterministically**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
 - **Problem:** find_signal_implementation_run delegates to find_task_run(pr_url, branch, repository). The pr_url leg is reliable (globally unique), but when pr_url is None/unmatched it falls back to the branch+repository leg, which returns `.first()` with no deterministic ordering. When multiple TaskRuns share (branch, repository) — e.g. across teams that both configured the same repo, or repeated runs on a common branch name — the picked run is arbitrary. find_signal_implementation_run then hard-filters on team_id and the signal-report/non-internal predicate, so an arbitrary pick of the 'wrong' run returns None (fail-closed) even when a valid self-driving run for the correct team exists, silently skipping a legitimate re-review for that delivery. Impact is low for the current caller because the carve-out only fires on synchronize/reopen/base-retarget (by which time the self-driving PR has been opened and its pr_url is populated on the run, so the reliable pr_url leg matches), but the facade is written for reuse and the branch fallback's flakiness is not signalled to future callers.
 - **Suggestion:** Either document on find_signal_implementation_run that callers must guarantee a stored pr_url for reliable identification (and that the branch fallback is best-effort), or make the branch match deterministic (e.g. add an explicit `.order_by("-created_at")` in find_task_run's branch leg) so the same (branch, repository) always resolves the same run rather than depending on default DB ordering.
 - **Validator:** - **Checked:** The new `find_signal_implementation_run` (`products/tasks/backend/facade/api.py`, PR head) and the `find_task_run` helper it delegates to (`products/tasks/backend/webhooks.py:29-98`), plus whether the PR modifies `find_task_run`, plus the sole caller (`_inbox_rereview_carve_out` in stamphog `tasks.py`).
 - **Found:** The branch leg's non-determinism is genuine — `find_task_run` line 68-76 does `.filter(branch=…, task__repository__iexact=…, state__wizard_head_branch__isnull=True).first()` with no `order_by`, whereas the pr_url leg orders by `terminal_rank, -created_at` (line 54). But `find_task_run` is **pre-existing, unmodified code**: it is byte-identical in master (same branch-leg `.first()` with no ordering), and the PR diff touches only a new delegating caller (`from products.tasks.backend.webhooks import find_task_run` + `find_task_run(pr_url=…, branch=…, repository=…)`) and a test file — not `find_task_run` itself. The normal webhook handler `process_pull_request` (webhooks.py:159) already calls it identically, so any flakiness predates this PR.
 - **Found:** The new caller cannot reach the branch fallback. `_inbox_rereview_carve_out` passes `pr_url=pr.get('html_url')` and only fires on synchronize/reopen/base-retarget, by which time the PR is open and the run's `output.pr_url` is stored, so `find_task_run`'s deterministic pr_url leg matches first. The issue itself concedes this.
-- **Impact:** No currently-reachable defect. The harm scenario needs the branch fallback exercised AND multiple TaskRuns colliding on exact `(branch, repository)` (already repo-scoped), and even then the outcome is a fail-closed *missed* re-review, not a wrong approval / data loss / contract break. The stated motivation is explicitly reuse and signalling to "future callers" — future-proofing / documentation for callers that don't exist. Per the criteria (drop speculative what-ifs that can't occur given the call site, drop future-proofing, on the fence → drop), it does not meet the keep bar.
+- **Impact:** No currently-reachable defect. The harm scenario needs the branch fallback exercised AND multiple TaskRuns colliding on exact `(branch, repository)` (already repo-scoped), and even then the outcome is a fail-closed _missed_ re-review, not a wrong approval / data loss / contract break. The stated motivation is explicitly reuse and signalling to "future callers" — future-proofing / documentation for callers that don't exist. Per the criteria (drop speculative what-ifs that can't occur given the call site, drop future-proofing, on the fence → drop), it does not meet the keep bar.
 
 ### [❌ dismissed] consider · bug — tools/pr-approval-agent/review_pr.py:587-593
 
 **Merge-conflict prerequisite gate goes inert for self-driving draft PRs**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
-- **Problem:** Relaxing the draft prerequisite for self_driving runs means `_check_prerequisites` now proceeds past the draft check for these PRs, leaving `pr.mergeable_state == "dirty"` (new line ~592) as the only merge-conflict guard. GitHub's REST API reports `mergeable_state == "draft"` for draft PRs — the draft state takes precedence over `dirty`/`clean`/`behind`, and mergeability is not computed while a PR is draft. Both runtimes pass GitHub's value straight through (review_pr github.py:592, review_local.py:198). So for a self-driving *draft* PR the `"dirty"` branch can never fire, and the prerequisites gate provides no merge-conflict protection at all for exactly the class of PR this carve-out was created to review. A self-driving draft that has diverged from base can therefore clear prerequisites and receive a head-pinned approval, whereas before the change every draft was blocked outright so the conflict gate's blind spot was harmless.
+- **Problem:** Relaxing the draft prerequisite for self*driving runs means `_check_prerequisites` now proceeds past the draft check for these PRs, leaving `pr.mergeable_state == "dirty"` (new line ~592) as the only merge-conflict guard. GitHub's REST API reports `mergeable_state == "draft"` for draft PRs — the draft state takes precedence over `dirty`/`clean`/`behind`, and mergeability is not computed while a PR is draft. Both runtimes pass GitHub's value straight through (review_pr github.py:592, review_local.py:198). So for a self-driving \_draft* PR the `"dirty"` branch can never fire, and the prerequisites gate provides no merge-conflict protection at all for exactly the class of PR this carve-out was created to review. A self-driving draft that has diverged from base can therefore clear prerequisites and receive a head-pinned approval, whereas before the change every draft was blocked outright so the conflict gate's blind spot was harmless.
 - **Suggestion:** Decide explicitly whether conflict detection should cover self-driving draft reviews. If yes, don't rely on `mergeable_state == "dirty"` for drafts — either resolve mergeability server-side and pass the resolved value in the context, or when `self_driving and pr.draft` treat an inability to confirm clean mergeability as blocking. If skipping conflict checks on drafts is intentional (leaning on the head-changing dismissal when conflicts are later resolved), add a one-line comment noting the `dirty` check is deliberately inert for self-driving drafts so a future reader doesn't assume it protects them.
 - **Validator:** - **Checked:** `review_pr.py::_check_prerequisites` (the reworked draft/`dirty` gate), how `mergeable_state` is populated in both runtimes (`github.py:592`, `review_local.py:198`), the `PRData` fields, and the merge/dismissal invariants described for the carve-out.
 - **Found:** The premise is technically correct. `review_pr.py:587` now reads `if pr.draft and not self.self_driving:`, and the only remaining conflict guard is `if pr.mergeable_state == "dirty":`. Both runtimes forward GitHub's raw `mergeable_state` (`github.py:592`, `review_local.py:198`) and neither captures the separate `mergeable` boolean — so for a draft PR, where GitHub returns `mergeable_state == "draft"`, the `== "dirty"` branch cannot fire. The guard is genuinely inert for self-driving drafts.
@@ -169,18 +169,18 @@ _perspective: review-hog-perspective-logic-correctness  ·  directly-related: Tr
 ### [❌ dismissed] consider · best_practice — tools/pr-approval-agent/reviewer.py:683-703
 
 **self-driving familiarity invariant relies on server context, not the engine flag**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
 - **Problem:** The new provenance block asserts to the reviewer that for self-driving runs "author familiarity, org membership, and merged-PR history carry no signal here." However, nothing in the engine ties familiarity suppression to the `self_driving` flag it now holds. `review_local._attach_familiarity` (review_local.py:292-311) and `Pipeline._maybe_compute_familiarity` only skip when tier != T1-agent or when `author_pr_numbers` is absent from the context — the invariant depends entirely on the hosted server choosing not to include `author_pr_numbers`. If a self-driving run is classified T1-agent and the context ever carries `author_pr_numbers` (a server-side change, a leaked/reused field, or a future refactor), familiarity would be computed on the machine user's git history and rendered in the same TRUSTED region via `_format_familiarity`, directly contradicting this block's claim that familiarity carries no signal and feeding the LLM two conflicting trust signals in one prompt.
 - **Suggestion:** Enforce the documented invariant with the flag the engine already has rather than only via context omission: return early from `_attach_familiarity` (and `Pipeline._maybe_compute_familiarity`) when the run is self-driving, e.g. `if pipeline.self_driving or pipeline.classification.get("tier") != "T1-agent": return`. That guarantees `familiarity is None` for self-driving runs regardless of what the context carries, keeping `_format_familiarity` empty and consistent with the provenance block.
 - **Validator:** - **Checked:** `_attach_familiarity` (review_local.py:292-311) and `_maybe_compute_familiarity` (review_pr.py:510-521) gating; the server-side context builder `fetch_review_context` and sandbox launcher `run_review_in_sandbox` in `products/stamphog/backend/temporal/activities.py`; and how `self_driving_review` vs `author_pr_numbers` are derived.
-- **Found:** No current contradiction exists. The self-driving path sets `author_pr_numbers = client.get_author_merged_pr_numbers(...) if author and not is_inbox_review else []`, where `is_inbox_review = bool((run.output or {}).get("inbox_review"))` (activities.py ~235-238). The engine flag is set from the *same* value: `self_driving_review=bool(output.get("inbox_review"))` (activities.py ~449). Both the empty PR list and the `self_driving` flag derive from one source of truth (`run.output["inbox_review"]`) in the same file, so they cannot diverge under current code. With `author_pr_numbers` empty, `_attach_familiarity` hits `if not raw_prs: return` (review_local.py:302-303), `familiarity` stays `None`, and `_format_familiarity` (reviewer.py) renders empty — matching the provenance block's 'familiarity carries no signal' claim. There are no two conflicting trust signals today.
+- **Found:** No current contradiction exists. The self-driving path sets `author_pr_numbers = client.get_author_merged_pr_numbers(...) if author and not is_inbox_review else []`, where `is_inbox_review = bool((run.output or {}).get("inbox_review"))` (activities.py ~235-238). The engine flag is set from the _same_ value: `self_driving_review=bool(output.get("inbox_review"))` (activities.py ~449). Both the empty PR list and the `self_driving` flag derive from one source of truth (`run.output["inbox_review"]`) in the same file, so they cannot diverge under current code. With `author_pr_numbers` empty, `_attach_familiarity` hits `if not raw_prs: return` (review_local.py:302-303), `familiarity` stays `None`, and `_format_familiarity` (reviewer.py) renders empty — matching the provenance block's 'familiarity carries no signal' claim. There are no two conflicting trust signals today.
 - **Impact:** The described failure (familiarity computed on the machine user and rendered in the TRUSTED region) is unreachable in the current codebase. The reviewer's own trigger is explicitly hypothetical — 'a server-side change, a leaked/reused field, or a future refactor.' That is the definition of a speculative what-if / defensive-coding hardening, which the validation bar drops. Guarding the engine's early-return on `self_driving` would be a reasonable belt-and-braces addition, but it defends against a condition that cannot occur given the single-value coupling already in place, so it does not meet the keep bar. Precision over recall → drop.
 
 ### [❌ dismissed] consider · performance — products/review_hog/backend/api/settings.py:71-82
 
 **stamphog_connected runs a synchronous cross-DB query on every settings read and write**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
 - **Problem:** get_stamphog_connected() calls has_reviewable_repo_config(instance.team_id), a synchronous query into the separate Stamphog product DB, and this field is serialized on every response the endpoint produces. The GET is described in this file as "the Code review tab's always-called endpoint" (line 107), and because stamphog_connected is in Meta.fields it is also recomputed on every PATCH response — so each of the four toggles (review_inbox_prs, stamphog_review_inbox_prs, review_labeled_prs, urgency_threshold) incurs an extra cross-DB round trip on save, on top of the page-load read. There is no caching, so a value that only changes when a repo is connected/disconnected is re-fetched on every request. The fail-soft try/except protects against errors but not against the added latency on a hot endpoint.
 - **Suggestion:** Avoid recomputing this on every request. Cheapest options: (a) only populate stamphog_connected for the GET (e.g. drop it from the PATCH response via a to_representation branch or a read-specific serializer) since the client already holds the connection state after load; and/or (b) memoize has_reviewable_repo_config(team_id) behind a short-TTL cache keyed by team_id, since the answer changes rarely. Either removes the write-path amplification and the repeated cross-DB reads.
@@ -193,12 +193,12 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [❌ dismissed] consider · performance — products/review_hog/backend/receivers.py:126-138
 
 **Stamphog review is re-dispatched on every output save with no pre-dispatch guard**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
 - **Problem:** handle_task_run_saved fires on every TaskRun output save (the module docstring notes repeat saves with an unchanged target re-fire deliberately, since output is re-written "at the end of every agent turn whose current branch changed"). The new stamphog leg dispatches queue_inbox_pr_review whenever pr_url is not None and settings.stamphog_review_inbox_prs, with no guard on whether the PR/head actually changed since the last dispatch and no check that the team has a reviewable Stamphog repo config (that check is deferred into the queued task, and the UI keeps an already-on toggle interactive after Stamphog is disconnected). ReviewHog's own leg collapses duplicates cheaply at the Temporal layer (deterministic workflow id + USE_EXISTING), but per the PR description the stamphog leg dedupes on the PR's current head — which requires the queued task to fetch the PR from GitHub before it can no-op. So repeated output saves with an unchanged pr_url each cost a broker publish plus a GitHub PR fetch, and a team that left the toggle on after disconnecting Stamphog pays that on every inbox PR for nothing.
-- **Suggestion:** Gate the re-dispatch so unchanged targets don't repeatedly enqueue work: track the last-dispatched PR head/target (e.g. on the run's output or a lightweight marker) and only call _start_stamphog_review when it actually changed, mirroring the intent of the head-keyed dedupe described in the PR. If keeping the dispatch unconditional, document that each firing costs a broker publish + a downstream GitHub fetch so the cost of the hot-path re-fires is explicit. (Adding has_reviewable_repo_config to the receiver itself is not recommended — it would put a cross-DB query on this hot save path.)
+- **Suggestion:** Gate the re-dispatch so unchanged targets don't repeatedly enqueue work: track the last-dispatched PR head/target (e.g. on the run's output or a lightweight marker) and only call \_start_stamphog_review when it actually changed, mirroring the intent of the head-keyed dedupe described in the PR. If keeping the dispatch unconditional, document that each firing costs a broker publish + a downstream GitHub fetch so the cost of the hot-path re-fires is explicit. (Adding has_reviewable_repo_config to the receiver itself is not recommended — it would put a cross-DB query on this hot save path.)
 - **Validator:** - **Checked:** the stamphog dispatch branch (`receivers.py:126-139`), the `handle_task_run_saved` docstring and pre-dispatch guards (`receivers.py:85-110`), `_start_stamphog_review`'s docstring, and the downstream ordering in `products/stamphog/backend/tasks/tasks.py` `process_inbox_pr_review` (repo-config resolution vs GitHub fetch).
-- **Found (the disconnected-team cost claim is factually wrong):** `process_inbox_pr_review` (tasks.py:1138-1150) resolves the repo config first and `return`s at `stamphog_inbox_pr_repo_not_reviewable` when none exists — this is *before* the `StamphogGitHubClient(...).get_pr(...)` call (tasks.py:1157+). So a team that left the toggle on after disconnecting pays a broker publish + one cheap indexed `.exists()`, NOT the GitHub fetch the finding asserts. The GitHub fetch only happens for connected teams (the intended path).
+- **Found (the disconnected-team cost claim is factually wrong):** `process_inbox_pr_review` (tasks.py:1138-1150) resolves the repo config first and `return`s at `stamphog_inbox_pr_repo_not_reviewable` when none exists — this is _before_ the `StamphogGitHubClient(...).get_pr(...)` call (tasks.py:1157+). So a team that left the toggle on after disconnecting pays a broker publish + one cheap indexed `.exists()`, NOT the GitHub fetch the finding asserts. The GitHub fetch only happens for connected teams (the intended path).
 - **Found (re-fire is deliberate and already documented):** the `handle_task_run_saved` docstring states repeat saves "re-fire it deliberately" and that "a same-head re-trigger costs one fetch (early-exit)" — the finding's fallback suggestion (b), documenting the cost, is already satisfied in-code. The cheapest-first guards (`update_fields` without `output` → return; internal/no-target → return, `receivers.py:85-110`) already suppress the bulk of hot saves.
 - **Found (suggestion (a) conflicts with intended design):** the head-keyed dedupe is intentionally downstream because the receiver only has `output.pr_url`, not the current GitHub head — the fetch is what reveals it, and that is precisely how the design recovers a "lost synchronize" delivery (per the run docstring). A receiver-side last-dispatched marker would defeat that recovery property.
 - **Impact:** the real cost (connected case) is a bounded, small number of single GitHub PR fetches per PR — with explicit rate-limit handling (`GitHubRateLimitError` retry/backoff) — on a low-volume, alpha, human-triaged flow. That is not N+1, unbounded, quadratic, or otherwise a problem that "bites at real scale." Combined with an inaccurate central cost claim, an already-satisfied doc suggestion, and a primary fix that contradicts the deliberate recovery design, this does not meet the bar — drop.
@@ -206,9 +206,9 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [❌ dismissed] should_fix · performance — products/stamphog/backend/tasks/tasks.py:1124-1165
 
 **Inbox review task hits GitHub on every dispatch with no cheap dedup, eroding shared rate-limit budget**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
-- **Problem:** process_inbox_pr_review is re-dispatched by review_hog's TaskRun receiver on every TaskRun output save that carries the PR URL (stated in the docstring, L1124-1128), and every Celery retry re-enters here too. Each invocation runs a StamphogRepoConfig query and then a full GitHub get_pr REST call (L1158-1165) BEFORE the head-keyed DB dedup can decide it's a no-op. Unlike the webhook path — which short-circuits redeliveries cheaply via the delivery-id idempotency cache (_is_duplicate_pr_event / _mark_pr_event_processed) before touching GitHub or the DB, and uses asymmetric cache TTLs plus a label cooldown specifically to 'absorb synchronize bursts' — the inbox leg has no burst-absorbing early-out: the head-keyed dedup fundamentally needs the current head SHA, which only the fetch supplies. So a burst of output saves for one self-driving PR (and each retry) each consumes a get_pr against the installation's shared GitHub rate-limit budget. Under many concurrent self-driving runs this can degrade the very budget that ALL stamphog reviews for that installation depend on — a reliability coupling the rest of this file goes out of its way to guard.
+- **Problem:** process_inbox_pr_review is re-dispatched by review_hog's TaskRun receiver on every TaskRun output save that carries the PR URL (stated in the docstring, L1124-1128), and every Celery retry re-enters here too. Each invocation runs a StamphogRepoConfig query and then a full GitHub get_pr REST call (L1158-1165) BEFORE the head-keyed DB dedup can decide it's a no-op. Unlike the webhook path — which short-circuits redeliveries cheaply via the delivery-id idempotency cache (\_is_duplicate_pr_event /\_mark_pr_event_processed) before touching GitHub or the DB, and uses asymmetric cache TTLs plus a label cooldown specifically to 'absorb synchronize bursts' — the inbox leg has no burst-absorbing early-out: the head-keyed dedup fundamentally needs the current head SHA, which only the fetch supplies. So a burst of output saves for one self-driving PR (and each retry) each consumes a get_pr against the installation's shared GitHub rate-limit budget. Under many concurrent self-driving runs this can degrade the very budget that ALL stamphog reviews for that installation depend on — a reliability coupling the rest of this file goes out of its way to guard.
 - **Suggestion:** Add a cheap burst-absorbing short-circuit before the config/fetch work, consistent with the webhook path's idempotency+cooldown pattern: e.g. a short-TTL cache keyed on (team_id, pr_url) set after a successful queue/no-op so rapid refires collapse without a GitHub call, or record the last-fetched head per PR and skip when unchanged within the window. Keep the TTL short (and lean on the webhook leg) so a genuinely new head / lost-synchronize is still eventually reviewed. This preserves the recovery intent while bounding get_pr amplification and Celery-retry re-fetches.
 - **Validator:** - **Checked:** `process_inbox_pr_review` (stamphog `tasks.py:1130-1174`: config query at 1140, `get_pr` at 1159, head-keyed dedup at 1198-1221), the webhook path's cheap early-out (`_is_duplicate_pr_event`/`_mark_pr_event_processed` in `process_pull_request_event`), review_hog's `handle_task_run_saved` receiver, and the tasks-side output writers.
 - **Found:** The premise is correct — the receiver dispatches via `queue_inbox_pr_review().delay()` with no review_hog-side dedup, and leg 1 hits `get_pr` before the DB dedup, whereas the webhook path short-circuits redeliveries on `delivery_id` before touching GitHub.
@@ -219,9 +219,9 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [❌ dismissed] consider · best_practice — products/review_hog/backend/receivers.py:144-156
 
 **Registered hook resolve_stamphog_acting_reviewer is not exception-safe, breaking this module's documented "never raise into the caller" invariant**  
-_perspective: review-hog-blind-spots-general  ·  directly-related: True_
+_perspective: review-hog-blind-spots-general · directly-related: True_
 
-- **Problem:** This module is deliberately exception-proof relative to its callers: handle_task_run_saved wraps its whole body in try/except because it "executes inside tasks' save path and must never raise into it", and both _start_review and _start_stamphog_review carry their own try/except so a broker/Temporal outage "must never surface into the saver". The newly-added resolve_stamphog_acting_reviewer breaks that discipline. review_hog registers it into stamphog's inbox hook registry (connect() -> register_inbox_acting_reviewer_resolver) and stamphog's webhook path calls it before every self-driving re-review, yet the function has no guard around work that can raise: the SignalReportArtefact query, the deferred posthog.schema-heavy resolve_org_github_login_to_users(...) import/call, and ReviewUserSettings.load(...). _resolve_assigned_reviewer only catches JSON decode errors (lines 143-146); a transient DB error, an org-resolution failure, or an import error propagates straight out of the resolver. Trigger: a DB hiccup or resolver failure during a synchronize/reopened/retarget webhook. Consequence: the exception escapes into stamphog's webhook re-review handler — a cross-product blast radius that this module's own convention exists specifically to prevent, and that review_hog (as the owner and registrant of the hook) is responsible for containing. Because it fires on later pushes rather than the initial save path the perspectives focused on, this failure mode is easy to miss.
+- **Problem:** This module is deliberately exception-proof relative to its callers: handle_task_run_saved wraps its whole body in try/except because it "executes inside tasks' save path and must never raise into it", and both_start_review and_start_stamphog_review carry their own try/except so a broker/Temporal outage "must never surface into the saver". The newly-added resolve_stamphog_acting_reviewer breaks that discipline. review_hog registers it into stamphog's inbox hook registry (connect() -> register_inbox_acting_reviewer_resolver) and stamphog's webhook path calls it before every self-driving re-review, yet the function has no guard around work that can raise: the SignalReportArtefact query, the deferred posthog.schema-heavy resolve_org_github_login_to_users(...) import/call, and ReviewUserSettings.load(...).\_resolve_assigned_reviewer only catches JSON decode errors (lines 143-146); a transient DB error, an org-resolution failure, or an import error propagates straight out of the resolver. Trigger: a DB hiccup or resolver failure during a synchronize/reopened/retarget webhook. Consequence: the exception escapes into stamphog's webhook re-review handler — a cross-product blast radius that this module's own convention exists specifically to prevent, and that review_hog (as the owner and registrant of the hook) is responsible for containing. Because it fires on later pushes rather than the initial save path the perspectives focused on, this failure mode is easy to miss.
 - **Suggestion:** Make the registered hook fail-closed the same way the rest of the module does: wrap the body in try/except, log via logger.exception (e.g. "review_hog_stamphog_acting_reviewer_resolve_failed"), and return None so a resolution failure cleanly skips the re-review instead of surfacing into stamphog's webhook path. A resolver that returns None on error preserves the existing skip-path semantics (the webhook leg already treats a missing/None resolver as "do not re-review"), rather than turning a transient error into a failed webhook.
 - **Validator:** - **Checked:** every consumer of the registered resolver — `get_inbox_acting_reviewer_resolver` is imported and called only inside `_inbox_rereview_carve_out` (`products/stamphog/backend/tasks/tasks.py:201/205`), which itself has exactly one call site: `process_pull_request_event` at tasks.py:876. Grepped the repo-wide FETCH_HEAD tree to confirm no other callers.
 - **Found (the escape the finding claims cannot happen — caller already guards it):** the sole call site wraps it: `try: carve_out = _inbox_rereview_carve_out(...) except Exception as e: logger.exception("stamphog_pr_event_inbox_carve_out_failed", ...); raise process_pull_request_event.retry(exc=e)` (tasks.py:875-879). A DB hiccup, heavy-import failure, or org-resolution error raised by `resolve_stamphog_acting_reviewer` is caught on the stamphog side, logged, and turned into a Celery delivery retry. There is no unguarded propagation into the webhook handler; the premised cross-product blast radius does not exist.
@@ -231,7 +231,7 @@ _perspective: review-hog-blind-spots-general  ·  directly-related: True_
 ### [❌ dismissed] should_fix · security — tools/pr-approval-agent/review_local.py:321
 
 **Security-gate carve-out uses truthy coercion instead of a fail-closed exact check**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** `self_driving=bool(context.get("self_driving_review"))` enables the carve-out with a truthiness test. The `self_driving` flag disables two security controls — the bot-author refusal (`_refuse_bot_author`, whose docstring calls it "the defense-in-depth layer for any manual or out-of-band invocation") and the draft prerequisite — so that Stamphog will post a real GitHub approval on a bot-authored draft. Because `self_driving_review` crosses a JSON boundary, `bool()` makes this control fail OPEN for any non-boolean truthy value: the strings "false", "0", or any non-empty string all coerce to True and silently enable the bypass. The rest of the design is explicitly "fail closed," but this coercion is the one place a malformed/unexpected type flips the gate on rather than off.
 - **Suggestion:** Honor only a genuine boolean true so anything else fails closed: `self_driving=context.get("self_driving_review") is True`. This keeps the intended default-off behavior for an absent key, None, or False, while ensuring a malformed or unexpected value can never relax the bot-author/draft gates.
@@ -242,7 +242,7 @@ _perspective: review-hog-perspective-contracts-security  ·  directly-related: T
 ### [❌ dismissed] consider · security — tools/pr-approval-agent/review_local.py:316-321
 
 **Bot-author and draft gates relaxed on an unverified context flag with no engine-side check**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** The self-driving carve-out disables two defense-in-depth authorization controls — the bot-author refusal and the draft prerequisite (review_pr.py:225 and :590 both gate on `not self.self_driving`) — based solely on `context["self_driving_review"]`. The engine performs no independent verification that the PR is genuinely an inbox-linked implementation task; it fully trusts a single boolean that arrives in the same context JSON that also carries untrusted GitHub-sourced fields (pr.title, pr.body, reviews, discussion). This chunk also expands the LLM's untrusted-content attack surface: bot-authored draft PRs that were previously refused before any prompt was built now reach `_llm_review`, so their diff/body/comments are processed by the reviewer. If any current or future caller sets this flag for a non-inbox bot PR, or the trusted flag is ever populated from GitHub-controlled data, Stamphog would post a real GitHub approval on arbitrary bot-authored code — precisely what the bot-author refusal exists to prevent.
 - **Suggestion:** Keep `self_driving_review` the exclusive responsibility of server-side inbox-provenance derivation and make it structurally impossible to source from GitHub-controlled data — e.g. carry server-trusted control fields in a separate sub-object of the context from the GitHub-sourced payload, so a future refactor can't merge untrusted data into the control flag. The existing anti-injection notice and `_sanitize_untrusted` cover the expanded untrusted surface; the gap is that the gate relaxation itself has no engine-side positive signal. This is defense-in-depth around a deliberate design decision, not a claim the current server derivation is wrong.
@@ -254,10 +254,10 @@ _perspective: review-hog-perspective-contracts-security  ·  directly-related: T
 ### [❌ dismissed] consider · performance — products/stamphog/backend/tasks/tasks.py:873-881
 
 **Redundant writer-pinned repo-config resolution on every carved-out inbox re-review**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
-- **Problem:** On the webhook path, when a delivery is a carved-out self-driving re-review (skip_reason set and provenance returned), _inbox_rereview_carve_out has already resolved the repo config via _resolve_repo_config. After the skip check falls through for inbox_review, the main body then calls _resolve_repo_config(installation_id, repo) again. Both calls are writer-pinned (.using(router.db_for_write(...))) queries. As a result, every synchronize/reopen/base-retarget on a self-driving PR issues two identical config-resolution queries against the write DB instead of one. (base-retarget deliveries resolve it a third time via _retract_approvals_on_base_retarget.)
-- **Suggestion:** Have _inbox_rereview_carve_out return the resolved StamphogRepoConfig alongside the provenance/opted_out result (e.g. on the _InboxCarveOut dataclass) and reuse it in the main body, so the carved-out path resolves the config once. Minor, but it removes a duplicate writer-pinned query from every self-driving re-review.
+- **Problem:** On the webhook path, when a delivery is a carved-out self-driving re-review (skip_reason set and provenance returned),\_inbox_rereview_carve_out has already resolved the repo config via_resolve_repo_config. After the skip check falls through for inbox_review, the main body then calls_resolve_repo_config(installation_id, repo) again. Both calls are writer-pinned (.using(router.db_for_write(...))) queries. As a result, every synchronize/reopen/base-retarget on a self-driving PR issues two identical config-resolution queries against the write DB instead of one. (base-retarget deliveries resolve it a third time via_retract_approvals_on_base_retarget.)
+- **Suggestion:** Have \_inbox_rereview_carve_out return the resolved StamphogRepoConfig alongside the provenance/opted_out result (e.g. on the_InboxCarveOut dataclass) and reuse it in the main body, so the carved-out path resolves the config once. Minor, but it removes a duplicate writer-pinned query from every self-driving re-review.
 - **Validator:** - **Checked:** The webhook-path config-resolution flow in `process_pull_request_event` (stamphog `tasks.py:853-924`), the carve-out helper's internal resolution (`_inbox_rereview_carve_out` at tasks.py:179), `_resolve_repo_config` itself (tasks.py:174-189), and the `StamphogRepoConfig` unique index (`models.py:68`).
 - **Found:** The double-resolution claim is accurate: for a carved-out re-review (`skip_reason` set, provenance returned), the carve-out resolves once at tasks.py:179, the `inbox_review is not None` case skips the 881-912 block, and the main body resolves again at tasks.py:918 → 2 identical calls; a `base_retargeted` delivery adds a third at tasks.py:858.
 - **Found:** But each call is a single unique-index lookup — `_resolve_repo_config` filters on `(provider, installation_id, repository)` (tasks.py:186), the exact model unique index (models.py:68). So the redundancy is one (or two) extra sub-millisecond indexed reads, not a scan, not N+1 (constant count, not per-row), not unbounded.
@@ -266,7 +266,7 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [✅ VALID] should_fix · bug — products/stamphog/backend/tasks/tasks.py:872-898
 
 **Carve-out resolution runs before the skip dismissal, so a tasks-facade failure can leave a stale approval standing**  
-_perspective: review-hog-blind-spots-general  ·  directly-related: True_
+_perspective: review-hog-blind-spots-general · directly-related: True_
 
 - **Problem:** On a head-changing delivery (synchronize / reopened / base-retarget) that trips a skip reason, process_pull_request_event now resolves the inbox carve-out via `_inbox_rereview_carve_out(...)` BEFORE the existing stale-approval dismissal, and re-raises as a Celery retry if that resolution throws (L873-879). `_inbox_rereview_carve_out` calls into the tasks product (`find_signal_implementation_run` -> `find_task_run`, which queries the tasks DB) and the review_hog-registered resolver hook — cross-product code whose availability stamphog does not control. Only a bot-authored PR reaches that fallible branch (human PRs return early inside the carve-out via `_is_bot_authored`), and a self-driving PR is exactly the shape this PR newly grants a head-pinned approval to. If the carve-out resolution fails persistently (the tasks DB is unavailable while stamphog's own DB is up, or a deterministic query error on this PR's inputs), the task exhausts its 3 retries WITHOUT ever reaching the `if skip_reason is not None and inbox_review is None:` block that calls `_retract_stale_approvals_on_skip`. The prior approval then keeps satisfying required reviews over the newly pushed, unreviewed commits until some later head change re-attempts dismissal. This defeats the guarantee `_retract_stale_approvals_on_skip`'s own docstring states ('Raises on failure so the caller can retry — a dropped dismissal would leave the stale approval standing') and the stamphog CLAUDE.md stale-approval invariant, by gating an invariant-critical dismissal on a cross-product call's success. The base code attempted the head-changing skip dismissal for every skipped delivery independently of any tasks-facade health.
 - **Suggestion:** Do not let the carve-out resolution gate the stale-approval dismissal. Restructure so the head-changing skip dismissal (`_retract_stale_approvals_on_skip`, with its own independent retry) is reached even when `_inbox_rereview_carve_out` cannot be resolved — e.g. on a carve-out exception, still run the dismissal (treating the delivery as not-carved-out for dismissal purposes) before retrying for the re-review; or, since carved-out runs re-enter the workflow through `dismiss_stale_approvals` anyway, perform the head-changing dismissal ahead of / independently of the carve-out outcome. The safety retraction must never become unreachable because the tasks facade is momentarily unavailable.
@@ -276,4 +276,3 @@ _perspective: review-hog-blind-spots-general  ·  directly-related: True_
 - **Found (guarantee broken):** `_retract_stale_approvals_on_skip`'s docstring: "Raises on failure so the caller can retry — a dropped dismissal would leave the stale approval standing." With `@shared_task(max_retries=3, default_retry_delay=5)` (~15s budget) and the webhook already ACKed (no GitHub redelivery), a tasks-side outage exceeding ~15s exhausts retries with no dismissal — the stale APPROVE keeps satisfying required reviews over unreviewed commits until the next head change.
 - **Found (new exposure):** In master, stamphog never approved bot-authored PRs, so their skip-dismissal was vacuous. This PR makes bot-authored self-driving PRs approvable (head-pinned APPROVE) while gating their dismissal behind the fallible carve-out — the exact shape now at risk. So the hole is introduced by this change.
 - **Impact:** Reachable violation of the product's central stale-approval invariant (CLAUDE.md "the big one") under a realistic cross-product partial outage. Concrete trigger and consequence both nameable → meets the keep bar; not defensive paranoia (the codebase treats these dismissals as invariant-critical and retries on failure everywhere else). `should_fix` fits: the trigger is a multi-condition conjunction with eventual self-recovery on the next push, so not `must_fix`.
-
