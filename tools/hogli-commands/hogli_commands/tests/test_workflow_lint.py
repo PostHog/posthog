@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from click.testing import CliRunner
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
 from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
 from hogli_commands.workflow_lint.checks.cache_writes import (
@@ -26,7 +27,9 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
+from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
+from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
 
@@ -366,6 +369,71 @@ class TestPrConcurrencyCheck:
             """,
         )
         assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# PrEventFanoutCheck
+# ---------------------------------------------------------------------------
+
+
+class TestPrEventFanoutCheck:
+    def test_fails_when_low_frequency_workflow_adds_unscoped_pr_events(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "agent.yml",
+            """
+            name: Agent
+            on:
+              pull_request:
+                types: [closed]
+              pull_request_target:
+                types: [opened, reopened, ready_for_review, edited]
+            jobs: {}
+            """,
+        )
+
+        result = PrEventFanoutCheck(budget={"closed": 1}).run(_read_all(tmp_path))
+
+        assert [issue.message for issue in result.issues] == [
+            "unscoped `edited` PR dispatch fanout is 1; budget is 0",
+            "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+            "unscoped `ready_for_review` PR dispatch fanout is 1; budget is 0",
+            "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+        ]
+
+    def test_counts_default_pr_actions(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "new-workflow.yml",
+            """
+            name: New workflow
+            on: [pull_request]
+            jobs: {}
+            """,
+        )
+
+        result = PrEventFanoutCheck(budget={}).run(_read_all(tmp_path))
+
+        assert [issue.message for issue in result.issues] == [
+            "unscoped `opened` PR dispatch fanout is 1; budget is 0",
+            "unscoped `reopened` PR dispatch fanout is 1; budget is 0",
+            "unscoped `synchronize` PR dispatch fanout is 1; budget is 0",
+        ]
+
+    def test_excludes_path_filtered_workflows(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "focused.yml",
+            """
+            name: Focused
+            on:
+              pull_request:
+                paths: [products/example/**]
+            jobs: {}
+            """,
+        )
+
+        assert PrEventFanoutCheck(budget={}).run(_read_all(tmp_path)).issues == []
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +941,29 @@ class TestRegistry:
         for check in CHECKS:
             result = check.run(wfs)
             assert isinstance(result, CheckResult)
+
+
+class TestCli:
+    def test_fanout_over_budget_fails_run(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "assigned.yml",
+            """
+            name: Assigned
+            on:
+              pull_request:
+                types: [assigned]
+            jobs: {}
+            """,
+        )
+
+        result = CliRunner().invoke(
+            cmd_lint_workflows,
+            ["--check", "WF008", "--workflows-dir", str(tmp_path)],
+        )
+
+        assert result.exit_code == 1
+        assert "1 issue(s) across 1 check(s)" in result.output
 
 
 class TestLiveTreeSmoke:

@@ -26,7 +26,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
