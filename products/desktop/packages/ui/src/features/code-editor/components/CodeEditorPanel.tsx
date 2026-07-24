@@ -30,6 +30,7 @@ import { useCloudFileContent } from "../hooks/useCloudFileContent";
 import {
   useAbsoluteFileContent,
   useFileAsBase64,
+  useRepoFileAsBase64,
   useRepoFileContent,
 } from "../hooks/useFileContent";
 import { useFileEnrichment } from "../hooks/useFileEnrichment";
@@ -184,7 +185,19 @@ export function CodeEditorPanel({
     absolutePath,
     source.absoluteEnabled,
   );
-  const imageQuery = useFileAsBase64(absolutePath, source.imageEnabled);
+  // In-repo images are confined to the repo (symlink-aware); images opened
+  // outside any repo fall back to the absolute read. Both hooks run (React rules)
+  // but only the matching one is enabled.
+  const repoImageQuery = useRepoFileAsBase64(
+    repoPath ?? "",
+    filePath,
+    source.imageEnabled && isInsideRepo,
+  );
+  const absoluteImageQuery = useFileAsBase64(
+    absolutePath,
+    source.imageEnabled && !isInsideRepo,
+  );
+  const imageQuery = isInsideRepo ? repoImageQuery : absoluteImageQuery;
 
   const localQuery = isInsideRepo ? repoQuery : absoluteQuery;
   const {

@@ -97,6 +97,7 @@ export const PatchRow = memo(function PatchRow({
       <BinaryFileDiff
         filePath={filePath}
         absolutePath={`${repoPath}/${filePath}`}
+        repoPath={repoPath}
         collapsed={collapsed}
         onToggle={onToggle}
         onOpenFile={onOpenFile}
@@ -161,6 +162,7 @@ export const UntrackedRow = memo(function UntrackedRow({
       <BinaryFileDiff
         filePath={file.path}
         absolutePath={`${repoPath}/${file.path}`}
+        repoPath={repoPath}
         collapsed={collapsed}
         onToggle={onToggle}
       />

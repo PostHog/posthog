@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +109,87 @@ describe("FsService repo file IO", () => {
     await expect(
       service.writeRepoFile(repo, "../escape.txt", "x"),
     ).rejects.toThrow(/Access denied/);
+  });
+
+  it("refuses to read through a symlink that escapes the repository", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
+    try {
+      await writeFile(path.join(outside, "secret.txt"), "SECRET");
+      // A symlink named like an ordinary repo file, pointing outside the repo:
+      // the path is lexically inside the repo but resolves out of it.
+      await symlink(
+        path.join(outside, "secret.txt"),
+        path.join(repo, "config.json"),
+      );
+      expect(await service.readRepoFile(repo, "config.json")).toBeNull();
+
+      // Also blocked when reached through a symlinked directory.
+      await symlink(outside, path.join(repo, "sub"));
+      expect(await service.readRepoFile(repo, "sub/secret.txt")).toBeNull();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to write through a symlink that escapes the repository", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
+    try {
+      await writeFile(path.join(outside, "target.txt"), "original");
+      await symlink(
+        path.join(outside, "target.txt"),
+        path.join(repo, "notes.txt"),
+      );
+
+      await expect(
+        service.writeRepoFile(repo, "notes.txt", "attacker"),
+      ).rejects.toThrow(/Access denied/);
+      // The file outside the repo must be untouched.
+      expect(await readFile(path.join(outside, "target.txt"), "utf-8")).toBe(
+        "original",
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to write through a dangling symlink that would create a file outside the repository", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
+    try {
+      // A symlink whose target does NOT exist yet, pointing outside the repo.
+      // fs.realpath throws ENOENT on such a link, so a containment check that
+      // only realpaths the deepest existing component mistakes it for an in-repo
+      // new file, so the write follows it and creates the outside file.
+      const danglingTarget = path.join(outside, "brand-new.txt");
+      await symlink(danglingTarget, path.join(repo, "evil.txt"));
+
+      await expect(
+        service.writeRepoFile(repo, "evil.txt", "attacker"),
+      ).rejects.toThrow(/Access denied/);
+      // The outside file must not have been created.
+      await expect(readFile(danglingTarget, "utf-8")).rejects.toThrow();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("confines readRepoFileAsBase64 to the repo (symlink escape blocked)", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "fs-service-outside-"));
+    try {
+      await writeFile(path.join(outside, "id_rsa"), "SSH-KEY");
+      // A symlink committed under a binary filename, pointing outside the repo.
+      await symlink(path.join(outside, "id_rsa"), path.join(repo, "logo.png"));
+
+      // The escaping symlink is blocked.
+      expect(await service.readRepoFileAsBase64(repo, "logo.png")).toBeNull();
+
+      // A legitimate in-repo binary still reads.
+      await writeFile(path.join(repo, "pic.png"), "PICBYTES");
+      expect(await service.readRepoFileAsBase64(repo, "pic.png")).toBe(
+        Buffer.from("PICBYTES").toString("base64"),
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it("bounds reads by line count", async () => {

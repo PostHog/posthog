@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 import { useInView } from "../../../primitives/hooks/useInView";
 import { SafeImagePreview } from "../../../primitives/SafeImagePreview";
 import { SafeVideoPreview } from "../../../primitives/SafeVideoPreview";
-import { useFileAsBase64 } from "../../code-editor/hooks/useFileContent";
+import { useRepoFileAsBase64 } from "../../code-editor/hooks/useFileContent";
 import { REVIEW_PREFETCH_ROOT_MARGIN } from "../constants";
 import {
   FileHeaderRow,
@@ -28,10 +28,17 @@ function classifyBinaryFile(filePath: string): BinaryMediaKind {
 interface BinaryFileDiffProps {
   filePath: string;
   /**
-   * Absolute path of the working-tree file to preview. Omit when no local file
-   * is available (e.g. branch/PR diffs) — the body falls back to a placeholder.
+   * Absolute path of the working-tree file. Set when a local file is available
+   * to preview; omit when it is not (e.g. branch/PR diffs) to fall back to a
+   * placeholder. Must travel together with `repoPath`.
    */
   absolutePath?: string;
+  /**
+   * Repo root of the working-tree file, required alongside `absolutePath`. The
+   * preview read (`useRepoFileAsBase64`) is confined to it (symlink-aware) so a
+   * symlink committed under a binary filename cannot read a file outside it.
+   */
+  repoPath?: string;
   collapsed: boolean;
   onToggle: () => void;
   onOpenFile?: () => void;
@@ -47,16 +54,20 @@ function BinaryBodyMessage({ children }: { children: ReactNode }) {
 
 function BinaryMediaBody({
   kind,
-  absolutePath,
+  repoPath,
   filePath,
   enabled,
 }: {
   kind: "image" | "video";
-  absolutePath: string;
+  repoPath: string;
   filePath: string;
   enabled: boolean;
 }) {
-  const { data, isLoading, error } = useFileAsBase64(absolutePath, enabled);
+  const { data, isLoading, error } = useRepoFileAsBase64(
+    repoPath,
+    filePath,
+    enabled,
+  );
 
   if (!enabled || isLoading) {
     return <BinaryBodyMessage>Loading preview…</BinaryBodyMessage>;
@@ -97,6 +108,7 @@ function BinaryMediaBody({
 export function BinaryFileDiff({
   filePath,
   absolutePath,
+  repoPath,
   collapsed,
   onToggle,
   onOpenFile,
@@ -127,10 +139,10 @@ export function BinaryFileDiff({
         }
       />
       {!collapsed &&
-        (previewKind && absolutePath ? (
+        (previewKind && absolutePath && repoPath ? (
           <BinaryMediaBody
             kind={previewKind}
-            absolutePath={absolutePath}
+            repoPath={repoPath}
             filePath={filePath}
             enabled={inView}
           />

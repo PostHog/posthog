@@ -423,6 +423,8 @@ app.whenReady().then(async () => {
       workspaceClient.fs.readAbsoluteFile.query({ filePath }),
     readFileAsBase64: (filePath) =>
       workspaceClient.fs.readFileAsBase64.query({ filePath }),
+    readRepoFileAsBase64: (repoPath, filePath) =>
+      workspaceClient.fs.readRepoFileAsBase64.query({ repoPath, filePath }),
     writeRepoFile: async (repoPath, filePath, content) => {
       await workspaceClient.fs.writeRepoFile.mutate({
         repoPath,

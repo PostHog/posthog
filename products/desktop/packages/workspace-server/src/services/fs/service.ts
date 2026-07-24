@@ -93,7 +93,10 @@ export class FsService {
     filePath: string,
   ): Promise<string | null> {
     try {
-      return await fs.readFile(this.resolvePath(repoPath, filePath), "utf-8");
+      return await fs.readFile(
+        await this.resolvePath(repoPath, filePath),
+        "utf-8",
+      );
     } catch {
       return null;
     }
@@ -120,7 +123,7 @@ export class FsService {
   ): Promise<BoundedReadResult> {
     try {
       const content = await fs.readFile(
-        this.resolvePath(repoPath, filePath),
+        await this.resolvePath(repoPath, filePath),
         "utf-8",
       );
       if (exceedsLineLimit(content, maxLines)) {
@@ -158,6 +161,24 @@ export class FsService {
     }
   }
 
+  // Read an in-repo binary (image/video preview) as base64, confined to the repo
+  // so a symlink committed under a binary filename cannot escape it. This is the
+  // only base64 read path for repo files; readFileAsBase64 below is reserved for
+  // genuine out-of-repo, user-chosen files (e.g. attachment upload).
+  async readRepoFileAsBase64(
+    repoPath: string,
+    filePath: string,
+  ): Promise<string | null> {
+    try {
+      const buffer = await fs.readFile(
+        await this.resolvePath(repoPath, filePath),
+      );
+      return buffer.toString("base64");
+    } catch {
+      return null;
+    }
+  }
+
   async readFileAsBase64(filePath: string): Promise<string | null> {
     const resolved = path.resolve(filePath);
     try {
@@ -190,15 +211,38 @@ export class FsService {
     filePath: string,
     content: string,
   ): Promise<void> {
-    await fs.writeFile(this.resolvePath(repoPath, filePath), content, "utf-8");
+    await fs.writeFile(
+      await this.resolvePath(repoPath, filePath),
+      content,
+      "utf-8",
+    );
     this.invalidateCache(repoPath);
   }
 
-  private resolvePath(repoPath: string, filePath: string): string {
+  private async resolvePath(
+    repoPath: string,
+    filePath: string,
+  ): Promise<string> {
     const base = path.resolve(repoPath);
     const resolved = path.resolve(base, filePath);
+    // Lexical containment rejects `../` escapes.
     if (resolved !== base && !resolved.startsWith(base + path.sep)) {
       throw new Error("Access denied: path outside repository");
+    }
+    // Symlink-aware containment: a symlink committed inside the repo can point
+    // outside it, which the lexical check above cannot see. Resolve the real
+    // target the OS would open and confirm it is still inside the repo's real
+    // base.
+    const realBase = await fs.realpath(base);
+    if (resolved === base) {
+      return resolved;
+    }
+    const realTarget = await realTargetForContainment(resolved);
+    if (
+      realTarget !== realBase &&
+      !realTarget.startsWith(realBase + path.sep)
+    ) {
+      throw new Error("Access denied: path escapes repository via symlink");
     }
     return resolved;
   }
@@ -268,6 +312,54 @@ export class FsService {
 
     return results;
   }
+}
+
+// Resolve the real path the OS would open for `resolved`, resolving the parent
+// directory with realpath but inspecting the final component with lstat.
+// realpath alone cannot tell a not-yet-created file apart from a *dangling*
+// symlink -- one whose own name exists but whose target does not -- because it
+// throws ENOENT for both. A dangling symlink pointing outside the repo would
+// then be mistaken for an in-repo new file, and fs.writeFile would follow it and
+// create a file outside the repo. Resolving the parent and lstat-ing the leaf
+// closes that gap while still allowing legitimate new-file writes.
+async function realTargetForContainment(resolved: string): Promise<string> {
+  const realParent = await realpathAllowingMissing(path.dirname(resolved));
+  const leaf = path.join(realParent, path.basename(resolved));
+  try {
+    const stats = await fs.lstat(leaf);
+    if (stats.isSymbolicLink()) {
+      const linkTarget = path.resolve(realParent, await fs.readlink(leaf));
+      return await realpathAllowingMissing(linkTarget);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return leaf;
+}
+
+// Resolve symlinks on the deepest existing prefix of `target`, then re-append
+// any not-yet-existing tail (which cannot contain symlinks precisely because it
+// does not exist). Lets containment see through a symlink while still allowing
+// writes that create new files or directories.
+async function realpathAllowingMissing(target: string): Promise<string> {
+  const { root } = path.parse(target);
+  const segments = target.slice(root.length).split(path.sep).filter(Boolean);
+  for (let i = segments.length; i >= 0; i--) {
+    const candidate = path.join(root, ...segments.slice(0, i));
+    try {
+      const real = await fs.realpath(candidate);
+      return i === segments.length
+        ? real
+        : path.join(real, ...segments.slice(i));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  return target;
 }
 
 function exceedsLineLimit(content: string, maxLines: number): boolean {

@@ -241,6 +241,11 @@ const fsStubRouter = router({
   readFileAsBase64: publicProcedure
     .input(z.object({ filePath: z.string() }))
     .query(({ input }) => getWebAttachmentBase64(input.filePath)),
+  // Web is cloud-only: no local working tree, so there is no in-repo binary to
+  // read. Present to match the desktop HostRouter shape; always resolves null.
+  readRepoFileAsBase64: publicProcedure
+    .input(z.object({ repoPath: z.string(), filePath: z.string() }))
+    .query(() => null),
 });
 
 const skillsStubRouter = router({

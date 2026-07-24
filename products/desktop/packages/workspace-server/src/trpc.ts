@@ -856,6 +856,13 @@ export function createAppRouter({
         .output(readRepoFileOutput)
         .query(({ input }) => fsService().readFileAsBase64(input.filePath)),
 
+      readRepoFileAsBase64: t.procedure
+        .input(readRepoFileInput)
+        .output(readRepoFileOutput)
+        .query(({ input }) =>
+          fsService().readRepoFileAsBase64(input.repoPath, input.filePath),
+        ),
+
       writeRepoFile: t.procedure
         .input(writeRepoFileInput)
         .mutation(({ input }) =>

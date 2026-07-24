@@ -25,6 +25,10 @@ export interface FsCapability {
   ): Promise<Record<string, BoundedReadResult>>;
   readAbsoluteFile(filePath: string): Promise<string | null>;
   readFileAsBase64(filePath: string): Promise<string | null>;
+  readRepoFileAsBase64(
+    repoPath: string,
+    filePath: string,
+  ): Promise<string | null>;
   writeRepoFile(
     repoPath: string,
     filePath: string,

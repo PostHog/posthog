@@ -82,6 +82,15 @@ export const fsRouter = router({
         .readFileAsBase64(input.filePath),
     ),
 
+  readRepoFileAsBase64: publicProcedure
+    .input(readRepoFileInput)
+    .output(readRepoFileOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<FsCapability>(FS_SERVICE)
+        .readRepoFileAsBase64(input.repoPath, input.filePath),
+    ),
+
   writeRepoFile: publicProcedure
     .input(writeRepoFileInput)
     .mutation(({ ctx, input }) =>
