@@ -1179,10 +1179,15 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     def __str__(self):
         return self.name
 
-    def get_skill_bundle_s3_prefix(self) -> str:
-        """Base prefix for this loop's skill bundle objects in S3."""
+    @staticmethod
+    def skill_bundle_s3_prefix_for(team_id: int, loop_id: "uuid.UUID | str") -> str:
+        """Base prefix for a loop's skill bundle objects in S3, computable from ids so
+        seeding can validate snapshot paths without loading the row."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/artifacts/team_{self.team_id}/loop_{self.id}"
+        return f"{tasks_folder}/artifacts/team_{team_id}/loop_{loop_id}"
+
+    def get_skill_bundle_s3_prefix(self) -> str:
+        return Loop.skill_bundle_s3_prefix_for(self.team_id, self.id)
 
     def _get_before_update(self, **kwargs: Any) -> "Loop | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed

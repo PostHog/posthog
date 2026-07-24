@@ -10,7 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
@@ -328,9 +328,20 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         ):
             return redispatch_orphaned_task_run(str(run.id))
 
-    def _orphaned_loop_run(self) -> TaskRun:
+    def _orphaned_loop_run(self, storage_path: str | None = None) -> TaskRun:
         # A loop fire freezes its bundle set onto the run's state; seeding reads only
-        # this snapshot, never the live loop.
+        # this snapshot, never the live loop, and validates every source path against
+        # the owning loop's prefix.
+        loop = Loop.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Digest",
+            instructions="/my-skill",
+            runtime_adapter="claude",
+        )
+        self.task.origin_product = Task.OriginProduct.LOOP
+        self.task.loop = loop
+        self.task.save(update_fields=["origin_product", "loop"])
         run = self._orphaned_run(pending_dispatch={"create_pr": False, "posthog_mcp_scopes": "read_only"})
         run.state = {
             **run.state,
@@ -342,7 +353,7 @@ class TestRedispatchOrphanedTaskRun(TestCase):
                     "source": "posthog_code_skill",
                     "size": 9,
                     "content_type": "application/zip",
-                    "storage_path": "tasks/artifacts/team_1/loop_x/abcdef01_my-skill.zip",
+                    "storage_path": storage_path or f"{loop.get_skill_bundle_s3_prefix()}/abcdef01_my-skill.zip",
                     "uploaded_at": "2026-07-23T00:00:00+00:00",
                     "metadata": {
                         "skill_name": "my-skill",
@@ -372,6 +383,19 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         run.refresh_from_db()
         seeded = [artifact for artifact in run.artifacts if artifact["type"] == "skill_bundle"]
         self.assertEqual(len(seeded), 1)
+
+    @patch("posthog.storage.object_storage.copy")
+    def test_recovery_rejects_seeds_outside_the_loops_prefix(self, mock_copy) -> None:
+        # Run state is a client-PATCHable surface; a forged seed pointing at another
+        # prefix must never be copied into the run's downloadable artifacts.
+        run = self._orphaned_loop_run(storage_path="tasks/artifacts/team_999/task_x/run_y/secret.zip")
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "error")
+        mock_copy.assert_not_called()
+        start_workflow.assert_not_called()
 
     @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
     def test_recovery_aborts_when_seeding_fails(self, mock_copy) -> None:

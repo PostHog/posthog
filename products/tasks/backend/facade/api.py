@@ -1728,6 +1728,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_mount_path",
         "workflow_id",
         "pending_dispatch",
+        # Written once at loop fire time; seeding copies these storage paths into the
+        # run's artifact prefix, so a PATCHable value would be an arbitrary
+        # object-storage read (and write-location) primitive.
+        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",

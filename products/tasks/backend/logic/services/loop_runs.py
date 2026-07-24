@@ -543,6 +543,9 @@ def ensure_loop_skill_bundles_seeded(task_run: TaskRun) -> bool:
     bundles (and its owner) may have changed since, and the run executes with the
     credentials captured at fire time. Returns False when seeding was needed but failed;
     the caller must not dispatch (the next sweep retries)."""
+    task = task_run.task
+    if task.origin_product != Task.OriginProduct.LOOP or task.loop_id is None:
+        return True
     already_seeded = any(
         isinstance(entry, dict) and entry.get("type") == "skill_bundle" for entry in (task_run.artifacts or [])
     )
@@ -580,14 +583,29 @@ def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
 
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
+
+    # `state` is a client-PATCHable surface (the seeds key is server-protected, but this
+    # copy primitive must not trust it anyway): every source path has to sit under the
+    # owning loop's own bundle prefix, and the target segments are re-sanitized, or a
+    # forged entry would read or write arbitrary bucket keys via the recovery path.
+    loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, task_run.task.loop_id)}/"
+
     run_prefix = task_run.get_artifact_s3_prefix()
     manifest = list(task_run.artifacts or [])
     copied_paths: list[str] = []
     try:
         for bundle in bundles:
             entry = dict(bundle)
-            target_path = f"{run_prefix}/{str(entry['id'])[:8]}_{entry['name']}"
-            object_storage.copy(entry["storage_path"], target_path)
+            source_path = str(entry["storage_path"])
+            if not source_path.startswith(loop_prefix):
+                raise ValueError("skill bundle seed escapes the loop's storage prefix")
+            entry_id = str(entry["id"])
+            if not re.fullmatch(r"[0-9a-f]{8,64}", entry_id):
+                raise ValueError("skill bundle seed has a malformed id")
+            entry["name"] = get_safe_artifact_name(str(entry["name"]))
+            target_path = f"{run_prefix}/{entry_id[:8]}_{entry['name']}"
+            object_storage.copy(source_path, target_path)
             copied_paths.append(target_path)
             try:
                 object_storage.tag(target_path, {"ttl_days": "30", "team_id": str(task_run.team_id)})

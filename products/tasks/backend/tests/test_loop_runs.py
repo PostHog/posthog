@@ -538,7 +538,8 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
 
 class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
-    def _bundle_entry(self, **overrides) -> dict:
+    def _bundle_entry(self, loop: Loop, **overrides) -> dict:
+        # Seeding validates every source path against the owning loop's real prefix.
         entry = {
             "id": "abcdef0123456789abcdef0123456789",
             "name": "my-skill.zip",
@@ -546,7 +547,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
             "source": "posthog_code_skill",
             "size": 9,
             "content_type": "application/zip",
-            "storage_path": "tasks/artifacts/team_1/loop_x/abcdef01_my-skill.zip",
+            "storage_path": f"{loop.get_skill_bundle_s3_prefix()}/abcdef01_my-skill.zip",
             "uploaded_at": "2026-07-22T00:00:00+00:00",
             "metadata": {
                 "skill_name": "my-skill",
@@ -559,6 +560,13 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         entry.update(overrides)
         return entry
 
+    def loop_with_bundles(self, *entry_overrides: dict) -> tuple[Loop, list[dict]]:
+        loop = self.create_loop()
+        entries = [self._bundle_entry(loop, **overrides) for overrides in (entry_overrides or ({},))]
+        loop.skill_bundles = entries
+        loop.save(update_fields=["skill_bundles"])
+        return loop, entries
+
     def fire_with_post_commit(self, loop: Loop, trigger: LoopTrigger):
         """Fire once, executing the post-commit seed-and-dispatch tail with the workflow
         dispatch mocked. Returns (result, mock_dispatch)."""
@@ -570,8 +578,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.copy")
     def test_fire_copies_loop_skill_bundles_into_the_run_manifest(self, mock_copy, mock_tag):
-        entry = self._bundle_entry()
-        loop = self.create_loop(skill_bundles=[entry])
+        loop, (entry,) = self.loop_with_bundles()
         trigger = self.create_trigger(loop)
 
         result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
@@ -606,7 +613,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
     def test_seeding_happens_after_commit_not_under_the_fire_lock(self):
         # S3 copies must never run inside the fire transaction: it holds the team-wide
         # advisory lock, so an S3 stall there would serialize every fire for the team.
-        loop = self.create_loop(skill_bundles=[self._bundle_entry()])
+        loop, _entries = self.loop_with_bundles()
         trigger = self.create_trigger(loop)
 
         with patch("posthog.storage.object_storage.copy") as mock_copy:
@@ -623,7 +630,7 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
     @patch("posthog.storage.object_storage.delete_objects")
     @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
     def test_a_failed_seed_terminalizes_the_run_and_skips_dispatch(self, mock_copy, mock_delete):
-        loop = self.create_loop(skill_bundles=[self._bundle_entry()])
+        loop, _entries = self.loop_with_bundles()
         trigger = self.create_trigger(loop)
 
         result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
@@ -646,13 +653,10 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
         # later fire mints a new run id) — without cleanup every failed attempt would
         # strand another set of objects.
         mock_copy.side_effect = [None, RuntimeError("s3 down")]
-        first = self._bundle_entry()
-        second = self._bundle_entry(
-            id="fedcba9876543210fedcba9876543210",
-            name="other-skill.zip",
-            storage_path="tasks/artifacts/team_1/loop_x/fedcba98_other-skill.zip",
+        loop, _entries = self.loop_with_bundles(
+            {},
+            {"id": "fedcba9876543210fedcba9876543210", "name": "other-skill.zip"},
         )
-        loop = self.create_loop(skill_bundles=[first, second])
         trigger = self.create_trigger(loop)
 
         result, mock_dispatch = self.fire_with_post_commit(loop, trigger)
