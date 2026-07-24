@@ -142,7 +142,8 @@ class AnthropicCircuitBreaker:
         if total < min_requests or rate < self.failure_threshold:
             return BreakerDecision(bypass=False, open=False, failure_rate=rate, total_requests=total)
 
-        bypass = random.random() < self.bypass_probability
+        bypass_probability = 1.0 if model_scope is not None else self.bypass_probability
+        bypass = random.random() < bypass_probability
         return BreakerDecision(bypass=bypass, open=True, failure_rate=rate, total_requests=total)
 
 

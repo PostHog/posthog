@@ -103,11 +103,13 @@ class TestAnthropicCircuitBreaker:
         for _ in range(20):
             await breaker.record_outcome(success=True, model="claude-sonnet-4-6")
 
-        fable_decision = await breaker.evaluate("claude-fable-5")
+        with patch("llm_gateway.circuit_breaker.random.random", return_value=0.999):
+            fable_decision = await breaker.evaluate("claude-fable-5")
         sonnet_decision = await breaker.evaluate("claude-sonnet-4-6")
         aggregate_decision = await breaker.evaluate()
 
         assert fable_decision.open is True
+        assert fable_decision.bypass is True
         assert sonnet_decision.open is False
         assert aggregate_decision.open is False
 

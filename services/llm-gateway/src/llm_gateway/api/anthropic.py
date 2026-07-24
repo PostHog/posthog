@@ -62,6 +62,10 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 COUNT_TOKENS_ENDPOINT_NAME = "anthropic_count_tokens"
 BEDROCK_COUNT_TOKENS_ENDPOINT_NAME = "bedrock_count_tokens"
 
+# These models follow the new gateway's cross-request failover contract: a fresh failure arms the
+# breaker, and the next request skips Anthropic instead of waiting through two provider timeouts.
+CROSS_REQUEST_BEDROCK_FALLBACK_MODELS: frozenset[str] = frozenset({"claude-fable-5"})
+
 
 def _invalid_header_exception(message: str) -> HTTPException:
     return HTTPException(status_code=400, detail={"error": {"message": message, "type": "invalid_request_error"}})
@@ -561,6 +565,15 @@ async def _handle_anthropic_messages(
         if isinstance(exc, ProviderError) or exc.status_code >= 500:
             await _record_anthropic_outcome(breaker, success=not fallback_eligible, model=body.model)
         if not use_bedrock_fallback or not fallback_eligible:
+            raise
+        if body.model in CROSS_REQUEST_BEDROCK_FALLBACK_MODELS:
+            logger.warning(
+                "Anthropic request failed, Bedrock fallback armed for next request",
+                model=body.model,
+                product=product,
+                original_status=exc.status_code,
+                original_error_type="billing_block" if billing_block else _anthropic_error_type(exc),
+            )
             raise
 
         error_type = "billing_block" if billing_block else _anthropic_error_type(exc)

@@ -1715,6 +1715,33 @@ class TestAnthropicCircuitBreakerIntegration:
         assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_fable_fresh_failure_arms_cross_request_fallback(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("timed out")
+        error.status_code = 504  # type: ignore[attr-defined]
+        error.message = "timed out"  # type: ignore[attr-defined]
+        error.type = "timeout_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]},
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 504
+        assert mock_anthropic.call_count == 1
+        breaker.record_outcome.assert_awaited_once_with(success=False, model="claude-fable-5")
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_anthropic_only_param_stripped_before_bedrock_fallback(
         self,
         mock_anthropic: MagicMock,
