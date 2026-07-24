@@ -182,8 +182,22 @@ export function createCohortFormData(
     return cohortFormData
 }
 
+/** Whether a group (or bare criterion) contributes at least one positive (non-negated) matching criterion. */
+function hasPositiveCriterion(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+    if (!isCohortCriteriaGroup(group)) {
+        return !group.negation
+    }
+    return (group.values as AnyCohortCriteriaType[]).filter((g) => !isCohortCriteriaGroup(g)).some((c) => !c.negation)
+}
+
 export function validateGroup(
-    group: CohortCriteriaGroupFilter | AnyCohortCriteriaType
+    group: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
+    // The outer ("Match all/any criteria") operator and the other groups in the cohort. When the
+    // outer operator is AND, every group is intersected, so a negation in one group is bounded by a
+    // positive matching criterion in any sibling group — the whole cohort has to be considered, not
+    // just this group in isolation.
+    outerOperator?: FilterLogicalOperator,
+    siblingGroups: (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[] = []
 ): DeepPartialMap<CohortCriteriaGroupFilter, ValidationErrorType> {
     if (!isCohortCriteriaGroup(group)) {
         return {}
@@ -196,12 +210,13 @@ export function validateGroup(
     const negatedCriteria = criteria.filter((c) => !!c.negation)
     const negatedCriteriaIndices = new Set(negatedCriteria.map((c) => c.index))
 
-    if (
-        // Negation criteria can only be used when matching ALL criteria
-        (group.type !== FilterLogicalOperator.And && negatedCriteria.length > 0) ||
-        // Negation criteria has at least one positive matching criteria
-        (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
-    ) {
+    // A negation is bounded by a positive matching criterion either within this AND group, or — when
+    // the cohort matches ALL criteria (outer AND) — within any sibling group.
+    const boundedWithinGroup = group.type === FilterLogicalOperator.And && negatedCriteria.length < criteria.length
+    const boundedBySibling =
+        outerOperator === FilterLogicalOperator.And && siblingGroups.some((sibling) => hasPositiveCriterion(sibling))
+
+    if (negatedCriteria.length > 0 && !boundedWithinGroup && !boundedBySibling) {
         const errorMsg = `${negatedCriteria
             .map((c) => {
                 const behavioralFilterType = criteriaToBehavioralFilterType(c)
