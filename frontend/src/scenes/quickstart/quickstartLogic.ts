@@ -180,6 +180,89 @@ export interface QuickstartProduct {
     docsUrl?: string
 }
 
+/** The one computed "next best answer" shown above the cards in the test2 arm */
+export interface QuickstartHeroAnswer {
+    productKey: ProductKey
+    headline: string
+    detail: string
+    ctaLabel: string
+    url: string
+}
+
+// Precedence mirrors where undecided new orgs successfully land (web/product analytics first),
+// then the strongest hooks the org's own data supports.
+export function computeQuickstartHeroAnswer(
+    signals: QuickstartToolSignals,
+    resources: QuickstartResources,
+    products: QuickstartProduct[]
+): QuickstartHeroAnswer | null {
+    const url = (key: ProductKey): string | null => products.find((product) => product.key === key)?.url ?? null
+    const n = (value: number): string => value.toLocaleString('en-US')
+
+    const webUrl = url(ProductKey.WEB_ANALYTICS)
+    if (signals.pageviews > 0 && webUrl) {
+        return {
+            productKey: ProductKey.WEB_ANALYTICS,
+            headline: `${n(signals.pageviews)} pageviews in the last 30 days`,
+            detail: 'See where your visitors come from and what they do.',
+            ctaLabel: 'Open web analytics',
+            url: webUrl,
+        }
+    }
+    const errorUrl = url(ProductKey.ERROR_TRACKING)
+    const exceptions = signals.exceptions + signals.serverExceptions
+    if (exceptions > 0 && errorUrl) {
+        return {
+            productKey: ProductKey.ERROR_TRACKING,
+            headline: `${n(exceptions)} exceptions captured in the last 30 days`,
+            detail: 'See which errors hit the most users, worst first.',
+            ctaLabel: 'Open error tracking',
+            url: errorUrl,
+        }
+    }
+    const replayUrl = url(ProductKey.SESSION_REPLAY)
+    if ((resources.replayRecordings ?? 0) > 0 && replayUrl) {
+        return {
+            productKey: ProductKey.SESSION_REPLAY,
+            headline: `${n(resources.replayRecordings ?? 0)} sessions recorded`,
+            detail: 'Watch a real user navigate your app.',
+            ctaLabel: 'Watch a recording',
+            url: replayUrl,
+        }
+    }
+    const aiUrl = url(ProductKey.AI_OBSERVABILITY)
+    const aiEvents = signals.aiGenerations + signals.aiTraceEvents
+    if (aiEvents > 0 && aiUrl) {
+        return {
+            productKey: ProductKey.AI_OBSERVABILITY,
+            headline: `${n(aiEvents)} AI events in the last 30 days`,
+            detail: 'See what your LLM calls cost and where they fail.',
+            ctaLabel: 'Open AI observability',
+            url: aiUrl,
+        }
+    }
+    const paUrl = url(ProductKey.PRODUCT_ANALYTICS)
+    if (signals.customEvents > 0 && paUrl) {
+        return {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+            headline: `${n(signals.customEvents)} custom events flowing`,
+            detail: 'Build your first insight from them.',
+            ctaLabel: 'Open product analytics',
+            url: paUrl,
+        }
+    }
+    if (signals.totalEvents > 0 && paUrl) {
+        return {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+            headline: `${n(signals.totalEvents)} events ingested in the last 30 days`,
+            detail: 'Explore them in product analytics.',
+            ctaLabel: 'Open product analytics',
+            url: paUrl,
+        }
+    }
+    return null
+}
+
 export interface QuickstartTaskGuidanceSelection {
     productKey: ProductKey
     stepKey: string
@@ -1103,6 +1186,7 @@ export interface quickstartLogicValues {
     hasIngestedEvent: boolean
     healthIssues: HealthIssue[] | null
     healthIssuesLoading: boolean
+    heroAnswer: QuickstartHeroAnswer | null
     newsletterPublications: QuickstartPublication[]
     newsletterPublicationsLoading: boolean
     products: QuickstartProduct[]
@@ -1282,6 +1366,10 @@ export interface quickstartLogicMeta {
         ) => QuickstartProduct[]
         activeProductCount: (products: QuickstartProduct[]) => number
         totalProductCount: (products: QuickstartProduct[]) => number
+        heroAnswer: (
+            activationData: QuickstartActivationData,
+            products: QuickstartProduct[]
+        ) => QuickstartHeroAnswer | null
         setupModalProduct: (
             setupModalProductKey: ProductKey | null,
             products: QuickstartProduct[]
@@ -1651,6 +1739,15 @@ export const quickstartLogic = kea<quickstartLogicType>([
                 products.filter((product) => product.status.level === 'live').length,
         ],
         totalProductCount: [(s) => [s.products], (products: QuickstartProduct[]): number => products.length],
+        heroAnswer: [
+            (s) => [s.activationData, s.products],
+            (activationData: QuickstartActivationData, products: QuickstartProduct[]): QuickstartHeroAnswer | null =>
+                computeQuickstartHeroAnswer(
+                    activationData.signals ?? EMPTY_TOOL_SIGNALS,
+                    activationData.resources,
+                    products
+                ),
+        ],
         setupModalProduct: [
             (s) => [s.setupModalProductKey, s.products],
             (setupModalProductKey: ProductKey | null, products: QuickstartProduct[]): QuickstartProduct | null =>

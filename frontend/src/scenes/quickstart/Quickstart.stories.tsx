@@ -255,26 +255,48 @@ export const Base: Story = {
     ],
 }
 
-/** The test2 arm: page ends at the product cards — no guides, companions, or publications */
-export const CardsOnlyVariant: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
-            [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
-        },
+const test2Flags = {
+    featureFlags: {
+        [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
+        [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
     },
+}
+
+/** test2 state C with rich data: hero answer (web analytics pageviews) above the cards, nothing below them */
+export const CardsOnlyVariant: Story = {
+    parameters: test2Flags,
     decorators: Base.decorators,
 }
 
-/** test2 pre-ingestion: the page collapses to the focused install view — wizard CTA + per-tool setup, no cards */
+/** test2 hero precedence 2: no pageviews, so the exceptions answer leads */
+export const HeroAnswerErrorTracking: Story = {
+    parameters: test2Flags,
+    decorators: [
+        mswDecorator(
+            scenarioMocks(
+                { totalEvents: 9000, backendEvents: 9000, exceptions: 42, serverExceptions: 3 },
+                { symbolSets: 1 }
+            )
+        ),
+    ],
+}
+
+/** test2 hero fallback: events flowing but nothing distinctive — generic explore answer */
+export const HeroAnswerEventsOnly: Story = {
+    parameters: test2Flags,
+    decorators: [mswDecorator(scenarioMocks({ totalEvents: 350, backendEvents: 350 }))],
+}
+
+/** test2 state A: pre-ingestion, the page collapses to the focused install view — wizard CTA + per-tool setup, no cards */
 export const FocusedInstall: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
-            [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
-        },
-    },
+    parameters: test2Flags,
     decorators: [installationStateDecorator('not_started'), mswDecorator(scenarioMocks({}))],
+}
+
+/** test2 state B: a wizard run is active pre-ingestion, so its progress is the page hero */
+export const FocusedInstallWizardRunning: Story = {
+    parameters: { ...test2Flags, testOptions: { waitForLoadersToDisappear: false } },
+    decorators: [installationStateDecorator('running'), mswDecorator(scenarioMocks({}))],
 }
 
 /** Nothing has sent data in the window: every event-based tool decays back to ready/needs setup */
