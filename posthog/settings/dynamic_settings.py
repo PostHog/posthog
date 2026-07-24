@@ -312,10 +312,11 @@ CONSTANCE_CONFIG = {
         list[int],
     ),
     "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
-        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=250000, type_cast=int),
+        get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=400000, type_cast=int),
         "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run. "
-        "Sized above the ~234k shapes the 14-day min=2 selection produces so the cap doesn't silently "
-        "truncate weekly-cadence teams; raising it warms more shapes at the cost of more background compute.",
+        "Sized above the ~234k shapes the 14-day min=2 selection produces, with headroom for growth, so "
+        "the cap doesn't silently truncate weekly-cadence teams; raising it warms more shapes at the cost "
+        "of more background compute.",
         int,
     ),
 }
