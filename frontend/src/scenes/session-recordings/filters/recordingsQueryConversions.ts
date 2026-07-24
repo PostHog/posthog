@@ -28,7 +28,7 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 
-const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
+export const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
 
 /**
  * `RecordingsQuery` carries a single `operand`, but the universal filter is a tree of AND/OR groups

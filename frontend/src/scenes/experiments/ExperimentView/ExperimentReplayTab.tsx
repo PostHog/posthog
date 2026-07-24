@@ -1,10 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
 import { Experiment } from '~/types'
@@ -14,9 +24,9 @@ import { EXPOSURE_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON } from '../viewRec
 import { experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
-// LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
-// restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
-// variant literally named "all" just renders as its own option after the built-in "All".
+// LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
+// allowed character in variant keys, so the '$' prefix guarantees no collision with a real
+// variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
@@ -38,6 +48,12 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     if (exposureUnlinkable) {
         return <LemonBanner type="warning">{EXPOSURE_UNLINKABLE_REASON}</LemonBanner>
     }
+
+    // Selectable metrics render as checkboxes. Unlinkable ones move to a labelled section that
+    // explains once, via a section tooltip, why they can't be matched — instead of repeating the
+    // same reason on every row.
+    const linkableMetricOptions = metricOptions.filter((option) => !option.unlinkable)
+    const unlinkableMetricOptions = metricOptions.filter((option) => option.unlinkable)
 
     return (
         <div data-attr="experiment-recordings-tab">
@@ -69,29 +85,44 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                 : 'Metric events'}
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="min-w-fit max-w-100">
-                            {metricOptions.map((option) => (
+                            {linkableMetricOptions.map((option) => (
                                 <DropdownMenuCheckboxItem
                                     key={option.uuid}
                                     checked={effectiveMetricUuids.includes(option.uuid)}
                                     onCheckedChange={(checked: boolean) => setMetricSelected(option.uuid, checked)}
                                     closeOnClick={false}
-                                    disabled={option.unlinkable}
                                     data-attr="experiment-recordings-metric-option"
                                 >
-                                    {option.unlinkable ? (
-                                        // Disabled items get pointer-events: none, so a tooltip can't
-                                        // explain them — the reason renders inline instead.
-                                        <span className="flex flex-col items-start text-left">
-                                            <span>{option.name}</span>
-                                            <span className="text-muted whitespace-normal">
-                                                {METRIC_UNLINKABLE_REASON}
-                                            </span>
-                                        </span>
-                                    ) : (
-                                        option.name
-                                    )}
+                                    {option.name}
                                 </DropdownMenuCheckboxItem>
                             ))}
+                            {unlinkableMetricOptions.length > 0 && (
+                                <>
+                                    {linkableMetricOptions.length > 0 && <DropdownMenuSeparator />}
+                                    {/* Quill's DropdownMenuLabel renders a Base UI GroupLabel, which must
+                                        live inside a DropdownMenuGroup or it throws at render. */}
+                                    <DropdownMenuGroup>
+                                        <DropdownMenuLabel inset className="flex items-center gap-1">
+                                            Can't match to recordings
+                                            <Tooltip title={METRIC_UNLINKABLE_REASON}>
+                                                <IconInfo className="size-3 shrink-0" />
+                                            </Tooltip>
+                                        </DropdownMenuLabel>
+                                        {unlinkableMetricOptions.map((option) => (
+                                            // Informational only — not selectable. The section label above
+                                            // carries the single shared explanation.
+                                            <DropdownMenuItem
+                                                key={option.uuid}
+                                                inset
+                                                disabled
+                                                data-attr="experiment-recordings-metric-option"
+                                            >
+                                                {option.name}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuGroup>
+                                </>
+                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}

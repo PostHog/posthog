@@ -121,6 +121,7 @@ Self-hosted users should set the API URL to their own pretix host (for example `
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -137,7 +138,11 @@ Self-hosted users should set the API URL to their own pretix host (for example `
         return schemas
 
     def validate_credentials(
-        self, config: PretixSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PretixSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_pretix_credentials(config.api_token, config.organizer, config.base_url, team_id)
 

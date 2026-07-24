@@ -25,6 +25,8 @@ import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
@@ -257,7 +259,6 @@ export interface replayScannerLogicValues {
         ineligible: number
         inFlight: number
         succeeded: number
-        successRate: number | null
         total: number
     }
     observationStatsApi: ObservationStatsApi | null
@@ -306,6 +307,7 @@ export interface replayScannerLogicValues {
         p75: number
     } | null
     showScannerErrors: boolean
+    sidePanelContext: SidePanelSceneContext | null
     submitIntent: 'advance' | 'save'
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
@@ -598,7 +600,6 @@ export interface replayScannerLogicMeta {
             ineligible: number
             inFlight: number
             succeeded: number
-            successRate: number | null
             total: number
         }
         monitorStats: (observationStatsApi: ObservationStatsApi | null) => {
@@ -629,6 +630,7 @@ export interface replayScannerLogicMeta {
             recentSessions: number
             totalSessions: number
         }
+        sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
     }
 }
 
@@ -1197,10 +1199,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 failed: number
                 ineligible: number
                 inFlight: number
-                successRate: number | null
             } => {
                 if (!stats) {
-                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0, successRate: null }
+                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
                 }
                 const c = stats.status_counts
                 return {
@@ -1209,7 +1210,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     failed: c.failed,
                     ineligible: c.ineligible,
                     inFlight: c.in_flight,
-                    successRate: c.success_rate,
                 }
             },
         ],
@@ -1265,6 +1265,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 totalSessions: stats?.coverage.total_sessions ?? 0,
                 recentDays: stats?.coverage.recent_days ?? 14,
             }),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.scanner, s.isNew],
+            (scanner: ReplayScanner | null, isNew: boolean): SidePanelSceneContext | null => {
+                return scanner && !isNew
+                    ? {
+                          access_control_resource: 'replay_scanner',
+                          access_control_resource_id: scanner.id,
+                      }
+                    : null
+            },
         ],
     }),
 

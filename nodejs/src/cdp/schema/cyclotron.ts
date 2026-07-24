@@ -61,6 +61,30 @@ export const CyclotronInputMappingSchema = z.object({
     filters: z.any().optional().nullable(),
 })
 
+// The invariants the cyclotron-hog worker relies on when it enriches and
+// executes an invocation: `globals.project.{id,url}` and
+// `globals.event.{distinct_id,properties}` are dereferenced unguarded
+// downstream, so an invocation reconstructed without them is a poison pill.
+// Validate these rather than blind-casting a deserialized/rehydrated payload.
+// Everything else stays permissive (`passthrough`) so drift on non-critical
+// fields never rejects an otherwise-valid message.
+export const HogFunctionInvocationGlobalsSchema = z
+    .object({
+        project: z
+            .object({
+                id: z.number(),
+                url: z.string(),
+            })
+            .passthrough(),
+        event: z
+            .object({
+                distinct_id: z.string(),
+                properties: z.record(z.string(), z.unknown()),
+            })
+            .passthrough(),
+    })
+    .passthrough()
+
 export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>

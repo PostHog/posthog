@@ -5,6 +5,12 @@ set -euo pipefail
 # Read-only: does not start, stop, or recreate any containers.
 # Used by phrocs processes to block until infrastructure is ready.
 #
+# Dozens of phrocs panes run this loop concurrently, so each poll must be
+# cheap: readiness is read via plain `docker ps` (label-filtered), not
+# `docker compose ps`, which re-parses and re-interpolates every compose file
+# on each invocation (~0.5 CPU-seconds per call). While the docker daemon is
+# unreachable the loop backs off to a slow poll instead of spinning.
+#
 # Usage:
 #   bin/wait-for-docker                     # wait for core (db redis7 kafka clickhouse)
 #   bin/wait-for-docker temporal            # wait for core + temporal
@@ -26,6 +32,12 @@ SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
+DAEMON_DOWN_POLL_SECONDS=2
+
+# Pin the project so polls target the same stack the up command created under
+# (see generator.py). Without -p, compose derives it from COMPOSE_PROJECT_NAME
+# or the worktree folder name, which drifts from "posthog" when direnv is off.
+PROJECT="${COMPOSE_PROJECT_NAME:-posthog}"
 
 only_listed=0
 if [ "${1:-}" = "--only" ]; then
@@ -66,11 +78,6 @@ compose() {
     local compose_file
     local separator
 
-    # Pin the project so `ps` targets the same stack the up command created under
-    # (see generator.py). Without -p, compose derives it from COMPOSE_PROJECT_NAME
-    # or the worktree folder name, which drifts from "posthog" when direnv is off.
-    local project="${COMPOSE_PROJECT_NAME:-posthog}"
-
     if [ -n "${COMPOSE_FILE:-}" ]; then
         separator="${COMPOSE_PATH_SEPARATOR:-:}"
         IFS="$separator" read -r -a compose_files <<< "$COMPOSE_FILE"
@@ -79,10 +86,24 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose -p "$project" ${compose_args[@]+"${compose_args[@]}"} "$@"
+        env -u COMPOSE_FILE docker compose -p "$PROJECT" ${compose_args[@]+"${compose_args[@]}"} "$@"
     else
-        docker compose -p "$project" -f "$DEFAULT_COMPOSE_FILE" "$@"
+        docker compose -p "$PROJECT" -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
+}
+
+# One readiness poll. The label filters reproduce compose's view of the
+# project (oneoff=False excludes `compose run` containers, whose rows would
+# shadow the real service in the last-write-wins scan below). `-a` keeps
+# exited containers visible so timeout diagnostics can show their logs.
+# Fails when the daemon is unreachable, which the main loop uses to back off.
+# stderr is captured by the caller: a failure isn't necessarily a stopped
+# daemon (bad context, socket permissions), so the real error is reported.
+poll_containers() {
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${PROJECT}" \
+        --filter "label=com.docker.compose.oneoff=False" \
+        --format '{{.Label "com.docker.compose.service"}}|{{.Status}}|{{.State}}|{{.ID}}'
 }
 
 readiness_status() {
@@ -130,26 +151,66 @@ print_service_diagnostics() {
     echo "=========================================="
 }
 
+POLL_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/wait-for-docker-err.XXXXXX")"
+trap 'rm -f "$POLL_ERR_FILE"' EXIT
+
 SECONDS=0
 last_progress_log=-5
+daemon_down=0
+poll_error=""
 pending=("${SERVICES[@]}")
 # Services that time out, captured at the moment of timeout as
 # "svc|status|container_id" (this iteration's status is the last observed).
 timed_out=()
 
 while [ ${#pending[@]} -gt 0 ]; do
-    # Parse this poll's `compose ps` into parallel arrays keyed by ps_keys.
+    ps_output=""
+    if ! ps_output=$(poll_containers 2>"$POLL_ERR_FILE"); then
+        poll_error="$(head -n 1 "$POLL_ERR_FILE" 2>/dev/null || true)"
+        # Nothing can converge until docker is back, so poll slowly.
+        if [ "$SECONDS" -ge "$TIMEOUT" ]; then
+            echo ""
+            echo "=========================================="
+            echo "TIMEOUT: ${TIMEOUT}s waiting for the Docker daemon"
+            echo "=========================================="
+            echo "docker ps kept failing with: ${poll_error:-no error output}"
+            echo "If the daemon isn't running, start Docker (OrbStack, Docker Desktop, colima, ...) and retry."
+            exit 1
+        fi
+        if [ "$daemon_down" -eq 0 ] || [ $(( SECONDS - last_progress_log )) -ge 10 ]; then
+            echo "Docker is not reachable: ${poll_error:-no error output}"
+            echo "If the daemon isn't running, start it (OrbStack, Docker Desktop, colima, ...); retrying... (${SECONDS}s)"
+            last_progress_log=$SECONDS
+            daemon_down=1
+        fi
+        sleep "$DAEMON_DOWN_POLL_SECONDS"
+        continue
+    fi
+    if [ "$daemon_down" -eq 1 ]; then
+        echo "Docker daemon is reachable after ${SECONDS}s."
+        daemon_down=0
+    fi
+
+    # Parse this poll into parallel arrays keyed by ps_keys.
     ps_keys=()
     ps_health=()
     ps_state=()
     ps_id=()
-    while IFS='|' read -r svc health state container_id; do
+    while IFS='|' read -r svc status_text state container_id; do
         [ -z "$svc" ] && continue
+        # docker ps has no Health column; health is embedded in the status
+        # text, e.g. "Up 3 minutes (healthy)" / "Up 2 seconds (health: starting)".
+        case "$status_text" in
+            *"(healthy)"*) health="healthy" ;;
+            *"(health: starting)"*) health="starting" ;;
+            *"(unhealthy)"*) health="unhealthy" ;;
+            *) health="" ;;
+        esac
         ps_keys+=("$svc")
         ps_health+=("$health")
         ps_state+=("$state")
         ps_id+=("$container_id")
-    done < <(compose ps --format '{{.Service}}|{{.Health}}|{{.State}}|{{.ID}}' "${pending[@]}" 2>/dev/null || true)
+    done <<< "$ps_output"
 
     still_pending=()
     pending_summary=()
@@ -200,9 +261,8 @@ while [ ${#pending[@]} -gt 0 ]; do
         last_progress_log=$SECONDS
     fi
 
-    # Poll faster than 1 Hz so the convergence cost summed across the
-    # ~10 phrocs procs that all block on this script is bounded by docker
-    # daemon health-check cadence, not the polling cadence.
+    # Fast polling keeps convergence latency low for every pane gated on this
+    # script, and is affordable because `docker ps` is a thin API call.
     sleep 0.2
 done
 

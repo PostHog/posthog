@@ -113,6 +113,7 @@ Create a user token under **Organization settings → Tokens** in Dagster+, then
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -132,7 +133,11 @@ Create a user token under **Organization settings → Tokens** in Dagster+, then
         return schemas
 
     def validate_credentials(
-        self, config: DagsterCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DagsterCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_dagster_cloud_credentials(config.organization, config.deployment, config.api_token)
 

@@ -1327,10 +1327,12 @@ class InformationSchemaDataTypesTable(LazyTable):
 class InformationSchemaMetricsTable(LazyTable):
     description: str = (
         "Catalog of the project's governed business metrics (the semantic layer); one row per metric. "
-        "Consult only when the user asks for a named headline business number (MRR, activation, etc.) — "
-        "only a metric with status='approved' AND NOT is_drifted is canonical; use its definition instead "
-        "of re-deriving. Usually empty; an empty result just means no governed definition, so derive "
-        "the number normally. Filter by name (equality or IN)."
+        "Consult before data discovery for explicit or implicit business measures and metric-powered rankings, "
+        "breakdowns, or comparisons. Search name, display_name, and description, and select only when the measure, "
+        "dimensions, grain, and time semantics match. Only status='approved' AND NOT is_drifted is canonical. "
+        "Run a matching metric with data-catalog-metric-run instead of copying its definition, then recheck the "
+        "returned status and drift. An empty result means no governed definition; continue with a noncanonical "
+        "derivation."
     )
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),

@@ -179,6 +179,10 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    // Merge-event ($identify, $create_alias, $merge_dangerously) overflow rate,
+    // per token:distinct_id. A capacity of 0 disables the condition.
+    MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
@@ -298,6 +302,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: 0,
+        MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
