@@ -749,9 +749,12 @@ class TestTimeRangePagination:
 
         assert batches == [[], [{"ad_id": "x"}]]
 
-    def test_timeout_fallback_shrinks_chunk_size(self) -> None:
+    # 1504044 is reported under code 2 ("Service temporarily unavailable") but is a data-volume
+    # timeout like 1504018/1504038, so it must trip the same chunk-shrink fallback.
+    @pytest.mark.parametrize("error_subcode", [1504018, 1504044])
+    def test_timeout_fallback_shrinks_chunk_size(self, error_subcode: int) -> None:
         manager = _build_manager()
-        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        timeout_body = {"error": {"code": 2, "error_subcode": error_subcode, "message": "timeout"}}
         # 30-day chunk times out, then 7-day chunks succeed.
         # 2026-03-01..2026-03-30 is one 30-day attempt that fails.
         # After fallback: 7-day chunks: 03-01..03-07, 03-08..03-14, 03-15..03-21, 03-22..03-28, 03-29..03-30.

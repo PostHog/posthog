@@ -224,9 +224,12 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
     return schemas
 
 
-# Error subcodes indicating the request timed out due to too much data
+# Error subcodes indicating the request timed out (or Meta was momentarily unable to serve it)
+# because we asked for too much data at once — recoverable by shrinking the date range and/or the
+# per-page limit and retrying. 1504044 is reported under code 2 ("Service temporarily unavailable")
+# but behaves like the other data-volume timeouts: it clears once the requested window is smaller.
 # https://developers.facebook.com/docs/marketing-api/insights/error-codes
-META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038}
+META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038, 1504044}
 
 # Chunk sizes for adaptive time-range pagination (in days)
 # Start with 30-day chunks, fall back to smaller chunks on timeout
