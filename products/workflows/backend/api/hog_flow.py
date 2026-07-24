@@ -1663,6 +1663,13 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
 AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
 
+# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
+# the harness, not self-reported by the model). These get the audience-confirm gate; the web builder
+# has its own confirm UI, and headless callers (raw API keys, Terraform) dispatch in one call.
+AGENT_EVENT_SOURCES = frozenset(
+    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+)
+
 
 def _audience_confirm_value(
     team_id: int, filters: dict, group_type_index: Optional[int] = None, dedupe_key: Optional[str] = None
@@ -2924,11 +2931,12 @@ class HogFlowViewSet(
             if hog_flow.status != HogFlow.State.ACTIVE:
                 raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
 
-            # A batch run is an irreversible mass send: programmatic callers must prove they previewed
-            # the audience, because only the blast-radius preview mints this token and it signs the
-            # exact filters being dispatched. The web builder has its own confirmation UI and stays
-            # token-free.
-            if get_event_source(request) != EventSource.WEB:
+            # A batch run is an irreversible mass send: interactive agent surfaces must prove they
+            # previewed the audience, because only the blast-radius preview mints this token and it
+            # signs the exact filters being dispatched. The web builder has its own confirmation UI,
+            # and headless callers (raw API keys, Terraform) are professional surfaces where the
+            # two-step would be ceremony with no human to read the count - they stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
                 self._require_audience_confirm_token(request, hog_flow)
 
             serializer = HogFlowBatchJobSerializer(
@@ -2956,10 +2964,10 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         if request.method == "POST":
-            # A schedule is a recurring batch dispatch - without this, a programmatic caller could
-            # sidestep the batch_jobs token gate by scheduling the send instead. Same rules: the
-            # web builder keeps its own confirm UI and stays token-free.
-            if get_event_source(request) != EventSource.WEB:
+            # A schedule is a recurring batch dispatch - without this, an agent could sidestep the
+            # batch_jobs token gate by scheduling the send instead. Same scoping: the web builder
+            # keeps its own confirm UI, headless callers stay token-free.
+            if get_event_source(request) in AGENT_EVENT_SOURCES:
                 # A draft's trigger can still be edited after the audience was sized, so a schedule
                 # staged on a draft could fire on a broadened audience once enabled. Same rule the
                 # MCP tool enforces, applied at the API boundary.

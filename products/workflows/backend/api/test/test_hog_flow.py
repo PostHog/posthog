@@ -2696,12 +2696,13 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_programmatic_batch_dispatch_requires_audience_confirm_token(self, mock_create_invocation):
-        # A batch run is an irreversible mass send. Programmatic callers must hold a token only the
+        # A batch run is an irreversible mass send. Agent surfaces must hold a token only the
         # blast-radius preview mints, signed over the workflow's stored trigger filters - the audience
         # the dispatch actually fans out to. A token minted for other (e.g. narrower) filters is
         # rejected, so an agent can't size one audience and send to another, and an edited trigger
-        # invalidates earlier previews. The web builder (session auth) keeps its own confirm UI and
-        # stays token-free (covered by the existing batch job tests, which run as WEB).
+        # invalidates earlier previews. The web builder (session auth) keeps its own confirm UI
+        # (covered by the existing batch job tests, which run as WEB), and headless callers (raw API
+        # keys) dispatch in one call - the gate targets agents, not automation.
         flow_id = self._create_active_hog_flow()
         trigger_filters = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()["trigger"][
             "filters"
@@ -2793,6 +2794,21 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert draft_schedule.status_code == 400, draft_schedule.json()
         assert "active" in draft_schedule.json()["detail"].lower()
+
+        # A raw API key is a headless professional surface - no agent in the loop to read a count,
+        # so the two-step would be ceremony. Dispatches in one call, no token.
+        api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="batch dispatch", user=self.user, secure_value=hash_key_value(api_key), scopes=["hog_flow:write"]
+        )
+        api_dispatch = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+        assert api_dispatch.status_code == 200, api_dispatch.json()
+        assert api_dispatch.json()["filters"] == trigger_filters
+        assert mock_create_invocation.call_count == 2
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
