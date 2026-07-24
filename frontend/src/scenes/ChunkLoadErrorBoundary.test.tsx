@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Component, type ReactNode } from 'react'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
@@ -47,7 +47,7 @@ describe('ChunkLoadErrorBoundary', () => {
         cleanup()
     })
 
-    it('reloads for chunk errors before the parent error boundary catches them', () => {
+    it('prompts to refresh on a chunk error instead of yanking the page with a reload', () => {
         const reload = jest.fn()
 
         render(
@@ -58,18 +58,37 @@ describe('ChunkLoadErrorBoundary', () => {
             </TestErrorBoundary>
         )
 
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('A new version of PostHog is available')).toBeInTheDocument()
+
+        // The user reloads on their own terms via the prompt.
+        fireEvent.click(screen.getByText('Refresh'))
+        expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('auto-reloads chunk errors at the boot boundary before the parent error boundary catches them', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary autoReload reload={reload}>
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
         expect(reload).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Failed to fetch dynamically imported module')).not.toBeInTheDocument()
         expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
     })
 
-    it('surfaces repeated chunk errors instead of reloading in a loop', () => {
+    it('surfaces repeated boot chunk errors instead of reloading in a loop', () => {
         const reload = jest.fn()
         window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
 
         render(
             <TestErrorBoundary>
-                <ChunkLoadErrorBoundary reload={reload}>
+                <ChunkLoadErrorBoundary autoReload reload={reload}>
                     <ThrowChunkError />
                 </ChunkLoadErrorBoundary>
             </TestErrorBoundary>

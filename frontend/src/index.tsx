@@ -42,9 +42,10 @@ function renderApp(): void {
     const root = (window.__posthogAppRoot ??= createRoot(rootElement))
     root.render(
         <RootErrorBoundary>
-            {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
-                errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}
-            <ChunkLoadErrorBoundary>
+            {/* Boot boundary: no user work exists yet, so auto-reload once on a chunk-load failure
+                (stale deploy). Repeated or non-chunk errors bubble to RootErrorBoundary, which
+                reports them and shows the failure UI. In-app boundaries prompt instead of reloading. */}
+            <ChunkLoadErrorBoundary autoReload>
                 <Suspense
                     fallback={
                         <div className="Preloader" role="status" aria-label="Loading PostHog">
