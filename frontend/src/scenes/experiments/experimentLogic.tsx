@@ -1235,7 +1235,9 @@ export interface experimentLogicActions {
         rolloutPercentage: number | undefined
         variants: MultivariateFlagVariant[]
     }
-    updateExperiment: (update: ExperimentUpdatePayload) => ExperimentUpdatePayload
+    updateExperiment: (
+        update: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
+    ) => ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     updateExperimentCollectionGoal: () => {
         value: true
     }
@@ -1254,10 +1256,10 @@ export interface experimentLogicActions {
     }
     updateExperimentSuccess: (
         experimentUpdate: Experiment,
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     ) => {
         experimentUpdate: Experiment
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)
     }
     updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => {
         variantPreviewMediaIds: Record<string, string[]>
@@ -2593,11 +2595,13 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentMetrics: async () => {
-            await asyncActions.updateExperiment({
+            // Rebuild the arrays when the write actually runs (payloads are lazy) so a burst
+            // of edits persists the latest local state rather than a stale snapshot.
+            await asyncActions.updateExperiment(() => ({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
-            })
+            }))
             // Reload results for added/edited metrics
             actions.refreshExperimentResults(true, 'config_change')
         },
@@ -2645,7 +2649,9 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
             if (experimentUpdate) {
                 actions.updateExperiments(experimentUpdate)
-                if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
+                // Metric writes pass a lazy builder (a function) and never touch flag params.
+                const updateFlagParams = typeof payload !== 'function' && payload?.update_feature_flag_params
+                if (updateFlagParams && experimentUpdate.feature_flag) {
                     actions.updateFlagFromPartial(experimentUpdate.feature_flag)
                 }
             }
@@ -3132,17 +3138,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        removeMetric: ({ uuid, context }) => {
+        removeMetric: async ({ uuid, context }) => {
             const isPrimary = context === 'primary'
             const field = isPrimary ? 'metrics' : 'metrics_secondary'
             const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
                 values.experiment[field] || []
-            const filtered = currentMetrics.filter((m) => m.uuid !== uuid)
+            const removedIndex = currentMetrics.findIndex((m) => m.uuid === uuid)
+            const removedMetric = removedIndex === -1 ? undefined : currentMetrics[removedIndex]
 
-            actions.updateExperiment({
-                [field]: filtered,
-                update_feature_flag_params: false,
-            })
+            // Apply the removal optimistically so a concurrent save that rebuilds the whole
+            // array from local state carries this removal instead of resurrecting the metric.
+            actions.setExperiment({ [field]: currentMetrics.filter((m) => m.uuid !== uuid) })
+
+            try {
+                await asyncActions.updateExperiment(() => ({
+                    [field]: values.experiment[field] || [],
+                    update_feature_flag_params: false,
+                }))
+            } catch {
+                // The server kept the metric — reinsert it locally so the UI doesn't drift.
+                if (removedMetric) {
+                    const metrics = [...(values.experiment[field] || [])]
+                    if (!metrics.some((m) => m.uuid === uuid)) {
+                        metrics.splice(Math.min(removedIndex, metrics.length), 0, removedMetric)
+                        actions.setExperiment({ [field]: metrics })
+                    }
+                }
+                lemonToast.error('Failed to remove metric')
+            }
         },
         saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
             const removed = new Set(removedUuids)
@@ -3274,25 +3297,30 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            // Lazy payload: rebuilt from the latest local state once it's this write's turn
+            // in the serialized queue, so overlapping metric writes don't persist stale snapshots.
+            actions.updateExperiment(() => {
+                const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+                // Check if this is a shared metric by looking in saved_metrics
+                const isSharedMetric = savedMetrics.some(
+                    ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                )
 
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
+                const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                    metrics: values.experiment.metrics,
+                    metrics_secondary: values.experiment.metrics_secondary,
+                    update_feature_flag_params: false,
+                }
 
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
+                // Only include saved_metrics_ids if we modified a shared metric
+                if (isSharedMetric) {
+                    updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                        id: saved_metric,
+                        metadata,
+                    }))
+                }
+                return updatePayload
+            })
 
             // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
             // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
@@ -3309,25 +3337,30 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            // Lazy payload: rebuilt from the latest local state once it's this write's turn
+            // in the serialized queue, so overlapping metric writes don't persist stale snapshots.
+            actions.updateExperiment(() => {
+                const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+                // Check if this is a shared metric by looking in saved_metrics
+                const isSharedMetric = savedMetrics.some(
+                    ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                )
 
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
+                const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                    metrics: values.experiment.metrics,
+                    metrics_secondary: values.experiment.metrics_secondary,
+                    update_feature_flag_params: false,
+                }
 
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
+                // Only include saved_metrics_ids if we modified a shared metric
+                if (isSharedMetric) {
+                    updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                        id: saved_metric,
+                        metadata,
+                    }))
+                }
+                return updatePayload
+            })
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this routes through refreshExperimentResults('config_change') (which
@@ -3418,7 +3451,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         experiment: {
             loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
                 void payload?.triggeredBy
@@ -3471,17 +3504,41 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: ExperimentUpdatePayload) => {
-                    const response: Experiment = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                        update
-                    )
-                    const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                    refreshTreeItem('experiment', String(values.experimentId))
-                    actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                    // Also update the main experiment state
-                    actions.setExperiment(responseWithMetricsOrdering)
-                    return responseWithMetricsOrdering
+                // Accepts a payload or a builder evaluated once it's this write's turn, so
+                // serialized writes rebuild from the latest local state (see below).
+                updateExperiment: async (update: ExperimentUpdatePayload | (() => ExperimentUpdatePayload)) => {
+                    // Serialize experiment writes. The editor PATCHes whole arrays (notably
+                    // `metrics_secondary`), so two overlapping requests would race and the
+                    // slower response would clobber the other's changes — silently dropping
+                    // metrics. Chain each write behind the previous so only one is in flight,
+                    // rebuild the payload from the latest local state once it's our turn, and
+                    // let only the most recently queued write reconcile local state with the
+                    // server response — an earlier response must not overwrite newer edits.
+                    const seq = (cache.experimentUpdateSeq ?? 0) + 1
+                    cache.experimentUpdateSeq = seq
+                    const previous: Promise<unknown> = cache.experimentUpdateChain ?? Promise.resolve()
+
+                    const run = (async (): Promise<Experiment> => {
+                        await previous.catch(() => {})
+                        const payload = typeof update === 'function' ? update() : update
+                        const response: Experiment = await api.update(
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                            payload
+                        )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                        refreshTreeItem('experiment', String(values.experimentId))
+                        // While newer writes are still queued, their optimistic edits already
+                        // live in local state; reconciling here would revert them. The final
+                        // write reconciles against the authoritative server response.
+                        if (seq === cache.experimentUpdateSeq) {
+                            actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                            // Also update the main experiment state
+                            actions.setExperiment(responseWithMetricsOrdering)
+                        }
+                        return responseWithMetricsOrdering
+                    })()
+                    cache.experimentUpdateChain = run.catch(() => {})
+                    return run
                 },
             },
         ],

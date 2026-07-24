@@ -749,6 +749,56 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
     })
+    describe('concurrent metric writes', () => {
+        // Each metric edit PATCHes the whole metrics_secondary array. Two overlapping
+        // writes used to race: the slower response would clobber the other's change and
+        // silently drop a metric. Writes are now serialized and rebuilt from the latest
+        // local state, so both edits survive regardless of which request finishes first.
+        const metricA = { kind: 'ExperimentMetric', uuid: 'metric-a', name: 'A' } as unknown as ExperimentMetric
+        const metricB = { kind: 'ExperimentMetric', uuid: 'metric-b', name: 'B' } as unknown as ExperimentMetric
+        const metricC = { kind: 'ExperimentMetric', uuid: 'metric-c', name: 'C' } as unknown as ExperimentMetric
+
+        it('keeps both removals when two deletes overlap', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [metricA, metricB, metricC],
+            } as unknown as Experiment)
+
+            // Simulate the server applying each PATCH: only the fields sent change.
+            jest.spyOn(api, 'update').mockImplementation((async (_url: string, payload: any) => {
+                return { ...logic.values.experiment, ...payload }
+            }) as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeMetric('metric-a', 'secondary')
+                logic.actions.removeMetric('metric-b', 'secondary')
+            }).toFinishAllListeners()
+
+            expect((logic.values.experiment.metrics_secondary || []).map((m) => m.uuid)).toEqual(['metric-c'])
+            expect(api.update).toHaveBeenCalledTimes(2)
+        })
+
+        it('reinserts the metric at its position when the removal request fails', async () => {
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [],
+                metrics_secondary: [metricA, metricB],
+            } as unknown as Experiment)
+
+            jest.spyOn(api, 'update').mockRejectedValue(new Error('network down'))
+
+            await expectLogic(logic, () => {
+                logic.actions.removeMetric('metric-a', 'secondary')
+            }).toFinishAllListeners()
+
+            // The server kept the metric, so the optimistic removal must be rolled back.
+            expect((logic.values.experiment.metrics_secondary || []).map((m) => m.uuid)).toEqual([
+                'metric-a',
+                'metric-b',
+            ])
+        })
+    })
     describe('breakdown management', () => {
         it('should add breakdown to inline metric', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
