@@ -104,9 +104,54 @@ class TestScoutReportAPI(APIBaseTest):
         assert SignalReport.objects.filter(id=body["report_id"], team=self.team).exists()
         embed_mock.assert_called_once()
 
+    def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery_queue.enqueue_scout_slack_delivery"
+            ) as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            report_id = emitted.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "Re-validated on the next run"},
+                format="json",
+            )
+
+        assert emitted.status_code == status.HTTP_200_OK, emitted.json()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert enqueue.call_count == 2
+        for call in enqueue.call_args_list:
+            assert call.kwargs["team_id"] == self.team.id
+            assert call.kwargs["output_type"] == "report"
+            assert call.kwargs["output_id"] == report_id
+            assert call.kwargs["run_id"] == str(run.id)
+            assert call.kwargs["integration_id"] == 17
+            assert call.kwargs["channel"] == "CSCOUTS|#scout-findings"
+        # Emit deliveries are keyed on the report id (idempotent); each edit gets its own id.
+        assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
+        assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
+
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)
-        with _safe_judge(choice=False, explanation="prompt injection"), patch(EMBED_PATH):
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with (
+            _safe_judge(choice=False, explanation="prompt injection"),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -114,6 +159,29 @@ class TestScoutReportAPI(APIBaseTest):
         assert body["report_status"] == SignalReport.Status.SUPPRESSED
         assert body["safety_explanation"] == "prompt injection"
         assert body["report_id"] is not None
+        queue.assert_not_called()
+
+    def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+        with (
+            _safe_judge(choice=False, explanation="prompt injection"),
+            patch(EMBED_PATH),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            report_id = emitted.json()["report_id"]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "note on a suppressed report"},
+                format="json",
+            )
+        assert emitted.status_code == status.HTTP_200_OK, emitted.json()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        queue.assert_not_called()
 
     def test_emit_report_skips_when_ai_not_approved(self) -> None:
         # Preflight gate: a report is never authored for an org that hasn't approved AI processing.

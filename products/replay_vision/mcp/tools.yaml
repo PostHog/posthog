@@ -17,19 +17,84 @@ tools:
         enabled: false
     vision-actions-list:
         operation: vision_actions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List vision actions
+        description: >
+            List the vision actions (the "and then…" automations that run over a scanner's observations) for the current
+            project. A vision action in `mode: group_summary` produces the group summary shown on the "Summaries and
+            alerts" tab — one report synthesized from up to `max_observations` observations of its bound scanner; `mode:
+            alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`,
+            `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter
+            to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.
+        feature_flag: replay-vision
     vision-actions-partial-update:
         operation: vision_actions_partial_update
         enabled: false
     vision-actions-retrieve:
         operation: vision_actions_retrieve
+        enabled: true
+        scopes:
+            - vision_action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a vision action
+        description: >
+            Get a single vision action by ID. Returns its configuration: the bound `scanner`, `mode`
+            (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window),
+            `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` +
+            `vision-actions-runs-retrieve` to read the reports it has actually produced.
+        feature_flag: replay-vision
+    vision-actions-run-create:
+        operation: vision_actions_run_create
         enabled: false
     vision-actions-runs-list:
         operation: vision_actions_runs_list
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a vision action's runs
+        description: >
+            List the run history for one vision action (nested under the action). Each run is one execution that
+            produced a group summary or evaluated an alert. Rows are lightweight — `status`
+            (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the
+            summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with
+            `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.
+        feature_flag: replay-vision
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a vision action run's full group summary
+        description: >
+            Get one vision action run in full: `synthesized_markdown` (the group-summary report, which cites its source
+            observations inline with `[obs N]` markers) and `observations` — the recordings the run included, in summary
+            order, each carrying the 1-based `index` that the report's `[obs N]` markers reference plus that
+            observation's title and outcome. This is the tool for auditing a group summary: for each `[obs N]` in the
+            markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation
+            actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or
+            predates observation tracking.
+        feature_flag: replay-vision
     vision-observations-create-task-create:
         operation: vision_observations_create_task_create
         enabled: false
