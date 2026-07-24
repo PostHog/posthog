@@ -3866,7 +3866,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_update_experiment_repository_validates_and_normalizes(self):
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
+    def test_update_experiment_repository_validates_and_normalizes(self, _mock_access):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-field-flag", filters={})
         experiment = Experiment.objects.create(team=self.team, name="Repo field", feature_flag=feature_flag)
 
@@ -3883,7 +3884,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
 
-    def test_create_experiment_with_repository(self):
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
+    def test_create_experiment_with_repository(self, _mock_access):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -3894,6 +3896,27 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
+
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=False)
+    def test_setting_repository_requires_code_access(self, _mock_access):
+        feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-access-flag", filters={})
+        experiment = Experiment.objects.create(team=self.team, name="Repo access", feature_flag=feature_flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "acme/web"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        experiment.refresh_from_db()
+        self.assertIsNone(experiment.repository)
+
+        # Resubmitting the unchanged value (e.g. a full-object PUT) stays allowed.
+        Experiment.objects.filter(id=experiment.id).update(repository="acme/web")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "acme/web"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
