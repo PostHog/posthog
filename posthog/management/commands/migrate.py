@@ -188,6 +188,20 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
+    def _prompt(self, message: str) -> str:
+        """Prompt for interactive input, exiting cleanly on Ctrl+C.
+
+        A raw KeyboardInterrupt is a BaseException, so it escapes the nearby
+        `except Exception` and gets captured by error tracking. Cancelling a
+        prompt is expected, so treat it as a clean abort instead.
+        """
+        try:
+            return input(message)
+        except (KeyboardInterrupt, EOFError):
+            self.stdout.write("")
+            self.stdout.write("Aborted.")
+            raise SystemExit(1)
+
     def add_arguments(self, parser):
         super().add_arguments(parser)
         parser.add_argument(
@@ -242,7 +256,7 @@ class Command(DjangoMigrateCommand):
                         # Offer to fix if all orphans are cached
                         if cached_orphans and not uncached_orphans:
                             self.stdout.write("All orphaned migrations are cached and can be rolled back.\n")
-                            choice = input("Roll back now and continue? [Y/n/abort] ").strip().lower()
+                            choice = self._prompt("Roll back now and continue? [Y/n/abort] ").strip().lower()
 
                             if choice in ("", "y", "yes"):
                                 self.stdout.write("")
@@ -282,7 +296,7 @@ class Command(DjangoMigrateCommand):
                                         "Run 'hogli migrations:sync' for manual instructions.\n"
                                     )
                                 )
-                            confirm = input("Continue anyway? [y/N] ")
+                            confirm = self._prompt("Continue anyway? [y/N] ")
                             if confirm.lower() not in ("y", "yes"):
                                 self.stdout.write("Aborted.")
                                 return
