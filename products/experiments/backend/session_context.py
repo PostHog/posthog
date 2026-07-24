@@ -124,7 +124,9 @@ def get_session_experiment_context(
     a recording doesn't re-run the ClickHouse scans. "Recording not found" is not cached: the
     recording may simply still be ingesting.
     """
-    cache_key = f"experiment_session_context_{team.pk}_{user.pk}_{session_id}"
+    # The version segment must be bumped whenever the cached dataclasses change shape: entries are
+    # pickled, so a deploy would otherwise restore instances missing the new fields.
+    cache_key = f"experiment_session_context_v2_{team.pk}_{user.pk}_{session_id}"
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached

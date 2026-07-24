@@ -587,7 +587,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
 
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+        # Self-driving report tasks (Inbox "Create PR" / "Discuss") are entitled through the Inbox
+        # (`product-autonomy`), not the PostHog Code (`tasks`) product, so they skip the Code
+        # entitlement check — mirroring auto-start, which runs the same tasks server-side without it.
+        # Usage limits still apply as a cost backstop.
+        require_tasks_access = not tasks_facade.is_signal_report_task(pk, self.team_id)
+        if (
+            limit_response := cloud_usage_limit_response(
+                request.user, self.team_id, require_tasks_access=require_tasks_access
+            )
+        ) is not None:
             return limit_response
 
         result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
@@ -2251,7 +2260,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
-    """API for redeeming PostHog Code invite codes."""
+    """API for redeeming PostHog Desktop invite codes."""
 
     authentication_classes = [
         SessionAuthentication,
@@ -2281,7 +2290,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             ),
         },
         summary="Redeem invite code",
-        description="Redeem a PostHog Code invite code to enable access.",
+        description="Redeem a PostHog Desktop invite code to enable access.",
     )
     @action(detail=False, methods=["post"], url_path="redeem")
     def redeem(self, request, **kwargs):
@@ -2305,7 +2314,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Access check result"),
         },
         summary="Check access",
-        description="Check whether the authenticated user has access to PostHog Code and to Loops.",
+        description="Check whether the authenticated user has access to PostHog Desktop and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):

@@ -94,6 +94,8 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
+        assert response_data["created_by"]["id"] == self.user.id
+        assert EarlyAccessFeature.objects.get(id=response_data["id"]).created_by_id == self.user.id
 
     def test_can_create_early_access_feature_in_alpha_stage(self):
         response = self.client.post(
@@ -659,6 +661,7 @@ class TestEarlyAccessFeature(APIBaseTest):
             "results": [
                 {
                     "created_at": ANY,
+                    "created_by": None,
                     "description": "A revolution in usability research: now you can count clicks!",
                     "documentation_url": "",
                     "feature_flag": None,

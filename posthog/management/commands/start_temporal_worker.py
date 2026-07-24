@@ -373,7 +373,7 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Code Slack workflows are also registered on MAX_AI_TASK_QUEUE.
+        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
         # First step of merging them onto this queue — once master traffic has
         # cut over and any in-flight runs have drained, drop them from
         # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in

@@ -49,6 +49,7 @@ class SourceType(str, Enum):
     EXPERIMENT = "experiment"
     ERROR_TRACKING = "error_tracking"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    TICKET = "ticket"
 
 
 class NotificationOnlyResourceType(str, Enum):

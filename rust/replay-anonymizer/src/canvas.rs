@@ -6,6 +6,7 @@ use base64::Engine;
 use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
+use crate::collect::{is_image_ref, normalize_collected_mime};
 use crate::context::Ctx;
 use crate::images::ImageFallback;
 use crate::json::{
@@ -170,13 +171,21 @@ fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object<'_>) -> bool {
         None => return false,
     };
     let original = format!("data:{mime};base64,{base64}");
-    // scrub_image never fails outward (fallbacks are baked in), so the split always succeeds; the
-    // stated fallback keeps the fail-safe explicit if the URI shape ever changes.
-    let (new_b64, new_type) =
-        match split_data_uri(&ctx.scrub_image(&original, ImageFallback::Blank)) {
+    // scrub_image never fails outward (fallbacks are baked in). The collection lane's ref
+    // replaces the payload wholesale (it is the consumer's join key, not decodable bytes); the
+    // mime survives only through the raster allowlist — the blur path re-encoded and overwrote
+    // it, so the ref path must not let a client string through this field either. Otherwise the
+    // split always succeeds — the stated fallback keeps the fail-safe explicit if the URI shape
+    // ever changes.
+    let scrubbed = ctx.scrub_image(&original, ImageFallback::Blank);
+    let (new_b64, new_type) = if is_image_ref(&scrubbed) {
+        (scrubbed, normalize_collected_mime(&mime).to_string())
+    } else {
+        match split_data_uri(&scrubbed) {
             Some((m, b64)) => (b64, m),
             None => (BLANK_PNG_BASE64.to_string(), "image/png".to_string()),
-        };
+        }
+    };
     if let Some(ab) = blob
         .get_mut("data")
         .and_then(as_array_mut)
@@ -414,6 +423,45 @@ mod tests {
         let src = out["commands"][0]["args"][0]["src"].as_str().unwrap();
         assert!(src.starts_with("data:image/"), "still an image: {src}");
         assert_ne!(src, uri, "raw image must not pass through");
+    }
+
+    #[test]
+    fn blob_mime_is_allowlisted_on_the_collection_lane() {
+        // The blur path re-encodes and overwrites the client-controlled `type`; the ref path has
+        // no bytes to re-encode, so it must normalize the mime instead of echoing client text.
+        use crate::collect::ImageCollection;
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::with_image_collection(
+            &allow,
+            Some(ImageCollection {
+                pseudo_team: "0".repeat(32),
+                content_key: "k".repeat(32),
+            }),
+        );
+        let b64 = png_base64(8, 8, [10, 200, 10, 255]);
+        let scrub_with = |mime: &str| -> serde_json::Value {
+            let data_json = format!(
+                r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"Blob","type":"{mime}","data":[{{"rr_type":"ArrayBuffer","base64":"{b64}"}}]}}]}}]}}"#
+            );
+            let mut bytes = data_json.as_bytes().to_vec();
+            let mut data = simd_json::to_borrowed_value(&mut bytes).unwrap();
+            scrub_canvas_mutation(&ctx, &mut data);
+            serde_json::from_str(&data.encode()).unwrap()
+        };
+        let arg = |v: &serde_json::Value| v["commands"][0]["args"][0].clone();
+
+        let kept = arg(&scrub_with("image/webp"));
+        assert_eq!(kept["type"], "image/webp", "known raster subtype survives");
+        assert!(kept["data"][0]["base64"]
+            .as_str()
+            .unwrap()
+            .starts_with("image:"));
+
+        let scrubbed = arg(&scrub_with("image/x-evil-client-text"));
+        assert_eq!(
+            scrubbed["type"], "image/png",
+            "unknown subtype must not echo"
+        );
     }
 
     #[test]

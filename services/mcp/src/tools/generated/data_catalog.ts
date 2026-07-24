@@ -10,6 +10,7 @@ import {
     DataCatalogMetricsCreateBody,
     DataCatalogMetricsPartialUpdateBody,
     DataCatalogMetricsPartialUpdateParams,
+    DataCatalogMetricsRefreshFromInsightCreateParams,
     DataCatalogMetricsRunCreateBody,
     DataCatalogMetricsRunCreateParams,
     DataCatalogMetricsRunCreateQueryParams,
@@ -372,6 +373,26 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
     },
 })
 
+const DataCatalogMetricsRefreshFromInsightCreateSchema = DataCatalogMetricsRefreshFromInsightCreateParams.omit({
+    project_id: true,
+})
+
+const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
+    typeof DataCatalogMetricsRefreshFromInsightCreateSchema,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metrics-refresh-from-insight-create',
+    schema: DataCatalogMetricsRefreshFromInsightCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/refresh_from_insight/`,
+        })
+        return result
+    },
+})
+
 const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcceptCreateParams.omit({
     project_id: true,
 })
@@ -563,6 +584,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-metric-create': dataCatalogMetricCreate,
     'data-catalog-metric-run': dataCatalogMetricRun,
     'data-catalog-metric-update': dataCatalogMetricUpdate,
+    'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
     'data-catalog-relationship-accept-prepare': dataCatalogRelationshipAcceptPrepare,
     'data-catalog-relationship-accept-execute': dataCatalogRelationshipAcceptExecute,
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
