@@ -139,6 +139,9 @@ jobs:
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
                       "cymbal": 168,
+                      # Compile-heavy (deltalake dependency tree), light tests.
+                      "deltalite-core": 180,
+                      "deltalite-python": 60,
                       "embedding-worker": 25,
                       "feature-flags": 181,
                       "health": 27,

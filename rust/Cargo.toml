@@ -49,6 +49,8 @@ members = [
   "common/geoip",
   "common/hogvm",
   "common/ingestion_warnings",
+  "deltalite/core",
+  "deltalite/python",
   "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
@@ -68,6 +70,11 @@ members = [
   "affected-services",
   "property-vals-rs",
 ]
+
+# NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
+# dependency graph. `hogql/parser` and `deltalite/python` must therefore agree on their
+# pyo3 major (currently 0.28, dictated by arrow 58's `pyarrow` feature in deltalite) --
+# bumping pyo3 in one means bumping it in the other, or the workspace stops resolving.
 
 [workspace.lints.rust]
 # See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html

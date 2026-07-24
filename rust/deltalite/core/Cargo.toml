@@ -1,0 +1,55 @@
+[package]
+name = "deltalite-core"
+version = "0.1.0"
+edition = "2021"
+# CI compiles with this exact toolchain; cargo's MSRV-aware resolver uses it to
+# avoid picking dependency versions CI cannot build (aws-* crates move MSRV often).
+rust-version = "1.91.1"
+publish = false
+
+[lib]
+name = "deltalite_core"
+
+[lints]
+workspace = true
+
+[dependencies]
+# VERSION SKEW WITH THE PYTHON `deltalake` PACKAGE IS DELIBERATE.
+#
+# The delta-rs tree behind Python `deltalake==1.6.1` (pinned in the repo's
+# pyproject.toml) is the in-repo crate version 1.0.0 at git tag `python-v1.6.1`.
+# That tag is NOT buildable as published: it pins its delta kernel dependency to
+# a MOVING BRANCH (`buoyant/main`) rather than a rev, delta-rs gitignores its
+# Cargo.lock so nothing records the rev the wheel was built from, and the branch
+# has since diverged in two mutually incompatible directions (package rename vs
+# removed feature), so no reachable revision satisfies the tag's requirements.
+#
+# We therefore pin the newest PUBLISHED crates.io release exactly and commit the
+# lockfile. Both writers emit the same Delta protocol; the Python differential
+# parity suite (rust/deltalite/python/tests/) -- not version equality -- is the
+# real compatibility check, and every bump of either side must keep it green.
+#
+# Built WITHOUT the `datafusion` feature: no DataFusion in the dependency tree
+# means the delta-io/delta-rs#4614 merge deadlock is impossible by construction.
+deltalake = { version = "=0.32.4", default-features = false, features = ["s3", "rustls"] }
+
+# arrow/parquet major version must match what `deltalake` links (arrow 58).
+arrow-array = { version = "58" }
+arrow-buffer = { version = "58" }
+arrow-cast = { version = "58" }
+arrow-data = { version = "58" }
+arrow-row = { version = "58" }
+arrow-schema = { version = "58" }
+arrow-select = { version = "58" }
+parquet = { version = "58", features = ["async", "object_store"] }
+object_store = { version = "0.13.2" }
+
+async-trait = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
