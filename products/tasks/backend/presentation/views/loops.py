@@ -34,10 +34,12 @@ from products.tasks.backend.presentation.serializers_loops import (
 )
 
 MAX_LOOP_TRIGGER_PAYLOAD_BYTES = 64 * 1024
-# Whole-request ceiling for the skill_bundles replace. Sits above Django's 20MB
-# DATA_UPLOAD_MAX_MEMORY_SIZE so the effective bound stays Django's; this keeps the
-# endpoint's own limit explicit and testable if the global setting ever moves.
-MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES = 64 * 1024 * 1024
+# Whole-request ceiling for the skill_bundles replace, enforced from Content-Length
+# before request.data parses. This is the authoritative parse bound for the endpoint:
+# DRF parses JSON from the request stream, where Django's DATA_UPLOAD_MAX_MEMORY_SIZE
+# is not guaranteed to apply, so the gate must not assume a larger backstop. 20MB fits
+# one 10MB decoded bundle plus base64 overhead and dependencies.
+MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES = 20 * 1024 * 1024
 
 
 def _loop_limit_response(exc: "loops_facade.LoopLimitError") -> Response:
@@ -303,9 +305,8 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def skill_bundles(self, request, pk=None, **kwargs):
         # Same shape as `trigger`'s payload gate: require a declared length, then reject
         # oversized requests from it, all before request.data parses (and retains) the
-        # body. Django's DATA_UPLOAD_MAX_MEMORY_SIZE (20MB, posthog/settings/web.py)
-        # bounds the body independently; this keeps the endpoint's ceiling explicit and
-        # the responses structured.
+        # body. This gate is the endpoint's authoritative parse bound — see the note on
+        # MAX_LOOP_SKILL_BUNDLE_REQUEST_BYTES.
         content_length = _content_length(request)
         if content_length <= 0:
             return Response(

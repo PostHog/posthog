@@ -1,5 +1,7 @@
+import io
 import base64
 import hashlib
+import zipfile
 from contextlib import nullcontext
 from datetime import timedelta
 from uuid import UUID
@@ -237,14 +239,22 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
     def _skill_bundles_url(self, loop_id: str) -> str:
         return f"{self._loop_url(loop_id)}skill_bundles/"
 
-    def _bundle_payload(self, name: str = "my-skill", content: bytes = b"zip-bytes") -> dict:
+    def _zip_bytes(self, files: dict[str, str] | None = None) -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for entry_name, entry_content in (files or {"SKILL.md": "body"}).items():
+                archive.writestr(entry_name, entry_content)
+        return buffer.getvalue()
+
+    def _bundle_payload(self, name: str = "my-skill", content: bytes | None = None) -> dict:
+        content_bytes = content if content is not None else self._zip_bytes()
         return {
             "file_name": f"{name}.zip",
             "skill_name": name,
             "skill_source": "user",
-            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "content_sha256": hashlib.sha256(content_bytes).hexdigest(),
             "bundle_format": "zip",
-            "content_base64": base64.b64encode(content).decode("ascii"),
+            "content_base64": base64.b64encode(content_bytes).decode("ascii"),
         }
 
     @patch("posthog.storage.object_storage.delete_objects")
@@ -252,7 +262,7 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
     @patch("posthog.storage.object_storage.write")
     def test_owner_replaces_and_clears_skill_bundles(self, mock_write, mock_tag, mock_delete):
         loop = self._create_loop(self.owner_client)
-        content = b"zip-bytes"
+        content = self._zip_bytes()
 
         replaced = self.owner_client.put(
             self._skill_bundles_url(loop["id"]),
@@ -340,6 +350,41 @@ class LoopSkillBundlesAPITest(LoopsAPITestCase):
         self.assertEqual(len(deleted_paths), 1)
         self.assertIn("first", deleted_paths[0])
         self.assertEqual(Loop.objects.unscoped().get(id=loop["id"]).skill_bundles, [])
+
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_non_zip_bundle(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=b"not a zip archive")
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("not a valid zip archive", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES", 64)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_bundle_that_expands_past_the_cap(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=self._zip_bytes({"SKILL.md": "x" * 1024}))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("expands to more than", response.json()["detail"])
+        mock_write.assert_not_called()
+
+    @patch("products.tasks.backend.facade.loops.MAX_LOOP_SKILL_BUNDLE_FILES", 1)
+    @patch("posthog.storage.object_storage.write")
+    def test_replace_rejects_a_bundle_with_too_many_entries(self, mock_write):
+        loop = self._create_loop(self.owner_client)
+        payload = self._bundle_payload(content=self._zip_bytes({"SKILL.md": "body", "extra.md": "more"}))
+
+        response = self.owner_client.put(self._skill_bundles_url(loop["id"]), {"bundles": [payload]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("contains more than", response.json()["detail"])
+        mock_write.assert_not_called()
 
     def test_replace_requires_a_declared_content_length(self):
         loop = self._create_loop(self.owner_client)

@@ -991,11 +991,16 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
 
 
 MAX_LOOP_SKILL_BUNDLES = 10
-# Decoded per-bundle ceiling. The request is JSON with base64 content and Django's
-# DATA_UPLOAD_MAX_MEMORY_SIZE (20MB) bounds the raw body first, leaving roughly 15MB of
-# decoded budget per request — 10MB keeps this advertised limit honestly reachable
-# within it instead of promising the run-artifact 30MB that a JSON upload can never hit.
+# Decoded per-bundle ceiling. The request is JSON with base64 content and the endpoint
+# caps the declared body at 20MB before parsing, leaving roughly 15MB of decoded budget
+# per request — 10MB keeps this advertised limit honestly reachable within it instead of
+# promising the run-artifact 30MB that a JSON upload can never hit.
 MAX_LOOP_SKILL_BUNDLE_SIZE_BYTES = 10 * 1024 * 1024
+# Expansion ceilings, checked against the zip's central directory before anything is
+# stored. The sandbox extracts every stored bundle on every fire, so a zip bomb would
+# wedge each scheduled run; these mirror the client bundler's own build-time caps.
+MAX_LOOP_SKILL_BUNDLE_FILES = 1000
+MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
 
 
 def _delete_skill_bundle_objects(loop_id: UUID, paths: list[str]) -> None:
@@ -1027,7 +1032,9 @@ def replace_loop_skill_bundles(
     failure nor a concurrent replace strands unreferenced objects. Owner-gated like
     every other identity-bearing field. Returns `None` if the loop is not
     found/reachable."""
+    import io  # noqa: PLC0415
     import hashlib  # noqa: PLC0415
+    import zipfile  # noqa: PLC0415
 
     from django.utils import timezone as django_timezone  # noqa: PLC0415
 
@@ -1056,6 +1063,22 @@ def replace_loop_skill_bundles(
             )
         if hashlib.sha256(content_bytes).hexdigest() != bundle["content_sha256"]:
             raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' does not match its declared sha256.")
+        # Central-directory metadata only — nothing is decompressed here.
+        try:
+            with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
+                entries = archive.infolist()
+        except zipfile.BadZipFile:
+            raise LoopValidationError(f"Skill bundle for '{bundle['skill_name']}' is not a valid zip archive.")
+        if len(entries) > MAX_LOOP_SKILL_BUNDLE_FILES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' contains more than {MAX_LOOP_SKILL_BUNDLE_FILES} files."
+            )
+        uncompressed_total = sum(entry.file_size for entry in entries)
+        if uncompressed_total > MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES:
+            raise LoopValidationError(
+                f"Skill bundle for '{bundle['skill_name']}' expands to more than "
+                f"{MAX_LOOP_SKILL_BUNDLE_UNCOMPRESSED_BYTES // (1024 * 1024)}MB."
+            )
         decoded.append((bundle, content_bytes))
 
     prefix = loop.get_skill_bundle_s3_prefix()
