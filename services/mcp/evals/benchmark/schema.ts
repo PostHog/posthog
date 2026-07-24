@@ -26,6 +26,7 @@ export const TASK_CATEGORIES = [
     'project',
     'mcp-analytics',
     'metrics',
+    'data-catalog',
 ] as const
 
 export const BenchmarkProbeSchema = z.object({
@@ -70,4 +71,14 @@ export function loadBenchmark(path: string = DEFAULT_BENCHMARK_PATH): BenchmarkF
 
 export function referencedTools(task: BenchmarkTask): string[] {
     return [...new Set([...task.expected_tools, ...task.acceptable_tools, ...(task.probe ? [task.probe.tool] : [])])]
+}
+
+/**
+ * Tools that MUST be advertised for a task to be runnable: the expected path
+ * plus any deterministic probe tool. `acceptable_tools` are optional
+ * alternatives — often feature-gated — so a missing one is not a benchmark
+ * failure and is deliberately excluded here.
+ */
+export function requiredTools(task: BenchmarkTask): string[] {
+    return [...new Set([...task.expected_tools, ...(task.probe ? [task.probe.tool] : [])])]
 }
