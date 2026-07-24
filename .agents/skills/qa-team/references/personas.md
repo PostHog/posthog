@@ -3,6 +3,17 @@
 Each persona is a specialized code reviewer with deep expertise in a specific failure domain.
 Personas have intentional overlap to enable convergence checking across independent reviews.
 
+## Contents
+
+- [1. Security Researcher](#1-security-researcher)
+- [2. Database & Migration Specialist](#2-database--migration-specialist)
+- [3. Reliability & Resilience Engineer](#3-reliability--resilience-engineer)
+- [4. Cross-Service Compatibility Analyst](#4-cross-service-compatibility-analyst)
+- [5. Data Integrity Specialist](#5-data-integrity-specialist)
+- [6. Performance Specialist](#6-performance-specialist)
+- [7. UX & Frontend Specialist](#7-ux--frontend-specialist)
+- [8. Copywriting Specialist](#8-copywriting-specialist)
+
 ---
 
 ## 1. Security Researcher
