@@ -15,7 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from nanoid import generate
 from parameterized import parameterized
@@ -4535,6 +4535,46 @@ class TestSurveyWithActions(APIBaseTest):
             {"key": "plan", "value": "pro", "operator": "exact"}
         ]
 
+    def test_public_serializer_strips_pii_from_stale_actions_blob(self):
+        # When the actions M2M is empty (e.g. the referenced actions were deleted) but conditions
+        # still carries a full actions blob from an editor round-trip, the public serializer must
+        # not surface anything beyond the public action fields — no created_by, team_id, etc. This
+        # is the /decide leak: the blob was served verbatim to unauthenticated clients.
+        from products.surveys.backend.api.survey import SurveyAPISerializer
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="stale actions blob survey",
+            type="popover",
+            conditions={
+                "actions": {
+                    "values": [
+                        {
+                            "id": 987654321,
+                            "name": "person subscribed",
+                            "steps": [{"event": "$pageview"}],
+                            "created_by": {
+                                "id": 1,
+                                "email": "employee@posthog.com",
+                                "first_name": "Real",
+                                "last_name": "Person",
+                            },
+                            "team_id": self.team.id,
+                            "post_to_slack": True,
+                        }
+                    ]
+                }
+            },
+        )
+        assert survey.actions.count() == 0  # the stale blob is the only source of the actions
+
+        value = SurveyAPISerializer(survey).data["conditions"]["actions"]["values"][0]
+        assert set(value.keys()) <= {"id", "name", "steps"}, value
+        assert "created_by" not in value
+        assert "team_id" not in value
+        assert "post_to_slack" not in value
+        assert value["name"] == "person subscribed"
+
     def test_can_set_associated_actions(self):
         user_subscribed_action = Action.objects.create(
             team=self.team,
@@ -4680,6 +4720,44 @@ class TestSurveyWithActions(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey is not None
         assert len(survey.actions.all()) == 0
+
+
+class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
+    def test_public_action_serializer_strips_non_public_fields_from_stale_blob(self) -> None:
+        # /decide PII leak guard (no DB): when the actions M2M is empty and
+        # get_survey_conditions_with_actions falls back to a stale conditions blob, it must project
+        # each value down to the caller serializer's own fields, so nothing extra (created_by,
+        # team_id, ...) reaches the public payload.
+        from products.surveys.backend.api.survey import SurveyAPIActionSerializer, get_survey_conditions_with_actions
+
+        class _EmptyActions:
+            def all(self) -> list:
+                return []
+
+        class _StubSurvey:
+            def __init__(self) -> None:
+                self.actions = _EmptyActions()
+                self.conditions = {
+                    "actions": {
+                        "values": [
+                            {
+                                "id": 1,
+                                "name": "person subscribed",
+                                "steps": [{"event": "$pageview"}],
+                                "created_by": {"id": 1, "email": "employee@posthog.com", "first_name": "Real"},
+                                "team_id": 5,
+                                "post_to_slack": True,
+                            }
+                        ]
+                    }
+                }
+
+        conditions = get_survey_conditions_with_actions(_StubSurvey(), SurveyAPIActionSerializer)  # type: ignore[arg-type]
+        assert conditions is not None
+        value = conditions["actions"]["values"][0]
+        assert set(value.keys()) <= {"id", "name", "steps"}, value
+        assert "created_by" not in value
+        assert value["name"] == "person subscribed"
 
 
 @freeze_time("2024-12-12 00:00:00")
