@@ -13,7 +13,7 @@ from posthog.schema import EventsNode, TrendsQuery
 
 from posthog.hogql.errors import ExposedHogQLError
 
-from posthog.errors import CHQueryErrorNoCommonType
+from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorNotAnAggregate
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -2264,6 +2264,29 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(args[1].name, endpoint.name)
         self.assertIs(args[2], boom)
         self.assertFalse(kwargs["materialized"])
+
+    def test_inline_customer_query_error_skips_capture_and_signal(self):
+        # A customer's malformed query (ExposedCHQueryError) is handed back as a 400 without being
+        # captured as a PostHog fault or emitting a failure signal.
+        endpoint = self._make_simple_hogql_endpoint("customer_query_error")
+        query_error = CHQueryErrorNotAnAggregate(
+            "Column segment is not under aggregate function and not in GROUP BY", code=215
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=query_error),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()
+        mock_emit.assert_not_called()
 
     def test_emit_failure_signal_swallows_errors(self):
         """Signal emission must never mask the original exception."""
