@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 
 class TestAPIDocsSchema(APIBaseTest):
     def test_can_generate_api_docs_schema(self) -> None:
@@ -12,6 +14,19 @@ class TestAPIDocsSchema(APIBaseTest):
         assert isinstance(schema_response.data, dict)
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
         assert int(str(schema_response.headers.get("Content-Length"))) > 0
+
+    @parameterized.expand(["swagger-ui", "redoc"])
+    def test_api_docs_ui_renders(self, ui_path: str) -> None:
+        # Guards the drf-spectacular HTML docs UIs against render-time 500s (e.g. a
+        # dependency bump or SPECTACULAR_SETTINGS change breaking the template). The
+        # schema endpoint above only exercises the JSON, never these template renders.
+        self.client.logout()
+
+        response = self.client.get(f"/api/schema/{ui_path}/", HTTP_ACCEPT="text/html")
+
+        assert response.status_code == 200
+        assert str(response.headers.get("Content-Type")).startswith("text/html")
+        assert b"/api/schema/" in response.content
 
     def test_llm_prompt_schema_includes_search_and_prompt_name_path_param(self) -> None:
         self.client.logout()
