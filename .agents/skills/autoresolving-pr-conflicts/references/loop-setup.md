@@ -45,6 +45,19 @@ Notes on the choices:
 - `behaviors.create_prs: true` is the write-mode switch ("whether the agent may push branches and open PRs"). The skill's rules then forbid opening PRs; write access is needed solely to push to existing PR heads. `watch_ci` and `fix_review_comments` stay off: this loop creates no PRs of its own to follow up on.
 - The push trigger only fires for pushes by users with write access (the loop pipeline's trusted-actor gate), and pushes to `loop/*` branches are excluded from triggering, so the loop cannot fire itself.
 
+## The write boundary is enforcement, not prose
+
+The skill's prohibitions (no PR creation, no history rewrites, no protected-branch writes) are agent instructions; the boundary that actually holds is what the runtime enforces.
+Keep that boundary least-privilege:
+
+- The GitHub App installation behind the integration should grant only `Contents: Read & Write` and `Pull requests: Read & Write`, on as few repos as possible. Never widen it for this loop.
+- Leave `connectors.posthog_mcp_scopes` at its `read_only` default and attach no MCP Store installations; the sweep needs neither.
+- Don't set a custom `sandbox_environment` with extra egress; the default GitHub-only allowlist is what the sweep needs.
+- The sandbox's git guard (signed commits only, no raw `git push`) and GitHub's protected-branch rules are load-bearing; treat any run that reports friction with them as a bug in the run, not a reason to loosen them.
+- If the tasks platform ships an enforced "push to existing branches, never create PRs" behavior flag, adopt it here and drop the reliance on `create_prs: true` plus instructions.
+
+Untrusted input is handled the same way: the skill routes all marker state through `scripts/autoresolve-marker.sh`, which emits only SHA-validated tuples, so raw PR comment bodies never enter the agent's context as potential instructions.
+
 ## Operational limits to know
 
 - Per-loop rate cap: 100 created fires/day; per-team: 500/day. With `overlap_policy: skip`, bursts of master merges collapse into far fewer fires, but on a very busy day the cap can still bite; conflicts left over simply wait for the next fire or a manual run.
