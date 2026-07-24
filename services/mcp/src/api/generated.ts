@@ -72675,7 +72675,7 @@ export namespace Schemas {
      */
     kind?: CommentsListKind;
     /**
-     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.
      * @minLength 1
      */
     scope?: string;

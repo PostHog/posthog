@@ -18,7 +18,9 @@ import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
@@ -26,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -33,13 +36,14 @@ import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
-import { PropertyFilterType, PropertyOperator, Region } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
     businessKnowledgeGapSuggestionsDismissCreate,
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
 
+import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
@@ -171,6 +175,7 @@ export function getEmailReplyBlockedReason(
 export interface supportTicketSceneLogicValues {
     resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
     draftModeDefault: boolean // conversationsDraftModeLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     assignee: TicketAssignee
@@ -200,6 +205,7 @@ export interface supportTicketSceneLogicValues {
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
@@ -391,6 +397,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
+        sidePanelContext: (ticket: Ticket | null, featureFlags: any) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -429,6 +436,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         values: [
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
             conversationsDraftModeLogic,
             ['draftModeDefault'],
             userLogic,
@@ -739,6 +748,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket, s.featureFlags],
+            (ticket: Ticket | null, featureFlags): SidePanelSceneContext | null =>
+                ticket?.id && featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                    ? {
+                          activity_scope: ActivityScope.TICKET,
+                          activity_item_id: `${ticket.id}`,
+                      }
+                    : null,
         ],
         replyRecipientDescription: [
             (s) => [s.ticket],

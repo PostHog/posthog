@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -17,7 +18,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment
-from posthog.models.comment.comment import activity_log_scope_for
+from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
 from posthog.models.comment.utils import produce_discussion_mention_events, send_mention_notifications
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -120,6 +121,20 @@ class CommentSerializer(serializers.ModelSerializer):
                 if item_context.get("is_emoji"):
                     raise exceptions.ValidationError({"is_task": "Emoji reactions cannot be tasks."})
 
+        # A reply lives in its parent's thread: a scope mismatch would let content cross the
+        # authorization boundary between ticket and non-ticket discussions in either direction.
+        source_comment = (
+            data["source_comment"] if "source_comment" in data else getattr(instance, "source_comment", None)
+        )
+        scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
+        if source_comment is not None:
+            if source_comment.team_id != self.context["team_id"]:
+                raise exceptions.ValidationError({"source_comment": "Comment not found."})
+            if source_comment.scope != scope:
+                raise exceptions.ValidationError(
+                    {"scope": "A reply must use the same scope as the comment it replies to."}
+                )
+
         return data
 
     def _filter_mentions_to_organization(self, mention_ids: list[int], organization_id: str) -> list[int]:
@@ -192,7 +207,10 @@ class CommentPagination(pagination.CursorPagination):
 class CommentListQueryParamsSerializer(serializers.Serializer):
     scope = serializers.CharField(
         required=False,
-        help_text="Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+        help_text=(
+            "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). "
+            "Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access."
+        ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
@@ -223,6 +241,51 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        """Ticket-scoped comments require ticket API scope access instead of comment access.
+
+        Candidate scopes are the union of every scope that determines what the request can
+        read or write: the query-param scope (the queryset always filters by it, including for
+        detail lookups and /thread), the stored scope of the pk target (authoritative — a
+        mismatched body scope can't sidestep it), and the body scope on writes only (what
+        create writes and update can rewrite; a body on a GET selects nothing). If any
+        candidate is ticket-carrying the request needs ticket access, and any non-ticket
+        candidate keeps the default comment requirement alongside it (the scopes are ANDed).
+        """
+        candidate_scopes: set[Any] = set()
+        if query_scope := request.GET.get("scope"):
+            candidate_scopes.add(query_scope)
+        if pk := self.kwargs.get("pk"):
+            try:
+                candidate_scopes.add(
+                    Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", flat=True).first()
+                )
+            except (ValueError, ValidationError):
+                return None
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
+            if body_scope := request.data.get("scope"):
+                candidate_scopes.add(body_scope)
+            # A reply is read back through its parent's thread, so the parent's stored scope
+            # gates the write too — a non-ticket body scope must not attach a reply to a
+            # ticket thread (nor a ticket reply to a non-ticket parent).
+            if source_comment := request.data.get("source_comment"):
+                try:
+                    candidate_scopes.add(
+                        Comment.objects.filter(team_id=self.team_id, pk=source_comment)
+                        .values_list("scope", flat=True)
+                        .first()
+                    )
+                except (ValueError, ValidationError):
+                    return None
+        candidate_scopes.discard(None)
+        if not candidate_scopes & TICKET_COMMENT_SCOPES:
+            return None
+        access = "read" if self.action in self.scope_object_read_actions else "write"
+        required: list[str] = [f"ticket:{access}"]
+        if candidate_scopes - TICKET_COMMENT_SCOPES:
+            required.append(f"comment:{access}")
+        return required
+
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -238,10 +301,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
-        else:
-            # Exclude conversations_ticket comments by default - they use rich content
-            # from SupportEditor and should only be viewed in the conversations product
-            queryset = queryset.exclude(scope="conversations_ticket")
+        elif self.action in ("list", "count"):
+            # Ticket-carrying comments (customer messages and internal ticket discussions) never
+            # appear in unscoped enumeration — only when explicitly requested by scope. Detail
+            # actions (retrieve, thread, send_to_slack, ...) pin an object by pk, where ticket
+            # API scope access is enforced by dangerously_get_required_scopes instead.
+            queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
