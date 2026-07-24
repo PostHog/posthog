@@ -12,7 +12,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
-from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 
@@ -33,9 +32,20 @@ class TestSessionReplayFeaturesTable(BaseTest):
         assert table.to_printed_clickhouse(self.context) == "session_replay_features"
         assert table.to_printed_hogql() == "session_replay_features"
 
-    def test_not_registered_at_root(self):
-        with self.assertRaises(QueryError):
-            self.database.get_table(["session_replay_features"])
+    def test_resolves_at_root(self):
+        # Also reachable unqualified at root (mirroring the raw/standard tables), so AI/MCP-generated
+        # HogQL that writes `FROM session_replay_features` without the `posthog.` prefix doesn't fail.
+        table = self.database.get_table(["session_replay_features"])
+        assert isinstance(table, SessionReplayFeaturesTable)
+
+    def test_simple_select_compiles_unqualified(self):
+        sql = self._print_clickhouse(
+            "SELECT session_id, sum(click_count) AS clicks "
+            "FROM session_replay_features "
+            "WHERE team_id = 1 GROUP BY session_id LIMIT 5"
+        )
+        assert "FROM session_replay_features" in sql
+        assert "sum(session_replay_features.click_count) AS clicks" in sql
 
     @parameterized.expand(
         [
