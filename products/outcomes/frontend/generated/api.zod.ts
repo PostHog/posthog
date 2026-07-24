@@ -16,6 +16,8 @@ export const outcomesCreateBodyNameMax = 400
 
 export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemEventMax = 400
 
+export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemPropertiesMax = 20
+
 export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemAggregationDefault = `count`
 export const outcomesCreateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
@@ -44,6 +46,7 @@ export const OutcomesCreateBody = /* @__PURE__ */ zod.object({
                                                     'A standard PostHog property filter (event property, person property, cohort, HogQL, ...), in the same shape the insights API accepts.'
                                                 )
                                         )
+                                        .max(outcomesCreateBodyCriteriaOnePathsItemAtomsItemPropertiesMax)
                                         .optional()
                                         .describe(
                                             'Property filters an event must match to count toward this condition.'
@@ -94,6 +97,8 @@ export const outcomesUpdateBodyNameMax = 400
 
 export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemEventMax = 400
 
+export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemPropertiesMax = 20
+
 export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDefault = `count`
 export const outcomesUpdateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
@@ -122,6 +127,7 @@ export const OutcomesUpdateBody = /* @__PURE__ */ zod.object({
                                                     'A standard PostHog property filter (event property, person property, cohort, HogQL, ...), in the same shape the insights API accepts.'
                                                 )
                                         )
+                                        .max(outcomesUpdateBodyCriteriaOnePathsItemAtomsItemPropertiesMax)
                                         .optional()
                                         .describe(
                                             'Property filters an event must match to count toward this condition.'
@@ -172,6 +178,8 @@ export const outcomesPartialUpdateBodyNameMax = 400
 
 export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemEventMax = 400
 
+export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemPropertiesMax = 20
+
 export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemAggregationDefault = `count`
 export const outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemAggregationPropertyMax = 400
 
@@ -200,6 +208,7 @@ export const OutcomesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'A standard PostHog property filter (event property, person property, cohort, HogQL, ...), in the same shape the insights API accepts.'
                                                 )
                                         )
+                                        .max(outcomesPartialUpdateBodyCriteriaOnePathsItemAtomsItemPropertiesMax)
                                         .optional()
                                         .describe(
                                             'Property filters an event must match to count toward this condition.'

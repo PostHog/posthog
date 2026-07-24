@@ -31,7 +31,10 @@ export interface OutcomeAtomApi {
      * @maxLength 400
      */
     event: string
-    /** Property filters an event must match to count toward this condition. */
+    /**
+     * Property filters an event must match to count toward this condition.
+     * @maxItems 20
+     */
     properties?: OutcomeAtomApiPropertiesItem[]
     /** Monotone aggregation over matching events: count of events, sum of a numeric property (the highest running total, so refunds never un-reach it), or number of distinct values of a property.
      *

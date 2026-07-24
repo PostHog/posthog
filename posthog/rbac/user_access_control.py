@@ -77,6 +77,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "llm_skill",
     "ai_observability_clusters",
     "notebook",
+    "outcome",
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",

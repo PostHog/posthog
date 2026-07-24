@@ -11,7 +11,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -20,7 +20,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyRateThrottle, SustainedRateThrottle
 
-from products.outcomes.backend.criteria import AGGREGATIONS, CriteriaValidationError, parse_criteria
+from products.outcomes.backend.criteria import (
+    AGGREGATIONS,
+    MAX_PROPERTIES_PER_ATOM,
+    CriteriaValidationError,
+    parse_criteria,
+)
 from products.outcomes.backend.models import OutcomeDefinition, OutcomeLatch
 from products.outcomes.backend.tasks import calculate_outcome
 
@@ -30,6 +35,10 @@ OUTCOMES_FEATURE_FLAG = "outcomes-feature-enabled"
 
 # The on-demand recalculation runs a full ClickHouse aggregate; keep manual triggers rare.
 CALCULATE_DEBOUNCE = timedelta(minutes=2)
+
+# Every definition costs one ClickHouse aggregate per scheduler tick, so the quota
+# directly bounds the recurring load a single team can create.
+MAX_DEFINITIONS_PER_TEAM = 10
 
 
 def outcomes_feature_enabled(distinct_id: str) -> bool:
@@ -84,6 +93,7 @@ class OutcomeAtomSerializer(serializers.Serializer):
         child=PropertyFilterField(),
         required=False,
         default=list,
+        max_length=MAX_PROPERTIES_PER_ATOM,
         help_text="Property filters an event must match to count toward this condition.",
     )
     aggregation = serializers.ChoiceField(
@@ -178,6 +188,11 @@ class OutcomeDefinitionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict[str, Any]) -> OutcomeDefinition:
         team = self.context["get_team"]()
+        if OutcomeDefinition.objects.for_team(team.id).count() >= MAX_DEFINITIONS_PER_TEAM:
+            raise serializers.ValidationError(
+                f"A project can have at most {MAX_DEFINITIONS_PER_TEAM} outcomes for now. "
+                "Delete one you no longer need first."
+            )
         definition = OutcomeDefinition.objects.create(
             team=team,
             created_by=self.context["request"].user,
@@ -211,12 +226,14 @@ class OutcomeLatchSerializer(serializers.ModelSerializer):
 class OutcomeDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Create, read, update, and delete outcome definitions, and inspect who reached them."""
 
-    scope_object = "INTERNAL"
+    scope_object = "outcome"
+    scope_object_read_actions = ["list", "retrieve", "reached"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "calculate"]
     # `.unscoped()` avoids the fail-closed manager raising at import (no team context yet);
     # `safely_get_queryset` re-scopes every real query to the team.
     queryset = OutcomeDefinition.objects.unscoped()
     serializer_class = OutcomeDefinitionSerializer
-    permission_classes = [IsAuthenticated, OutcomesFeatureEnabled]
+    permission_classes = [OutcomesFeatureEnabled]
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
 
     def get_throttles(self) -> list[BaseThrottle]:

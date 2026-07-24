@@ -25,6 +25,7 @@ from typing import Any
 
 MAX_PATHS = 5
 MAX_ATOMS = 10
+MAX_PROPERTIES_PER_ATOM = 20
 AGGREGATIONS = ("count", "sum", "distinct")
 
 # Loop guard: outcomes must never be defined over the event they themselves emit.
@@ -124,6 +125,8 @@ def _parse_atom(data: Any, location: str) -> Atom:
     properties = data.get("properties") or []
     if not isinstance(properties, list) or not all(isinstance(p, dict) for p in properties):
         raise CriteriaValidationError(f"{location} properties must be a list of property filters.")
+    if len(properties) > MAX_PROPERTIES_PER_ATOM:
+        raise CriteriaValidationError(f"{location} can have at most {MAX_PROPERTIES_PER_ATOM} property filters.")
 
     return Atom(
         event=event,
