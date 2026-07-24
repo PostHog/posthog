@@ -22279,7 +22279,10 @@ export namespace Schemas {
      * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
      * @nullable
      */
-    export type EarlyAccessFeatureAssignee = { [key: string]: unknown } | null;
+    export type EarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
@@ -22382,7 +22385,10 @@ export namespace Schemas {
      * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
      * @nullable
      */
-    export type EarlyAccessFeatureSerializerCreateOnlyAssignee = { [key: string]: unknown } | null;
+    export type EarlyAccessFeatureSerializerCreateOnlyAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     /**
      * Mixin for serializers to add user access control fields
@@ -47475,7 +47481,10 @@ export namespace Schemas {
      * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
      * @nullable
      */
-    export type PatchedEarlyAccessFeatureAssignee = { [key: string]: unknown } | null;
+    export type PatchedEarlyAccessFeatureAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null;
 
     /**
      * Mixin for serializers to add user access control fields

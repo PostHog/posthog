@@ -147,7 +147,10 @@ export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
  * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
  * @nullable
  */
-export type EarlyAccessFeatureApiAssignee = { [key: string]: unknown } | null
+export type EarlyAccessFeatureApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -206,7 +209,10 @@ export interface PaginatedEarlyAccessFeatureListApi {
  * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
  * @nullable
  */
-export type EarlyAccessFeatureSerializerCreateOnlyApiAssignee = { [key: string]: unknown } | null
+export type EarlyAccessFeatureSerializerCreateOnlyApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -264,7 +270,10 @@ export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
  * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
  * @nullable
  */
-export type PatchedEarlyAccessFeatureApiAssignee = { [key: string]: unknown } | null
+export type PatchedEarlyAccessFeatureApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
 
 /**
  * Mixin for serializers to add user access control fields

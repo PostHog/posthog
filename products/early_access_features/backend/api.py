@@ -101,18 +101,28 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         return obj.payload if obj.payload else {}
 
     @extend_schema_field(
-        serializers.DictField(
-            help_text="Display name of the person or role this feature is assigned to, e.g. "
+        {
+            "type": "object",
+            "nullable": True,
+            "description": "Display name of the person or role this feature is assigned to, e.g. "
             '{"type": "user", "name": "Ada Lovelace"} or {"type": "role", "name": "Data Modeling"}.',
-            allow_null=True,
-        )
+            "properties": {
+                "type": {"type": "string", "enum": ["user", "role"]},
+                "name": {"type": "string"},
+            },
+        }
     )
     def get_assignee(self, obj):
         # Callers serializing many features should select_related assigned_user/assigned_role;
         # for unassigned features the *_id checks avoid touching the relations entirely.
         if obj.assigned_user_id and obj.assigned_user:
             name = f"{obj.assigned_user.first_name} {obj.assigned_user.last_name}".strip()
-            return {"type": "user", "name": name}
+            # Users without a set name (common for SSO/invited accounts) would otherwise
+            # surface an "assigned but nameless" payload, which is worse than no assignee;
+            # treat them as unassigned rather than exposing a blank name.
+            if name:
+                return {"type": "user", "name": name}
+            return None
         if obj.assigned_role_id and obj.assigned_role:
             return {"type": "role", "name": obj.assigned_role.name}
         return None
@@ -169,11 +179,16 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         return obj.payload if obj.payload else {}
 
     @extend_schema_field(
-        serializers.DictField(
-            help_text='The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or '
+        {
+            "type": "object",
+            "nullable": True,
+            "description": 'The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or '
             '{"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.',
-            allow_null=True,
-        )
+            "properties": {
+                "type": {"type": "string", "enum": ["user", "role"]},
+                "id": {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+            },
+        }
     )
     def get_assignee(self, obj):
         if obj.assigned_user_id:
@@ -458,7 +473,9 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
-    queryset = EarlyAccessFeature.objects.select_related("feature_flag", "created_by").all()
+    queryset = EarlyAccessFeature.objects.select_related(
+        "feature_flag", "created_by", "assigned_user", "assigned_role"
+    ).all()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST":

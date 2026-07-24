@@ -2849,6 +2849,7 @@ class FeatureFlagViewSet(
     def safely_get_queryset(self, queryset) -> QuerySet:
         from django.db.models import Exists, OuterRef
 
+        from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
         # Always prefetch experiment_set since it's used in both list and retrieve
@@ -2857,6 +2858,16 @@ class FeatureFlagViewSet(
                 "experiment_set",
                 queryset=Experiment.objects.filter(deleted=False),
                 to_attr="_active_experiments",
+            )
+        )
+
+        # `features` is serialized on every action (list/retrieve/create/update), and
+        # MinimalEarlyAccessFeatureSerializer resolves the assignee's name, so join the
+        # assignee relations here rather than only in the list branch.
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "features",
+                queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
             )
         )
 
@@ -2885,17 +2896,8 @@ class FeatureFlagViewSet(
         )
 
         if self.action == "list":
-            from products.early_access_features.backend.models import EarlyAccessFeature
-
             queryset = (
                 queryset.filter(deleted=False)
-                .prefetch_related(
-                    Prefetch(
-                        "features",
-                        # MinimalEarlyAccessFeatureSerializer resolves the assignee's name
-                        queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
-                    )
-                )
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(

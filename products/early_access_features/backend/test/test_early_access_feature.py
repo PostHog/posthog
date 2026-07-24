@@ -1400,7 +1400,14 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             key="sprocket2",
             created_by=self.user,
         )
+        feature_flag3 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket 3",
+            key="sprocket3",
+            created_by=self.user,
+        )
         role = Role.objects.create(name="Data Modeling", organization=self.organization)
+        nameless_user = User.objects.create_and_join(self.organization, "nameless@posthog.com", None, first_name="")
         EarlyAccessFeature.objects.create(
             team=self.team,
             name="Sprocket",
@@ -1417,6 +1424,14 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             feature_flag=feature_flag2,
             assigned_role=role,
         )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket 3",
+            description="A nameless sprocket.",
+            stage="beta",
+            feature_flag=feature_flag3,
+            assigned_user=nameless_user,
+        )
 
         self.client.logout()
 
@@ -1432,6 +1447,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 {
                     "sprocket": {"type": "user", "name": expected_user_name},
                     "sprocket2": {"type": "role", "name": "Data Modeling"},
+                    # A user with no name serializes as unassigned rather than a blank name.
+                    "sprocket3": None,
                 },
             )
 
