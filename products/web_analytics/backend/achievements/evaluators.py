@@ -126,16 +126,33 @@ def evaluate_conversions(ctx: EvalContext) -> int:
 
     per_action_totals = [0] * len(actions)
     for team in _project_environment_teams(ctx.team):
-        query = parse_select(
-            "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
+        # Aggregate inside a subquery grouped by day, then sum the per-day partials in the outer
+        # query. A top-level global countIf() directly over the distributed events table trips a
+        # ClickHouse analyzer column mismatch (NOT_FOUND_COLUMN_IN_BLOCK) when an action filters on
+        # a materialized property such as mat_$current_url — the backtick-quoted column reference
+        # doesn't match the projected column of the analyzer's auto-generated subquery. Keeping the
+        # aggregation off the distributed top level sidesteps it, mirroring web_goals / web_overview.
+        inner = parse_select(
+            "SELECT toStartOfDay(timestamp) AS day FROM events "
+            "WHERE and(timestamp >= now() - toIntervalDay({days}), {test}) GROUP BY day",
             placeholders={
                 "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
                 "test": _test_account_filter_expr(team),
             },
         )
+        if not isinstance(inner, ast.SelectQuery):
+            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(inner)}")
+        inner.select.extend(
+            ast.Alias(alias=f"action_count_{index}", expr=ast.Call(name="countIf", args=[action_to_expr(action)]))
+            for index, action in enumerate(actions)
+        )
+
+        query = parse_select("SELECT 1 FROM {inner}", placeholders={"inner": inner})
         if not isinstance(query, ast.SelectQuery):
             raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
-        query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
+        query.select = [
+            ast.Call(name="sum", args=[ast.Field(chain=[f"action_count_{index}"])]) for index in range(len(actions))
+        ]
         response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
         if response.results:
             for index, value in enumerate(response.results[0]):

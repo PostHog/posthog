@@ -1,6 +1,13 @@
 from datetime import date, timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    materialized,
+)
 
 from parameterized import parameterized
 
@@ -107,3 +114,19 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             steps_json=[{"event": "$autocapture", "tag_name": "button", "text": "Pay $10"}],
         )
         self.assertEqual(evaluate_conversions(self._ctx()), 1)
+
+    def test_conversions_with_url_filtered_action(self) -> None:
+        # A URL action resolves $current_url to the materialized mat_$current_url column. A top-level
+        # global countIf over the distributed events table used to fail with NOT_FOUND_COLUMN_IN_BLOCK
+        # because the backtick-quoted column reference didn't match the analyzer's projected column.
+        Action.objects.create(
+            team=self.team,
+            name="Visited pricing",
+            steps_json=[{"event": "$pageview", "url": "pricing", "url_matching": "contains"}],
+        )
+        for url in ["https://example.com/pricing", "https://example.com/pricing?ref=nav", "https://example.com/home"]:
+            _create_event(team=self.team, event="$pageview", distinct_id="d1", properties={"$current_url": url})
+        flush_persons_and_events()
+
+        with materialized("events", "$current_url"):
+            self.assertEqual(evaluate_conversions(self._ctx()), 2)
