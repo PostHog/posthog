@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -182,6 +184,39 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_source_products_for_reports(self.team, report_ids) == expected
+
+    def test_batches_cached_and_uncached_reports(self) -> None:
+        self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
+        assert fetch_source_products_for_reports(self.team, ["rA"]) == {
+            "rA": ReportSignalMeta(source_products=["errors"], scout_name=None)
+        }
+
+        # rA's change is invisible until the TTL lapses (served from cache); rB is fetched fresh
+        self._emit_version(
+            document_id="d1", report_id="rA", source_product="replay", inserted_at=self.base + timedelta(hours=1)
+        )
+        self._emit_version(document_id="d2", report_id="rB", source_product="surveys", inserted_at=self.base)
+        assert fetch_source_products_for_reports(self.team, ["rA", "rB"]) == {
+            "rA": ReportSignalMeta(source_products=["errors"], scout_name=None),
+            "rB": ReportSignalMeta(source_products=["surveys"], scout_name=None),
+        }
+
+        cache.clear()
+        assert fetch_source_products_for_reports(self.team, ["rA"]) == {
+            "rA": ReportSignalMeta(source_products=["replay"], scout_name=None)
+        }
+
+    def test_reports_without_metadata_are_negatively_cached(self) -> None:
+        assert fetch_source_products_for_reports(self.team, ["rEmpty"]) == {}
+
+        # without the negative entry every poll of a meta-less report would rescan the history
+        self._emit_version(document_id="d1", report_id="rEmpty", source_product="errors", inserted_at=self.base)
+        assert fetch_source_products_for_reports(self.team, ["rEmpty"]) == {}
+
+        cache.clear()
+        assert fetch_source_products_for_reports(self.team, ["rEmpty"]) == {
+            "rEmpty": ReportSignalMeta(source_products=["errors"], scout_name=None)
+        }
 
 
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):

@@ -9,6 +9,8 @@ keeps that import graph acyclic.
 
 from dataclasses import dataclass
 
+from django.core.cache import cache
+
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
@@ -20,6 +22,12 @@ from posthog.models import Team
 # The embedding model whose document rows constitute the signal store; every signals
 # ClickHouse query filters on it.
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
+
+# The inbox list is polled aggressively while each uncached lookup scans the team's whole
+# signal history, so a short TTL already removes almost all of the ClickHouse load.
+CACHE_TTL_SECONDS = 300
+# A fresh report may not have its signals stamped yet; keep known-empty entries short-lived.
+EMPTY_CACHE_TTL_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -33,6 +41,10 @@ class ReportSignalMeta:
     scout_name: str | None
 
 
+def _cache_key(team_id: int, report_id: str) -> str:
+    return f"signals_report_meta/{team_id}/{report_id}"
+
+
 def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
 
@@ -40,7 +52,47 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
     any non-empty `extra.skill_name` on the report's signals (all scout-authored signals of a report
     share one), or None.
 
-    Bounds the argMax dedup to documents that ever carried one of these report_ids, instead
+    Cached per report: this backs the inbox list, which API consumers poll every few seconds, while
+    the underlying query scans the team's whole signal history. Report meta only changes on
+    regroup/delete, so entries expire on a short TTL instead of being invalidated.
+    """
+    if not report_ids:
+        return {}
+
+    keys = {report_id: _cache_key(team.pk, report_id) for report_id in report_ids}
+    cached = cache.get_many(list(keys.values()))
+
+    result: dict[str, ReportSignalMeta] = {}
+    missing: list[str] = []
+    for report_id, key in keys.items():
+        entry = cached.get(key)
+        if entry is None:
+            missing.append(report_id)
+        elif entry:  # an empty dict marks a report known to have no signal metadata
+            result[report_id] = ReportSignalMeta(
+                source_products=entry["source_products"], scout_name=entry["scout_name"]
+            )
+
+    if missing:
+        fetched = _query_source_products_for_reports(team, missing)
+        found: dict[str, dict[str, list[str] | str | None]] = {
+            keys[report_id]: {"source_products": meta.source_products, "scout_name": meta.scout_name}
+            for report_id, meta in fetched.items()
+        }
+        if found:
+            cache.set_many(found, CACHE_TTL_SECONDS)
+        empty: dict[str, dict[str, list[str] | str | None]] = {
+            keys[report_id]: {} for report_id in missing if report_id not in fetched
+        }
+        if empty:
+            cache.set_many(empty, EMPTY_CACHE_TTL_SECONDS)
+        result.update(fetched)
+
+    return result
+
+
+def _query_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
+    """Bounds the argMax dedup to documents that ever carried one of these report_ids, instead
     of deduping the team's whole signal history. The unbounded dedup's memory grows with the
     team's total signal count; the candidate-bounded form keeps it proportional to the signals
     in the requested page's reports, which is what flattens the tail on signal-heavy teams.
@@ -49,8 +101,6 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
     report_id) but excluded by the outer filter (its latest metadata points elsewhere) — the
     same correctness trap fetch_report_ids_for_source_ids documents.
     """
-    if not report_ids:
-        return {}
 
     ch_query = """
         SELECT
