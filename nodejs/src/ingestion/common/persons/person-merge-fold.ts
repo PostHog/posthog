@@ -2,6 +2,7 @@ import { buildIntegerMatcher } from '~/common/config/config'
 import { decideProcessPerson, isDistinctIdIllegal } from '~/common/persons/person-utils'
 import type { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
+import type { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, InternalPerson, Team } from '~/types'
 
@@ -38,12 +39,39 @@ export interface MergeFoldOptions {
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
 }
 
-/** The fields of the pipeline item value the fold planning step reads and annotates. */
+/** The fields of the pipeline item value the fold planning step reads. */
 export interface MergeFoldScanItem {
     event: PluginEvent
     team: Team
     headers: EventHeaders
-    mergeFoldPlan?: MergeFoldPlan
+}
+
+/**
+ * The planning step's decision for one value:
+ * - `planned`: the event is part of a fold run; the run's shared plan executes
+ *   on its first event and the others short-circuit against it.
+ * - `immediate`: no fold applies; the event processes individually right away,
+ *   exactly as it would without folding.
+ */
+export type MergeFoldDecision = { type: 'planned'; plan: MergeFoldPlan } | { type: 'immediate' }
+
+/** Attached to every value the planning step emits. */
+export interface WithMergeFoldDecision {
+    mergeFold: MergeFoldDecision
+}
+
+// Decisions carry no per-event state, so every immediate value shares one instance.
+const IMMEDIATE: MergeFoldDecision = { type: 'immediate' }
+
+/**
+ * Per-item step for lanes where no merges can occur, and so nothing can fold:
+ * decide `immediate` for every event so the person step's input is satisfied
+ * without the lane's callers having to supply a decision.
+ */
+export function createImmediateMergeFoldStep<T>(): ProcessingStep<T, T & WithMergeFoldDecision> {
+    return function immediateMergeFoldStep(value: T): Promise<PipelineResult<T & WithMergeFoldDecision>> {
+        return Promise.resolve(ok({ ...value, mergeFold: IMMEDIATE }))
+    }
 }
 
 // Only $identify runs are folded. $create_alias/$merge_dangerously have
@@ -68,29 +96,29 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
 }
 
 /**
- * Build the group chunk step that plans merge folds. The step is always wired;
- * whether it plans anything is its own decision, gated on the enabled flag and
- * the team allowlist, so disabled configurations pass every value through
- * unplanned.
+ * Build the group chunk step that decides, per value, whether the event folds
+ * or processes immediately. The step is always wired; whether it plans
+ * anything is its own decision, gated on the enabled flag and the team
+ * allowlist, so disabled configurations emit every value as `immediate`.
  *
  * Scans a group's queued chunk for consecutive runs of two or more foldable
  * $identify events (a single merge has nothing to fold). Each run gets one
- * shared MergeFoldPlan, attached to the run's values in the step's results,
+ * shared MergeFoldPlan, carried by the run's values as a `planned` decision,
  * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
- * self-merges are excluded). Values outside a planned run pass through
- * unchanged. Fold size is naturally bounded by the batch size; pathological
- * per-source distinct_id counts are handled by the merge-mode limit pre-check
- * at execution time.
+ * self-merges are excluded). Every other value gets the `immediate` decision.
+ * Fold size is naturally bounded by the batch size; pathological per-source
+ * distinct_id counts are handled by the merge-mode limit pre-check at
+ * execution time.
  */
 export function createMergeFoldPlanningStep<T extends MergeFoldScanItem>(
     options: MergeFoldOptions
-): ChunkProcessingStep<T, T> {
+): ChunkProcessingStep<T, T & WithMergeFoldDecision> {
     const isTeamEnabled = buildIntegerMatcher(options.PERSON_MERGE_FOLD_TEAM_ALLOWLIST, true)
 
     // Deliberately await-free: the single wrapping promise is the only
     // microtask this step adds to a group chunk.
-    return function planMergeFolds(values: T[]): Promise<PipelineResult<T>[]> {
-        const results = values.map((value) => ok(value))
+    return function planMergeFolds(values: T[]): Promise<PipelineResult<T & WithMergeFoldDecision>[]> {
+        const results = values.map((value) => ok({ ...value, mergeFold: IMMEDIATE }))
         if (!options.PERSON_MERGE_FOLD_ENABLED || values.length < 2 || !isTeamEnabled(values[0].team.id)) {
             return Promise.resolve(results)
         }
@@ -116,7 +144,7 @@ export function createMergeFoldPlanningStep<T extends MergeFoldScanItem>(
 
 function planRun<T extends MergeFoldScanItem>(
     values: T[],
-    results: PipelineResult<T>[],
+    results: PipelineResult<T & WithMergeFoldDecision>[],
     runStart: number,
     runEnd: number
 ): void {
@@ -128,9 +156,9 @@ function planRun<T extends MergeFoldScanItem>(
         if (anonDistinctId === null || anonDistinctId === targetDistinctId || pairByAnonId.has(anonDistinctId)) {
             continue
         }
-        // An illegal anon id never merges; leaving its event off the plan
-        // sends it down the sequential path, which emits the per-event
-        // warning and keeps is_identified untouched, exactly as today.
+        // An illegal anon id never merges; keeping its event on the immediate
+        // path emits the per-event warning and keeps is_identified untouched,
+        // exactly as today.
         if (isDistinctIdIllegal(anonDistinctId)) {
             continue
         }
@@ -149,7 +177,7 @@ function planRun<T extends MergeFoldScanItem>(
     for (let index = runStart; index < runEnd; index++) {
         const anonDistinctId = getFoldableAnonDistinctId(values[index])
         if (anonDistinctId !== null && pairByAnonId.has(anonDistinctId)) {
-            results[index] = ok({ ...values[index], mergeFoldPlan: plan })
+            results[index] = ok({ ...values[index], mergeFold: { type: 'planned', plan } })
         }
     }
 }
