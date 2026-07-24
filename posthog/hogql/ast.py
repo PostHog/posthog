@@ -816,6 +816,26 @@ class LambdaArgumentType(Type):
             return UnknownType()
         return dataclasses.replace(self.constant_type)
 
+    @property
+    def table_type(self) -> None:
+        # A lambda argument can stand in as the base of a `PropertyType` (see `get_child`). The property passes probe
+        # `field_type.table_type` to find physical / lazy-joined columns; a lambda argument has no backing table, so
+        # this is always None and every pass falls through to the plain JSON extract over the lambda variable.
+        return None
+
+    def get_child(self, name: str | int, context: HogQLContext) -> Type:
+        # Property access on a lambda argument (e.g. `arrayMap(x -> x.text, ...)`) is a JSON-blob property read off
+        # the argument, mirroring how `FieldType.get_child` resolves child access. The argument itself is the
+        # property's base; `resolve_database_field` returns None so the printer renders a JSON extract over the
+        # lambda variable rather than a physical column.
+        return PropertyType(chain=[name], field_type=cast("FieldType", self))
+
+    def has_child(self, name: str | int, context: HogQLContext) -> bool:
+        return True
+
+    def resolve_database_field(self, context: HogQLContext) -> None:
+        return None
+
 
 @dataclass(kw_only=True, slots=True)
 class Alias(Expr):

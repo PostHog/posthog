@@ -1706,6 +1706,28 @@ class TestResolver(BaseTest):
         resolve_types(self._select(query), self.context, dialect="hogql")
         resolve_types(self._select(query), self.context, dialect="clickhouse")
 
+    @parameterized.expand(
+        [
+            ("arrayMap", "SELECT arrayMap(x -> x.text, ['a', 'b'])"),
+            ("nested chain", "SELECT arrayMap(x -> x.foo.bar, ['a', 'b'])"),
+            ("arrayFilter", "SELECT arrayFilter(x -> x.active, [1, 2])"),
+            ("multi arg", "SELECT arrayMap((x, y) -> x.a, [1], [2])"),
+        ]
+    )
+    def test_lambda_argument_property_access(self, _name, query):
+        # Property access on a lambda argument inside a higher-order array function must resolve to a
+        # PropertyType rather than raising the misleading "column alias shadows a table field" error.
+        for dialect in ("hogql", "clickhouse"):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect=dialect))
+            column = node.select[0]
+            if isinstance(column, ast.Alias):
+                column = column.expr
+            lambda_body = cast(ast.Lambda, cast(ast.Call, column).args[0]).expr
+            # The resolver wraps a property read in a hidden alias; the underlying field carries the PropertyType.
+            if isinstance(lambda_body, ast.Alias):
+                lambda_body = lambda_body.expr
+            assert isinstance(lambda_body.type, ast.PropertyType)
+
     def test_virtual_property_mapping(self):
         queries = [
             (
