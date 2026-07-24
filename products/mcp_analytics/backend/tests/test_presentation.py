@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
@@ -230,10 +231,31 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert call_args.args[0] == WORKFLOW_NAME
         assert call_args.args[1].team_id == self.team.id
         assert call_args.args[1].user_id == self.user.id
-        assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
+        # Deterministic per team so Temporal itself dedupes concurrent runs.
+        assert call_args.kwargs["id"] == f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc"
         # Without a bound, a dispatch onto a queue with no live worker sits
         # pending forever and repeat clicks stack workflows behind it.
         assert call_args.kwargs["execution_timeout"] == WORKFLOW_EXECUTION_TIMEOUT
+
+    def test_intent_clusters_recompute_already_running_workflow_is_not_an_error(self) -> None:
+        # A snapshot stale-swept past STALE_COMPUTING_THRESHOLD can belong to a
+        # workflow that is still live (the execution timeout is longer) —
+        # Temporal refuses the duplicate id. That is "already running", not a
+        # dispatch failure: the generic revert below it must not mark ERROR.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError(f"{CHILD_WORKFLOW_ID_PREFIX}-1-adhoc", WORKFLOW_NAME)
+        )
+        with patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.error_message == ""
 
     @parameterized.expand(
         [

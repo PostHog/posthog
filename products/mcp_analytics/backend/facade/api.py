@@ -117,11 +117,11 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     the workflow's compute activity writes the snapshot status (COMPUTING →
     IDLE/ERROR) as it runs.
     """
-    import time
-    import uuid
     import asyncio
 
     from django.conf import settings
+
+    from temporalio.exceptions import WorkflowAlreadyStartedError
 
     from posthog.temporal.common.client import async_connect
     from posthog.temporal.mcp_analytics.intent_clustering.constants import (
@@ -163,7 +163,11 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             snapshot.last_computed_by = user
             snapshot.save(update_fields=["status", "error_message", "last_computed_by", "updated_at"])
 
-    workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    # Deterministic per team: Temporal refuses a second start while a run with
+    # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
+    # (which is shorter than the 20-minute execution timeout) can't be
+    # overlapped by a retry — the id frees up once the previous run closes.
+    workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 
     # Create + use the Temporal client inside one event loop. sync_connect()
     # would build the client in asgiref's managed loop and then asyncio.run()
@@ -185,6 +189,11 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     try:
         asyncio.run(_start())
+    except WorkflowAlreadyStartedError:
+        # The previous run outlived the stale threshold but is genuinely still
+        # running — leave the snapshot in COMPUTING; the live run flips the
+        # status when it finishes.
+        return
     except Exception:
         # Dispatch failed, so no activity will ever flip the status — revert
         # the optimistic COMPUTING write instead of leaving the snapshot stuck
