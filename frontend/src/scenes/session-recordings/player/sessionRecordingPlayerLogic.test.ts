@@ -25,7 +25,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    isBenignReplayerTeardownError,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -88,6 +93,43 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('isBenignReplayerTeardownError', () => {
+    it.each([
+        // WebKit/Safari message shape rrweb produces when the replayer's iframe document.head is null during teardown
+        {
+            description: 'WebKit null document.head deref',
+            message: "null is not an object (evaluating 'document.head.setAttribute')",
+            expected: true,
+        },
+        {
+            description: 'Chrome null document.head deref',
+            message: "Cannot read properties of null (reading 'setAttribute') on document.head",
+            expected: true,
+        },
+        // must stay narrow: a genuine playback failure should still be reported so it is not silently masked
+        {
+            description: 'unrelated null deref',
+            message: "null is not an object (evaluating 'foo.bar')",
+            expected: false,
+        },
+        {
+            description: 'unrelated document.head reference without null',
+            message: 'document.head is fine here',
+            expected: false,
+        },
+        { description: 'empty message', message: '', expected: false },
+    ])('$description', ({ message, expected }) => {
+        expect(isBenignReplayerTeardownError(new Error(message))).toBe(expected)
+    })
+
+    it('handles non-Error throws without crashing', () => {
+        expect(isBenignReplayerTeardownError(undefined)).toBe(false)
+        expect(isBenignReplayerTeardownError("null is not an object (evaluating 'document.head.setAttribute')")).toBe(
+            true
+        )
     })
 })
 

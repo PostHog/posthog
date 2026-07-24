@@ -422,6 +422,22 @@ function isHtmlStyleLinkElement(target: HTMLElement): target is HTMLLinkElement 
     )
 }
 
+// rrweb's play()/pause() write styles and attributes into its target document's <head>.
+// When the replayer's iframe has been detached (tab hidden, segment rebuild, unmount) its
+// contentDocument — and therefore its head — goes null, most notably on WebKit/Safari. Driving
+// the replayer in that state makes rrweb dereference a null document.head and throw synchronously.
+function isReplayerReadyForPlayback(replayer: Replayer | undefined): boolean {
+    return !!replayer?.iframe?.contentDocument?.head
+}
+
+// Recognises the WebKit teardown throw described above (e.g. "null is not an object
+// (evaluating 'document.head.setAttribute')") so it can be treated as a benign no-op rather
+// than a captured exception if it still escapes the readiness guard above.
+export function isBenignReplayerTeardownError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+    return /document\.head/.test(message) && /null|undefined/.test(message)
+}
+
 function registerErrorListeners({
     iframeWindow,
     onError,
@@ -2389,6 +2405,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
             actions.endBuffer()
             actions.stopAnimation()
+            // A sync can land after the replayer's iframe was torn down (tab hidden, segment rebuild).
+            // Its document.head is null then and rrweb would throw; skip driving a dead replayer — a
+            // reinit will re-seek from fresh state.
+            if (values.player?.replayer && !isReplayerReadyForPlayback(values.player.replayer)) {
+                return
+            }
             // rrweb throws synchronously on malformed events it replays through — surface an error
             // state rather than letting the throw escape the listener and wedge the state machine.
             try {
@@ -2404,6 +2426,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.clearPlayerError()
                 }
             } catch (error) {
+                // A racing teardown can null the target document between the guard above and this call;
+                // that throw is benign, so don't report it or surface a player error.
+                if (isBenignReplayerTeardownError(error)) {
+                    return
+                }
                 posthog.captureException(error, {
                     feature: 'session-recording-replayer-playback',
                     sessionRecordingId: props.sessionRecordingId,
