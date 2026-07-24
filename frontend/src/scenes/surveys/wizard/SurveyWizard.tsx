@@ -94,6 +94,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     useMaxTool({
         identifier: 'edit_survey',
         active: isEditing,
+        // Pass the survey being edited so Max targets it instead of guessing an ID.
+        context: { survey_id: id, survey_name: survey.name },
         callback: (toolOutput: { survey_id?: string; error?: string }) => {
             if (!toolOutput?.error && toolOutput?.survey_id === id) {
                 loadSurvey()
