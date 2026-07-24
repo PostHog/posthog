@@ -14,7 +14,7 @@ import type {
     CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
+import { CustomPropertyTargetType, customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
 import { type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
 
@@ -31,8 +31,15 @@ const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
     failed: 'danger',
 }
 
+// Labels that differ between the person- and group-target views of the same warehouse-sync machinery.
+type ProfileLabels = { entity: string; entityPlural: string; keyColumn: string }
+const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
+    person: { entity: 'person', entityPlural: 'people', keyColumn: 'Distinct ID column' },
+    group: { entity: 'group', entityPlural: 'groups', keyColumn: 'Group key column' },
+}
+
 // Run history for one source, loaded lazily when its row is expanded.
-function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
+function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: ProfileLabels }): JSX.Element {
     const { runsBySourceId, runsLoadingBySourceId } = useValues(customPropertyDefinitionsLogic)
     const runs = runsBySourceId[sourceId] ?? []
 
@@ -47,9 +54,9 @@ function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
         },
         { title: 'Trigger', dataIndex: 'trigger' },
         { title: 'Rows produced', render: (_, run) => run.produced },
-        { title: 'Affected persons', render: (_, run) => run.existing },
+        { title: `Affected ${labels.entityPlural}`, render: (_, run) => run.existing },
         {
-            title: 'Skipped (no person)',
+            title: `Skipped (no ${labels.entity})`,
             render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
         },
         {
@@ -76,9 +83,10 @@ function PersonPropertyRuns({ sourceId }: { sourceId: string }): JSX.Element {
     )
 }
 
-// First-class Customer analytics view of the warehouse → person property sources: manages the person
-// mappings, shows the next scheduled sync, lets you trigger a sync or backfill, and expands to run history.
-export function WarehousePersonPropertiesSetting(): JSX.Element {
+// First-class Customer analytics view of the warehouse → person/group property sources: manages the
+// column mappings, shows the next scheduled sync, lets you trigger a sync or backfill, and expands to
+// run history. Parametrized by target so the person and group settings entries share one implementation.
+function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person' | 'group' }): JSX.Element {
     const { definitions, definitionsLoading, triggeringSourceIds } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
@@ -87,12 +95,13 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const personDefinitions = definitions.filter((definition) => definition.target_type === 'person')
+    const labels = LABELS_BY_TARGET[targetType]
+    const profileDefinitions = definitions.filter((definition) => definition.target_type === targetType)
 
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
-            description: `This stops syncing its warehouse columns onto people. Values already synced stay on the people, but they'll stop updating. This can't be undone.`,
+            description: `This stops syncing its warehouse columns onto ${labels.entityPlural}. Values already synced stay on the ${labels.entityPlural}, but they'll stop updating. This can't be undone.`,
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
@@ -109,7 +118,7 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
         },
         {
-            title: 'Distinct ID column',
+            title: labels.keyColumn,
             render: (_, definition) =>
                 definition.source?.key_column ? (
                     <code>{definition.source.key_column}</code>
@@ -149,7 +158,10 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                 const latestRun = definition.source.latest_run
                 const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
                 const tooltipTitle =
-                    [status.tooltip, affected != null ? `${affected} people affected on the last run` : null]
+                    [
+                        status.tooltip,
+                        affected != null ? `${affected} ${labels.entityPlural} affected on the last run` : null,
+                    ]
                         .filter(Boolean)
                         .join(' — ') || undefined
                 return (
@@ -230,26 +242,38 @@ export function WarehousePersonPropertiesSetting(): JSX.Element {
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
-                    onClick={() => openCreateModal('person')}
+                    // Lock the target: this page only manages one target, so the modal shouldn't offer
+                    // the "Attach to" switch.
+                    onClick={() => openCreateModal(targetType as CustomPropertyTargetType, true)}
                     disabledReason={restrictionReason}
                 >
-                    Add person property
+                    Add {labels.entity} property
                 </LemonButton>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={personDefinitions}
+                dataSource={profileDefinitions}
                 loading={definitionsLoading}
                 rowKey="id"
                 expandable={{
                     rowExpandable: (definition) => !!definition.source,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     expandedRowRender: (definition) =>
-                        definition.source ? <PersonPropertyRuns sourceId={definition.source.id} /> : null,
+                        definition.source ? (
+                            <ProfilePropertyRuns sourceId={definition.source.id} labels={labels} />
+                        ) : null,
                 }}
-                emptyState="No warehouse-backed person properties yet. Add one to sync warehouse columns onto people."
+                emptyState={`No warehouse-backed ${labels.entity} properties yet. Add one to sync warehouse columns onto ${labels.entityPlural}.`}
             />
             <CustomPropertyModal />
         </div>
     )
+}
+
+export function WarehousePersonPropertiesSetting(): JSX.Element {
+    return <WarehouseProfilePropertiesSetting targetType="person" />
+}
+
+export function WarehouseGroupPropertiesSetting(): JSX.Element {
+    return <WarehouseProfilePropertiesSetting targetType="group" />
 }

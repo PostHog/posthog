@@ -27,7 +27,10 @@ from products.tasks.backend.loop_service import pause_loop_schedules, signal_loo
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
-from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
+from products.tasks.backend.temporal.process_task.utils import (
+    get_default_model_for_runtime_adapter,
+    get_supported_reasoning_efforts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,13 @@ LOOP_RATE_CAP_PER_DAY = 100
 LOOP_TEAM_RATE_CAP_PER_DAY = 500
 LOOP_AUTO_PAUSE_THRESHOLD = 5
 TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
+
+# Stored on Loop.disabled_reason when the kill-switch pauses a loop, so clients can render the
+# cause (and a billing CTA for usage_limited) instead of a bare "Paused". Lifecycle pause codes
+# (owner deactivated/removed, GitHub disconnected) live in loop_lifecycle.py; re-enabling clears
+# the field in facade/loops.py::update_loop either way.
+DISABLED_REASON_USAGE_LIMITED = "usage_limited"
+DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -63,6 +73,21 @@ LOOP_FRAMING_BLOCK = (
     "you are still working or waiting; leaving the run idle just wastes the sandbox "
     "until it times out."
 )
+
+
+def render_loop_run_message(loop_instructions: str, execution_context: str) -> str:
+    # PostHog Code strips this established wrapper from user-message bubbles while still sending
+    # its contents to the agent, keeping run-only guidance out of the user's saved prompt.
+    escaped_execution_context = execution_context.replace(
+        "</user_custom_instructions>", "&lt;/user_custom_instructions&gt;"
+    )
+    hidden_context = (
+        "<user_custom_instructions>\n"
+        "The following system-generated instructions apply to this unattended loop run. Follow them.\n\n"
+        f"{escaped_execution_context}\n"
+        "</user_custom_instructions>"
+    )
+    return f"{hidden_context}\n\n{loop_instructions}"
 
 
 # Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
@@ -279,7 +304,9 @@ def fire_loop(
     # advisory lock across it would stall every other fire for the team.
     gate_owner_id = loop.created_by_id
     if _usage_gate_blocked(loop):
-        _increment_consecutive_failures_and_maybe_pause(loop, error="cloud usage limit exceeded")
+        _increment_consecutive_failures_and_maybe_pause(
+            loop, error="cloud usage limit exceeded", disabled_reason=DISABLED_REASON_USAGE_LIMITED
+        )
         observe_loop_fire(reason="gate_blocked")
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
@@ -494,9 +521,8 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
-    description = "\n\n".join(
-        part for part in [LOOP_FRAMING_BLOCK, loop.instructions, context_block, trigger_context] if part
-    )
+    execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
+    pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
     feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
 
@@ -504,7 +530,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         team_id=loop.team_id,
         created_by_id=loop.created_by_id,
         title=title,
-        description=description,
+        description=loop.instructions,
         origin_product=Task.OriginProduct.LOOP,
         repository=repository,
         github_integration_id=github_integration_id,
@@ -520,16 +546,23 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "repositories": loop.repositories,
         "context_target": context_target,
     }
+    # A loop with no pinned model deliberately stays unset on the row; the
+    # default is resolved per fire so it can improve over time. A stored effort
+    # the resolved model doesn't support (a default change can shrink the
+    # supported set under existing loops) falls back to auto rather than
+    # launching a run the runtime would reject.
+    effective_model = loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter)
+    supported_efforts = {e.value for e in get_supported_reasoning_efforts(loop.runtime_adapter, effective_model)}
+    reasoning_effort = loop.reasoning_effort if loop.reasoning_effort in supported_efforts else None
     extra_state: dict[str, Any] = {
         "loop_id": str(loop.id),
         "loop_trigger_id": str(trigger.id) if trigger is not None else None,
         "trigger_context": trigger_context,
         "runtime_adapter": loop.runtime_adapter,
-        # A loop with no pinned model deliberately stays unset on the row; the
-        # default is resolved per fire so it can improve over time.
-        "model": loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter),
-        "reasoning_effort": loop.reasoning_effort,
+        "model": effective_model,
+        "reasoning_effort": reasoning_effort,
         "config_snapshot": config_snapshot,
+        "pending_user_message": pending_user_message,
     }
     # Carries the loop's sandbox secrets/network policy into the run the same way a
     # regular task's sandbox_environment_id flows through Task._build_task.
@@ -614,7 +647,7 @@ def _execute_task_processing_workflow_for_loop(
     )
 
 
-def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -> None:
+def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, disabled_reason: str) -> None:
     should_pause = False
     with transaction.atomic():
         locked_loop = Loop.objects.for_team(loop.team_id, canonical=True).select_for_update().get(id=loop.id)
@@ -623,7 +656,8 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str) -
         update_fields = ["consecutive_failures", "last_error", "updated_at"]
         if locked_loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and locked_loop.enabled:
             locked_loop.enabled = False
-            update_fields.append("enabled")
+            locked_loop.disabled_reason = disabled_reason
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         locked_loop.save(update_fields=update_fields)
 
@@ -672,7 +706,8 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
         if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
-            update_fields.append("enabled")
+            loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
+            update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
 

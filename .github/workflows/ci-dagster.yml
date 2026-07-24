@@ -113,6 +113,7 @@ jobs:
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
+                        - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'

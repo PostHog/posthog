@@ -15,9 +15,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { appendExceptionToMessage, supportLogic } from 'lib/components/Support/supportLogic'
+import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -434,6 +434,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!values.isEnabled || !content.trim() || values.messageSending || !posthog.conversations) {
                 return
             }
+            if (warnIfMessageTooLong(content)) {
+                return
+            }
             actions.setMessageSending(true)
             try {
                 // If we're in "new" view, force creation of a new ticket
@@ -458,10 +461,22 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
                     onSuccess()
+                } else {
+                    // A null response means nothing was sent, so surface it instead of silently
+                    // resetting. Server-rejected sends are captured server-side (widget endpoint),
+                    // so we only warn the user here rather than emitting a duplicate failure event.
+                    lemonToast.error('Failed to send message. Please try again.')
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
-                lemonToast.error('Failed to send message. Please try again.')
+                posthog.capture('support ticket send failed', {
+                    channel: 'conversations',
+                    error: e instanceof Error ? e.message : String(e),
+                    message_length: content.length,
+                    current_url_length: window.location.href.length,
+                    is_new_ticket: values.view === 'new',
+                })
+                lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
             } finally {
                 actions.setMessageSending(false)
             }

@@ -1,7 +1,8 @@
 import { IntegrationKind, IntegrationType } from '~/types'
 
-/** The actionable connect section, reused in both settings and the full page. */
-export type SettingsSectionComponent = (props: { next?: string }) => JSX.Element
+/** The actionable connect section, reused in both settings and the full page.
+ * The full page passes ``centered`` so the section can match its centered layout. */
+export type SettingsSectionComponent = (props: { next?: string; centered?: boolean }) => JSX.Element
 
 /**
  * Optional slot rendered on the OAuth landing page directly below the success card,
