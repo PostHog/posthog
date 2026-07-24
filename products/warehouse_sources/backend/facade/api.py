@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_s3_key,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
@@ -69,6 +70,7 @@ __all__ = [
     "build_file_upload_s3_key",
     "build_file_upload_s3_path",
     "build_file_upload_url_pattern",
+    "hosted_upload_s3_path",
 ]
 
 # GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source
