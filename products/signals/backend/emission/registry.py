@@ -134,6 +134,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
+    from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
@@ -204,6 +205,10 @@ def _register_all_emitters() -> None:
     # OAuth-connected support sources (record kind: ticket)
     register_signal_source(ExternalDataSourceType.INTERCOM, "conversations", INTERCOM_CONFIG)
     register_signal_source(ExternalDataSourceType.HUBSPOT, "tickets", HUBSPOT_CONFIG)
+    # Search analytics (record kind: search_opportunity)
+    register_signal_source(
+        ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
+    )
 
 
 _register_all_emitters()
