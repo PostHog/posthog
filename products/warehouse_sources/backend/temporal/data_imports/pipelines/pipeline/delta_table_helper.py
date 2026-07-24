@@ -1,6 +1,6 @@
 import json
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Literal
 
 from django.conf import settings
@@ -163,6 +163,32 @@ def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
         return table
 
     return pa.table(new_columns, schema=table.schema)
+
+
+class _UnsafeToWidenError(Exception):
+    """Raised by the pre-write verification pass when a stored value would not survive the
+    widening cast. Str value is the offending column name. Internal control flow for
+    `DeltaTableHelper.widen_stored_column_types` only — never propagated."""
+
+
+def _widened_column_type(stored: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
+    """The type a stored integer column must widen to for `incoming` values to fit, or None.
+
+    Mirrors the conflicts `evolve_pyarrow_schema` raises `SchemaColumnTypeChangedException`
+    for: an integer column now receiving floats, decimals, or wider integers. Floats always
+    widen to float64 and integers to int64 — Delta's `double`/`long` — so one rewrite settles
+    the column no matter which width arrives next. decimal256 is excluded because Delta caps
+    decimal precision at 38 (decimal128).
+    """
+    if not pa.types.is_integer(stored):
+        return None
+    if pa.types.is_floating(incoming):
+        return pa.float64()
+    if pa.types.is_decimal128(incoming):
+        return incoming
+    if pa.types.is_integer(incoming) and incoming.bit_width > stored.bit_width:
+        return pa.int64()
+    return None
 
 
 def _first_per_pk_table(
@@ -381,6 +407,91 @@ class DeltaTableHelper:
             return []
 
         return await asyncio.to_thread(delta_table.file_uris)
+
+    async def widen_stored_column_types(self, incoming_schema: pa.Schema) -> deltalake.DeltaTable | None:
+        """Rewrite the table so stored integer columns adopt the wider type now arriving.
+
+        delta-rs cannot widen a column's type in place (no `typeWidening` support), so the only
+        way for a table to accept e.g. fractional prices in a column created as int64 is to
+        rewrite every row. That cost is deliberate: this is reserved for tables whose data cannot
+        be re-pulled from the source (webhook-only resources), where the usual remedy — reset and
+        fully re-sync — is a no-op by design (see `handle_reset_or_full_refresh`), leaving the
+        table wedged forever on the first fractional value.
+
+        Before anything is written, every widened column is streamed through a pyarrow safe cast
+        to prove the rewrite is lossless (safe int→double casts reject values beyond 2**53, where
+        doubles lose integer precision). Returns the refreshed table after a single atomic
+        overwrite commit, or None when there is nothing safe to widen — callers should let their
+        original error propagate. A crash mid-rewrite leaves the table on its previous version;
+        parquet files from the aborted write are untracked and cleaned up by vacuum.
+        """
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        stored_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
+        widened: dict[str, pa.DataType] = {}
+        for stored_field in stored_schema:
+            incoming_index = incoming_schema.get_field_index(stored_field.name)
+            if incoming_index == -1:
+                continue
+            target_type = _widened_column_type(stored_field.type, incoming_schema.field(incoming_index).type)
+            if target_type is not None and target_type != stored_field.type:
+                widened[stored_field.name] = target_type
+
+        if not widened:
+            await self._logger.adebug("widen_stored_column_types: no stored column is widenable")
+            return None
+
+        existing_partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
+        partition_by = PARTITION_KEY if PARTITION_KEY in existing_partition_columns else None
+
+        def _rewrite() -> None:
+            dataset = delta_table.to_pyarrow_dataset()
+            target_schema = pa.schema(
+                [field.with_type(widened.get(field.name, field.type)) for field in dataset.schema],
+                metadata=dataset.schema.metadata,
+            )
+
+            # Verification pass, column-pruned so only the widened columns are read. It must
+            # complete before the write starts: an exception raised from a batch generator
+            # mid-write surfaces as an opaque DeltaError from the Rust writer boundary, and
+            # would leave orphaned parquet files behind.
+            for name, target_type in widened.items():
+                for verify_batch in dataset.scanner(columns=[name]).to_batches():
+                    try:
+                        verify_batch.column(0).cast(target_type)
+                    except pa.ArrowInvalid as e:
+                        raise _UnsafeToWidenError(name) from e
+
+            def _casted_batches() -> Iterator[pa.RecordBatch]:
+                for batch in dataset.to_batches():
+                    yield from pa.Table.from_batches([batch]).cast(target_schema).to_batches()
+
+            reader = pa.RecordBatchReader.from_batches(target_schema, _casted_batches())
+            deltalake.write_deltalake(
+                table_or_uri=delta_table,
+                data=reader,
+                partition_by=partition_by,
+                mode="overwrite",
+                schema_mode="overwrite",
+            )
+
+        try:
+            await asyncio.to_thread(_rewrite)
+        except _UnsafeToWidenError as e:
+            await self._logger.awarning(
+                f"widen_stored_column_types: aborted, stored values in column '{e}' would not survive the widening cast"
+            )
+            return None
+
+        self.get_delta_table.cache_clear()
+        refreshed = await self.get_delta_table()
+        assert refreshed is not None
+
+        widened_description = ", ".join(f"{name} -> {dtype}" for name, dtype in sorted(widened.items()))
+        await self._logger.ainfo(f"widen_stored_column_types: rewrote table widening columns: {widened_description}")
+        return refreshed
 
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool

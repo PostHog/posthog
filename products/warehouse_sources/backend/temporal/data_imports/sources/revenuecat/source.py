@@ -259,8 +259,9 @@ class RevenueCatSource(
             "Source column type changed": (
                 "A column in this table started receiving values that don't fit the type stored from "
                 "earlier syncs (for example a price column created from whole-number values now "
-                "receiving a decimal price). We can't widen an existing column in place — reset and "
-                "fully re-sync this table to adopt the new type."
+                "receiving a decimal price). PostHog normally converts the stored column to the wider "
+                "type automatically, but that conversion wasn't possible here. Contact support to "
+                "migrate this table."
             ),
         }
 
