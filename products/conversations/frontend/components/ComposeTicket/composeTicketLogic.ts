@@ -168,6 +168,17 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             }
             actions.loadEmailConfigs()
         },
+        loadEmailConfigsSuccess: ({ emailConfigs }) => {
+            // Default the "From" address to the team's primary channel (falling back to the first verified one)
+            if (values.emailConfigId) {
+                return
+            }
+            const verified = emailConfigs.filter((c) => c.domain_verified)
+            const defaultConfig = verified.find((c) => c.is_default) ?? verified[0]
+            if (defaultConfig) {
+                actions.setEmailConfigId(defaultConfig.id)
+            }
+        },
         submitCompose: async ({ message, richContent }) => {
             const { recipientEmail, recipientDistinctId, emailSubject, emailConfigId } = values
 
