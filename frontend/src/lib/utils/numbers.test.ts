@@ -3,7 +3,9 @@ import {
     compactNumber,
     formatPercentageDiff,
     humanFriendlyLargeNumber,
+    humanFriendlyNumber,
     median,
+    percentage,
     roundToDecimal,
 } from 'lib/utils/numbers'
 
@@ -65,6 +67,31 @@ describe('numbers utils', () => {
             expect(humanFriendlyLargeNumber(NaN)).toEqual('NaN')
             expect(humanFriendlyLargeNumber(Infinity)).toEqual('inf')
             expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
+        })
+    })
+
+    describe('humanFriendlyNumber()', () => {
+        it('formats defined numbers correctly', () => {
+            expect(humanFriendlyNumber(1234)).toEqual('1,234')
+            expect(humanFriendlyNumber(0)).toEqual('0')
+            expect(humanFriendlyNumber(1234.567, 2)).toEqual('1,234.57')
+        })
+
+        // Guards the Replay Vision crash: a missing quota/stats field must not throw on `.toLocaleString()`.
+        it.each([undefined, null])('renders %s as 0 instead of throwing', (input) => {
+            expect(humanFriendlyNumber(input)).toEqual('0')
+        })
+    })
+
+    describe('percentage()', () => {
+        it('formats defined ratios correctly', () => {
+            expect(percentage(0.234, 1)).toEqual('23.4%')
+            expect(percentage(Infinity)).toEqual('∞%')
+        })
+
+        // Guards the Replay Vision crash: a missing ratio must not throw on `.toLocaleString()`.
+        it.each([undefined, null])('renders %s as 0% instead of throwing', (input) => {
+            expect(percentage(input)).toEqual('0%')
         })
     })
 
