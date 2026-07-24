@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -70,6 +70,17 @@ function SplitPerson(): JSX.Element | null {
         key: distinctId,
     }))
 
+    // The person view only loads a bounded slice of distinct IDs (the person query caps at 101 via
+    // groupArray(101)), so people with many IDs won't see all of them listed. Once we hit that cap the
+    // list is likely truncated, so hint that an exact ID can be pasted directly.
+    const distinctIdsMayBeTruncated = person.distinct_ids.length >= 101
+    const pasteHint = distinctIdsMayBeTruncated ? (
+        <p className="text-muted text-xs mt-1">
+            Not all distinct IDs may be shown for a person with this many IDs. You can paste an exact distinct ID that
+            isn't listed.
+        </p>
+    ) : null
+
     return (
         <>
             <LemonSegmentedButton
@@ -88,14 +99,16 @@ function SplitPerson(): JSX.Element | null {
                         You can select a distinct ID for which all the current properties will be assigned (
                         <i>optional</i>). All other new users will start without any properties.
                     </p>
-                    <LemonSelect
-                        fullWidth
+                    <LemonInputSelect
+                        mode="single"
+                        allowCustomValues
                         options={options}
-                        placeholder="Select a distinct ID to which to assign all properties (optional)"
-                        disabledReason={executedLoading && 'Splitting user'}
-                        value={selectedPersonToAssignSplit}
-                        onChange={(value) => setSelectedPersonToAssignSplit(value as string)}
+                        placeholder="Select or type a distinct ID to which to assign all properties (optional)"
+                        disabled={executedLoading}
+                        value={selectedPersonToAssignSplit ? [selectedPersonToAssignSplit] : []}
+                        onChange={(value) => setSelectedPersonToAssignSplit(value[0] ?? null)}
                     />
+                    {pasteHint}
                     <LemonBanner type="warning" className="mt-4">
                         This will create <strong>{person.distinct_ids.length - 1}</strong>{' '}
                         {pluralize(person.distinct_ids.length - 1, 'new person', undefined, false)}. This might change
@@ -110,12 +123,14 @@ function SplitPerson(): JSX.Element | null {
                     </p>
                     <LemonInputSelect
                         mode="multiple"
+                        allowCustomValues
                         options={options}
-                        placeholder="Select distinct IDs to extract"
+                        placeholder="Select or type distinct IDs to extract"
                         disabled={executedLoading}
                         value={distinctIdsToSplit}
                         onChange={(value) => setDistinctIdsToSplit(value)}
                     />
+                    {pasteHint}
                     {distinctIdsToSplit.length > 0 && (
                         <LemonBanner type="warning" className="mt-4">
                             This will create <strong>{distinctIdsToSplit.length}</strong>{' '}
