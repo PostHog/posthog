@@ -124,9 +124,16 @@ export async function instrumentFn<T>(
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
-    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
-        instrumentedFunctionTimeout.labels({ function: key }).inc()
-    })
+    const t = timeoutGuard(
+        timeoutMessage,
+        getLoggingContext,
+        timeout,
+        sendException,
+        () => {
+            instrumentedFunctionTimeout.labels({ function: key }).inc()
+        },
+        `Timeout: ${key}`
+    )
     const startTime = performance.now()
     const end = measureTime ? instrumentedFunctionDuration.startTimer({ function: key }) : undefined
 

@@ -39,13 +39,22 @@ export function timeoutGuard(
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
     sendException = true,
-    reportMetric?: () => void
+    reportMetric?: () => void,
+    exceptionType?: string
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
         if (sendException) {
-            captureException(message, ctx ? { extra: ctx } : undefined)
+            // Capture a real Error rather than a bare string. A bare string makes posthog-node
+            // synthesize a stack at the capture point, so timeouts from unrelated callsites all
+            // collapse into one error-tracking issue keyed by that single shared frame. The Error's
+            // name becomes the exception type that grouping keys on, so a distinct name per callsite
+            // splits them back into meaningful issues. Defaults to the message (static per callsite);
+            // callers pass an explicit type when the message carries dynamic values.
+            const error = new Error(message)
+            error.name = exceptionType ?? message
+            captureException(error, ctx ? { extra: ctx } : undefined)
         }
         if (reportMetric) {
             reportMetric()
