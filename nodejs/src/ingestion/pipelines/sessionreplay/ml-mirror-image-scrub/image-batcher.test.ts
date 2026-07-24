@@ -197,6 +197,50 @@ describe('ImageBatcher', () => {
         expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 3 }])
     })
 
+    it.each([0, 1000])(
+        'scrubs the distinct images of a duplicate-heavy batch at full concurrency (dedupMaxRefs %p)',
+        async (dedupMaxRefs) => {
+            // Duplicates have to collapse before the batch is chunked. Left in, they occupy
+            // concurrency slots, so a chunk finishes as soon as its one distinct image does and the
+            // batch serializes behind the chunk barriers — the lane then runs one image in flight
+            // instead of scrubConcurrency, regardless of how many pods it has. Consecutive repeats
+            // are the realistic shape: one sprite recurs across a session's snapshots.
+            const store = new FakeStore()
+            let inFlight = 0
+            let maxInFlight = 0
+            let scrubs = 0
+            const trackingClient = {
+                scrub: async (b: Buffer) => {
+                    scrubs += 1
+                    inFlight += 1
+                    maxInFlight = Math.max(maxInFlight, inFlight)
+                    await new Promise((resolve) => setImmediate(resolve))
+                    inFlight -= 1
+                    return b
+                },
+            } as unknown as ScrubClient
+            const batcher = new ImageBatcher(
+                store as unknown as ImageShardStore,
+                new FakeOffsets(),
+                trackingClient,
+                { ...options, dedupMaxRefs },
+                0
+            )
+
+            const batch: Message[] = []
+            for (let sprite = 0; sprite < 4; sprite++) {
+                for (let repeat = 0; repeat < 8; repeat++) {
+                    batch.push(msg(0, batch.length, pt(1), Buffer.from(`sprite-${sprite}`)))
+                }
+            }
+            await batcher.handleBatch(batch, 1)
+
+            expect(scrubs).toBe(4)
+            expect(maxInFlight).toBe(4)
+            expect(store.writes.flat()).toHaveLength(4)
+        }
+    )
+
     it('dedupMaxRefs 0 disables dedup instead of skipping everything or throwing', async () => {
         const store = new FakeStore()
         const batcher = new ImageBatcher(

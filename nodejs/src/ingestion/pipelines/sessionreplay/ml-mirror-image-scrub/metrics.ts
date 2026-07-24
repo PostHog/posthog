@@ -1,4 +1,4 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -11,7 +11,18 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
-        help: 'Messages skipped because this pod already scrubbed the same ref (duplicate produce); dedup hit rate = deduped / (deduped + scrubbed + skipped)',
+        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier). Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
+        labelNames: ['scope'],
+    })
+    /**
+     * Intra-batch dedup can only collapse copies that arrive in the same poll batch, so its ceiling is
+     * set by how many messages a batch holds. Small batches are the one way it can be "undersized",
+     * and unlike the seen-ref cache the fix is poll configuration rather than memory.
+     */
+    private static readonly batchMessages = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_batch_messages',
+        help: 'Messages per poll batch. Read alongside deduped{scope="batch"}: consistently small batches cap how much intra-batch dedup can collapse, whatever the duplicate rate is',
+        buckets: [1, 10, 50, 100, 500, 1000, 5000, 10000],
     })
     private static readonly invalidKey = new Counter({
         name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
@@ -44,11 +55,14 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incDeduped(): void {
-        this.deduped.inc()
+    public static incDeduped(scope: 'batch' | 'pod'): void {
+        this.deduped.labels(scope).inc()
     }
     public static incInvalidKey(): void {
         this.invalidKey.inc()
+    }
+    public static observeBatchMessages(count: number): void {
+        this.batchMessages.observe(count)
     }
     public static observeShard(images: number, bytes: number): void {
         this.shardsWritten.inc()

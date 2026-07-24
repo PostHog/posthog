@@ -1,16 +1,24 @@
-import { LRUCache } from 'lru-cache'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 
 import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
-import { isImageRef, parseImageRef } from './content-ref'
+import { imageRef, isImageRef, parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient } from './scrub-client'
 
 export interface OffsetStore {
     offsetsStore(offsets: TopicPartitionOffset[]): void
+}
+
+/** A message that survived planning, carrying its batch index so offsets can advance over the skips. */
+interface PlannedScrub {
+    index: number
+    pseudoTeam: string
+    hash: string
+    value: Buffer
 }
 
 export interface ImageBatcherOptions {
@@ -30,16 +38,19 @@ export class ImageBatcher {
     private readonly chunkSize: number
     private readonly scrubConcurrency: ConcurrencyController
     /**
-     * Refs this pod has already sent to the sidecar. The topic is keyed by ref, so every copy of an
-     * image lands on the same partition — a per-pod cache therefore dedupes exactly (within its
-     * capacity), and the producer's own dedup is per-mirror-pod, so cross-mirror-pod duplicates of
-     * hot sprites all arrive here. Marked before the scrub completes: if the scrub throws, the batch
-     * throws and the pod restarts (wiping this cache), and offsets are only stored after a durable
-     * flush, so a marked-but-unwritten ref can't have its offsets committed. The one gap is a
-     * rebalance without a restart, where a replayed ref is skipped and stays a dangling ref — which
-     * downstream reads as a placeholder by design.
+     * Refs this pod has already scrubbed, as a best-effort stand-in for "these bytes are already in
+     * the ML bucket" — shards pack many images per object, so there is no per-hash key to ask S3
+     * about. The topic is keyed by ref, so every copy of an image lands on the same partition and
+     * therefore this pod: within its capacity the answer is exact, and past it we simply rescrub.
+     * Entries are added once an image is buffered for a shard write, so a marked ref is always one
+     * this pod holds or has written — a batch that throws keeps its buffer, and a rebalance without
+     * a restart can no longer skip a ref it never persisted.
+     *
+     * This only ever saves work that intra-batch dedup did not already save; sizing it is a
+     * throughput question, not a correctness one, and the cache's capacity probe metric is what
+     * says whether the size is actually costing us hits.
      */
-    private readonly seenRefs: LRUCache<string, true> | null
+    private readonly seenRefs: RefDedupCache
 
     constructor(
         private readonly store: ImageShardStore,
@@ -56,10 +67,17 @@ export class ImageBatcher {
         }
         this.lastFlushMs = nowMs
         this.scrubConcurrency = new ConcurrencyController(this.chunkSize)
-        this.seenRefs = options.dedupMaxRefs > 0 ? new LRUCache({ max: options.dedupMaxRefs }) : null
+        this.seenRefs = new RefDedupCache('image_scrub_consumer', options.dedupMaxRefs)
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+        // Resolve every skip before chunking. A duplicate left in the chunk still consumes a
+        // concurrency slot and resolves as a no-op, so a chunk finishes as soon as its one distinct
+        // image does: with repeats outnumbering distinct images the batch serializes behind the
+        // chunk barriers and the pod runs one scrub at a time whatever scrubConcurrency says.
+        ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
+        const planned = this.planBatch(messages)
+
         // Scrub in concurrency-sized chunks with the capacity bounds applied between chunks: scrubbed
         // outputs can dwarf their inputs (a sub-MB input can come back as a multi-MB full-resolution
         // PNG), so retaining a whole poll batch of them before the first bound check can hold
@@ -71,8 +89,9 @@ export class ImageBatcher {
         // loop misattributed to the sidecar.
         const controller = new AbortController()
         let scrubBudgetMs = this.options.maxBatchScrubMs
-        for (let i = 0; i < messages.length; i += this.chunkSize) {
-            const chunk = messages.slice(i, i + this.chunkSize)
+        let spanStart = 0
+        for (let i = 0; i < planned.length; i += this.chunkSize) {
+            const chunk = planned.slice(i, i + this.chunkSize)
             const chunkStartMs = performance.now()
             const timer = setTimeout(() => controller.abort(), scrubBudgetMs)
             let scrubbed: ScrubbedImage[]
@@ -88,30 +107,76 @@ export class ImageBatcher {
             for (const image of scrubbed) {
                 this.buffer.push(image)
                 this.bufferBytes += image.bytes.length
+                this.seenRefs.add(imageRef(image.pseudoTeam, image.hash))
             }
-            // Advance offsets per completed chunk (even all-skipped ones, or skipped messages
-            // replay forever). They are only ever *stored* by a flush, after the buffer — which
+            // Advance offsets per completed chunk, across the whole span of the batch it consumed —
+            // the skipped messages sitting between its entries are done too, and would otherwise
+            // replay forever. Offsets are only ever *stored* by a flush, after the buffer — which
             // holds exactly these chunks' images — is durably written. A mid-batch flush thereby
             // records the progress it persisted: a later failure in this batch replays only from
             // the flush, instead of re-writing another copy of the flushed shard per replay.
-            for (const offset of findOffsetsToCommit(chunk)) {
-                this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
-            }
+            const spanEnd = chunk[chunk.length - 1].index + 1
+            this.recordOffsets(messages.slice(spanStart, spanEnd))
+            spanStart = spanEnd
             if (this.overCapacity()) {
                 await this.flushOrThrow(nowMs)
             }
         }
+        // Whatever trails the last scrubbed message is skips only (and a wholly-skipped batch is all
+        // trailer), so it needs the same treatment or those offsets never move.
+        this.recordOffsets(messages.slice(spanStart))
         if (this.shouldFlush(nowMs)) {
             await this.flushOrThrow(nowMs)
         }
     }
 
-    private async scrubChunk(messages: Message[], controller: AbortController): Promise<ScrubbedImage[]> {
+    /**
+     * Decide, for a whole batch at once, which messages actually reach the sidecar: the first
+     * occurrence of each ref, minus anything already scrubbed. Intra-batch dedup is unconditional —
+     * it needs no retained state, so unlike [[seenRefs]] it cannot be sized wrong or turned off.
+     */
+    private planBatch(messages: Message[]): PlannedScrub[] {
+        const planned: PlannedScrub[] = []
+        const batchRefs = new Set<string>()
+        for (const [index, m] of messages.entries()) {
+            const ref = m.key?.toString('utf8')
+            if (!ref || !isImageRef(ref) || !m.value) {
+                ImageScrubConsumerMetrics.incInvalidKey()
+                continue
+            }
+            // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
+            // trusts the producer (the topic's only writer) that the key names these bytes.
+            const parsed = parseImageRef(ref)
+            if (!parsed) {
+                ImageScrubConsumerMetrics.incInvalidKey()
+                continue
+            }
+            if (batchRefs.has(ref)) {
+                ImageScrubConsumerMetrics.incDeduped('batch')
+                continue
+            }
+            batchRefs.add(ref)
+            if (this.seenRefs.has(ref)) {
+                ImageScrubConsumerMetrics.incDeduped('pod')
+                continue
+            }
+            planned.push({ index, pseudoTeam: parsed.pseudoTeam, hash: parsed.hash, value: m.value })
+        }
+        return planned
+    }
+
+    private recordOffsets(messages: Message[]): void {
+        for (const offset of findOffsetsToCommit(messages)) {
+            this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
+        }
+    }
+
+    private async scrubChunk(planned: PlannedScrub[], controller: AbortController): Promise<ScrubbedImage[]> {
         try {
             const scrubbed = await Promise.all(
-                messages.map((m) =>
+                planned.map((p) =>
                     this.scrubConcurrency.run({
-                        fn: () => this.scrubOne(m, controller.signal),
+                        fn: () => this.scrubOne(p, controller.signal),
                         abortController: controller,
                     })
                 )
@@ -132,31 +197,14 @@ export class ImageBatcher {
         }
     }
 
-    private async scrubOne(m: Message, signal: AbortSignal): Promise<ScrubbedImage | null> {
-        const ref = m.key?.toString('utf8')
-        if (!ref || !isImageRef(ref) || !m.value) {
-            ImageScrubConsumerMetrics.incInvalidKey()
-            return null
-        }
-        // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
-        // trusts the producer (the topic's only writer) that the key names these bytes.
-        const parsed = parseImageRef(ref)
-        if (!parsed) {
-            ImageScrubConsumerMetrics.incInvalidKey()
-            return null
-        }
-        if (this.seenRefs?.get(ref)) {
-            ImageScrubConsumerMetrics.incDeduped()
-            return null
-        }
-        this.seenRefs?.set(ref, true)
-        const bytes = await this.scrubClient.scrub(m.value, signal)
+    private async scrubOne(planned: PlannedScrub, signal: AbortSignal): Promise<ScrubbedImage | null> {
+        const bytes = await this.scrubClient.scrub(planned.value, signal)
         if (bytes === null) {
             ImageScrubConsumerMetrics.incSkipped()
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()
-        return { pseudoTeam: parsed.pseudoTeam, hash: parsed.hash, bytes }
+        return { pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
     }
 
     private overCapacity(): boolean {

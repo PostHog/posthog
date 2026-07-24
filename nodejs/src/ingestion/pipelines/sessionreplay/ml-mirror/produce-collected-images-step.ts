@@ -1,5 +1,3 @@
-import { LRUCache } from 'lru-cache'
-
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
@@ -7,15 +5,20 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 /**
  * The Rust collector dedupes within one message; this bounds cross-message re-produces (the same
- * sprite recurring in every snapshot of a session). Refs are ~60 bytes, so the ceiling is ~6 MB.
- * Duplicates that slip past it are only wasted topic bytes — the consumer dedupes by ref too, so
- * re-produces are idempotent. LRU eviction, never wholesale clears: clearing forgets every hot
- * sprite at once and re-produces the whole working set each time the cap is hit.
+ * sprite recurring in every snapshot of a session, and across the sessions one pod happens to hold).
+ * It is the only thing standing between a hot sprite and one produce per recurrence, so capacity
+ * translates directly into scrub-topic volume: a ref evicted before its next sighting is re-produced
+ * and re-scrubbed. Budget ~200 B per entry (the ref plus the LRU's own bookkeeping, not the ~60 B of
+ * string), so this is ~100 MB against the lane's 8 GB pods. Duplicates that slip past it are only
+ * wasted topic bytes — the consumer dedupes by ref too, so re-produces are idempotent. LRU eviction,
+ * never wholesale clears: clearing forgets every hot sprite at once and re-produces the whole working
+ * set each time the cap is hit.
  */
-const PRODUCED_REF_CACHE_MAX = 100_000
+const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
  * Produce collected original images to the scrub topic as a fire-and-forget side effect, keyed by
@@ -27,7 +30,7 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
     outputs: IngestionOutputs<MlImageScrubOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
-    const producedRefs = new LRUCache<string, true>({ max: producedRefCacheMax })
+    const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
 
     return function produceCollectedImagesStep(input) {
         const images = input.collectedImages
@@ -35,7 +38,7 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             return Promise.resolve(ok(input))
         }
 
-        const fresh = images.filter((image) => !producedRefs.get(image.ref))
+        const fresh = images.filter((image) => !producedRefs.has(image.ref))
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
@@ -43,7 +46,7 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
 
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.set(image.ref, true)
+            producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
