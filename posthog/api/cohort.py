@@ -969,17 +969,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Legacy `groups` payloads are turned into `Group` objects during creation, where a group
         # missing all of properties/action_id/event_id (or carrying unexpected keys) raises a plain
         # exception. Validate here so bad input returns a 400 instead of surfacing as a 500.
-        if not groups:
+        if groups is None:
             return groups
         if not isinstance(groups, list):
             raise ValidationError("Groups must be a list of cohort group definitions.")
-        for group in groups:
+        for index, group in enumerate(groups):
             if not isinstance(group, dict):
-                raise ValidationError("Each cohort group must be an object.")
+                raise ValidationError(f"Cohort group at index {index} must be an object.")
             try:
                 Group(**group)
             except (ValueError, TypeError) as exc:
-                raise ValidationError(str(exc))
+                raise ValidationError(f"Invalid cohort group at index {index}: {exc}")
         return groups
 
     def _cohort_will_be_static(self) -> bool:
