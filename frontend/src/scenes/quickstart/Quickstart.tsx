@@ -41,6 +41,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -90,6 +91,7 @@ import {
     SDKInstructionsMap,
     SDKKey,
     SDKTagOverrides,
+    Region,
     SidePanelTab,
 } from '~/types'
 
@@ -248,7 +250,8 @@ function ProjectFacts(): JSX.Element | null {
     if (!currentTeam) {
         return null
     }
-    const regionLabel = preflight?.region ? `${preflight.region} Cloud` : null
+    // Region is a cloud concept; outside cloud the SDK-facing fact is the host itself
+    const regionLabel = preflight?.region && preflight.region !== Region.DEV ? `${preflight.region} Cloud` : null
 
     return (
         <>
@@ -257,7 +260,15 @@ function ProjectFacts(): JSX.Element | null {
                 value={String(currentTeam.id)}
                 copy={{ tooltip: 'Copy project ID', thing: 'project ID', action: 'copy_project_id' }}
             />
-            {regionLabel && <ProjectFactChip label="Region" value={regionLabel} mono={false} />}
+            {regionLabel ? (
+                <ProjectFactChip label="Region" value={regionLabel} mono={false} />
+            ) : (
+                <ProjectFactChip
+                    label="Host"
+                    value={apiHostOrigin()}
+                    copy={{ tooltip: 'Copy API host', thing: 'API host', action: 'copy_api_host' }}
+                />
+            )}
         </>
     )
 }
