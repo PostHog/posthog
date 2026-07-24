@@ -641,6 +641,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
                 ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
@@ -696,6 +698,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),

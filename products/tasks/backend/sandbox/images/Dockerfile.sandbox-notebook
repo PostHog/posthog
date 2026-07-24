@@ -91,6 +91,10 @@ RUN git config --global user.email "code@posthog.com" && \
 # Block `git commit`/`git push` so unsigned commits cannot leave the sandbox.
 COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
 RUN chmod +x /opt/posthog/bin/git
+# Inject the per-actor GitHub token into every `gh` call (BASH_ENV only reaches
+# non-interactive `bash -c`; the agent's interactive shell needs this shim).
+COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
+RUN chmod +x /opt/posthog/bin/gh
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
