@@ -1,4 +1,4 @@
-from collections import defaultdict
+import re
 from datetime import date, datetime, timedelta
 from functools import cached_property
 from zoneinfo import ZoneInfo
@@ -7,12 +7,47 @@ from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMe
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group_usage_metric import GroupUsageMetric
 
 SourceDescriptor = tuple
+
+# Roots of `events`-table field chains that resolve through a lazy JOIN (person/group/session
+# properties). ClickHouse can't resolve a joined column inside a countIf/sumIf argument under a
+# GROUP BY, so filters referencing these must be applied in the WHERE clause instead.
+_JOIN_FIELD_ROOTS = frozenset({"person", "pdi", "session"})
+_GROUP_FIELD_ROOT = re.compile(r"^group_\d+$")
+
+
+def _chain_root_needs_join(chain: list[str | int]) -> bool:
+    if not chain:
+        return False
+    root = chain[0]
+    if not isinstance(root, str):
+        return False
+    return root in _JOIN_FIELD_ROOTS or bool(_GROUP_FIELD_ROOT.match(root))
+
+
+class _JoinFieldFinder(TraversingVisitor):
+    """Detect references to `events` fields that resolve through a lazy JOIN (person, group, or
+    session properties) — columns that crash ClickHouse when used inside a countIf/sumIf argument
+    under a GROUP BY."""
+
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        if _chain_root_needs_join(node.chain):
+            self.found = True
+
+    @classmethod
+    def has_join_field(cls, node: ast.Expr) -> bool:
+        finder = cls()
+        finder.visit(node)
+        return finder.found
 
 
 class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
@@ -48,8 +83,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         last_hogql: str | None = None
         all_timings = list(self.timings.to_list())
 
-        for (source_descriptor, interval), group in source_groups.items():
-            query = self._build_interval_group_query(source_descriptor, interval, group, date_to=date_to)
+        for (source_descriptor, interval, _where_sig), (where_conjuncts, group) in source_groups.items():
+            query = self._build_interval_group_query(
+                source_descriptor, interval, where_conjuncts, group, date_to=date_to
+            )
 
             with self.timings.measure(f"usage_metrics_{source_descriptor[0]}_{interval}_execute"):
                 response = execute_hogql_query(
@@ -88,8 +125,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
         date_to = datetime.now(tz=ZoneInfo("UTC"))
         queries = [
-            self._build_interval_group_query(source_descriptor, interval, group, date_to=date_to)
-            for (source_descriptor, interval), group in source_groups.items()
+            self._build_interval_group_query(source_descriptor, interval, where_conjuncts, group, date_to=date_to)
+            for (source_descriptor, interval, _where_sig), (where_conjuncts, group) in source_groups.items()
         ]
 
         if len(queries) == 1:
@@ -125,8 +162,13 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def _group_metrics_by_source_and_interval(
         self, metrics: list[GroupUsageMetric]
-    ) -> dict[tuple[SourceDescriptor, int], list[tuple[GroupUsageMetric, ast.Expr]]]:
-        groups: dict[tuple[SourceDescriptor, int], list[tuple[GroupUsageMetric, ast.Expr]]] = defaultdict(list)
+    ) -> dict[tuple[SourceDescriptor, int, str], tuple[list[ast.Expr], list[tuple[GroupUsageMetric, ast.Expr]]]]:
+        # Value is (shared WHERE conjuncts, [(metric, countIf expr), ...]). Metrics that hoist the
+        # same JOIN-requiring conjuncts into WHERE share a query, so batching survives; metrics with
+        # different person/group filters land in separate queries keyed by their WHERE signature.
+        groups: dict[
+            tuple[SourceDescriptor, int, str], tuple[list[ast.Expr], list[tuple[GroupUsageMetric, ast.Expr]]]
+        ] = {}
         for metric in metrics:
             if metric.math == GroupUsageMetric.Math.SUM and not metric.math_property:
                 continue
@@ -140,13 +182,51 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 # DW metrics legitimately have no filter in v1, so they pass through.
                 continue
             source_descriptor = self._source_descriptor(metric)
-            groups[(source_descriptor, metric.interval)].append((metric, filter_expr))
-        return dict(groups)
+            where_conjuncts, countif_expr = self._split_filter_expr(filter_expr)
+            key = (source_descriptor, metric.interval, self._where_signature(where_conjuncts))
+            if key not in groups:
+                groups[key] = (where_conjuncts, [])
+            groups[key][1].append((metric, countif_expr))
+        return groups
+
+    @staticmethod
+    def _split_filter_expr(filter_expr: ast.Expr) -> tuple[list[ast.Expr], ast.Expr]:
+        """Split a metric filter into (WHERE conjuncts, countIf expr).
+
+        Person/group/session property filters resolve through a JOIN, and ClickHouse can't resolve a
+        joined column inside a countIf/sumIf argument under a GROUP BY. Those conjuncts are hoisted
+        into the query's WHERE clause (evaluated before aggregation); the rest of the filter stays in
+        the per-metric conditional aggregate. For a single metric this preserves the count exactly,
+        since WHERE and the aggregate condition compose the same predicate over the same rows.
+        """
+        conjuncts = filter_expr.exprs if isinstance(filter_expr, ast.And) else [filter_expr]
+        where_conjuncts: list[ast.Expr] = []
+        countif_conjuncts: list[ast.Expr] = []
+        for conjunct in conjuncts:
+            if _JoinFieldFinder.has_join_field(conjunct):
+                where_conjuncts.append(conjunct)
+            else:
+                countif_conjuncts.append(conjunct)
+
+        if not countif_conjuncts:
+            countif_expr: ast.Expr = ast.Constant(value=True)
+        elif len(countif_conjuncts) == 1:
+            countif_expr = countif_conjuncts[0]
+        else:
+            countif_expr = ast.And(exprs=countif_conjuncts)
+        return where_conjuncts, countif_expr
+
+    @staticmethod
+    def _where_signature(where_conjuncts: list[ast.Expr]) -> str:
+        # Group metrics whose hoisted WHERE filters are structurally identical. Built on the
+        # unresolved AST, so it's deterministic for the same filter config across metrics.
+        return "|".join(sorted(repr(conjunct) for conjunct in where_conjuncts))
 
     def _build_interval_group_query(
         self,
         source_descriptor: SourceDescriptor,
         interval: int,
+        where_conjuncts: list[ast.Expr],
         group: list[tuple[GroupUsageMetric, ast.Expr]],
         date_to: datetime,
     ) -> ast.SelectQuery:
@@ -175,9 +255,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             ),
         ]
 
-        for i, (metric, filter_expr) in enumerate(group):
+        for i, (metric, countif_expr) in enumerate(group):
             value_expr, prev_expr = self._build_conditional_aggregation(
-                metric, filter_expr, current_condition, previous_condition
+                metric, countif_expr, current_condition, previous_condition
             )
             select_exprs.append(ast.Alias(alias=f"m{i}_value", expr=value_expr))
             select_exprs.append(ast.Alias(alias=f"m{i}_previous", expr=prev_expr))
@@ -194,6 +274,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 left=self._timestamp_expr(source_descriptor),
                 right=ast.Constant(value=date_to),
             ),
+            # JOIN-requiring conjuncts (person/group properties) live here, resolved before
+            # aggregation — ClickHouse can't reference them inside a countIf under GROUP BY.
+            *where_conjuncts,
         ]
 
         return ast.SelectQuery(
@@ -246,12 +329,12 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
     def _build_conditional_aggregation(
         self,
         metric: GroupUsageMetric,
-        filter_expr: ast.Expr,
+        countif_expr: ast.Expr,
         current_condition: ast.Expr,
         previous_condition: ast.Expr,
     ) -> tuple[ast.Expr, ast.Expr]:
-        current_cond = ast.And(exprs=[filter_expr, current_condition])
-        previous_cond = ast.And(exprs=[filter_expr, previous_condition])
+        current_cond = ast.And(exprs=[countif_expr, current_condition])
+        previous_cond = ast.And(exprs=[countif_expr, previous_condition])
 
         if metric.math == GroupUsageMetric.Math.SUM:
             if metric.is_data_warehouse:
@@ -298,7 +381,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         previous_dates = self._date_range(prev_date_from.date(), (date_from - timedelta(seconds=1)).date())
 
         results: list[UsageMetric] = []
-        for i, (metric, _filter_expr) in enumerate(group):
+        for i, (metric, _countif_expr) in enumerate(group):
             value_col = i * 2
             prev_col = i * 2 + 1
 
