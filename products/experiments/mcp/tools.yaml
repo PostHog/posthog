@@ -1164,6 +1164,9 @@ tools:
     experiments-session-context-retrieve:
         operation: experiments_session_context_retrieve
         enabled: false
+    experiments-session-contexts-create:
+        operation: experiments_session_contexts_create
+        enabled: false
     experiments-update:
         operation: experiments_update
         enabled: false
