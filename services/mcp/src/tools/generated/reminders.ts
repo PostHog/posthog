@@ -1,17 +1,12 @@
 // AUTO-GENERATED from products/reminders/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    RemindersCreateBody,
-    RemindersDestroyParams,
-    RemindersListQueryParams,
-    RemindersPartialUpdateBody,
-    RemindersPartialUpdateParams,
-    RemindersRetrieveParams,
-} from '@/generated/reminders/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+
+import { RemindersCreateBody, RemindersDestroyParams, RemindersListQueryParams, RemindersPartialUpdateBody, RemindersPartialUpdateParams, RemindersRetrieveParams } from '@/generated/reminders/api'
 
 const ReminderCreateSchema = RemindersCreateBody
 
@@ -20,39 +15,17 @@ const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminde
     schema: ReminderCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderCreateSchema>) => {
         const body: Record<string, unknown> = {}
-        if (params.organization !== undefined) {
-            body['organization'] = params.organization
-        }
-        if (params.team !== undefined) {
-            body['team'] = params.team
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.message !== undefined) {
-            body['message'] = params.message
-        }
-        if (params.resource_type !== undefined) {
-            body['resource_type'] = params.resource_type
-        }
-        if (params.resource_id !== undefined) {
-            body['resource_id'] = params.resource_id
-        }
-        if (params.scheduled_at !== undefined) {
-            body['scheduled_at'] = params.scheduled_at
-        }
-        if (params.recurrence_interval !== undefined) {
-            body['recurrence_interval'] = params.recurrence_interval
-        }
-        if (params.cron_expression !== undefined) {
-            body['cron_expression'] = params.cron_expression
-        }
-        if (params.timezone !== undefined) {
-            body['timezone'] = params.timezone
-        }
-        if (params.end_date !== undefined) {
-            body['end_date'] = params.end_date
-        }
+        if (params.organization !== undefined) body["organization"] = params.organization
+        if (params.team !== undefined) body["team"] = params.team
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.message !== undefined) body["message"] = params.message
+        if (params.resource_type !== undefined) body["resource_type"] = params.resource_type
+        if (params.resource_id !== undefined) body["resource_id"] = params.resource_id
+        if (params.scheduled_at !== undefined) body["scheduled_at"] = params.scheduled_at
+        if (params.recurrence_interval !== undefined) body["recurrence_interval"] = params.recurrence_interval
+        if (params.cron_expression !== undefined) body["cron_expression"] = params.cron_expression
+        if (params.timezone !== undefined) body["timezone"] = params.timezone
+        if (params.end_date !== undefined) body["end_date"] = params.end_date
         const result = await context.api.request<Schemas.Reminder>({
             method: 'POST',
             path: `/api/reminders/`,
@@ -98,39 +71,17 @@ const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminde
     schema: ReminderUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderUpdateSchema>) => {
         const body: Record<string, unknown> = {}
-        if (params.organization !== undefined) {
-            body['organization'] = params.organization
-        }
-        if (params.team !== undefined) {
-            body['team'] = params.team
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.message !== undefined) {
-            body['message'] = params.message
-        }
-        if (params.resource_type !== undefined) {
-            body['resource_type'] = params.resource_type
-        }
-        if (params.resource_id !== undefined) {
-            body['resource_id'] = params.resource_id
-        }
-        if (params.scheduled_at !== undefined) {
-            body['scheduled_at'] = params.scheduled_at
-        }
-        if (params.recurrence_interval !== undefined) {
-            body['recurrence_interval'] = params.recurrence_interval
-        }
-        if (params.cron_expression !== undefined) {
-            body['cron_expression'] = params.cron_expression
-        }
-        if (params.timezone !== undefined) {
-            body['timezone'] = params.timezone
-        }
-        if (params.end_date !== undefined) {
-            body['end_date'] = params.end_date
-        }
+        if (params.organization !== undefined) body["organization"] = params.organization
+        if (params.team !== undefined) body["team"] = params.team
+        if (params.title !== undefined) body["title"] = params.title
+        if (params.message !== undefined) body["message"] = params.message
+        if (params.resource_type !== undefined) body["resource_type"] = params.resource_type
+        if (params.resource_id !== undefined) body["resource_id"] = params.resource_id
+        if (params.scheduled_at !== undefined) body["scheduled_at"] = params.scheduled_at
+        if (params.recurrence_interval !== undefined) body["recurrence_interval"] = params.recurrence_interval
+        if (params.cron_expression !== undefined) body["cron_expression"] = params.cron_expression
+        if (params.timezone !== undefined) body["timezone"] = params.timezone
+        if (params.end_date !== undefined) body["end_date"] = params.end_date
         const result = await context.api.request<Schemas.Reminder>({
             method: 'PATCH',
             path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
