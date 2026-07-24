@@ -1628,6 +1628,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     content=command_params.get("content"),
                     artifact_ids=artifact_ids,
                     actor_user_id=request.user.id,
+                    message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
                 )
             except Exception:
