@@ -1,13 +1,12 @@
 from textwrap import dedent
 
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 import regex
 import sqlparse
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
