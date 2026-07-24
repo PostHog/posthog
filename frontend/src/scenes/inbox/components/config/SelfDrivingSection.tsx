@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRocket } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlus, IconRocket } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonSnack,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
@@ -21,10 +28,76 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 }))
 
 /**
+ * Per-repo base-branch overrides for auto-started PRs. Auto-PRs target the repo default branch
+ * unless a repo is mapped here (e.g. teams on a develop-then-master or QA-then-main flow). Backed by
+ * `autostart_base_branches` on `signalTeamConfigLogic`; the whole map is persisted on each change.
+ */
+function BaseBranchOverrides(): JSX.Element {
+    const { baseBranchOverrides, draftBaseBranchRepo, draftBaseBranchBranch } = useValues(signalTeamConfigLogic)
+    const { setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride, removeBaseBranchOverride } =
+        useActions(signalTeamConfigLogic)
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-secondary">Base branches</span>
+            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                Auto-PRs target each repo's default branch. Override it per repo to open PRs against another branch,
+                like develop or QA.
+            </p>
+            {baseBranchOverrides.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {baseBranchOverrides.map(({ repo, branch }) => (
+                        <LemonSnack
+                            key={repo}
+                            title={`${repo} → ${branch}`}
+                            onClose={() => removeBaseBranchOverride(repo)}
+                        >
+                            <span className="text-default">{repo}</span>
+                            <span className="text-muted"> → {branch}</span>
+                        </LemonSnack>
+                    ))}
+                </div>
+            )}
+            <div className="flex items-center gap-1">
+                <LemonInput
+                    size="xsmall"
+                    className="flex-1 min-w-0"
+                    placeholder="organization/repository"
+                    value={draftBaseBranchRepo}
+                    onChange={setDraftBaseBranchRepo}
+                    onPressEnter={addBaseBranchOverride}
+                />
+                <LemonInput
+                    size="xsmall"
+                    className="flex-1 min-w-0"
+                    placeholder="branch"
+                    value={draftBaseBranchBranch}
+                    onChange={setDraftBaseBranchBranch}
+                    onPressEnter={addBaseBranchOverride}
+                />
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    onClick={addBaseBranchOverride}
+                    disabledReason={
+                        !draftBaseBranchRepo.trim() || !draftBaseBranchBranch.trim()
+                            ? 'Enter a repository and a branch'
+                            : undefined
+                    }
+                    aria-label="Add base branch override"
+                />
+            </div>
+        </div>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
- * personal threshold takes precedence for reports suggesting them as reviewer.
+ * personal threshold takes precedence for reports suggesting them as reviewer. When enabled, the card
+ * also exposes per-repo base-branch overrides for the opened PRs.
  *
  * A standalone card rather than a `SetupWidgetCard` because it hosts inline controls (the switch and
  * threshold) that can't live inside that card's single button/link wrapper.
@@ -59,14 +132,17 @@ export function SelfDrivingSection(): JSX.Element {
 
             <div className="border-t border-primary bg-surface-secondary px-2.5 py-1.5">
                 {autostartEnabled ? (
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-secondary shrink-0">Threshold</span>
-                        <LemonSegmentedButton
-                            size="xsmall"
-                            value={defaultAutostartPriority}
-                            options={THRESHOLD_SEGMENTS}
-                            onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                        />
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-secondary shrink-0">Threshold</span>
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={defaultAutostartPriority}
+                                options={THRESHOLD_SEGMENTS}
+                                onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                            />
+                        </div>
+                        <BaseBranchOverrides />
                     </div>
                 ) : (
                     <p className="text-xs text-secondary mb-0">Reports still arrive and notify your team.</p>
