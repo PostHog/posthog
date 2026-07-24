@@ -1,0 +1,24 @@
+[package]
+name = "capture-pipelines-poc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# POC crate: demonstrate the capture pipelines framework with static dispatch only.
+# The only runtime dependency is `futures`, used by the concurrency combinators
+# (bounded/ordered/grouped stream execution) — the design (§1.5) explicitly says to
+# *buy* futures combinators rather than hand-roll Node's synchronization engine.
+# Everything else is generics + macro_rules! over std.
+[dependencies]
+futures = { workspace = true }
+
+[dev-dependencies]
+# tokio only to drive the async chunk-step demos in tests; the library itself is
+# runtime-agnostic (async-fn-in-trait desugars without a runtime).
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints.rust]
+# The async chunk-step trait is intentionally public with `async fn`. In a single-
+# threaded demo we don't need the `Send` bound the lint guards against; the real
+# framework would spell the bound out explicitly.
+async_fn_in_trait = "allow"
