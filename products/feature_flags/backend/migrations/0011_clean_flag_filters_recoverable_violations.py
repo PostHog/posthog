@@ -21,10 +21,15 @@ OPERATOR_TYPO_MAP = {
 
 # Operators whose value must be a string; plain numbers are stringified (the
 # evaluators compare stringified values anyway).
+# Deliberately frozen copy of filters_validation.STRING_VALUE_OPERATORS (as is the
+# in/not_in-on-non-cohort rule below): migrations must stay self-contained while app
+# code evolves. If the canonical definitions change, reconcile by hand.
 STRING_VALUE_OPERATORS = frozenset({"regex", "not_regex", "icontains", "not_icontains", "gt", "gte", "lt", "lte"})
 
 
 def _reject_json_constant(value: str) -> None:
+    # json.loads accepts NaN/Infinity/-Infinity by default; raising here makes them
+    # count as non-strict JSON so those payloads get re-encoded as JSON strings.
     raise ValueError(f"Non-strict JSON constant: {value}")
 
 
@@ -141,28 +146,39 @@ def clean_flag_filters_recoverable_violations(apps, schema_editor):
 
     total = 0
     rule_counts: dict[str, int] = {}
-    batch: list = []
 
-    # _base_manager: the default manager excludes soft-deleted flags, also inside bulk_update.
-    for flag in FeatureFlag._base_manager.exclude(filters=None).only("id", "filters").iterator(chunk_size=BATCH_SIZE):
-        if not isinstance(flag.filters, dict):
-            continue
-        new_filters, rules = _clean_filters(flag.filters)
-        if not rules:
-            continue
-        for rule in rules:
-            rule_counts[rule] = rule_counts.get(rule, 0) + 1
-        flag.filters = new_filters
-        batch.append(flag)
+    # Keyset pagination instead of .iterator(): server-side cursors are disabled when
+    # migrations run through pgbouncer (DISABLE_SERVER_SIDE_CURSORS), which would make
+    # .iterator() buffer the whole table client-side. id-range batches are memory-bounded
+    # regardless of how the connection is pooled.
+    last_id = 0
+    while True:
+        # _base_manager: the default manager excludes soft-deleted flags, also inside bulk_update.
+        rows = list(
+            FeatureFlag._base_manager.filter(id__gt=last_id)
+            .exclude(filters=None)
+            .order_by("id")
+            .only("id", "filters")[:BATCH_SIZE]
+        )
+        if not rows:
+            break
+        last_id = rows[-1].id
 
-        if len(batch) >= BATCH_SIZE:
-            FeatureFlag._base_manager.bulk_update(batch, ["filters"])
-            total += len(batch)
-            batch = []
+        to_update = []
+        for flag in rows:
+            if not isinstance(flag.filters, dict):
+                continue
+            new_filters, rules = _clean_filters(flag.filters)
+            if not rules:
+                continue
+            for rule in rules:
+                rule_counts[rule] = rule_counts.get(rule, 0) + 1
+            flag.filters = new_filters
+            to_update.append(flag)
 
-    if batch:
-        FeatureFlag._base_manager.bulk_update(batch, ["filters"])
-        total += len(batch)
+        if to_update:
+            FeatureFlag._base_manager.bulk_update(to_update, ["filters"])
+            total += len(to_update)
 
     logger.info("cleaned_flag_filters_recoverable_violations", updated_rows=total, **rule_counts)
 
