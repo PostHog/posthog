@@ -6,6 +6,7 @@ from typing import Generic, TypeVar, cast
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
+    HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
     merge_message_runs,
 )
@@ -95,8 +96,11 @@ class TaxonomyAgentNode(
         and continuation with intermediate steps.
         """
         conversation = list(self._get_system_prompt().messages)
-        human_content = state.change or ""
-        all_messages = [*conversation, ("human", human_content)]
+        # Pass the user's request as a message object rather than a ("human", ...) template tuple:
+        # tuples are run through the mustache engine, so any literal {{token}} in the request would
+        # be treated as a required, unsupplied template variable and crash the chain invocation.
+        human_message = LangchainHumanMessage(content=state.change or "")
+        all_messages = [*conversation, human_message]
 
         progress_messages = state.tool_progress_messages or []
         all_messages.extend(progress_messages)
