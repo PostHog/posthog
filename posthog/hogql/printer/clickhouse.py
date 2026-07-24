@@ -104,8 +104,8 @@ INLINE_SENTINEL_LITERALS = frozenset(
     {"", "null", "true", "false", '^"|"$', "{}", "DateTime", "Array", "Map", "Tuple", " ", "T", '"'}
 )
 
-# Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
-ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
+# Comparison ops where a datetime string constant may be coerced when the other side is a DateTime.
+DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     {
         ast.CompareOperationOp.Eq,
         ast.CompareOperationOp.NotEq,
@@ -628,6 +628,18 @@ class ClickHousePrinter(BasePrinter):
     def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
         return parse_zoned_datetime_string(node.value) if isinstance(node, ast.Constant) else None
 
+    @staticmethod
+    def _is_string_constant(node: ast.Expr) -> bool:
+        return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+    def _coerce_string_constant_to_datetime(self, printed: str) -> str:
+        # Explicit precision + timezone args keep this as parseDateTime64BestEffortOrNull: the single-arg
+        # constant-folding path in visit_call would otherwise downgrade it to the throwing non-OrNull form.
+        # The OrNull variant returns NULL for an unparseable value instead of failing the query, and the
+        # timezone matches how the implicit String -> DateTime cast would have interpreted a naive string.
+        timezone = self.visit(ast.Constant(value=self._get_timezone()))
+        return f"parseDateTime64BestEffortOrNull({printed}, 6, {timezone})"
+
     def _resolves_to_datetime(self, node: ast.Expr) -> bool:
         if node.type is None:
             return False
@@ -705,8 +717,12 @@ class ClickHousePrinter(BasePrinter):
         if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
             not_nullable = True
 
-        # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
-        if node.op in ZONED_DATETIME_COERCIBLE_COMPARE_OPS:
+        # A string constant compared against a DateTime relies on ClickHouse's implicit String -> DateTime
+        # cast, which throws on anything it can't parse (e.g. a bare '17:35'). Coerce it here instead:
+        # timezone-carrying ISO strings are parsed in Python and inlined as datetime literals, while any
+        # other string is wrapped in parseDateTime64BestEffortOrNull so a naive or malformed value yields
+        # NULL rather than failing the whole query.
+        if node.op in DATETIME_COERCIBLE_COMPARE_OPS:
             if (
                 zoned_left := self._parse_zoned_datetime_constant(node.left)
             ) is not None and self._resolves_to_datetime(node.right):
@@ -715,6 +731,10 @@ class ClickHousePrinter(BasePrinter):
                 zoned_right := self._parse_zoned_datetime_constant(node.right)
             ) is not None and self._resolves_to_datetime(node.left):
                 right = self._print_escaped_string(zoned_right)
+            elif self._is_string_constant(node.left) and self._resolves_to_datetime(node.right):
+                left = self._coerce_string_constant_to_datetime(left)
+            elif self._is_string_constant(node.right) and self._resolves_to_datetime(node.left):
+                right = self._coerce_string_constant_to_datetime(right)
 
         constant_lambda = None
         value_if_one_side_is_null = False

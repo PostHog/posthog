@@ -2787,18 +2787,32 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("events", "timestamp = '2026-06-30 09:59:12'"),  # no timezone, ClickHouse handles it
-            ("events", "timestamp = '2026-06-30'"),
-            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column
-            ("events", "timestamp = '2026-30-06T00:00:00Z'"),  # looks zoned but invalid, still errors loudly
+            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column, not a DateTime
             ("exchange_rate", "date = '2026-06-30T09:59:12.988000Z'"),  # Date column, left alone
         ]
     )
     def test_datetime_string_comparison_stays_bare(self, table: str, where: str):
-        # Only valid timezone-carrying strings compared to DateTime fields get inlined.
+        # Coercion only kicks in when the other side resolves to a DateTime; comparisons against
+        # a String or Date column keep the raw string.
         printed = self._select(f"SELECT count() FROM {table} WHERE {where}")
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("17:35",),  # bare time — the production trigger; ClickHouse's implicit cast throws on it
+            ("2026-06-30 09:59:12",),  # naive datetime
+            ("2026-06-30",),  # naive date
+            ("2026-30-06T00:00:00Z",),  # looks timezone-aware but is not a valid datetime
+            ("not a datetime",),
+        ]
+    )
+    def test_naive_or_malformed_datetime_string_compared_to_datetime_is_coerced(self, value: str):
+        # A naive or malformed string compared to a DateTime must be wrapped in
+        # parseDateTime64BestEffortOrNull so it resolves to NULL instead of throwing
+        # "Cannot parse ..." and failing the whole query.
+        printed = self._select(f"SELECT count() FROM events WHERE timestamp = '{value}'")
+        assert "parseDateTime64BestEffortOrNull" in printed, printed
 
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
