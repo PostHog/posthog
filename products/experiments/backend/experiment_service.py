@@ -942,6 +942,7 @@ class ExperimentService:
         deleted: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        repository: str | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
@@ -1085,6 +1086,7 @@ class ExperimentService:
             "deleted": deleted,
             "conclusion": conclusion,
             "conclusion_comment": conclusion_comment,
+            "repository": repository,
         }
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder

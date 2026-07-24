@@ -3883,6 +3883,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
 
+    def test_create_experiment_with_repository(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Repo on create",
+                "feature_flag_key": "repo-on-create-flag",
+                "repository": "Acme/Web",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["repository"], "acme/web")
+
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
         action = Action.objects.create(
