@@ -46,6 +46,7 @@ export type EmailMetric =
     | 'email_bounce_prevented'
     | 'email_blocked'
     | 'email_spam'
+    | 'email_untracked'
 
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
 
@@ -67,6 +68,9 @@ export type EmailMetricRow = {
     bounced: number
     bouncePrevented: number
     blocked: number
+    // Sends without open/click tracking (step toggle off or no recipient consent). These can never
+    // record opens/clicks, so engagement reads against (delivered - untracked).
+    untracked: number
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
@@ -99,6 +103,7 @@ export const METRIC_COLORS: Record<string, string> = {
     'Bounce prevented': getColorVar('data-color-7'),
     Blocked: getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
+    Untracked: getColorVar('data-color-10'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -176,7 +181,8 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     },
     email_opened: {
         name: 'Opened',
-        description: 'Total number of emails opened',
+        description:
+            'Total number of emails opened. Untracked sends can never record an open, so compare opens against delivered minus untracked.',
         color: METRIC_COLORS['Opened'],
         metricNames: ['email_opened'],
     },
@@ -210,6 +216,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
         color: METRIC_COLORS['Marked as spam'],
         metricNames: ['email_spam'],
+    },
+    email_untracked: {
+        name: 'Untracked',
+        description:
+            'Total number of emails sent without open/click tracking, because tracking was turned off on the step or the recipient has not consented. These sends can never record opens or clicks, so exclude them when judging engagement.',
+        color: METRIC_COLORS['Untracked'],
+        metricNames: ['email_untracked'],
     },
 }
 
@@ -293,6 +306,7 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_bounce_prevented',
     'email_blocked',
     'email_spam',
+    'email_untracked',
 ]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
@@ -1320,6 +1334,7 @@ export function buildEmailMetricRows(
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
             blocked,
+            untracked: totals.email_untracked ?? 0,
         }
     })
 }

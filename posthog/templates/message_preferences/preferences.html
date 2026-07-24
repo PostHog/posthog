@@ -50,6 +50,38 @@
                         </div>
                         {% endfor %}
 
+                        {% if email_tracking_consent_enabled %}
+                        <hr class="border-gray-200" />
+                        <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="text-lg font-medium text-gray-900">Open and click tracking</h3>
+                                    <p class="text-sm text-gray-500 mt-1">We use an invisible image and measured links to see whether marketing emails are opened and clicked. This never affects which emails you receive.</p>
+                                </div>
+                                <div class="flex flex-col items-end flex-shrink-0 w-40">
+                                    <div class="relative inline-block w-12 select-none">
+                                        <input
+                                            type="checkbox"
+                                            name="$email_tracking"
+                                            id="email-tracking-toggle"
+                                            data-on-label="Tracking allowed"
+                                            data-off-label="Tracking off"
+                                            {% if email_tracking_allowed %}checked{% endif %}
+                                            class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
+                                        />
+                                        <label
+                                            for="email-tracking-toggle"
+                                            class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
+                                        ></label>
+                                    </div>
+                                    <span class="text-xs font-medium mt-1 text-right {% if email_tracking_allowed %}text-green-700{% else %}text-gray-500{% endif %}" data-status-for="$email_tracking">
+                                        {% if email_tracking_allowed %}Tracking allowed{% else %}Tracking off{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
                     </form>
 
                 </div>
@@ -65,6 +97,13 @@
                     if (!statusLabel) return
                     statusLabel.textContent = text
                     statusLabel.className = 'text-xs font-medium mt-1 text-right ' + colorClass
+                }
+
+                // The tracking-consent toggle labels differ from the subscription ones
+                function statusLabelText(toggle) {
+                    return toggle.checked
+                        ? (toggle.dataset.onLabel || 'Subscribed')
+                        : (toggle.dataset.offLabel || 'Not subscribed')
                 }
 
                 function showToast(message, isError) {
@@ -108,12 +147,12 @@
                         }
 
                         toggles.forEach(t => { t.defaultChecked = t.checked })
-                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         // Revert the toggle on failure
                         changedToggle.checked = !changedToggle.checked
-                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        updateStatusLabel(changedToggle, statusLabelText(changedToggle), changedToggle.checked ? 'text-green-700' : 'text-gray-500')
                         showToast(error.message || 'Failed to update preferences', true)
                     }
                 }

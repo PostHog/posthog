@@ -12,9 +12,10 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { logger } from '~/common/utils/logger'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
+import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
@@ -80,6 +81,11 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
+    // Configuration set with ESP-level open/click tracking enabled.
+    sesTrackedConfigurationSet: string
+    // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
+    // sends fall back to the tracked set (with a warning) rather than failing.
+    sesUntrackedConfigurationSet: string
 }
 
 /**
@@ -134,6 +140,7 @@ export class EmailService {
         siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
+        private recipientsManager: RecipientsManagerService,
         private messageAssetsService?: MessageAssetsService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
@@ -170,6 +177,7 @@ export class EmailService {
         let success: boolean = false
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
+        let trackingEnabled = true
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -207,12 +215,16 @@ export class EmailService {
                 return result
             }
 
+            // Like suppression, the tracking decision lives at this choke point so every send path
+            // (workflow action or email destination hog function) resolves it the same way.
+            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params.to.email)
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, isTest)
+                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, isTest)
+                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -269,6 +281,19 @@ export class EmailService {
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
             })
+
+            // Untracked sends can never produce opens/clicks, so record them separately: open/click
+            // rates are computed against (delivered - untracked) to avoid deflation.
+            if (success && !trackingEnabled) {
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_untracked',
+                    count: 1,
+                })
+            }
 
             if (success && assetRow) {
                 result.emailAssets.push(assetRow)
@@ -330,6 +355,67 @@ export class EmailService {
         return `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`
     }
 
+    // Per-send tracking decision, combining two independent controls:
+    // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
+    //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
+    //    tracked, so email destination hog functions (which have no such config) keep tracking.
+    // 2. Recipient-level consent (marketing only; transactional exempt per CNIL): the team's
+    //    consent mode combined with the recipient's stored $email_tracking preference.
+    // Consent lookup failures resolve to untracked (fail closed): tracking without verifiable
+    // consent is a compliance risk, while an untracked send only costs metrics.
+    private async resolveTrackingEnabled(
+        invocation: CyclotronJobInvocationHogFunction,
+        recipientEmail: string
+    ): Promise<boolean> {
+        if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
+            return false
+        }
+        if (invocation.hogFunction?.metadata?.message_category_type === 'transactional') {
+            return true
+        }
+
+        const consentMode = await this.teamWorkflowsConfigService.getEmailTrackingConsentMode(invocation.teamId)
+        if (consentMode === 'off') {
+            return true
+        }
+
+        try {
+            const recipient = await this.recipientsManager.get({
+                teamId: invocation.teamId,
+                identifier: recipientEmail,
+            })
+            const consent = recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
+            return consentMode === 'opt_in' ? consent === 'OPTED_IN' : consent !== 'OPTED_OUT'
+        } catch (error) {
+            logger.warn('Email tracking consent lookup failed - sending untracked', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return false
+        }
+    }
+
+    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
+    // destination (suppression and the Metrics tab depend on those events); they differ only in
+    // ESP-level open/click tracking.
+    private resolveConfigurationSetName(
+        trackingEnabled: boolean,
+        invocation: CyclotronJobInvocationHogFunction
+    ): string {
+        if (trackingEnabled) {
+            return this.sesConfig.sesTrackedConfigurationSet
+        }
+        if (this.sesConfig.sesUntrackedConfigurationSet) {
+            return this.sesConfig.sesUntrackedConfigurationSet
+        }
+        logger.warn(
+            'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
+            { teamId: invocation.teamId, functionId: invocation.functionId }
+        )
+        return this.sesConfig.sesTrackedConfigurationSet
+    }
+
     private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
@@ -347,6 +433,7 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
+        trackingEnabled: boolean,
         isTest = false
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
@@ -356,7 +443,11 @@ export class EmailService {
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
             ...(params.html
-                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                ? {
+                      html: trackingEnabled
+                          ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                          : params.html,
+                  }
                 : {}),
         }
 
@@ -383,6 +474,7 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
+        trackingEnabled: boolean,
         isTest = false
     ): Promise<void> {
         if (!this.sesV2Client) {
@@ -399,7 +491,9 @@ export class EmailService {
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
+                          trackingEnabled
+                              ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                              : params.html,
                           params.preheader
                       ),
                       Charset: 'UTF-8',
@@ -427,7 +521,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: 'posthog-messaging',
+            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
