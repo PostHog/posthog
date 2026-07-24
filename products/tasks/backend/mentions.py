@@ -1,7 +1,7 @@
 """Parsing and user resolution for @-mention tokens embedded in thread message content.
 
 Mentions are stored inline as ``@[Display Name](email)`` (the canonical format
-shared with PostHog Code clients), so any layer can answer "who does this
+shared with PostHog Desktop clients), so any layer can answer "who does this
 message mention?" from the plain string alone.
 """
 

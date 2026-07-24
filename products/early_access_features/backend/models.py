@@ -43,6 +43,15 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="features",
         related_query_name="feature",
     )
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="early_access_features",
+        # db_constraint disabled to avoid locking the hot posthog_user table when adding this FK.
+        db_constraint=False,
+    )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     stage = models.CharField(max_length=40, choices=Stage)
@@ -69,7 +78,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             href=f"/early_access_features/{self.id}",
             meta={
                 "created_at": str(self.created_at),
-                "created_by": None,
+                "created_by": self.created_by_id,
             },
             should_delete=False,
         )

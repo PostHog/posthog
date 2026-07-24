@@ -332,7 +332,7 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
         // Cowork (via the client-profile flag). All three surface structuredContent to
         // the model, so it must be dropped and the UI data re-homed onto _meta.
         it.each([

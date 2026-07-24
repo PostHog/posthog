@@ -1451,7 +1451,7 @@ export interface ExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1570,7 +1570,7 @@ export interface ExperimentApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1685,7 +1685,7 @@ export interface PatchedExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
@@ -1809,7 +1809,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
 }
 
@@ -1833,7 +1833,7 @@ export const RunStatusEnumApi = {
 } as const
 
 export interface ExperimentFlagCleanupTaskApi {
-    /** ID of the flag-cleanup Code task. */
+    /** ID of the flag-cleanup Desktop task. */
     task_id: string
     /** Status of the task's latest run.
      *
@@ -1851,7 +1851,7 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
-    /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
     can_view_task: boolean
 }
 
@@ -2063,7 +2063,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
@@ -2229,6 +2229,52 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * * `source` - source
+ * * `step` - step
+ * * `numerator` - numerator
+ * * `denominator` - denominator
+ * * `retention_start` - retention_start
+ * * `retention_completion` - retention_completion
+ */
+export type SourceRoleEnumApi = (typeof SourceRoleEnumApi)[keyof typeof SourceRoleEnumApi]
+
+export const SourceRoleEnumApi = {
+    Source: 'source',
+    Step: 'step',
+    Numerator: 'numerator',
+    Denominator: 'denominator',
+    RetentionStart: 'retention_start',
+    RetentionCompletion: 'retention_completion',
+} as const
+
+/**
+ * One event/action source of a metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricSourceHitApi {
+    /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+     *
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion */
+    source_role: SourceRoleEnumApi
+    /** Display name of the source event or action. */
+    source_name: string
+    /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+    source_index: number
+    /** Total number of sources the metric is defined over. */
+    source_total: number
+    /** Number of events in the session matching this source. */
+    event_count: number
+    /** Timestamp of the first event in the session matching this source. */
+    first_timestamp: string
+    /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+}
+
+/**
  * One experiment metric with at least one matching event in a session recording.
  */
 export interface ExperimentSessionMetricHitApi {
@@ -2242,6 +2288,8 @@ export interface ExperimentSessionMetricHitApi {
     first_timestamp: string
     /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
     timestamps: string[]
+    /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+    sources: ExperimentSessionMetricSourceHitApi[]
 }
 
 /**

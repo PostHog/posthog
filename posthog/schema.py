@@ -13638,6 +13638,18 @@ class ConversionGoalFilter1(BaseModel):
             " first_time_for_user) rather than every conversion. Defaults to false."
         ),
     )
+    counts_as_revenue: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as revenue-bearing: the value of a conversion is a"
+            " monetary amount, not a count or an arbitrary numeric property. It gates"
+            " revenue metrics such as ROAS and LTV:CAC. The amount itself comes from"
+            " math_property, and its currency from math_property_revenue_currency, the"
+            " same shape Revenue analytics uses for revenue events. Independent of"
+            " counts_as_customer: a purchase is usually both, a trial signup neither."
+            " Defaults to false."
+        ),
+    )
     custom_name: str | None = None
     event: str | None = Field(default=None, description="The event or `null` for all events.")
     fixedProperties: list[AnyPropertyFilterDiscriminated] | None = Field(
@@ -13690,6 +13702,18 @@ class ConversionGoalFilter2(BaseModel):
             " first_time_for_user) rather than every conversion. Defaults to false."
         ),
     )
+    counts_as_revenue: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as revenue-bearing: the value of a conversion is a"
+            " monetary amount, not a count or an arbitrary numeric property. It gates"
+            " revenue metrics such as ROAS and LTV:CAC. The amount itself comes from"
+            " math_property, and its currency from math_property_revenue_currency, the"
+            " same shape Revenue analytics uses for revenue events. Independent of"
+            " counts_as_customer: a purchase is usually both, a trial signup neither."
+            " Defaults to false."
+        ),
+    )
     custom_name: str | None = None
     fixedProperties: list[AnyPropertyFilterDiscriminated] | None = Field(
         default=None,
@@ -13738,6 +13762,18 @@ class ConversionGoalFilter3(BaseModel):
             " step like a sign up. It gates customer-based metrics such as CAC and"
             " LTV:CAC, whose denominator is new customers (counted once per person via"
             " first_time_for_user) rather than every conversion. Defaults to false."
+        ),
+    )
+    counts_as_revenue: bool | None = Field(
+        default=None,
+        description=(
+            "Marks this goal as revenue-bearing: the value of a conversion is a"
+            " monetary amount, not a count or an arbitrary numeric property. It gates"
+            " revenue metrics such as ROAS and LTV:CAC. The amount itself comes from"
+            " math_property, and its currency from math_property_revenue_currency, the"
+            " same shape Revenue analytics uses for revenue events. Independent of"
+            " counts_as_customer: a purchase is usually both, a trial signup neither."
+            " Defaults to false."
         ),
     )
     custom_name: str | None = None

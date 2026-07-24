@@ -575,7 +575,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
 
     user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
-    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
     title_text = labeled_mentions_to_display_names(user_text)
