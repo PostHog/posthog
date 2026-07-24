@@ -168,8 +168,9 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
 
     def test_unpartitionable_over_budget_skips_with_reason(self, team):
-        # An unpartitioned table with no usable key can't be repartitioned — we must surface the specific
-        # reason (so a human is alerted) rather than silently flag a target that would fail.
+        # An unpartitioned table with no usable key can't be repartitioned. We surface the specific reason
+        # via the skip metric + event (for dashboards/alerting), but NOT as a tracked exception: this
+        # recurs on every sync for a permanently-stuck table and would flood error tracking with noise.
         schema = _make_schema(team, {})
         with tempfile.TemporaryDirectory() as d:
             delta = _write_unpartitioned_delta(f"{d}/u")
@@ -177,6 +178,7 @@ class TestRepartitionDetection:
                 patch.object(ctrl, "target_partition_bytes", return_value=1),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event") as capture,
+                patch.object(ctrl, "capture_exception") as cap_exc,
             ):
                 self._detect(team, schema, delta)
 
@@ -184,6 +186,7 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+        cap_exc.assert_not_called()
 
     def test_unpartitioned_over_budget_with_keys_enables_partitioning(self, team):
         # An unpartitioned table that's over budget but HAS a usable key must be flagged to become
@@ -404,10 +407,13 @@ class TestRepartitionActivity:
             {"partition_mode": None, "partition_keys": [], "trigger_reason": "test", "attempts": 0}
         )
         mocked = AsyncMock(side_effect=RepartitionUnpartitionableError("no keys"))
-        capture = self._run(self._inputs(team, schema), mocked)
+        with patch.object(repartition_table, "capture_exception") as cap_exc:
+            capture = self._run(self._inputs(team, schema), mocked)
         schema.refresh_from_db()
         assert schema.repartition_pending is None
         assert "warehouse_repartition_skipped" in [c.args[0] for c in capture.call_args_list]
+        # Expected terminal condition — surfaced via the skip event, never as tracked-exception noise.
+        cap_exc.assert_not_called()
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})
