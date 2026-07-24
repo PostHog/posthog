@@ -15,6 +15,7 @@ from posthog.dags.common.resources import (
     RedisResource,
     kafka_producer_resource,
 )
+from posthog.schema_build import build_all_schema_models
 
 # Default loggers for every code location's jobs. Overrides Dagster's
 # colored_console_logger so `context.log` emits structlog JSON to stdout (like
@@ -104,3 +105,19 @@ resources_by_env = {
 # Get resources for current environment, fallback to local if env not found
 env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
+
+
+# See build_all_schema_models's docstring for why this build is eager. Every dagster
+# code location imports this package (for `loggers`/`resources` above — an invisible but
+# load-bearing coupling: a refactor that stops importing them here would silently drop
+# dagster back to the lazy path), and both the definition server (dagit/code server) and
+# per-run workers re-import the location module — so building here covers every process
+# that loads this code location. Schema-model subclasses defined in later-imported
+# location submodules still defer and use the guarded lazy path at first use; this only
+# covers what's reachable from posthog.schema at this point in the import.
+#
+# Building here is paid per spawned subprocess, not shared copy-on-write: dagster's
+# multiprocess and k8s job executors re-import this module per step worker, so each
+# step pays the build cost even for ops that never touch schema models. This matches
+# the pre-defer eager baseline and is batch-tolerant, so it's an accepted trade-off.
+build_all_schema_models()

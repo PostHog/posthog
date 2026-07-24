@@ -2,12 +2,14 @@ import os
 import time
 import errno
 import threading
+from typing import Literal
 
 from django.dispatch import receiver
 
 import structlog
 from celery import Celery
 from celery.signals import (
+    beat_init,
     celeryd_init,
     setup_logging,
     task_failure,
@@ -15,6 +17,7 @@ from celery.signals import (
     task_prerun,
     task_retry,
     task_success,
+    worker_init,
     worker_process_init,
     worker_process_shutdown,
 )
@@ -180,6 +183,45 @@ def _tag_celery_span_with_team_id(task_kwargs: dict | None) -> None:
 
 def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=None, **_) -> None:
     _tag_celery_span_with_team_id(kwargs)
+
+
+def _build_schema_models_or_exit(process_kind: Literal["worker", "beat"]) -> None:
+    # See build_all_schema_models's docstring for why celery builds eagerly. This module
+    # is imported by every Django process (via posthog/__init__.py), so the build must
+    # hang off worker/beat-only signals here rather than at module level — an import-time
+    # build would re-eagerize everything, and importing posthog.schema at module level
+    # would put it back on the bare django.setup() path.
+    #
+    # Celery's Signal.send catches and logs receiver exceptions instead of propagating them,
+    # so a failure here would otherwise leave the boot looking successful; treat a build
+    # failure as a fatal boot error rather than letting it degrade silently.
+    from posthog.schema_build import (
+        build_all_schema_models,  # noqa: PLC0415 — keep posthog.schema off the celery import path; only workers/beat build
+    )
+
+    try:
+        build_all_schema_models()
+    except Exception as e:
+        logger.exception(
+            "celery process failed to eagerly build schema models; refusing to boot", process_kind=process_kind
+        )
+        raise SystemExit(f"celery {process_kind} failed to eagerly build schema models: {e}")
+
+
+@worker_init.connect
+def build_schema_models_pre_fork(**kwargs) -> None:
+    # Build in the worker parent before the prefork pool forks, so children share the
+    # built schemas copy-on-write and most tasks never pay a build at runtime —
+    # task/product modules imported after this signal fires can still define schema-model
+    # subclasses that stay deferred until first use.
+    _build_schema_models_or_exit("worker")
+
+
+@beat_init.connect
+def build_schema_models_on_beat_start(**kwargs) -> None:
+    # Beat is a long-lived production process too; keep it eager like workers so no
+    # production process ever relies on the lazy build path.
+    _build_schema_models_or_exit("beat")
 
 
 @worker_process_init.connect

@@ -170,6 +170,12 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # Build the deferred schema models now, pre-fork — see the matching block in
+    # wsgi.py for the full reasoning.
+    from posthog.schema_build import build_all_schema_models
+
+    build_all_schema_models()
 finally:
     gc.freeze()
     gc.enable()

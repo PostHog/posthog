@@ -5,10 +5,24 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+import os
+import threading
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import pydantic
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import (
+    AwareDatetime,
+    BaseModel as _PydanticBaseModel,
+    ConfigDict,
+    Field,
+    RootModel as _PydanticRootModel,
+    confloat,
+    conint,
+)
+
+# Private pydantic internal: see bin/patch-schema-defer-build.py for why, and
+# run posthog/test/test_schema_defer_build.py on any pydantic version bump.
+from pydantic._internal._mock_val_ser import MockCoreSchema
 
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
@@ -291,6 +305,172 @@ from posthog.schema_enums import (
     YAxisPosition as YAxisPosition,
     YAxisScaleType as YAxisScaleType,
 )
+
+# The statics and helpers below work together to keep concurrent, lazy model_rebuild()
+# calls safe: _build_lock serializes the actual mutation, _currently_building tracks
+# per-thread reentrancy so a build's own hooks don't recurse into itself, and
+# _walked_schema_nodes memoizes _build_reachable_model_classes so a batch build doesn't
+# re-walk shared subgraphs. _DeferredBuildGuards and the BaseModel/RootModel subclasses
+# below tie them to the three ways an unbuilt class's instance can otherwise leak past
+# validation (model_construct, unpickling, and validator-created children through Any).
+_RootT = TypeVar("_RootT")
+
+
+def _ensure_built(cls: type[Any]) -> None:
+    if not cls.__pydantic_complete__:
+        cls.model_rebuild()
+
+
+# Serializes model_rebuild calls: pydantic's model_rebuild mutates class attributes
+# non-atomically, so concurrent rebuilds of the same (or cross-referencing) classes can
+# observe a half-built class. Only ever taken on the unbuilt path (callers re-check
+# __pydantic_complete__ first), so the built steady state costs nothing.
+_build_lock = threading.RLock()
+
+# Classes whose build is in progress on the current thread: a build triggers
+# __get_pydantic_core_schema__ for every referenced model class (including, recursively,
+# the one being built), and those hooks must not start a second build of the same class.
+# Thread-local because the lock above only serializes the mutation itself — a thread
+# waiting on the lock must not see another thread's in-progress set and skip its own build.
+_currently_building = threading.local()
+
+
+def _building_set() -> set[type]:
+    building = getattr(_currently_building, "classes", None)
+    if building is None:
+        building = set()
+        _currently_building.classes = building
+    return building
+
+
+def _reset_build_state_after_fork() -> None:
+    # A child forked while another thread held _build_lock would inherit it permanently
+    # held (fork only clones the calling thread), deadlocking its first lazy build. Web,
+    # celery, and dagster build eagerly pre-fork so they never hit this; a forking
+    # process that hasn't built yet (e.g. gunicorn's own arbiter fork, before wsgi.py's
+    # warm block runs) is a deliberately-lazy fork point that stays exposed.
+    # _walked_schema_nodes must also be cleared: the walk memoizes a node before pushing
+    # its children, and the walking thread doesn't survive fork — so a child forked
+    # mid-walk would otherwise skip subtrees whose classes were never built.
+    global _build_lock
+    _build_lock = threading.RLock()
+    _currently_building.classes = set()
+    _walked_schema_nodes.clear()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_build_state_after_fork)
+
+
+# Schema dict nodes already walked by _build_reachable_model_classes, keyed by id() with
+# the node itself as the value. A shared sub-schema is reachable from many parents;
+# without memoizing, a batch build (e.g. build_all_schema_models) re-walks the same
+# subgraphs once per class that reaches them. Storing the node (not just its id) pins it
+# alive for the life of the process, which is required for soundness: ids are only unique
+# among live objects, so an id-only set would silently alias a freed node's id onto a
+# later, unrelated node once the allocator recycled it.
+_walked_schema_nodes: dict[int, Any] = {}
+
+
+def _build_reachable_model_classes(schema: Any) -> None:
+    """Complete every model class reachable from a freshly built core schema.
+
+    Building a parent inlines child models' schemas without completing the child classes
+    themselves, yet the parent's validator constructs child *instances*. Dumping such an
+    instance through an `Any`-typed field makes pydantic-core look up the child class's
+    own serializer — a mock, which raises `TypeError: 'MockValSer' object cannot be
+    converted to 'SchemaSerializer'` instead of building (pydantic 2.12). Completing the
+    reachable graph guarantees every instance a validator can create is serializable.
+
+    Note: a class's __pydantic_complete__ flag flips to True (via super().model_rebuild())
+    before this walk finishes, so a lock-free reader on another thread can, in a narrow
+    window, see a "complete" parent whose children haven't been walked yet. Only threaded
+    lazy (non-eager-build) processes are exposed; the failure is loud (the same MockValSer
+    TypeError) and self-heals once the walk catches up.
+    """
+    stack = [schema]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            node_id = id(node)
+            if node_id in _walked_schema_nodes:
+                continue
+            _walked_schema_nodes[node_id] = node
+            if node.get("type") == "model":
+                cls = node.get("cls")
+                if isinstance(cls, type) and issubclass(cls, _PydanticBaseModel) and not cls.__pydantic_complete__:
+                    _ensure_built(cls)
+            stack.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            stack.extend(node)
+
+
+class _DeferredBuildGuards:
+    """Keep 'every live instance has a fully built class' true under defer_build.
+
+    pydantic-core's serializer does not lazily build (unlike validation), so an instance
+    of an unbuilt class poisons any later dump that reaches it through an `Any`-typed
+    field. The ways such an instance can come to exist are guarded here.
+    """
+
+    @classmethod
+    def model_rebuild(cls, **kwargs: Any) -> bool | None:
+        if cls.__pydantic_complete__ and not kwargs.get("force"):  # type: ignore[attr-defined]
+            return None
+        with _build_lock:
+            if cls.__pydantic_complete__ and not kwargs.get("force"):  # type: ignore[attr-defined]
+                return None
+            # One extra frame between the caller and pydantic's implementation. 0 is a
+            # meaningful sentinel to pydantic ("don't walk parent frames at all"), so
+            # only the default and positive depths get the extra frame added.
+            depth = kwargs.get("_parent_namespace_depth", 2)
+            kwargs["_parent_namespace_depth"] = depth + 1 if depth > 0 else depth
+            building = _building_set()
+            building.add(cls)
+            try:
+                result = super().model_rebuild(**kwargs)  # type: ignore[misc]
+            finally:
+                building.discard(cls)
+            if result is True:
+                _build_reachable_model_classes(cls.__pydantic_core_schema__)  # type: ignore[attr-defined]
+            return result
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        # An external schema build referencing this class (another model's rebuild, or a
+        # TypeAdapter such as temporal's pydantic payload converter) inlines this class's
+        # schema and can then construct its instances — so complete the class itself too.
+        if source is cls and not cls.__pydantic_complete__ and cls not in _building_set():
+            cls.model_rebuild()
+        # Inlined fallback for the deprecated super().__get_pydantic_core_schema__ shim
+        # (PydanticDeprecatedSince211, slated for removal in pydantic V3): return the
+        # class's own schema if pydantic already built one, else let the handler build it.
+        schema = cls.__dict__.get("__pydantic_core_schema__")
+        if schema is not None and not isinstance(schema, MockCoreSchema):
+            return schema
+        return handler(source)
+
+    @classmethod
+    def model_construct(cls, *args: Any, **kwargs: Any) -> Any:
+        # Fully permissive signature so it composes with both BaseModel's and
+        # RootModel's `model_construct` (and the pydantic mypy plugin's synthesized
+        # per-class versions) without per-class overrides.
+        _ensure_built(cls)
+        return super().model_construct(*args, **kwargs)  # type: ignore[misc]
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        _ensure_built(type(self))
+        super().__setstate__(state)  # type: ignore[misc]
+
+
+class BaseModel(_DeferredBuildGuards, _PydanticBaseModel):
+    # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
+    model_config = ConfigDict(defer_build=True)
+
+
+class RootModel(_DeferredBuildGuards, _PydanticRootModel[_RootT], Generic[_RootT]):
+    # Core-schema building is deferred to first use: see bin/patch-schema-defer-build.py
+    model_config = ConfigDict(defer_build=True)
 
 
 class SchemaRoot(RootModel[Any]):
@@ -27983,13 +28163,3 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolNeighborsQuery
         | PropertyValuesQuery
     )
-
-
-ProsemirrorJSONContent.model_rebuild()
-PropertyGroupFilterValue.model_rebuild()
-HumanMessage.model_rebuild()
-MaxDashboardContext.model_rebuild()
-MaxInsightContext.model_rebuild()
-QueryRequest.model_rebuild()
-SourceConfig.model_rebuild()
-SourceFieldSelectConfig.model_rebuild()

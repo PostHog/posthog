@@ -44,6 +44,13 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # See build_all_schema_models's docstring for why web builds eagerly. Building it
+    # here, pre-fork, lands the built schemas in the frozen heap, copy-on-write shared
+    # across forked workers. Non-web processes never load this module and keep the lazy win.
+    from posthog.schema_build import build_all_schema_models
+
+    build_all_schema_models()
 finally:
     gc.freeze()
     gc.enable()

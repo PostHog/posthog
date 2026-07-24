@@ -20,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.schema_build import build_all_schema_models
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -658,6 +659,9 @@ class Command(BaseCommand):
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
+
+        # See build_all_schema_models's docstring for why temporal builds eagerly at worker boot.
+        build_all_schema_models()
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"

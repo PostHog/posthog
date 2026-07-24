@@ -5325,9 +5325,12 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         Project.objects.all().delete()
         Organization.objects.all().delete()
 
-        # Create analytics team for AI credits tests (team 2 for US region). The explicit
-        # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
-        # team below from being handed id 2 and colliding.
+        # Create analytics team for AI credits tests (team 2 for US region). Pass id, not
+        # pk: TeamManager.create only skips its sequence nextval when "id" is in kwargs,
+        # and it reuses that id for the auto-created parent Project — with pk the team
+        # still gets pk 2 but its Project takes the sequence's next value, which collides
+        # once the sequence is reset below. The explicit id doesn't advance the sequence,
+        # so bump it past the max to keep the auto-pk team below from colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
         self.analytics_team = Team.objects.create(id=2, organization=analytics_org, name="Analytics")
         with connection.cursor() as cursor:
