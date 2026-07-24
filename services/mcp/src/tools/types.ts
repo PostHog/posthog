@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { ApiClient, GroupType } from '@/api/client'
+import type { ApiClient, CatalogMetricSummary, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
@@ -34,6 +34,8 @@ export type State = {
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'catalogMetrics'>, CatalogMetricSummary[] | undefined> &
+    Record<PrefixedString<'catalogMetricsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedUser'>, CachedUser | undefined> &
     Record<PrefixedString<'cachedUserFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &

@@ -56,6 +56,17 @@ export interface GroupType {
     name_plural: string | null
 }
 
+/** The lean projection of a governed-metrics catalog row used by `exec search`.
+ *  Only the fields the search ranking and its run-hint need — the full metric
+ *  (definition, owner, timestamps) is fetched later by `data-catalog-metric-run`. */
+export interface CatalogMetricSummary {
+    name: string
+    display_name: string
+    description: string
+    status: string
+    is_drifted: boolean
+}
+
 // Global search types
 export const SearchableEntitySchema = z.enum([
     'insight',
@@ -1456,5 +1467,21 @@ export class ApiClient {
             throw new Error(result.error.message)
         }
         return result.data
+    }
+
+    async getCatalogMetrics(projectId: string): Promise<CatalogMetricSummary[]> {
+        const result = await this.fetchJson<{ results: CatalogMetricSummary[] }>(
+            `${this.baseUrl}/api/projects/${projectId}/data_catalog/metrics/?limit=100`
+        )
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data.results.map((m) => ({
+            name: m.name,
+            display_name: m.display_name,
+            description: m.description,
+            status: m.status,
+            is_drifted: m.is_drifted,
+        }))
     }
 }

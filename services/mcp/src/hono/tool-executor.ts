@@ -403,6 +403,16 @@ export class ToolExecutor {
                 : tool
         )
 
+        // Only surface governed metrics in `exec search` when the catalog tool is
+        // registered — flag-off orgs get byte-identical output and zero added latency.
+        const catalogEnabled = state.allTools.some((tool) => tool.name === 'data-catalog-metric-run')
+        const catalogMetricsProvider = catalogEnabled
+            ? async () => {
+                  const projectId = await state.context.stateManager.getProjectId()
+                  return projectId ? state.context.stateManager.getOrFetchCatalogMetrics(projectId) : undefined
+              }
+            : undefined
+
         const execTool = createExecTool(
             execTools,
             state.context,
@@ -414,6 +424,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                ...(catalogMetricsProvider ? { catalogMetricsProvider } : {}),
             }
         )
 
