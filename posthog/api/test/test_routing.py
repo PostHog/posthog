@@ -6,8 +6,10 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.apps import apps
+from django.db import OperationalError
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -17,6 +19,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
@@ -217,6 +220,22 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         assert (
             str(e.value) == "Method get_object is protected and should not be overridden. Use safely_get_object instead"
         )
+
+    def test_fallback_db_error_not_chained_to_not_implemented_error(self):
+        # When safely_get_object isn't implemented, get_object falls back to super().get_object().
+        # A DB error from that fallback (e.g. a pgbouncer query_wait_timeout) must propagate cleanly
+        # rather than being chained onto the NotImplementedError control-flow signal, otherwise error
+        # tracking fingerprints transient timeouts under a meaningless NotImplementedError group.
+        viewset = FooViewSet()
+        with (
+            patch.object(FooViewSet, "get_queryset", return_value=Annotation.objects.none()),
+            patch.object(FooViewSet, "filter_queryset", side_effect=lambda qs: qs),
+            patch.object(GenericAPIView, "get_object", side_effect=OperationalError("query_wait_timeout")),
+            pytest.raises(OperationalError) as exc_info,
+        ):
+            viewset.get_object()
+
+        assert not isinstance(exc_info.value.__context__, NotImplementedError)
 
 
 @override_settings(ROOT_URLCONF=__name__)

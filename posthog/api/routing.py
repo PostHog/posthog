@@ -45,6 +45,13 @@ if TYPE_CHECKING:
 else:
     _GenericViewSet = object
 
+# Sentinel marking that a hook (dangerously_get_object/safely_get_object) is not implemented.
+# Using a sentinel lets us run the super().get_object() fallback *outside* the
+# `except NotImplementedError` handler, so DB errors raised by the fallback (e.g. a pgbouncer
+# query_wait_timeout) don't get chained onto NotImplementedError and mis-fingerprinted by
+# error tracking.
+_NOT_IMPLEMENTED = object()
+
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
@@ -378,18 +385,26 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         """
 
         try:
-            return self.dangerously_get_object()
+            obj = self.dangerously_get_object()
         except NotImplementedError:
-            pass
+            obj = _NOT_IMPLEMENTED
+        if obj is not _NOT_IMPLEMENTED:
+            return obj
 
         queryset = self.filter_queryset(self.get_queryset())
 
         try:
             obj = self.safely_get_object(queryset)
-            if not obj:
-                raise NotFound()
         except NotImplementedError:
+            obj = _NOT_IMPLEMENTED
+
+        # Run the fallback outside the `except NotImplementedError` handler so a DB error from it
+        # (e.g. a connection-pool timeout) isn't chained onto NotImplementedError and mislabeled.
+        if obj is _NOT_IMPLEMENTED:
             return super().get_object()
+
+        if not obj:
+            raise NotFound()
 
         # Ensure we always check permissions
         self.check_object_permissions(self.request, obj)
