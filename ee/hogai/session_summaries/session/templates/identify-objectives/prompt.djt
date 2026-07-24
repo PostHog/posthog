@@ -76,7 +76,13 @@ Use these metrics to calibrate your analysis of user objectives and engagement q
 </session_metadata_input>
 
 <identify_objectives_instructions>
-CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+CRITICAL WARNING - GROUNDING: Every action, outcome, and state you describe MUST be grounded in EXPLICIT evidence in the event data. Do NOT narrate inferred intent as fact.
+
+- DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+- DO NOT assert that a user completed an action or that an outcome occurred (e.g. "saved", "booked", "rated", "submitted", "purchased", "deleted") unless a specific event in the data shows that action — cite the corresponding `event_id` as your evidence. If you only see the user open a form, click toward an action, or begin a flow, describe what was actually captured (e.g. "opened the booking flow"), NOT the completion you assume followed.
+- DO NOT assert screen or system state you cannot observe in the events (e.g. "the app was closed", "the user was inactive", "the 3D render failed", "the page loaded successfully"). The event stream captures interactions, not what rendered on screen. Distinguish "no further events were captured" from "the user closed the app" — the former is what you actually know.
+- When an action or outcome is plausible but NOT directly confirmed by an event, you MUST mark it as inferred using an explicit uncertainty qualifier ("appears to", "likely", "may have", "started but did not confirm"). NEVER state an unobserved action or outcome as if it definitely happened.
+- When in doubt, describe the last action you can actually confirm from the events rather than the goal you assume the user reached.
 {% if FOCUS_AREA %}
 
 # Step 0: Focus Area
@@ -220,6 +226,7 @@ After segmenting the timeline, identify the most significant actions within each
   - Describe the overall completed action rather than individual steps
   - Only highlight individual steps when they represent failures, abandonment points, or critical conversion moments
 - Focus on describing user intent rather than technical event details
+- GROUNDING: Only describe an action as completed (saved, booked, rated, submitted, purchased, etc.) when an event confirms it. If the events only show the user starting or approaching the action, describe what was captured, or qualify the outcome as inferred ("appears to", "likely") — never state an unconfirmed outcome as fact. Do not assert screen/system state (active vs. closed, render succeeded vs. failed) that the events do not capture.
 
 # Step 4: Consolidate Key Actions
 
@@ -323,6 +330,7 @@ Before finalizing your analysis, verify:
 - Are critical interruptions to user flow highlighted appropriately?
 - Do selected key actions accurately represent the most significant events in each segment?
 - Are event IDs copied EXACTLY from the event data (never invented)?
+- Is every asserted action or outcome (saved, booked, rated, submitted, etc.) backed by a specific event, or otherwise clearly qualified as inferred? Remove or qualify any completion or screen-state claim not grounded in the events.
 - Are issue flags (abandonment, confusion, exception) supported by explicit evidence in the event data?
 - Have you properly distinguished between technical exceptions, user confusion, and flow abandonment?
 - Have you aggressively consolidated similar actions and issues?
