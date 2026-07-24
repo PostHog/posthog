@@ -209,14 +209,18 @@ class Command(DjangoMigrateCommand):
         skip_caching = production_mode or test_mode
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
-        # Get connection for orphan check
         from django.db import connections
 
-        connection = connections[database]
+        # Defer resolving the connection until a path actually needs it. Looking it up eagerly
+        # crashes with a misleading asgiref/ConnectionDoesNotExist chain when the alias isn't
+        # configured (e.g. `--database=default_direct` without POSTHOG_POSTGRES_DIRECT_HOST set).
+        # Both paths below are skipped in production/test mode, so we fall through to Django's own
+        # migrate handling, which raises a clear "connection doesn't exist" error instead.
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):
             try:
+                connection = connections[database]
                 orphaned = get_orphaned_migrations(connection)
                 if orphaned:
                     self.stdout.write("")
@@ -299,7 +303,7 @@ class Command(DjangoMigrateCommand):
 
         # Track applied migrations for caching (skip in production and test mode)
         if not skip_caching:
-            recorder = MigrationRecorder(connection)
+            recorder = MigrationRecorder(connections[database])
             applied_before = set(recorder.applied_migrations())
 
         # Run the actual migrate command
