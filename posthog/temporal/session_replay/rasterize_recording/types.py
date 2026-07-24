@@ -1,4 +1,5 @@
 import hashlib
+import datetime as dt
 from typing import Literal
 
 from pydantic import BaseModel, model_validator
@@ -92,3 +93,37 @@ class BuildRasterizationResult(BaseModel, frozen=True):
         if (self.activity_input is None) == (self.cached_output is None):
             raise ValueError("Exactly one of activity_input/cached_output must be set")
         return self
+
+
+# Sizing the rasterize activity's start_to_close timeout.
+#
+# Capture wall-clock scales with the recording's real duration — every output frame is
+# rendered once regardless of playback speed — so a fixed ceiling silently fails long
+# recordings (a 2h+ session ran past the old fixed 30-minute limit and never finished).
+# We derive the timeout from the requested clip length instead, with generous headroom.
+# The activity's 30s heartbeat_timeout remains the real liveness guard: a genuinely
+# stuck render dies in 30s no matter how large this ceiling is.
+RASTERIZE_MIN_TIMEOUT = dt.timedelta(minutes=30)
+RASTERIZE_MAX_TIMEOUT = dt.timedelta(hours=4)
+# Observed capture wall-clock is well under 0.5s per second of recording; the multiplier
+# doubles that for headroom, and the overhead covers browser setup, encode, and upload.
+RASTERIZE_WALL_SECONDS_PER_RECORDING_SECOND = 0.5
+RASTERIZE_TIMEOUT_OVERHEAD = dt.timedelta(minutes=10)
+
+
+def rasterize_activity_timeout(activity_input: RasterizationActivityInput) -> dt.timedelta:
+    """Start-to-close timeout for the rasterize-recording activity, sized to the clip length.
+
+    Pure and deterministic (reads only recorded activity output), so it is safe to call
+    from the workflow body.
+    """
+    start = activity_input.start_offset_s or 0.0
+    end = activity_input.end_offset_s
+    if end is None or end <= start:
+        # Unknown clip length (full-session export without an explicit end) — allow the most headroom.
+        return RASTERIZE_MAX_TIMEOUT
+    clip_seconds = end - start
+    estimated = (
+        dt.timedelta(seconds=clip_seconds * RASTERIZE_WALL_SECONDS_PER_RECORDING_SECOND) + RASTERIZE_TIMEOUT_OVERHEAD
+    )
+    return max(RASTERIZE_MIN_TIMEOUT, min(RASTERIZE_MAX_TIMEOUT, estimated))
