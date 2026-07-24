@@ -42,6 +42,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -393,6 +394,11 @@ async def handle_model_ready(
         wrapped = Exception(error_msg)
         wrapped.__cause__ = err
         await handle_error(job, model, queue, wrapped, error_msg, logger)
+    except ExposedHogQLError as err:
+        # User-authored query is invalid. Fail the job with a user-visible error, but don't
+        # report it to error tracking — it's not an unexpected server exception.
+        await logger.awarning("Invalid query for model %s: %s", model.label, str(err), job_id=job_id)
+        await handle_error(job, model, queue, err, "Invalid query for model %s: %s", logger)
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
@@ -599,6 +605,16 @@ async def materialize_model(
     except ObjectDoesNotExist:
         raise
     except DataModelingCancelledException:
+        raise
+    except ExposedHogQLError as e:
+        # A malformed user query (e.g. wrong argument count) is a validation error, not an
+        # unexpected server failure. Surface it as-is so the consumer classifies it as a user
+        # error instead of re-raising it as a generic Exception that error tracking captures.
+        sanitized_error = strip_hostname_from_error(str(e))
+        saved_query.latest_error = f"Query failed to materialize: {sanitized_error}"
+        await logger.awarning("Invalid query for model %s: %s", model_label, sanitized_error)
+        await database_sync_to_async(saved_query.save)()
+        await mark_job_as_failed(job, str(e), logger)
         raise
     except Exception as e:
         error_message = str(e)
