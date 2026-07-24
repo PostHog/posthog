@@ -69,8 +69,15 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
                 context: {
                     ...resultWithContext.context,
                     lastStep: stepName,
-                    sideEffects: [...resultWithContext.context.sideEffects, ...stepResult.sideEffects],
-                    warnings: [...resultWithContext.context.warnings, ...stepResult.warnings],
+                    // Copy-on-write: contexts are rebuilt by spreading at every
+                    // step and never mutated in place, so when the step added
+                    // nothing the existing array can be shared as-is.
+                    sideEffects: stepResult.sideEffects.length
+                        ? [...resultWithContext.context.sideEffects, ...stepResult.sideEffects]
+                        : resultWithContext.context.sideEffects,
+                    warnings: stepResult.warnings.length
+                        ? [...resultWithContext.context.warnings, ...stepResult.warnings]
+                        : resultWithContext.context.warnings,
                 },
             })
         } else {
