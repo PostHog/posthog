@@ -64,9 +64,13 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   resolved server-side), which the escalation guidance points `suggested_reviewers` at (owner
   first, via `scout-members-list`) — without it a scout only sees its pinned version's
   `created_by`, i.e. the last editor, and would route ownership to whoever most recently touched
-  the skill. This prompt line is advisory; the deterministic backstop is the owner guardrail in
-  `tools/report.py._build_suggested_reviewers`, which places the skill's owners ahead of the
-  model's picks regardless of what it wrote. The line is gated on the report channel: a
+  the skill. The scout owns routing: this line is context, not a rule, so a skill body can steer
+  `suggested_reviewers` elsewhere (a named reviewer, a team convention) or say "don't route to me"
+  and be honoured — `tools/report.py._build_suggested_reviewers` injects nothing, it only takes
+  the scout's picks. Owners feed exactly one code rule there — a picked reviewer who is a current
+  owner is stamped `is_skill_owner=True` so autostart never mints its session under an
+  editor-controlled owner (`auto_start._resolve_autostart_assignee`); the stamp changes identity
+  eligibility, never who reviews. The line is gated on the report channel: a
   signal-channel scout has no `suggested_reviewers` field, so member names/emails (PII) must not
   reach its prompt.
 - `skill_loader.py`
@@ -81,7 +85,7 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   then editors by last-edit recency, capped). Both paths are restricted to
   `team.all_users_with_access()` so a revoked user's profile stops flowing into a privileged prompt.
   `resolve_skill_owner_user_uuids` exposes the owner set (seed-creator first) to the report tools'
-  reviewer guardrail. Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
+  reviewer provenance stamp (`is_skill_owner`). Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
   — only the runner's prompt-building path pays for it; the report-authorization gate in `views.py`
   loads the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`

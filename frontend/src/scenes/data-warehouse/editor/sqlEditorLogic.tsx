@@ -2575,6 +2575,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
                 if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
+                    // createTab() alone reuses the existing model and doesn't clear queryInput
+                    applyUndoableModelEdit(props.monaco, values.activeTab?.uri, '')
+                    actions.setQueryInput('')
                     actions.createTab()
                 }
             },

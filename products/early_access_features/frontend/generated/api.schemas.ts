@@ -144,6 +144,15 @@ export interface UserBasicApi {
 export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
 
 /**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type EarlyAccessFeatureApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface EarlyAccessFeatureApi {
@@ -176,6 +185,11 @@ export interface EarlyAccessFeatureApi {
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
     readonly created_by: UserBasicApi | null
     /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee: EarlyAccessFeatureApiAssignee
+    /**
      * The effective access level the user has for this object
      * @nullable
      */
@@ -190,6 +204,15 @@ export interface PaginatedEarlyAccessFeatureListApi {
     previous?: string | null
     results: EarlyAccessFeatureApi[]
 }
+
+/**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type EarlyAccessFeatureSerializerCreateOnlyApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -222,6 +245,11 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     readonly created_at: string
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
     readonly created_by: UserBasicApi | null
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee: EarlyAccessFeatureSerializerCreateOnlyApiAssignee
     /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
@@ -237,6 +265,15 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
  * Feature flag payload for this early access feature
  */
 export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
+
+/**
+ * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+ * @nullable
+ */
+export type PatchedEarlyAccessFeatureApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null
 
 /**
  * Mixin for serializers to add user access control fields
@@ -270,6 +307,11 @@ export interface PatchedEarlyAccessFeatureApi {
     readonly created_at?: string
     /** The user who created this early access feature. Null for features created before creator tracking was added. */
     readonly created_by?: UserBasicApi | null
+    /**
+     * The person or role responsible for this feature, e.g. {"type": "user", "id": 123} or {"type": "role", "id": "<role uuid>"}. Defaults to the creator. Send null to unassign.
+     * @nullable
+     */
+    readonly assignee?: PatchedEarlyAccessFeatureApiAssignee
     /**
      * The effective access level the user has for this object
      * @nullable
