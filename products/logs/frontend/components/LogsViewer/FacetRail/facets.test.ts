@@ -5,8 +5,10 @@ import {
     FacetConfig,
     cycleResourceAttributeFilter,
     filterFacetsByName,
+    logFilterExclusions,
     mergeSelectedIntoOptions,
     resourceAttributeSelection,
+    setLogFilterExclusions,
 } from './facets'
 
 const facet = (key: string, title: string, group: string): FacetConfig => ({
@@ -168,6 +170,65 @@ describe('facets', () => {
                     included: [],
                     excluded: ['a'],
                 })
+            })
+        })
+
+        describe('column facet exclusions (log filters)', () => {
+            const LEVEL_KEY = 'severity_level'
+            const logFilter = (
+                operator: PropertyOperator,
+                value: unknown,
+                key: string = LEVEL_KEY
+            ): Record<string, unknown> => ({ key, type: PropertyFilterType.Log, operator, value })
+
+            it.each<[string, Record<string, unknown>[], string[]]>([
+                [
+                    'is_not log filter reads as exclusions',
+                    [logFilter(PropertyOperator.IsNot, ['info', 'debug'])],
+                    ['info', 'debug'],
+                ],
+                [
+                    'scalar is_not chip reads as a single exclusion',
+                    [logFilter(PropertyOperator.IsNot, 'info')],
+                    ['info'],
+                ],
+                [
+                    'an exact log chip on the same key is not rail state',
+                    [logFilter(PropertyOperator.Exact, ['error'])],
+                    [],
+                ],
+                [
+                    'a resource-attribute filter under the same key is not a log exclusion',
+                    [railFilter(PropertyOperator.IsNot, ['info'], LEVEL_KEY)],
+                    [],
+                ],
+            ])('%s', (_, filters, excluded) => {
+                expect(logFilterExclusions(groupOf(filters), LEVEL_KEY)).toEqual(excluded)
+            })
+
+            it('writes, replaces, and drops the is_not filter as the exclusion set changes', () => {
+                const withOne = setLogFilterExclusions(groupOf([]), LEVEL_KEY, ['info'])
+                expect(logFilterExclusions(withOne, LEVEL_KEY)).toEqual(['info'])
+
+                const withTwo = setLogFilterExclusions(withOne, LEVEL_KEY, ['info', 'debug'])
+                expect((withTwo.values[0] as UniversalFiltersGroup).values).toEqual([
+                    logFilter(PropertyOperator.IsNot, ['info', 'debug']),
+                ])
+
+                const cleared = setLogFilterExclusions(withTwo, LEVEL_KEY, [])
+                expect((cleared.values[0] as UniversalFiltersGroup).values).toEqual([])
+            })
+
+            it('preserves resource rail filters and same-key exact chips when writing', () => {
+                const resource = railFilter(PropertyOperator.Exact, ['argocd'])
+                const exactChip = logFilter(PropertyOperator.Exact, ['fatal'])
+                const group = setLogFilterExclusions(groupOf([resource, exactChip]), LEVEL_KEY, ['info'])
+
+                expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
+                    resource,
+                    exactChip,
+                    logFilter(PropertyOperator.IsNot, ['info']),
+                ])
             })
         })
     })

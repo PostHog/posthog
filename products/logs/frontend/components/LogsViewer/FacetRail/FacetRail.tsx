@@ -13,11 +13,11 @@ import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
 import {
-    EMPTY_FACET_SELECTION,
     FacetConfig,
     FacetFilterKey,
     facetsByGroup,
     filterFacetsByName,
+    logFilterExclusions,
     mergeSelectedIntoOptions,
     resourceAttributeSelection,
 } from './facets'
@@ -64,12 +64,16 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
 
     const renderFacet = (facet: FacetConfig): JSX.Element => {
         const { source } = facet
-        // Selection: column facets read their dedicated filter field (include-only); resource-attribute
-        // facets read their log_resource_attribute filters out of the group, both polarities.
+        // Selection: column facets read includes from their dedicated filter field and exclusions
+        // from the is_not log filter under their exclusionKey (when they have one);
+        // resource-attribute facets read their log_resource_attribute filters, both polarities.
         const { included: selected, excluded } =
             source.type === 'resourceAttribute'
                 ? resourceAttributeSelection(filterGroup, source.key)
-                : { ...EMPTY_FACET_SELECTION, included: selectedByKey[source.filterKey] }
+                : {
+                      included: selectedByKey[source.filterKey],
+                      excluded: source.exclusionKey ? logFilterExclusions(filterGroup, source.exclusionKey) : [],
+                  }
         // Values + counts come from the cross-filtered endpoint, keyed by facet.key.
         const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((r) => ({
             value: r.value,
