@@ -55,12 +55,12 @@ def _positive_int_env(name: str, default: int, logger: structlog.BoundLogger) ->
     return value
 
 
-# Default overrides lookback. Every scheduled run re-diffs *all* overrides inside this window (there
-# is no watermark between runs), so a wide window means each run reprocesses hours of already-handled
-# merges — the reprocess is idempotent but still pays the full read cost. Keep it comfortably above
-# the schedule interval AND above the worst-case run duration: the schedule is overlap=SKIP, so a
-# merge landing while a long run is in flight is only picked up by a later run whose window still
-# reaches back to it. Env-overridable; lower it further once per-run duration is reliably small.
+# Default overrides lookback window, env-overridable via
+# RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS. 6h is a conservative interim value sized
+# for steady-state run duration, not a hard bound: nothing caps how long a run takes, so a run
+# longer than the window can still strand a merge until the next full_scan (the planned per-run
+# watermark is the real guarantee). Lower it once per-run duration is reliably small. See the
+# block comment below for how the window relates to the schedule and squash cadence.
 DEFAULT_OVERRIDES_LOOKBACK_HOURS = 6
 
 
@@ -81,8 +81,8 @@ DEFAULT_OVERRIDES_LOOKBACK_HOURS = 6
 # (RECONCILE_PRECALCULATED_DATA_OVERRIDES_LOOKBACK_HOURS, default DEFAULT_OVERRIDES_LOOKBACK_HOURS)
 # and repairs just their rows, so the schedule can run at the realtime calculation cadence and a
 # merge is reconciled by the next calculation run instead of hours later. A `full_scan` input
-# ignores the window — use it
-# for first-deploy remediation or after the workflow was down longer than the lookback.
+# ignores the window — use it for first-deploy remediation or after the workflow was down longer
+# than the lookback.
 #
 # Timing constraints: the lookback must comfortably exceed the schedule interval (so no
 # merge falls between runs), and both must stay well inside the person-overrides squash
