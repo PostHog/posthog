@@ -353,6 +353,7 @@ def _strip_regional_inference_prefix(model: str) -> str:
 BEDROCK_RUNTIME_COUNT_TOKENS_UNSUPPORTED: Final[frozenset[str]] = frozenset(
     {
         "anthropic.claude-opus-4-8",
+        "anthropic.claude-opus-5",
         "anthropic.claude-fable-5",
     }
 )

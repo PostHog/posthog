@@ -925,6 +925,8 @@ class TestSupportsBedrockRuntimeCountTokens:
             pytest.param("us.anthropic.claude-opus-4-6-v1", True, id="not_denylisted_versioned_suffix"),
             pytest.param("us.anthropic.claude-opus-4-8", False, id="unsupported_opus"),
             pytest.param("eu.anthropic.claude-opus-4-8", False, id="unsupported_opus_eu_prefix"),
+            pytest.param("us.anthropic.claude-opus-5", False, id="unsupported_opus_5"),
+            pytest.param("eu.anthropic.claude-opus-5", False, id="unsupported_opus_5_eu_prefix"),
             pytest.param("us.anthropic.claude-fable-5", False, id="unsupported_fable"),
             # EU routes fable through the global profile (no eu. geo profile exists for it);
             # runtime CountTokens rejects it the same as the us. form.
