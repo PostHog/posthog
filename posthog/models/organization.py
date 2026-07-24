@@ -412,6 +412,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             QuotaResource,
             add_limited_team_tokens,
             dispatch_recordings_remote_config_sync,
+            get_team_ingestion_tokens,
             update_organization_usage_fields,
         )
 
@@ -422,9 +423,14 @@ class Organization(ModelActivityMixin, UUIDTModel):
             billing_period_end_timestamp = int(end.timestamp())
 
             team_rows = [
-                (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+                (team_id, get_team_ingestion_tokens(api_token, secret_api_token, secret_api_token_backup))
+                for team_id, api_token, secret_api_token, secret_api_token_backup in self.teams.values_list(
+                    "id", "api_token", "secret_api_token", "secret_api_token_backup"
+                )
             ]
-            team_tokens: dict[str, int] = {api_token: billing_period_end_timestamp for _, api_token in team_rows}
+            team_tokens: dict[str, int] = {
+                token: billing_period_end_timestamp for _, tokens in team_rows for token in tokens
+            }
             add_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
             update_organization_usage_fields(
@@ -447,15 +453,21 @@ class Organization(ModelActivityMixin, UUIDTModel):
             QuotaLimitingCaches,
             QuotaResource,
             dispatch_recordings_remote_config_sync,
+            get_team_ingestion_tokens,
             remove_limited_team_tokens,
             update_organization_usage_fields,
         )
 
         team_rows = [
-            (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+            (team_id, get_team_ingestion_tokens(api_token, secret_api_token, secret_api_token_backup))
+            for team_id, api_token, secret_api_token, secret_api_token_backup in self.teams.values_list(
+                "id", "api_token", "secret_api_token", "secret_api_token_backup"
+            )
         ]
         remove_limited_team_tokens(
-            resource, [api_token for _, api_token in team_rows], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            resource,
+            [token for _, tokens in team_rows for token in tokens],
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
         if self.usage and resource.value in self.usage:

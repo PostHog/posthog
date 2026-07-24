@@ -102,6 +102,50 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             }
         )
 
+        const secretApiToken = `phs_${new UUIDT().toString().replace(/-/g, '')}`
+        testWithTeamIngester(
+            'marks events captured with the secret api token as $verified',
+            { teamOverrides: { secret_api_token: secretApiToken } },
+            async ({ ingester, team, kafkaProducer }) => {
+                const events = [new EventBuilder(team).withEvent('verified event').build()]
+
+                await ingester.handleKafkaBatch(createKafkaMessages(events, secretApiToken))
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(clickhouse, team.id)
+                    expect(events.length).toBe(1)
+                    expect(events[0].team_id).toBe(team.id)
+                    expect(events[0].properties.$verified).toBe(true)
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'strips a client-supplied $verified from events captured with the public token',
+            {},
+            async ({ ingester, team, kafkaProducer, token }) => {
+                const events = [
+                    new EventBuilder(team)
+                        .withEvent('forged event')
+                        .withProperties({ $verified: true, foo: 'bar' })
+                        .build(),
+                ]
+
+                await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(clickhouse, team.id)
+                    expect(events.length).toBe(1)
+                    expect(events[0].properties.$verified).toBeUndefined()
+                    expect(events[0].properties.foo).toBe('bar')
+                })
+            }
+        )
+
         testWithTeamIngester(
             'can set and update group properties with $groupidentify events',
             {},

@@ -34,6 +34,7 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
         name: 'Test Team',
         api_token: 'test-token',
         secret_api_token: null,
+        secret_api_token_backup: null,
         anonymize_ips: false,
         session_recording_opt_in: false,
         person_processing_opt_out: null,

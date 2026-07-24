@@ -23,6 +23,7 @@ use rand::Rng;
 use regex::Regex;
 use serde::Serialize;
 use sqlx::PgPool;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -231,8 +232,21 @@ impl BodyLogger {
             return;
         };
 
-        let (truncated, request_truncated, request_original_size_bytes) =
-            truncate_body(&decoded, self.request_max_bytes);
+        // `/flags` accepts a `phs_` secret token as `api_key`, so the decoded
+        // body can carry one. Redact it before logging — a body-log reader must
+        // never be able to recover a secret token.
+        //
+        // Redact BEFORE truncating: a token smuggled as JSON unicode escapes
+        // (`"phs_..."`) only decodes to the literal `phs_` prefix when the
+        // *whole* body parses as JSON. Truncating first can split that JSON,
+        // forcing `redact_secret_tokens` onto its raw-text fallback, which never
+        // sees the escaped token — leaking a recoverable secret. So redact the
+        // full decoded body, then truncate the redacted result for logging.
+        let request_original_size_bytes = decoded.len();
+        let decoded_body = String::from_utf8_lossy(&decoded);
+        let redacted = redact_secret_tokens(&decoded_body);
+        let (truncated, request_truncated, _) =
+            truncate_body(redacted.as_bytes(), self.request_max_bytes);
         let request_body = String::from_utf8_lossy(truncated);
         let (response_flags_body, total, logged) = serialize_filtered_response(response, &patterns);
 
@@ -270,6 +284,72 @@ async fn fetch_from_db(pool: &PgPool) -> Result<Option<BodyLogTeams>, String> {
         None => return Ok(None),
     };
     raw.parse::<BodyLogTeams>().map(Some)
+}
+
+/// Matches `phs_`-prefixed secret API tokens. The body after the prefix is
+/// base57 (see `generate_random_token_secret`), so ASCII alphanumerics suffice.
+static SECRET_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"phs_[A-Za-z0-9]+").expect("secret-token regex is valid"));
+
+/// Redact secret API tokens (`phs_`) from a request body before it is logged.
+/// `/flags` accepts a secret token as `api_key`, so the decoded body can carry
+/// one and a body-log reader must never be able to recover it. Public project
+/// tokens (`phc_`) are world-readable by design and are left intact.
+///
+/// A raw-text regex alone is not enough: a caller can smuggle a valid token as
+/// JSON unicode escapes (`"phs_..."`), which serde decodes
+/// for authentication but which never contain the literal `phs_` prefix for the
+/// regex to see. So when the body parses as JSON we redact structurally — walk
+/// the *decoded* values, redact any string carrying a `phs_` token, and
+/// re-serialize — then run the regex over the result as a backstop. Non-JSON
+/// bodies fall back to the raw-text regex.
+fn redact_secret_tokens(body: &str) -> Cow<'_, str> {
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(body) {
+        if redact_secret_tokens_in_json(&mut value) {
+            if let Ok(serialized) = serde_json::to_string(&value) {
+                return Cow::Owned(
+                    SECRET_TOKEN_RE
+                        .replace_all(&serialized, "phs_<redacted>")
+                        .into_owned(),
+                );
+            }
+        }
+    }
+    SECRET_TOKEN_RE.replace_all(body, "phs_<redacted>")
+}
+
+/// Recursively redact any JSON string value carrying a `phs_` secret token.
+/// Returns whether anything was redacted. Operates on the *decoded* JSON, so a
+/// token sent as `\uXXXX` escapes is caught — serde has already turned it back
+/// into the literal `phs_...` string by the time we walk it.
+fn redact_secret_tokens_in_json(value: &mut serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(s) => {
+            if SECRET_TOKEN_RE.is_match(s.as_str()) {
+                let redacted = SECRET_TOKEN_RE
+                    .replace_all(s.as_str(), "phs_<redacted>")
+                    .into_owned();
+                *s = redacted;
+                return true;
+            }
+            false
+        }
+        serde_json::Value::Array(items) => {
+            let mut redacted = false;
+            for item in items {
+                redacted |= redact_secret_tokens_in_json(item);
+            }
+            redacted
+        }
+        serde_json::Value::Object(map) => {
+            let mut redacted = false;
+            for (_key, item) in map.iter_mut() {
+                redacted |= redact_secret_tokens_in_json(item);
+            }
+            redacted
+        }
+        _ => false,
+    }
 }
 
 /// Truncate a body to `max_bytes`, returning the prefix slice, whether it was
@@ -512,6 +592,60 @@ mod tests {
     }
 
     #[test]
+    fn redact_secret_tokens_replaces_phs_in_body() {
+        let body = r#"{"api_key":"phs_abc123XYZ","distinct_id":"u1"}"#;
+        let redacted = redact_secret_tokens(body);
+        assert_eq!(
+            redacted,
+            r#"{"api_key":"phs_<redacted>","distinct_id":"u1"}"#
+        );
+        assert!(!redacted.contains("phs_abc123XYZ"));
+    }
+
+    #[test]
+    fn redact_secret_tokens_leaves_public_tokens_intact() {
+        let body = r#"{"token":"phc_publicworldreadable","distinct_id":"u1"}"#;
+        // No phs_ present, so the input is returned borrowed and unchanged.
+        let redacted = redact_secret_tokens(body);
+        assert!(matches!(redacted, Cow::Borrowed(_)));
+        assert_eq!(redacted, body);
+    }
+
+    #[test]
+    fn redact_secret_tokens_replaces_multiple_occurrences() {
+        let body = r#"{"api_key":"phs_one","backup":"phs_two"}"#;
+        let redacted = redact_secret_tokens(body);
+        assert_eq!(
+            redacted,
+            r#"{"api_key":"phs_<redacted>","backup":"phs_<redacted>"}"#
+        );
+    }
+
+    #[test]
+    fn redact_secret_tokens_redacts_json_unicode_escaped_token() {
+        // A caller can smuggle a valid token as JSON unicode escapes; serde decodes it for auth,
+        // but a raw-text regex never sees the literal `phs_` prefix. Structural redaction (parse,
+        // redact decoded strings, re-serialize) must still keep it out of the log.
+        // The escapes below decode to "phs_redactme123".
+        let body = r#"{"api_key":"\u0070\u0068\u0073\u005fredactme123"}"#;
+        // Guard: the literal prefix is genuinely hidden in the raw body the regex would scan.
+        assert!(!body.contains("phs_"));
+        let redacted = redact_secret_tokens(body);
+        assert!(
+            !redacted.contains("phs_redactme123"),
+            "decoded secret token recoverable from log: {redacted}"
+        );
+        assert!(
+            !redacted.contains("0070"),
+            "escaped secret token bytes still present in log: {redacted}"
+        );
+        assert!(
+            redacted.contains("phs_<redacted>"),
+            "expected redaction marker: {redacted}"
+        );
+    }
+
+    #[test]
     fn body_log_teams_parses_empty() {
         assert!("{}".parse::<BodyLogTeams>().unwrap().0.is_empty());
         assert!("".parse::<BodyLogTeams>().unwrap().0.is_empty());
@@ -664,6 +798,85 @@ mod tests {
         assert!(
             captured.contains("phc_abc"),
             "expected request body to be logged: {captured}"
+        );
+    }
+
+    #[test]
+    fn log_response_redacts_secret_token_in_body() {
+        // The negative twin of `log_response_emits_event_for_opted_in_team`: a `phs_` secret token
+        // sent as `api_key` must never reach the body log. This asserts the redaction at the call
+        // site, so dropping `redact_secret_tokens` from `log_response` fails here even though its
+        // unit tests still pass.
+        let mut map = HashMap::new();
+        map.insert(42, vec!["*".into()]);
+        let logger = BodyLogger::new(BodyLogTeams(map), 65_536);
+        let resp = make_response(&["my-feature"]);
+
+        let captured = capture_log_response(|_| {
+            logger.log_response(
+                Uuid::nil(),
+                Some(42),
+                Some(Bytes::from_static(b"{\"api_key\":\"phs_redactme123\"}")),
+                &resp,
+            );
+        });
+
+        assert!(
+            captured.contains("flags_body_log"),
+            "expected target in log line: {captured}"
+        );
+        assert!(
+            !captured.contains("phs_redactme123"),
+            "raw secret token leaked into body log: {captured}"
+        );
+        assert!(
+            captured.contains("phs_<redacted>"),
+            "expected redacted token marker in body log: {captured}"
+        );
+    }
+
+    #[test]
+    fn log_response_redacts_unicode_escaped_token_when_truncation_splits_json() {
+        // A caller can hide a valid token as JSON unicode escapes and pad the body so the
+        // log truncation lands past the token. If truncation ran *before* redaction, the
+        // truncated prefix would be invalid JSON, the raw-text fallback would never match the
+        // escaped bytes, and the full recoverable token would leak. Redacting the whole body
+        // first keeps it out regardless of where truncation later cuts.
+        let mut map = HashMap::new();
+        map.insert(42, vec!["*".into()]);
+        // Small cap so truncation happens inside the padding, well after the token.
+        let logger = BodyLogger::new(BodyLogTeams(map), 100);
+        let resp = make_response(&["my-feature"]);
+
+        // The escapes decode to "phs_"; the api_key value is "phs_SECRETTOKENVALUE".
+        let padding = "A".repeat(500);
+        let body = format!(
+            r#"{{"api_key":"\u0070\u0068\u0073\u005fSECRETTOKENVALUE","pad":"{padding}"}}"#
+        );
+        assert!(
+            !body.contains("phs_"),
+            "literal prefix must be hidden in the raw body"
+        );
+
+        let captured = capture_log_response(|_| {
+            logger.log_response(Uuid::nil(), Some(42), Some(Bytes::from(body)), &resp);
+        });
+
+        assert!(
+            captured.contains("\"request_truncated\":true"),
+            "test setup should truncate the body: {captured}"
+        );
+        assert!(
+            !captured.contains("SECRETTOKENVALUE"),
+            "decoded secret token leaked into body log: {captured}"
+        );
+        assert!(
+            !captured.contains("0070"),
+            "escaped secret token bytes leaked into body log: {captured}"
+        );
+        assert!(
+            captured.contains("phs_<redacted>"),
+            "expected redacted token marker in body log: {captured}"
         );
     }
 
