@@ -71,9 +71,9 @@ MAX_TIME_BUCKETS = 600
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 # `by_input_size` buckets on `$ai_input_tokens`, ascending by lower bound. This is the
-# primary cost driver: large-context turns dominate spend regardless of which tool they
-# called (~half of spend comes from turns over 300k input tokens, verified against
-# production). Single source of truth for both the query's `multiIf` and the row labels.
+# primary cost driver: input tokens are billed per token, so large-context turns dominate
+# spend regardless of which tool they called. Single source of truth for both the query's
+# `multiIf` and the row labels.
 INPUT_SIZE_BUCKETS: list[tuple[str, int]] = [
     ("<50k", 0),
     ("50k-100k", 50_000),
@@ -89,6 +89,12 @@ DEFAULT_LIMIT = 50
 
 CACHE_TIMEOUT_SECONDS = 300
 
+# Namespaces the cache by response schema. Bump on any payload shape change so entries
+# written by an older process during a rolling deploy are never served against the new
+# contract (this revision added `by_input_size`, `cost_attributed_usd`, `share_attributed`
+# and removed `top_traces`).
+CACHE_SCHEMA_VERSION = "v2"
+
 UTC = ZoneInfo("UTC")
 
 
@@ -100,9 +106,10 @@ def _cache_key(
     email: str, date_from: str, date_to: str | None, product: str, limit: int, bucket_minutes: int | None
 ) -> str:
     to_slot = date_to or "_now"
-    # Suffix only when set, so bucketless requests keep their pre-bucket_minutes cache keys.
+    # Only append the bucket segment when set, so bucketless and bucketed requests get
+    # distinct keys without perturbing the bucketless key shape.
     bucket_slot = f":{bucket_minutes}" if bucket_minutes else ""
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
+    return f"personal_spend:{CACHE_SCHEMA_VERSION}:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -834,11 +841,14 @@ def _input_size_bucket_case_sql() -> str:
     """Builds the `multiIf(...)` branches from `INPUT_SIZE_BUCKETS`: each bucket (other
     than the last) becomes `$ai_input_tokens < <next bucket's min>, '<label>'`, checked in
     ascending order so `multiIf` matches the first (lowest) bucket the value clears; the
-    last bucket is the unconditional fallback. Bucket bounds are fixed constants defined
-    in this module, not request input, so interpolating them into the query text is safe.
+    last bucket is the unconditional fallback. Missing or unparseable `$ai_input_tokens`
+    coalesces to 0, so unknown-size events land in the lowest bucket rather than silently
+    inflating the `>300k` fallback (a NULL comparison is false, so it would otherwise fall
+    through every branch). Bucket bounds are fixed constants defined in this module, not
+    request input, so interpolating them into the query text is safe.
     """
     branches = [
-        f"toFloat(properties.$ai_input_tokens) < {INPUT_SIZE_BUCKETS[i + 1][1]}, '{label}'"
+        f"coalesce(toFloat(properties.$ai_input_tokens), 0) < {INPUT_SIZE_BUCKETS[i + 1][1]}, '{label}'"
         for i, (label, _min_tokens) in enumerate(INPUT_SIZE_BUCKETS[:-1])
     ]
     fallback_label = INPUT_SIZE_BUCKETS[-1][0]
