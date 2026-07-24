@@ -6996,10 +6996,12 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+        # Pass a plain int, not WeekStartDay: that's what Django reads team.week_start_day back as,
+        # and a bare int used to crash the printer's `.name` access for Monday (1).
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            database=Database(week_start_day=WeekStartDay.MONDAY),
+            database=Database(week_start_day=int(WeekStartDay.MONDAY)),
         )
 
         self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
