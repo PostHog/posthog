@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 33 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -840,8 +840,6 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
 export const experimentsCreateBodyConclusionCommentMax = 4000
-
-export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -4321,13 +4319,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .max(experimentsCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
-        repository: zod
-            .string()
-            .max(experimentsCreateBodyRepositoryMax)
-            .nullish()
-            .describe(
-                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
-            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4464,8 +4455,6 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
-
-export const experimentsPartialUpdateBodyRepositoryMax = 255
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -7951,13 +7940,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .max(experimentsPartialUpdateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
-        repository: zod
-            .string()
-            .max(experimentsPartialUpdateBodyRepositoryMax)
-            .nullish()
-            .describe(
-                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
-            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7980,35 +7962,6 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-/**
- * Change history for this experiment.
- *
- * Returns a paginated audit trail of changes to the experiment and its holdouts
- * and shared metrics: who made each change, what changed (field-level before/after
- * values), and when. Ordered newest first.
- */
-export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this experiment.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const experimentsActivityRetrieveQueryLimitDefault = 10
-
-export const experimentsActivityRetrieveQueryPageDefault = 1
-
-export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod
-        .number()
-        .min(1)
-        .default(experimentsActivityRetrieveQueryLimitDefault)
-        .describe('Number of items per page'),
-    page: zod.number().min(1).default(experimentsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
@@ -8168,8 +8121,6 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
 export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
-
-export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -11553,13 +11504,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .max(experimentsDuplicateCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
-        repository: zod
-            .string()
-            .max(experimentsDuplicateCreateBodyRepositoryMax)
-            .nullish()
-            .describe(
-                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
-            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -11669,6 +11613,89 @@ export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object(
  * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+ *
+ * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+ * already pending or in progress for this experiment. The response payload intentionally does not
+ * include the `results` array — at POST time the workflow has just been queued and no per-metric
+ * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+ * progresses.
+ */
+export const ExperimentsMetricsRecalculationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
+
+export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+    .object({
+        trigger: zod
+            .enum([
+                'manual',
+                'cold_run',
+                'stale_refresh',
+                'auto_refresh',
+                'config_change',
+                'experiment_launch',
+                'experiment_stop',
+                'experiment_update',
+            ])
+            .describe(
+                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+            )
+            .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
+            .describe(
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+            ),
+    })
+    .describe('Request body for triggering a metrics recalculation.')
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const ExperimentsMetricsRecalculationRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    recalculation_id: zod
+        .string()
+        .regex(experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp)
+        .describe("UUID of the recalculation run to fetch. This is the run's own id, not the experiment id."),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const ExperimentsMetricsRecalculationLatestRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()

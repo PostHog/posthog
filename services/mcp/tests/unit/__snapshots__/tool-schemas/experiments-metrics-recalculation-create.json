@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        },
+        "trigger": {
+            "default": "manual",
+            "description": "What triggered this recalculation (manual is the default for user-initiated runs)\n\n* `manual` - Manual\n* `cold_run` - Cold Run\n* `stale_refresh` - Stale Refresh\n* `auto_refresh` - Auto Refresh\n* `config_change` - Config Change\n* `experiment_launch` - Experiment Launch\n* `experiment_stop` - Experiment Stop\n* `experiment_update` - Experiment Update",
+            "enum": [
+                "manual",
+                "cold_run",
+                "stale_refresh",
+                "auto_refresh",
+                "config_change",
+                "experiment_launch",
+                "experiment_stop",
+                "experiment_update"
+            ],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
