@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -80,10 +80,16 @@ class AST:
             _clone_plan_cache[cls] = plan
         new = cls.__new__(cls)  # bare instance, no __init__/__post_init__
         memo[id(self)] = new  # register BEFORE recursing so cycles terminate
-        for name, needs_clone in plan:
-            # Assumes every slot is set, true for any node built via the dataclass __init__ (the only path in practice).
-            value = getattr(self, name)
-            setattr(new, name, _clone_value(value, memo) if needs_clone else value)
+        try:
+            for name, needs_clone in plan:
+                # Assumes every slot is set, true for any node built via the dataclass __init__ (the only path in practice).
+                value = getattr(self, name)
+                setattr(new, name, _clone_value(value, memo) if needs_clone else value)
+        except RecursionError:
+            # A deeply-nested AST can exhaust Python's stack here just as it can in the visitors
+            # (see Visitor.visit). Surface a clean, user-facing error instead of a raw stack
+            # overflow. Zero-cost on the common shallow path since nothing is raised.
+            raise QueryError("Query is too deeply nested")
         return new
 
     def to_hogql(self):
