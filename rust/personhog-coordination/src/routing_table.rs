@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ use assignment_coordination::store::parse_watch_value;
 
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
-use crate::types::{HandoffPhase, HandoffState, RegisteredRouter, RouterFreezeAck};
+use crate::types::{HandoffPhase, HandoffState, RegisteredPod, RegisteredRouter, RouterFreezeAck};
 use crate::util;
 
 /// Trait for the router-side stash handler. Implementations are responsible
@@ -75,6 +75,13 @@ pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
     table: Arc<RwLock<HashMap<u32, String>>>,
+    /// `pod_name` → advertised `host:port`, learned from the same
+    /// assignments and handoff events that drive `table`, so reachability
+    /// can never lag ownership. Entries for departed pods linger until
+    /// overwritten; lookups only ever go through current owners. A std
+    /// lock (never held across await) so the leader backend's synchronous
+    /// address resolver can read it.
+    addresses: Arc<StdRwLock<HashMap<String, String>>>,
 }
 
 impl RoutingTable {
@@ -83,6 +90,7 @@ impl RoutingTable {
             store,
             config,
             table: Arc::new(RwLock::new(HashMap::new())),
+            addresses: Arc::new(StdRwLock::new(HashMap::new())),
         }
     }
 
@@ -104,6 +112,12 @@ impl RoutingTable {
         Arc::clone(&self.table)
     }
 
+    /// Shared handle to the pod-name → advertised-address map, for the
+    /// leader backend's dialing.
+    pub fn addresses_handle(&self) -> Arc<StdRwLock<HashMap<String, String>>> {
+        Arc::clone(&self.addresses)
+    }
+
     /// Run the routing table. Registers with etcd, loads the initial state,
     /// then watches the handoffs keyspace. Blocks until cancelled. Routing
     /// changes flow exclusively through handoff Complete events; there is
@@ -123,7 +137,15 @@ impl RoutingTable {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        let snapshot_revision = self.load_initial(&handler).await?;
+        let (snapshot_revision, pods_revision) = self.load_initial(&handler).await?;
+
+        // The pod watch anchors strictly after the pod snapshot, exactly
+        // like the handoff watch below: nothing older than the snapshot
+        // is ever replayed, so a registration installed by the snapshot
+        // can never be regressed by a replayed predecessor. (Anchoring
+        // before the snapshot — the coordinator's pattern — is only safe
+        // for CAS-guarded consumers; this map is last-writer-wins.)
+        let pods_stream = self.store.watch_pods_from(pods_revision + 1).await?;
 
         // Anchor the handoff watch to the snapshot's revision: every event
         // at or before it was handled by `load_initial`, every later one
@@ -148,14 +170,31 @@ impl RoutingTable {
         }
 
         {
+            let addresses = Arc::clone(&self.addresses);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::watch_pod_addresses_loop(addresses, token, pods_stream).await
+            });
+        }
+
+        {
             let store = Arc::clone(&self.store);
             let table = Arc::clone(&self.table);
+            let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, table, handler, router_name, token, handoff_stream)
-                    .await
+                Self::watch_handoffs_loop(
+                    store,
+                    table,
+                    addresses,
+                    handler,
+                    router_name,
+                    token,
+                    handoff_stream,
+                )
+                .await
             });
         }
 
@@ -188,9 +227,9 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    /// Returns the etcd revision of the handoff snapshot, so the caller
-    /// can anchor the handoff watch to it.
-    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<i64> {
+    /// Returns the etcd revisions of the handoff and pod snapshots, so
+    /// the caller can anchor each watch strictly after its own snapshot.
+    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<(i64, i64)> {
         // Catch up on any in-progress handoffs BEFORE populating the
         // routing table. The table starts empty, so every lookup fails
         // closed until it is loaded; opening the stashes first guarantees
@@ -241,19 +280,82 @@ impl RoutingTable {
         }
 
         let assignments = self.store.list_assignments().await?;
+        // Live registrations overlay assignment-carried addresses: an
+        // assignment's address is a snapshot from the handoff that
+        // installed the owner, and the owner may have re-registered at a
+        // new address since (same pod name, new IP) without any handoff.
+        // Registrations are the authority on addresses; everything else
+        // is a fallback for entries the registration feed hasn't covered.
+        let (pods, pods_revision) = self.store.list_pods_with_revision().await?;
         let mut table = self.table.write().await;
+        {
+            let mut addresses = self.addresses.write().expect("addresses lock poisoned");
+            for a in &assignments {
+                if let Some(address) = &a.advertise_address {
+                    addresses.insert(a.owner.clone(), address.clone());
+                }
+            }
+            for pod in pods {
+                if let Some(address) = pod.advertise_address {
+                    addresses.insert(pod.pod_name, address);
+                }
+            }
+        }
         for a in assignments {
             table.insert(a.partition, a.owner);
         }
         tracing::info!(count = table.len(), "loaded initial routing table");
         drop(table);
 
-        Ok(snapshot_revision)
+        Ok((snapshot_revision, pods_revision))
     }
 
+    /// Keep the address map current with pod registrations. Ownership is
+    /// untouched — routing still moves only on handoff events — but a pod
+    /// that re-registers under the same name at a new address (a restart
+    /// that kept its assignments) must refresh where the router dials, or
+    /// every dial keeps hitting the dead address until the next handoff.
+    /// Deletes are ignored: a lease expiry precedes either a re-register
+    /// (which overwrites) or a handoff away (after which the entry is
+    /// never consulted).
+    async fn watch_pod_addresses_loop(
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
+        cancel: CancellationToken,
+        mut stream: WatchStream,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    for event in resp.events() {
+                        if event.event_type() != EventType::Put {
+                            continue;
+                        }
+                        let pod: RegisteredPod = match parse_watch_value(event) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::error!(error = %e, "failed to parse pod event");
+                                continue;
+                            }
+                        };
+                        if let Some(address) = pod.advertise_address {
+                            addresses
+                                .write()
+                                .expect("addresses lock poisoned")
+                                .insert(pod.pod_name, address);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn watch_handoffs_loop(
         store: Arc<PersonhogStore>,
         table: Arc<RwLock<HashMap<u32, String>>>,
+        addresses: Arc<StdRwLock<HashMap<String, String>>>,
         handler: Arc<dyn StashHandler>,
         router_name: String,
         cancel: CancellationToken,
@@ -271,6 +373,7 @@ impl RoutingTable {
                                     event,
                                     store.as_ref(),
                                     &table,
+                                    &addresses,
                                     handler.as_ref(),
                                     &router_name,
                                 ).await?;
@@ -319,6 +422,7 @@ impl RoutingTable {
         event: &etcd_client::Event,
         store: &PersonhogStore,
         table: &Arc<RwLock<HashMap<u32, String>>>,
+        addresses: &Arc<StdRwLock<HashMap<String, String>>>,
         handler: &dyn StashHandler,
         router_name: &str,
     ) -> Result<()> {
@@ -357,6 +461,34 @@ impl RoutingTable {
                 }
             }
             HandoffPhase::Complete => {
+                // The address must land before the table flips: the drain
+                // below dials the new owner immediately. Insert only if
+                // absent — the handoff carries an address snapshotted at
+                // handoff creation, and the pod may have re-registered at
+                // a newer address since; the registration feed (a separate
+                // stream with no cross-stream ordering) is the authority
+                // and must never be overwritten by this fallback.
+                match &handoff.new_owner_address {
+                    Some(address) => {
+                        addresses
+                            .write()
+                            .expect("addresses lock poisoned")
+                            .entry(handoff.new_owner.clone())
+                            .or_insert_with(|| address.clone());
+                    }
+                    None => {
+                        // Only possible for handoffs written by a
+                        // pre-advertise-address coordinator; dials to this
+                        // owner fail closed until it re-registers.
+                        tracing::warn!(
+                            router = %router_name,
+                            partition = handoff.partition,
+                            new_owner = %handoff.new_owner,
+                            "handoff carries no advertise address"
+                        );
+                    }
+                }
+
                 // Pre-update the routing table before draining so that any
                 // new request arriving between drain and the independent
                 // assignment-watch dispatch routes to the new owner rather

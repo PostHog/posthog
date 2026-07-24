@@ -42,6 +42,9 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         partition: p as u32,
         old_owner: h.old_owner.map(pod_name),
         new_owner: pod_name(h.new_owner),
+        // The model verifies ownership/fencing; addresses are transport
+        // detail outside its state space.
+        new_owner_address: None,
         phase: h.phase,
         started_at: 0,
         handoff_id: h.id.to_string(),
@@ -96,6 +99,7 @@ fn model_desired_state(pod: PodId, state: &SystemState, partition: Partition) ->
         .map(|owner| PartitionAssignment {
             partition: partition as u32,
             owner: pod_name(*owner),
+            advertise_address: None,
             status: AssignmentStatus::Active,
         });
     let handoff = state
@@ -505,6 +509,7 @@ impl Model for HandoffModel {
                                 registered_at: 0,
                                 last_heartbeat: 0,
                                 controller: None,
+                                advertise_address: None,
                             })
                             .collect();
                         let acks: Vec<PodDrainedAck> = self

@@ -111,6 +111,13 @@ impl PersonhogStore {
         Ok(self.inner.list(&key).await?)
     }
 
+    /// List pods along with the etcd revision of the snapshot, so a watch
+    /// can be anchored strictly after it.
+    pub async fn list_pods_with_revision(&self) -> Result<(Vec<RegisteredPod>, i64)> {
+        let key = self.key(StoreKey::PodsPrefix);
+        Ok(self.inner.list_with_revision(&key).await?)
+    }
+
     pub async fn update_pod_status(
         &self,
         pod_name: &str,
@@ -526,6 +533,7 @@ impl PersonhogStore {
         let assignment = PartitionAssignment {
             partition,
             owner: handoff.new_owner.clone(),
+            advertise_address: handoff.new_owner_address.clone(),
             status: AssignmentStatus::Active,
         };
 
