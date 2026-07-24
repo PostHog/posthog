@@ -153,7 +153,7 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    let result = parse_template_body(&emit, src, body_offset, body_end)?;
+    let result = parse_template_body(&emit, src, body_offset, body_end, true)?;
     // cpp positions the result by chunk count: a multi-chunk `concat(...)`
     // gets the outer rule-ctx span `(0, src.len())`, while a single-chunk
     // shortcut keeps the inner element's own span (the literal text or the

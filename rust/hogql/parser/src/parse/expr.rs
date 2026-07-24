@@ -710,7 +710,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let body_offset = tok.start + 2; // past `f'`
                 let body_end = tok.end - 1; // before closing `'`
                 self.bump()?;
-                parse_template_body(&self.emit, self.src, body_offset, body_end)
+                parse_template_body(&self.emit, self.src, body_offset, body_end, false)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
                 if self.peek_next() == TokenKind::LParen || self.dot_next_is_chain_link() =>
