@@ -7,12 +7,13 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
+import { isNetworkError } from 'lib/utils/isNetworkError'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -7551,6 +7552,12 @@ async function handleFetch(
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
             throw error
+        }
+        if (isNetworkError(error)) {
+            // Transient network failure (dropped connection, navigation abort, CORS, ad blocker) —
+            // outside our control. Throw a dedicated type so callers still get a failure to react to,
+            // while error tracking's `before_send` filter drops it as noise rather than a defect.
+            throw new NetworkError(error)
         }
         throw new ApiError(error as any, response?.status)
     }
