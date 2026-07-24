@@ -190,6 +190,51 @@ async fn create_loses_race_when_distinct_id_is_mapped_to_another_person() {
 }
 
 #[tokio::test]
+async fn lost_race_undo_reverts_only_the_personless_marks_it_made() {
+    let ctx = TestContext::new().await;
+    // The loser's primary distinct id is already mapped elsewhere, so its
+    // whole stub rolls back — including the step that marked its extras
+    // merged. One extra per prior state: no row, unmerged row, merged row.
+    ctx.insert_person_with_distinct_id("undo-taken").await;
+    ctx.insert_personless_distinct_id("undo-flipped", false)
+        .await;
+    ctx.insert_personless_distinct_id("undo-merged", true).await;
+
+    let outcomes = ctx
+        .storage
+        .create_person_stubs(&[
+            stub(&ctx, "undo-winner", &["undo-shared"]),
+            stub(
+                &ctx,
+                "undo-taken",
+                &["undo-fresh", "undo-flipped", "undo-merged", "undo-shared"],
+            ),
+        ])
+        .await
+        .expect("create should not error");
+    assert!(
+        matches!(
+            outcomes[..],
+            [
+                StubOutcome::Committed { created: true, .. },
+                StubOutcome::LostRace
+            ]
+        ),
+        "expected committed + lost race, got {outcomes:?}"
+    );
+
+    // The undone stub's marks are reverted to their prior state…
+    assert_eq!(ctx.personless_is_merged("undo-fresh").await, None);
+    assert_eq!(ctx.personless_is_merged("undo-flipped").await, Some(false));
+    assert_eq!(ctx.personless_is_merged("undo-merged").await, Some(true));
+    // …but an extra shared with a committed stub keeps its mapping and mark.
+    assert_eq!(ctx.personless_is_merged("undo-shared").await, Some(true));
+    assert_eq!(ctx.distinct_id_version("undo-shared").await, Some(0));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn batch_mixes_created_existing_and_lost_race_outcomes_per_row() {
     let ctx = TestContext::new().await;
     let taken_id = ctx.insert_person_with_distinct_id("mix-taken").await;
