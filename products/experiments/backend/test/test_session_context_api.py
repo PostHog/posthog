@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
+from posthog.rate_limit import SessionContextsBurstRateThrottle
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.facade.api import upsert_property_access_control
@@ -1081,6 +1082,20 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [entry["session_id"] for entry in response.json()["results"]] == [SESSION_ID]
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_batch_throttles_session_authenticated_users(self, _enabled: Any) -> None:
+        # The ClickHouse* throttle pair only limits personal-API-key traffic; this endpoint's
+        # primary caller is the session-authenticated web app, so swapping back to those
+        # classes would leave the heavy batch compute unthrottled for its real traffic.
+        self._create_recording()
+
+        with patch.object(SessionContextsBurstRateThrottle, "rate", "2/minute"):
+            assert self._post_session_contexts([SESSION_ID]).status_code == status.HTTP_200_OK
+            assert self._post_session_contexts([SESSION_ID]).status_code == status.HTTP_200_OK
+            throttled = self._post_session_contexts([SESSION_ID])
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_batch_requires_session_recording_read_scope(self) -> None:
         self._create_recording()

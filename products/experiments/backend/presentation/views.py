@@ -34,7 +34,12 @@ from posthog.models.activity_logging.activity_page import ActivityLogPaginatedRe
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    SessionContextsBurstRateThrottle,
+    SessionContextsSustainedRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -1277,7 +1282,10 @@ class EnterpriseExperimentsViewSet(
         detail=False,
         url_path="session_contexts",
         required_scopes=["experiment:read", "session_recording:read"],
-        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+        # Not the ClickHouse* pair the single-session action uses: that pair only limits
+        # personal-API-key traffic, and this endpoint's primary caller is the
+        # session-authenticated web app.
+        throttle_classes=[SessionContextsBurstRateThrottle, SessionContextsSustainedRateThrottle],
     )
     def session_contexts(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         """Resolve experiment context for a batch of session recordings.
