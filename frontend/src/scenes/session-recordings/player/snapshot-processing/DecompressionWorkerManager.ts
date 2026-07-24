@@ -15,6 +15,7 @@ export class DecompressionWorkerManager {
     private messageId = 0
     private pendingRequests = new Map<number, PendingRequest>()
     private workerInitFailed = false
+    private snappyInitFailed = false
 
     constructor(private readonly posthog?: PostHog) {
         this.readyPromise = this.initWorker()
@@ -82,11 +83,29 @@ export class DecompressionWorkerManager {
             )
             this.workerInitFailed = true
             this.worker = null
-            await this.initSnappy()
             if (this.posthog) {
                 this.posthog.capture('replay_worker_init_failed', {
                     error: this.getErrorMessage(error),
                 })
+            }
+
+            // The main-thread WASM fallback fetches the snappy binary over the network, which can
+            // fail (offline, ad blocker, CDN hiccup). Guard it so the rejection is captured as
+            // telemetry rather than escaping as an uncaught error, and settle readyPromise into a
+            // defined failure state so later decompress() calls degrade cleanly.
+            try {
+                await this.initSnappy()
+            } catch (snappyError) {
+                this.snappyInitFailed = true
+                console.error(
+                    '[DecompressionWorkerManager] Failed to initialize main-thread WASM fallback:',
+                    snappyError
+                )
+                if (this.posthog) {
+                    this.posthog.capture('replay_snappy_init_failed', {
+                        error: this.getErrorMessage(snappyError),
+                    })
+                }
             }
         }
     }
@@ -177,6 +196,9 @@ export class DecompressionWorkerManager {
     }
 
     private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
+        if (this.snappyInitFailed) {
+            throw new Error('Decompression unavailable: WASM module failed to initialize')
+        }
         try {
             return decompress_raw(compressedData)
         } catch (error) {
