@@ -15,6 +15,8 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission
+from rest_framework.views import APIView
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
@@ -501,7 +503,9 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
             self.message = f"You do not have {required_level} access to this resource."
             return False
 
-        candidates = SavedHeatmap.objects.filter(team=team, deleted=False)
+        # Prewarm rows are speculative implementation details, not user-saved authorization anchors.
+        # Their creators implicitly own them, so including them would turn prewarming into aggregate-data access.
+        candidates = SavedHeatmap.objects.filter(team=team, deleted=False, is_prewarm=False)
         for candidate in candidates:
             candidate_url = candidate.data_url or candidate.url
             # Match the same way the aggregate query does: url_exact ignores a trailing slash
@@ -1095,10 +1099,24 @@ class HeatmapPrewarmRequestSerializer(serializers.Serializer):
         return validate_page_url(value)
 
 
+class HeatmapPrewarmResourceAccessPermission(BasePermission):
+    message = "You do not have editor access to this resource."
+
+    def has_permission(self, request: request.Request, view: APIView) -> bool:
+        saved_heatmap_view = cast("SavedHeatmapViewSet", view)
+        if saved_heatmap_view.action != "prewarm" or is_service_auth(request):
+            return True
+
+        return saved_heatmap_view.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level="editor"
+        )
+
+
 class SavedHeatmapViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
 ):
     scope_object = "heatmap"
+    permission_classes = [HeatmapPrewarmResourceAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()

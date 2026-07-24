@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -143,6 +143,34 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(self._list_url(), data={"url": "https://example.com/allowed"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertTrue(SavedHeatmap.objects.filter(team=self.team, url="https://example.com/allowed").exists())
+
+    @parameterized.expand(
+        [
+            ("object_editor", True, status.HTTP_403_FORBIDDEN),
+            ("resource_editor", False, status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_prewarm_requires_resource_editor_access(
+        self, _name: str, object_grant: bool, expected_status: int, mock_task: MagicMock
+    ) -> None:
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.editor_user,
+            resource_id=str(self.heatmap.id) if object_grant else None,
+            access_level="editor",
+        )
+        self.client.force_login(self.editor_user)
+        url = f"https://example.com/prewarm-{_name}"
+
+        response = self.client.post(self._list_url() + "prewarm/", data={"url": url}, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, url=url).exists(), not object_grant)
+        if object_grant:
+            mock_task.assert_not_called()
+        else:
+            mock_task.assert_called_once()
 
     def test_creator_list_filters_out_object_blocked_heatmap(self):
         # Creator sees their own heatmap; an object-level "none" on another user's heatmap excludes it.
@@ -323,6 +351,22 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         # exercised in test_heatmaps_api.py.
         response = self._query_aggregate(url_exact="https://example.com/authorized")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_prewarm_does_not_authorize_aggregate_data(self) -> None:
+        SavedHeatmap.objects.create(
+            team=self.team,
+            name="",
+            url="https://example.com/secret-unrelated-page",
+            data_url="https://example.com/secret-unrelated-page",
+            target_widths=[1024],
+            created_by=self.viewer_user,
+            status=SavedHeatmap.Status.COMPLETED,
+            is_prewarm=True,
+        )
+
+        response = self._query_aggregate(url_exact="https://example.com/secret-unrelated-page")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     def test_object_grant_allows_query_url_differing_only_by_trailing_slash(self):
         # The aggregate query itself ignores a trailing slash (`trimRight(current_url, '/')`);
