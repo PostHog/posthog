@@ -94,6 +94,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     show_full_result_count = False
     list_select_related = ("organization", "created_by")
+    actions = ("resend_signing_email",)
 
     # Change view stays read-only — customer-submitted content can't be quietly
     # rewritten. The add view uses LegalDocumentAdminForm fields directly.
@@ -233,6 +234,34 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             raise ValidationError(
                 f"This organization already has a {obj.document_type}. Delete the existing row first."
             ) from exc
+
+    @admin.action(description="Re-send PandaDoc signing email")
+    def resend_signing_email(self, request: HttpRequest, queryset: Any) -> None:
+        # Recovery path for envelopes stranded because the `document.draft`
+        # webhook that normally triggers the send was missed: the envelope was
+        # created but the signing email never went out. Re-dispatching the send
+        # (idempotent on PandaDoc's side) gets the signer their link without
+        # forcing a delete + regenerate. Signed rows and rows without an
+        # envelope have nothing to send.
+        sent = skipped = failed = 0
+        for document in queryset:
+            if document.status == LegalDocument.Status.SIGNED or not document.pandadoc_document_id:
+                skipped += 1
+            elif logic.send_pandadoc_envelope(document):
+                sent += 1
+            else:
+                failed += 1
+
+        if sent:
+            messages.success(request, f"Re-sent the signing email for {sent} document(s).")
+        if skipped:
+            messages.warning(request, f"Skipped {skipped} document(s): already signed or no PandaDoc envelope.")
+        if failed:
+            messages.error(
+                request,
+                f"Couldn't re-send {failed} document(s). PandaDoc may still be processing the template, or the "
+                "envelope is no longer sendable. Check the logs and try again shortly.",
+            )
 
     def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
         # Shared helper voids the PandaDoc envelope, removes the S3 object,
