@@ -926,9 +926,9 @@ tools:
             doing" almost always means, use experiments-metrics-recalculation-latest instead.
 
 
-            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics
-            array — each metric has a uuid and the fingerprint is computed from its configuration), so you generally
-            need to fetch the experiment first.
+            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
+            — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to
+            fetch the experiment first.
 
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,
@@ -1147,10 +1147,10 @@ tools:
             user's reference first.
 
 
-            Start a fresh calculation of every metric on this experiment against the latest data. Use this when the
-            user asks to refresh, recalculate, or re-run results, or when results returned by
-            experiments-metrics-recalculation-latest look stale. Reading results does NOT trigger a new run — this
-            tool is the only way to start one.
+            Start a fresh calculation of every metric on this experiment against the latest data. Use this when the user
+            asks to refresh, recalculate, or re-run results, or when results returned by
+            experiments-metrics-recalculation-latest look stale. Reading results does NOT trigger a new run — this tool
+            is the only way to start one.
 
 
             This queues background work that can take minutes on large experiments. Safe to call more than once: if a
@@ -1159,9 +1159,9 @@ tools:
 
 
             The response has no results array — the run has only just been queued. Take the returned id and poll
-            experiments-metrics-recalculation-retrieve with it, or call
-            experiments-metrics-recalculation-latest, until status is completed or failed. Watch rows_read and
-            completed_metrics for progress. Do not poll in a tight loop; wait a few seconds between checks.
+            experiments-metrics-recalculation-retrieve with it, or call experiments-metrics-recalculation-latest, until
+            status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight
+            loop; wait a few seconds between checks.
         param_overrides:
             id:
                 cast: string-int
@@ -1182,10 +1182,10 @@ tools:
             mean, load the diagnosing-experiment-results skill.
 
 
-            Returns the most recent completed metrics run for the experiment: a results array with one entry per
-            metric, each carrying per-variant statistics (exposures, counts, means, credible intervals, chance to beat
-            control, significance), plus run-level status, created_at, completed_at, and query_to (the data freshness
-            cutoff these numbers were computed against — use it to tell the user how fresh the results are).
+            Returns the most recent completed metrics run for the experiment: a results array with one entry per metric,
+            each carrying per-variant statistics (exposures, counts, means, credible intervals, chance to beat control,
+            significance), plus run-level status, created_at, completed_at, and query_to (the data freshness cutoff
+            these numbers were computed against — use it to tell the user how fresh the results are).
 
 
             This is a pure read and never starts a calculation, so the numbers can be stale. If the user wants fresh
@@ -1199,8 +1199,8 @@ tools:
             timeseries data, rather than 'recalculation' for a real run; say so if you report those numbers.
 
 
-            Returns 404 when the experiment has no results at all yet, which usually means it has not run long enough
-            or has never been calculated.
+            Returns 404 when the experiment has no results at all yet, which usually means it has not run long enough or
+            has never been calculated.
         param_overrides:
             id:
                 cast: string-int
@@ -1216,8 +1216,8 @@ tools:
         enrich_url: '{params.id}'
         title: Get experiment recalculation run
         description: >
-            Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll
-            a run you started with experiments-metrics-recalculation-create, or the active_run.id returned by
+            Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a
+            run you started with experiments-metrics-recalculation-create, or the active_run.id returned by
             experiments-metrics-recalculation-latest.
 
 
@@ -1225,11 +1225,10 @@ tools:
             experiments-metrics-recalculation-latest instead.
 
 
-            Returns the run's status (pending, in_progress, completed, failed), progress counters
-            (completed_metrics and failed_metrics out of total_metrics, plus rows_read against
-            estimated_rows_total), the results array once metrics finish, and metric_errors for metrics that failed.
-            metric_retries holds transient state for metrics between failed attempts; ignore entries for metrics that
-            already have a result, as those are stale.
+            Returns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and
+            failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once
+            metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics
+            between failed attempts; ignore entries for metrics that already have a result, as those are stale.
 
 
             Returns 404 if the run id does not exist or belongs to a different experiment.
