@@ -691,12 +691,8 @@ class TestGenerateChangeSummary:
         monkeypatch.setenv("OPENAI_API_KEY", "test-fake-key")
         monkeypatch.setattr("posthog.event_usage.SITE_URL", "https://us.posthog.com")
 
-        captured_calls: list[dict] = []
-
-        def fake_capture(*args, **kwargs):
-            captured_calls.append(kwargs)
-
-        monkeypatch.setattr("posthoganalytics.capture", fake_capture)
+        fake_client = MagicMock()
+        monkeypatch.setattr("posthoganalytics.default_client", fake_client)
 
         usage_details = MagicMock()
         usage_details.cached_tokens = 0
@@ -721,6 +717,11 @@ class TestGenerateChangeSummary:
         with patch("openai.resources.chat.completions.Completions.create", return_value=fake_response):
             generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
 
+        captured_calls = [
+            c.kwargs
+            for method in (fake_client.capture, fake_client._capture_ai)
+            for c in method.call_args_list
+        ]
         ai_generation_calls = [c for c in captured_calls if c.get("event") == "$ai_generation"]
         assert len(ai_generation_calls) == 1, (
             f"expected exactly one $ai_generation capture, got events: {[c.get('event') for c in captured_calls]}"

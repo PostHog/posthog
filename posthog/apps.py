@@ -78,7 +78,7 @@ class PostHogConfig(AppConfig):
         # the metrics API and ignores this attr; once posthoganalytics is bumped to
         # >=7.23 it's picked up by setup(), so metrics get a real service.name
         # instead of 'unknown_service'.
-        posthoganalytics.metrics = {  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        posthoganalytics.metrics = {  # ty: ignore[invalid-assignment]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.
             "service_name": settings.OTEL_SERVICE_NAME or "posthog-django-default",
