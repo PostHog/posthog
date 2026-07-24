@@ -4431,6 +4431,14 @@ export enum EarlyAccessFeatureTabs {
     OptedOut = 'opted-out',
 }
 
+export type EarlyAccessFeatureAssigneeType = 'user' | 'role'
+
+/** Person or role an early access feature is assigned to. Defaults to the creator. */
+export interface EarlyAccessFeatureAssignee {
+    type: EarlyAccessFeatureAssigneeType
+    id: number | string
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -4443,6 +4451,8 @@ export interface EarlyAccessFeatureType {
     /** Custom JSON payload for the early access feature */
     payload?: Record<string, any>
     created_at: string
+    created_by?: UserBasicType | null
+    assignee?: EarlyAccessFeatureAssignee | null
     _create_in_folder?: string | null
     /** The effective access level the user has for this early access feature. */
     user_access_level?: AccessControlLevel
