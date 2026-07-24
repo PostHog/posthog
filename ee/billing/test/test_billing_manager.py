@@ -386,7 +386,7 @@ class TestBillingManager(BaseTest):
         )
 
         # An empty list is authoritative - e.g. the customer cancelled their only paid feature.
-        billing_status = {"customer": {"available_product_features": []}}
+        billing_status: dict[str, Any] = {"customer": {"available_product_features": []}}
 
         BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
