@@ -31285,6 +31285,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `all` - ALL
+     * * `backend` - BACKEND
+     * * `frontend` - FRONTEND
+     */
+    export type SurfaceEnum = typeof SurfaceEnum[keyof typeof SurfaceEnum];
+
+
+    export const SurfaceEnum = {
+      All: 'all',
+      Backend: 'backend',
+      Frontend: 'frontend',
+    } as const;
+
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED
@@ -31303,6 +31317,12 @@ export namespace Schemas {
       nodeid: string;
       /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
       selector: string;
+      /** Test surface that produced this signal: backend or frontend.
+       *
+       * * `all` - ALL
+       * * `backend` - BACKEND
+       * * `frontend` - FRONTEND */
+      surface: SurfaceEnum;
       /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
        *
        * * `confirmed_flake` - CONFIRMED_FLAKE
@@ -31315,21 +31335,27 @@ export namespace Schemas {
       failed_run_count: number;
       /** Distinct pull requests among the failed runs. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_run_count). */
       failed_pr_count: number;
-      /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
+      /** Failed runs on the default branch (master/main approximation) in the requested window. */
       master_failed_run_count: number;
       /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
       quarantined_failed_run_count: number;
-      /** Most recent failure, recovery, or xfail run for this test in the window. */
+      /** Most recent failure, in-job recovery, or xfail signal in the window. A cross-attempt pass proves recovery but does not advance recency. */
       last_signal_at: string;
     }
 
     export interface FlakyTestList {
-      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+      /** Tests with recent signals, ranked by blast radius: master failures, then PRs hit, then runs. */
       items: FlakyTestItem[];
       /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
       /** Maximum number of tests returned in `items`. */
       limit: number;
+      /** Requested test surface: all, backend, or frontend.
+       *
+       * * `all` - ALL
+       * * `backend` - BACKEND
+       * * `frontend` - FRONTEND */
+      surface?: SurfaceEnum;
     }
 
     /**
@@ -68130,15 +68156,21 @@ export namespace Schemas {
     }
 
     export interface TeamTestSignal {
-      /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+      /** Normalized test identity (the CI span name), a stable grouping key. */
       nodeid: string;
-      /** Runnable pytest selector; exact when the CI reporter emitted it. */
+      /** Runnable framework-specific selector emitted by the CI reporter. */
       selector: string;
+      /** Test surface that produced this signal: backend or frontend.
+       *
+       * * `all` - ALL
+       * * `backend` - BACKEND
+       * * `frontend` - FRONTEND */
+      surface: SurfaceEnum;
       /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
       signal_count: number;
       /** Same count over the equal-length window before date_from. */
       signal_count_prior: number;
-      /** Most recent failure, recovery, or xfail run for this test, either window. */
+      /** Most recent failure, in-job recovery, or xfail signal for this test. A cross-attempt pass proves recovery but does not advance recency. */
       last_seen_at: string;
     }
 
@@ -68149,11 +68181,19 @@ export namespace Schemas {
       owner_team: string;
       /** True when more owned tests had signal than the test cap. */
       truncated_tests: boolean;
+      /** Requested test surface: all, backend, or frontend.
+       *
+       * * `all` - ALL
+       * * `backend` - BACKEND
+       * * `frontend` - FRONTEND */
+      surface?: SurfaceEnum;
     }
 
     export interface TeamCIHealthItem {
-      /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+      /** Active primary team slug from OwnersResolver (e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
       owner_team: string;
+      /** True when this team has recent test-health evidence in either compared window. */
+      has_test_activity: boolean;
       /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
       flaky_test_count: number;
       /** Same count over the equal-length window immediately before date_from. */
@@ -68174,17 +68214,33 @@ export namespace Schemas {
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
-      last_seen_at: string;
+      /**
+         * Most recent failure, in-job recovery, or xfail signal across the team's owned tests. A cross-attempt pass proves recovery but does not advance recency.
+         * @nullable
+         */
+      last_seen_at: string | null;
     }
 
     export interface TeamCIHealthList {
-      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+      /** Active primary code-owning teams, plus the unowned telemetry bucket when evidence exists. Teams with recent signals are ranked first; this never aggregates by author. */
       items: TeamCIHealthItem[];
-      /** True when more teams had signal than the cap. */
+      /** True when more roster or telemetry rows qualified than the cap. */
       truncated: boolean;
       /** Maximum number of teams returned in `items`. */
       limit: number;
+      /** Requested test surface: all, backend, or frontend.
+       *
+       * * `all` - ALL
+       * * `backend` - BACKEND
+       * * `frontend` - FRONTEND */
+      surface?: SurfaceEnum;
+      /** True when a recent CI-emitted OwnersResolver catalog was available for this repository. */
+      has_ownership_catalog?: boolean;
+      /**
+         * Capture time of the ownership catalog, or null when no recent catalog is available.
+         * @nullable
+         */
+      ownership_catalog_captured_at?: string | null;
     }
 
     /**
@@ -74147,7 +74203,20 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Test surface to include. Defaults to all.
+     */
+    surface?: EngineeringAnalyticsFlakyTestsSurface;
     };
+
+    export type EngineeringAnalyticsFlakyTestsSurface = typeof EngineeringAnalyticsFlakyTestsSurface[keyof typeof EngineeringAnalyticsFlakyTestsSurface];
+
+
+    export const EngineeringAnalyticsFlakyTestsSurface = {
+      All: 'all',
+      Backend: 'backend',
+      Frontend: 'frontend',
+    } as const;
 
     export type EngineeringAnalyticsJobAggregatesParams = {
     /**
@@ -74372,10 +74441,23 @@ export namespace Schemas {
      */
     source_id?: string;
     /**
+     * Test surface to include. Defaults to all.
+     */
+    surface?: EngineeringAnalyticsTeamCiActivitySurface;
+    /**
      * Maximum number of per-test signal rows to return (1-100). Defaults to 25.
      */
     test_limit?: number;
     };
+
+    export type EngineeringAnalyticsTeamCiActivitySurface = typeof EngineeringAnalyticsTeamCiActivitySurface[keyof typeof EngineeringAnalyticsTeamCiActivitySurface];
+
+
+    export const EngineeringAnalyticsTeamCiActivitySurface = {
+      All: 'all',
+      Backend: 'backend',
+      Frontend: 'frontend',
+    } as const;
 
     export type EngineeringAnalyticsTeamCiHealthParams = {
     /**
@@ -74398,7 +74480,20 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Test surface to include. Defaults to all.
+     */
+    surface?: EngineeringAnalyticsTeamCiHealthSurface;
     };
+
+    export type EngineeringAnalyticsTeamCiHealthSurface = typeof EngineeringAnalyticsTeamCiHealthSurface[keyof typeof EngineeringAnalyticsTeamCiHealthSurface];
+
+
+    export const EngineeringAnalyticsTeamCiHealthSurface = {
+      All: 'all',
+      Backend: 'backend',
+      Frontend: 'frontend',
+    } as const;
 
     export type EngineeringAnalyticsTeamMergeTrendParams = {
     /**

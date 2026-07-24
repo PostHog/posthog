@@ -30,6 +30,7 @@ T_TIE_A = "posthog/api/test/test_tie_a/TestTie::test_retry"
 T_TIE_B = "posthog/api/test/test_tie_b/TestTie::test_retry"
 T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
+T_CROSS_CONFIG = "frontend/src/example.test.ts::example differs by configuration"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -118,6 +119,30 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(22, T_OTHER_REPO, "rerun_passed", ts=recent, run="1200", pr="1201", repo="PostHog/posthog.com"),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
+            # Same run and commit, but different frontend configurations: no recovery proof.
+            cls._span(
+                30,
+                T_CROSS_CONFIG,
+                "failed",
+                ts=earlier,
+                run="1500",
+                branch="master",
+                service="ci-frontend",
+                job="frontend-FOSS:frontend-FOSS:1",
+                framework="jest",
+            ),
+            cls._span(
+                31,
+                T_CROSS_CONFIG,
+                "passed",
+                ts=recent,
+                run="1500",
+                attempt="2",
+                branch="master",
+                service="ci-frontend",
+                job="frontend-EE:frontend-EE:1",
+                framework="jest",
+            ),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -148,6 +173,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         selector: str = "",
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
+        job: str = "",
+        framework: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -155,6 +182,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         attr_pairs = ([f"'test.outcome__str', '{outcome}'"] if outcome else []) + (
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
+        if job:
+            attr_pairs.append(f"'test.job_key__str', '{job}'")
+        if framework:
+            attr_pairs.append(f"'test.framework__str', '{framework}'")
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
             f"'{key}', '{value}'"
@@ -200,6 +231,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_TIE_A,
             T_TIE_B,
             T_NO_RUN_ID,
+            T_CROSS_CONFIG,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -214,6 +246,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("pass_in_a_different_run", T_CROSS_RUN_PASS, "suspected_regression"),
             # A passing leg alongside a failing one is not proof of anything, in any attempt.
             ("pass_in_another_matrix_leg", T_MATRIX_LEGS, "suspected_regression"),
+            ("pass_in_another_frontend_configuration", T_CROSS_CONFIG, "suspected_regression"),
             ("no_recovery_recorded", T_THREE_PRS, "suspected_regression"),
             ("failing_while_xfailed", T_QUARANTINED, "quarantined"),
         ]

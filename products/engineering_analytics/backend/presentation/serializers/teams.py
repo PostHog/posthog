@@ -17,8 +17,11 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
         dataclass = TeamCIHealthItem
         extra_kwargs = {
             "owner_team": {
-                "help_text": "Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), "
+                "help_text": "Active primary team slug from OwnersResolver (e.g. 'team-replay'), "
                 "or the literal 'unowned' for tests whose spans carry no ownership stamp.",
+            },
+            "has_test_activity": {
+                "help_text": "True when this team has recent test-health evidence in either compared window."
             },
             "flaky_test_count": {
                 "help_text": "Owned tests one commit was seen both failing and passing in the window: the same "
@@ -49,7 +52,8 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
             },
             "quarantined_failed_run_count_prior": {"help_text": "Same count over the prior window."},
             "last_seen_at": {
-                "help_text": "Most recent failure, recovery, or xfail run across the team's owned tests, either window."
+                "help_text": "Most recent failure, in-job recovery, or xfail signal across the team's owned tests. "
+                "A cross-attempt pass proves recovery but does not advance recency."
             },
         }
 
@@ -57,15 +61,22 @@ class TeamCIHealthItemSerializer(DataclassSerializer):
 class TeamCIHealthListSerializer(DataclassSerializer):
     items = TeamCIHealthItemSerializer(
         many=True,
-        help_text="Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. "
-        "Teams are organizational owners of code surfaces; this never aggregates by author.",
+        help_text="Active primary code-owning teams, plus the unowned telemetry bucket when evidence exists. "
+        "Teams with recent signals are ranked first; this never aggregates by author.",
     )
 
     class Meta:
         dataclass = TeamCIHealthList
         extra_kwargs = {
-            "truncated": {"help_text": "True when more teams had signal than the cap."},
+            "truncated": {"help_text": "True when more roster or telemetry rows qualified than the cap."},
             "limit": {"help_text": "Maximum number of teams returned in `items`."},
+            "surface": {"help_text": "Requested test surface: all, backend, or frontend."},
+            "has_ownership_catalog": {
+                "help_text": "True when a recent CI-emitted OwnersResolver catalog was available for this repository."
+            },
+            "ownership_catalog_captured_at": {
+                "help_text": "Capture time of the ownership catalog, or null when no recent catalog is available."
+            },
         }
 
 
@@ -73,14 +84,18 @@ class TeamTestSignalSerializer(DataclassSerializer):
     class Meta:
         dataclass = TeamTestSignal
         extra_kwargs = {
-            "nodeid": {"help_text": "Reconstructed pytest nodeid (the CI span name), a stable grouping key."},
-            "selector": {"help_text": "Runnable pytest selector; exact when the CI reporter emitted it."},
+            "nodeid": {"help_text": "Normalized test identity (the CI span name), a stable grouping key."},
+            "selector": {"help_text": "Runnable framework-specific selector emitted by the CI reporter."},
+            "surface": {"help_text": "Test surface that produced this signal: backend or frontend."},
             "signal_count": {
                 "help_text": "Runs in the current window where the test failed, errored, or a retry "
                 "recovered it (xfail excluded).",
             },
             "signal_count_prior": {"help_text": "Same count over the equal-length window before date_from."},
-            "last_seen_at": {"help_text": "Most recent failure, recovery, or xfail run for this test, either window."},
+            "last_seen_at": {
+                "help_text": "Most recent failure, in-job recovery, or xfail signal for this test. A cross-attempt "
+                "pass proves recovery but does not advance recency."
+            },
         }
 
 
@@ -96,6 +111,7 @@ class TeamCIActivitySerializer(DataclassSerializer):
         extra_kwargs = {
             "owner_team": {"help_text": "The team slug this activity is scoped to, or 'unowned'."},
             "truncated_tests": {"help_text": "True when more owned tests had signal than the test cap."},
+            "surface": {"help_text": "Requested test surface: all, backend, or frontend."},
         }
 
 

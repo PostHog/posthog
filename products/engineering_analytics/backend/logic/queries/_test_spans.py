@@ -1,6 +1,6 @@
 """The one definition of the per-test CI span scan and what it proves (domain rules defined once, APOSD).
 
-Backend CI emits one OTel span per test into the Traces store (span name = reconstructed
+Supported CI services emit one OTel span per reported test into the Traces store (span name = normalized
 pytest nodeid, ``test.*`` attributes, ``ci.*`` resource attributes; see
 ``.github/scripts/report_test_timings.py``). Every query over that signal (the test-health
 queue and the per-team rollups) embeds ``run_evidence()``, so the service fence, the signal
@@ -28,6 +28,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.facade.contracts import TestSurface
+
 # Only test spans carry test.outcome (job-root and setup spans don't), and only these
 # outcomes are flaky signal. Plain 'skipped' spans never reach any aggregation; 'passed'
 # spans are read only from re-run attempts (the scan's recovery arm), where they are the
@@ -36,7 +38,11 @@ SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 
 # Scope to the CI test-timing emitter (report_test_timings.py sets this as service.name);
 # without it any team span carrying a test.outcome attribute would pollute.
-CI_SERVICE_NAME = "ci-backend"
+CI_SERVICE_NAMES = {
+    TestSurface.BACKEND: ["ci-backend"],
+    TestSurface.FRONTEND: ["ci-frontend"],
+    TestSurface.ALL: ["ci-backend", "ci-frontend"],
+}
 
 # Spans emitted before the owner stamp existed (or from paths with no owner) group here.
 UNOWNED_TEAM = "unowned"
@@ -45,40 +51,61 @@ UNOWNED_TEAM = "unowned"
 _RUN_EVIDENCE = """
     SELECT
         nodeid,
+        surface,
+        framework,
         run_id,
-        argMax(owner_team, trial_at) AS owner_team,
+        argMax(owner_team, job_trial_at) AS owner_team,
         anyIf(selector, selector != '') AS selector,
         anyIf(pr_number, pr_number != '') AS pr_number,
         anyIf(branch, branch != '') AS branch,
         max(is_current) AS is_current,
-        max(trial_failed) AS failed_in_run,
-        max(trial_quarantined) AS quarantined_in_run,
-        -- Proof of nondeterminism either way it lands: an in-job retry recovered the test, or one
-        -- attempt of the run failed it and another attempt (same commit) passed it.
-        max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
+        max(job_failed) AS failed_in_run,
+        max(job_quarantined) AS quarantined_in_run,
+        max(job_recovered) AS recovered_in_run,
         -- Recovery passes are not signal, so recency comes from the signal trials alone.
-        maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
+        max(job_signal_at) AS run_signal_at
     FROM (
-        -- One row per (test, run attempt). A test can appear in several matrix legs of one attempt
-        -- (and older data re-reported shards an attempt never re-executed); a failure in any leg
-        -- outweighs a pass in another, so a cross-leg pass never reads as recovery.
         SELECT
             nodeid,
+            surface,
+            framework,
             run_id,
-            argMax(owner_team, span_timestamp) AS owner_team,
+            job_key,
+            argMax(owner_team, trial_at) AS owner_team,
             anyIf(selector, selector != '') AS selector,
             anyIf(pr_number, pr_number != '') AS pr_number,
             anyIf(branch, branch != '') AS branch,
             max(is_current) AS is_current,
-            max(outcome IN ('failed', 'error')) AS trial_failed,
-            max(outcome = 'rerun_passed') AS trial_rerun_passed,
-            max(outcome = 'xfailed') AS trial_quarantined,
-            max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
-            max(span_timestamp) AS trial_at
-        FROM (__SPAN_SCAN__)
-        GROUP BY nodeid, run_id, attempt
+            max(trial_failed) AS job_failed,
+            max(trial_quarantined) AS job_quarantined,
+            max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS job_recovered,
+            max(trial_at) AS job_trial_at,
+            maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS job_signal_at
+        FROM (
+            -- One row per test, job/configuration, and run attempt. Recovery may cross attempts
+            -- of the same job, never shards, segments, configurations, or workflow runs.
+            SELECT
+                nodeid,
+                surface,
+                framework,
+                run_id,
+                job_key,
+                argMax(owner_team, span_timestamp) AS owner_team,
+                anyIf(selector, selector != '') AS selector,
+                anyIf(pr_number, pr_number != '') AS pr_number,
+                anyIf(branch, branch != '') AS branch,
+                max(is_current) AS is_current,
+                max(outcome IN ('failed', 'error')) AS trial_failed,
+                max(outcome = 'rerun_passed') AS trial_rerun_passed,
+                max(outcome = 'xfailed') AS trial_quarantined,
+                max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
+                max(span_timestamp) AS trial_at
+            FROM (__SPAN_SCAN__)
+            GROUP BY nodeid, surface, framework, run_id, job_key, attempt
+        )
+        GROUP BY nodeid, surface, framework, run_id, job_key
     )
-    GROUP BY nodeid, run_id
+    GROUP BY nodeid, surface, framework, run_id
     -- The scan admits re-run passes so they can pair with a failure above; unpaired they are not
     -- evidence, and a pass-only row would surface as an all-zero test everywhere downstream.
     HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
@@ -103,19 +130,29 @@ def run_evidence(*, bounded: bool) -> str:
 _SCAN = """
     SELECT
         name AS nodeid,
+        if(service_name = 'ci-frontend', 'frontend', 'backend') AS surface,
+        coalesce(
+            nullIf(attributes['test.framework'], ''),
+            if(service_name = 'ci-frontend', 'jest', 'pytest')
+        ) AS framework,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
-        coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
+        if(
+            startsWith(attributes['test.owner_team'], '@'),
+            {unowned_team},
+            coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team})
+        ) AS owner_team,
         resource_attributes['ci.pr_number'] AS pr_number,
         resource_attributes['ci.branch'] AS branch,
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an
         -- unstamped span from merging every execution of its test into one phantom run.
         coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
+        coalesce(nullIf(attributes['test.job_key'], ''), 'legacy') AS job_key,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
-    WHERE service_name = {service_name}
+    WHERE service_name IN {service_names}
         AND lower(resource_attributes['ci.repository']) = lower({repository})
         AND timestamp >= {scan_from}__DATE_TO__
         -- Only re-run attempts' passes are read. Reading first-attempt passes too would mean
@@ -137,9 +174,10 @@ def scan_placeholders(
     date_from: datetime,
     scan_from: datetime | None = None,
     date_to: datetime | None = None,
+    surface: TestSurface = TestSurface.ALL,
 ) -> dict[str, ast.Expr]:
     placeholders: dict[str, ast.Expr] = {
-        "service_name": ast.Constant(value=CI_SERVICE_NAME),
+        "service_names": ast.Constant(value=CI_SERVICE_NAMES[surface]),
         "signal_outcomes": ast.Constant(value=SIGNAL_OUTCOMES),
         "unowned_team": ast.Constant(value=UNOWNED_TEAM),
         "repository": ast.Constant(value=repository),

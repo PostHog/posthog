@@ -46,7 +46,7 @@ graph TB
     subgraph Storage
         WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>from Backend CI")]
+        TRACES[("Traces: per-test CI spans<br/>from supported CI services")]
     end
 
     JL["Temporal job-logs pipeline"] --> LOGS
@@ -89,7 +89,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
 - Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
-- Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
+- Test evidence is counted per CI run, never per span or run attempt, and all span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery within the same job/configuration: a re-run attempt going green, or an in-job retry. A pass from another shard, segment, configuration, or workflow run proves nothing. Unproven failures rank as `suspected_regression` by blast radius.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
 ### Exposed warehouse views
@@ -135,7 +135,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **Bot detection, defined once:** `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time reads; first-class in bot-impact analysis, so never strip them at the substrate.
 - **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined) until state-transition events exist.
-- **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` from the repo's ownership map (`products/*/product.yaml` + CODEOWNERS, first listed owner); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
+- **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter resolves repository-relative test paths with `OwnersResolver` over distributed `owners.yaml` files (`products/*/product.yaml` is an alias) and stamps the first active team owner as `test.owner_team`. `.github/CODEOWNERS` is only an approval gate and is never parsed for this product. Unstamped spans aggregate as the first-class telemetry bucket `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when the signal was captured. A bounded trusted-master heartbeat emits the active primary team catalog once per run so the Teams page also includes code-owning teams with zero recent spans. The server reads the catalog; it does not reimplement ownership resolution. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; missing membership degrades with `has_membership_data: false` and never removes a code-owning team.
 - **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
 
 ## 7. Data sources
@@ -150,7 +150,14 @@ Warehouse tables (GitHub source):
 Other products read as sources:
 
 - Logs: the thinned CI failure lines this product's job-logs pipeline emits (`service.name = github-ci-logs`), keyed by `run_id`.
-- Traces: per-test CI spans emitted by Backend CI (`trace_spans`), behind flaky tests and team CI health.
+- Traces: per-test CI spans emitted by supported backend (`pytest`) and frontend (`jest`) CI services, plus the ownership-catalog heartbeat (`trace_spans`), behind recent test-health signals and team CI health. Fast ordinary passes are omitted, so the product exposes absolute counts only.
+
+### Test reporter follow-ups
+
+1. Playwright: adapt `.github/workflows/ci-e2e-playwright.yml`'s `junit-results-playwright` artifact (`playwright/junit-results.xml`) to the shared reporter. Normalize the Playwright project/browser and retry into the job/configuration key, and preserve attempt-suffixed artifacts before enabling cross-attempt recovery.
+2. Rust: upload `.github/workflows/ci-rust.yml`'s `rust/junit-nextest-*.xml` files for the shared reporter. Normalize package, test binary, test identity, ignored outcomes, and nextest retry semantics, then add attempt preservation before recognizing recovery.
+
+Both adapters must reuse repository-relative ownership, run-attempt emission, and the existing surface queries. Neither should change the API vocabulary.
 
 **Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
 

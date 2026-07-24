@@ -3624,6 +3624,18 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+            - name: Emit ownership catalog heartbeat
+              if: >-
+                  steps.timing-reporter.outputs.available == 'true' &&
+                  github.event_name != 'pull_request' &&
+                  github.ref == 'refs/heads/master' &&
+                  github.run_attempt == '1'
+              continue-on-error: true
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: uv run --script .github/scripts/report_test_timings.py --emit-ownership-catalog
 
     backend-coverage-report:
         name: Backend coverage report

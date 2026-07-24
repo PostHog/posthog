@@ -86,6 +86,21 @@ def test_resolver_precedence(resolver_repo: Path, path: str, owners: list[str] |
     assert r.unowned_by_design is unowned_by_design
 
 
+def test_active_primary_teams_only_includes_teams_that_own_tracked_active_files(tmp_path: Path) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-root]\n")
+    _write(tmp_path, "individual/owners.yaml", "version: 1\nowners: ['@person']\n")
+    _write(tmp_path, "deprecated/owners.yaml", "version: 1\nowners: [team-old]\nstatus: deprecated\n")
+    _write(tmp_path, "unowned/owners.yaml", "version: 1\nowners: null\n")
+    _write(tmp_path, "root.py", "")
+    _write(tmp_path, "individual/test.ts", "")
+    _write(tmp_path, "deprecated/test.py", "")
+    _write(tmp_path, "unowned/test.py", "")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+
+    assert OwnersResolver(repo_root=tmp_path).active_primary_teams() == ["team-root"]
+
+
 def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_path: Path) -> None:
     _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\n")
     _write(

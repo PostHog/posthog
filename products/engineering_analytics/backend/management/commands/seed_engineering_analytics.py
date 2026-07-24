@@ -44,8 +44,9 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
+from products.engineering_analytics.backend.facade.contracts import TestSurface
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
-from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
+from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAMES
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -75,6 +76,8 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
+# The seed synthesizes backend CI spans only; ci-frontend seeding isn't part of the local dataset.
+CI_SERVICE_NAME = CI_SERVICE_NAMES[TestSurface.BACKEND][0]
 # Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
 # placeholders (a real source stores the repo in job_inputs at connect time).
 SEED_REPOSITORY = "PostHog/posthog"

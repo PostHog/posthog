@@ -331,6 +331,7 @@ def list_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    surface: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -341,6 +342,7 @@ def list_flaky_tests(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        surface=surface,
     )
 
 
@@ -351,6 +353,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    surface: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -360,6 +363,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        surface=surface,
     )
 
 
@@ -370,6 +374,7 @@ def get_team_ci_activity(
     date_from: str | None = None,
     date_to: str | None = None,
     test_limit: int | None = None,
+    surface: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIActivity:
@@ -379,6 +384,7 @@ def get_team_ci_activity(
         date_from=date_from,
         date_to=date_to,
         test_limit=test_limit,
+        surface=surface,
     )
 
 

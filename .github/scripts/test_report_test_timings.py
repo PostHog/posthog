@@ -175,6 +175,44 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[3].outcome == "failed"
 
 
+def test_jest_junit_normalizes_repository_path_selector_and_owner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _write_shard_xml(
+        tmp_path / "junit-results-frontend-EE-1",
+        filename="junit-EE-1.xml",
+        timestamp="2026-07-23T16:46:32",
+        time="1.0",
+        body=(
+            '<testcase classname="teamsLogic loads owned teams" name="teamsLogic loads owned teams" '
+            'file="../products/engineering_analytics/frontend/scenes/teamsLogic.test.ts" time="0.1">'
+            '<failure message="x"/></testcase>'
+        ),
+    )
+
+    shard = report_test_timings.collect_shards(tmp_path, framework="jest", junit_cwd="frontend")[0]
+    test = shard.tests[0]
+    expected_file = "products/engineering_analytics/frontend/scenes/teamsLogic.test.ts"
+    expected_identity = f"{expected_file}::teamsLogic loads owned teams"
+    assert (test.file, test.nodeid, test.selector) == (expected_file, expected_identity, expected_identity)
+
+    tracer = _FakeTracer()
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+    report_test_timings._emit_shard_span(
+        tracer,
+        shard,
+        "Frontend CI / EE (1)",
+        report_test_timings.owner_team_lookup(),
+        framework="jest",
+    )
+
+    emitted = tracer.spans[1]
+    assert emitted.name == expected_identity
+    assert emitted.attributes["test.owner_team"] == "team-devex"
+    assert emitted.attributes["test.framework"] == "jest"
+    assert emitted.attributes["test.job_key"] == "frontend-EE:frontend-EE:1"
+
+
 # ---------- rerun classification (posthog.reruns testcase property) ----------
 
 

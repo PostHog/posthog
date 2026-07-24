@@ -1,9 +1,10 @@
 """HogQL rollups of per-test CI spans by owning team.
 
 Ownership is stamped on the spans at emission time: the CI reporter resolves each test's
-file path against the repo's ownership map (``products/*/product.yaml`` + CODEOWNERS) and
-sets ``test.owner_team``, so no server-side ownership map exists. Spans without a stamp
-aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
+file path with ``OwnersResolver`` over distributed ``owners.yaml`` files (with
+``products/*/product.yaml`` aliases) and sets ``test.owner_team``. The server reads a bounded
+CI-emitted primary-team catalog instead of duplicating ownership resolution. Spans without a
+stamp aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
 ownership gaps instead of dropping them.
 
 Teams are organizational owners of code surfaces; nothing here aggregates by author
@@ -17,7 +18,8 @@ test and what its failures cost the fleet.
 Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
 """
 
-from datetime import datetime
+import json
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 
@@ -28,9 +30,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIHealthItem,
     TeamCIHealthList,
     TeamTestSignal,
+    TestSurface,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
+    UNOWNED_TEAM,
     run_evidence,
     scan_placeholders,
     selector_from_nodeid,
@@ -40,8 +44,19 @@ from products.engineering_analytics.backend.logic.queries._test_spans import (
 # splits the current window from its equal-length prior twin.
 _RUN_EVIDENCE = run_evidence(bounded=True)
 
-# A test lands under one team, resolved by its latest ownership stamp, so a re-stamped test is
-# never counted for two teams at once.
+_OWNERSHIP_CATALOG_SELECT = """
+    SELECT attributes['ownership.primary_teams_json'], timestamp
+    FROM posthog.trace_spans
+    WHERE service_name = 'ci-ownership-catalog'
+        AND name = 'ownership.catalog'
+        AND lower(resource_attributes['ci.repository']) = lower({repository})
+        AND timestamp >= {catalog_from}
+    ORDER BY timestamp DESC
+    LIMIT 10
+"""
+
+# Ownership is capture-time truth. A test re-stamped during the window contributes each run to
+# the team stamped on that run instead of moving historical evidence to its newest owner.
 _ROSTER_SELECT = f"""
     SELECT
         owner_team,
@@ -59,7 +74,8 @@ _ROSTER_SELECT = f"""
     FROM (
         SELECT
             nodeid,
-            argMax(owner_team, run_signal_at) AS owner_team,
+            surface,
+            owner_team,
             countIf(recovered_in_run AND is_current) AS recovery_runs_current,
             countIf(recovered_in_run AND NOT is_current) AS recovery_runs_prior,
             countIf(failed_in_run AND is_current) AS failed_runs_current,
@@ -74,7 +90,7 @@ _ROSTER_SELECT = f"""
                 AS blast_radius_prior,
             max(run_signal_at) AS last_signal
         FROM ({_RUN_EVIDENCE})
-        GROUP BY nodeid
+        GROUP BY nodeid, surface, owner_team
     )
     GROUP BY owner_team
     ORDER BY
@@ -87,29 +103,71 @@ _ROSTER_SELECT = f"""
 _TEST_SIGNAL_SELECT = f"""
     SELECT
         nodeid,
+        surface,
         anyIf(selector, selector != '') AS selector,
         countIf(is_current AND (failed_in_run OR recovered_in_run)) AS signal_count,
         countIf(NOT is_current AND (failed_in_run OR recovered_in_run)) AS signal_count_prior,
         max(run_signal_at) AS last_seen_at
     FROM ({_RUN_EVIDENCE})
-    GROUP BY nodeid
-    -- Latest stamp owns the whole test, exactly as the roster counts it, so this drill-in never
-    -- shows different rows than the summary that opened it.
-    HAVING argMax(owner_team, run_signal_at) = {{owner_team}}
-        AND (signal_count > 0 OR signal_count_prior > 0)
+    WHERE owner_team = {{owner_team}}
+    GROUP BY nodeid, surface
+    HAVING signal_count > 0 OR signal_count_prior > 0
     ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC
     LIMIT {{test_limit_plus_one}}
 """
 
 
 def _window_placeholders(
-    *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None
+    *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None, surface: TestSurface
 ) -> dict[str, ast.Expr]:
     # The prior window twins the current one: [scan_from, date_from) vs [date_from, date_to].
     resolved_to = date_to or datetime.now(tz=date_from.tzinfo)
     prior_from = date_from - (resolved_to - date_from)
     return scan_placeholders(
-        repository=curated.repository, date_from=date_from, scan_from=prior_from, date_to=resolved_to
+        repository=curated.repository,
+        date_from=date_from,
+        scan_from=prior_from,
+        date_to=resolved_to,
+        surface=surface,
+    )
+
+
+def _query_ownership_catalog(curated: CuratedGitHubSource) -> tuple[list[str] | None, datetime | None]:
+    response = curated.run(
+        _OWNERSHIP_CATALOG_SELECT,
+        query_type="engineering_analytics.ownership_catalog",
+        placeholders={
+            "repository": ast.Constant(value=curated.repository),
+            "catalog_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=30)),
+        },
+        workload=Workload.LOGS,
+    )
+    for raw_teams, captured_at in response.results or []:
+        try:
+            teams = json.loads(raw_teams)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(teams, list) and all(isinstance(team, str) and team for team in teams):
+            primary_teams = {team for team in teams if team != UNOWNED_TEAM and not team.startswith("@")}
+            return sorted(primary_teams), captured_at
+    return None, None
+
+
+def _empty_team(owner_team: str) -> TeamCIHealthItem:
+    return TeamCIHealthItem(
+        owner_team=owner_team,
+        has_test_activity=False,
+        flaky_test_count=0,
+        flaky_test_count_prior=0,
+        regression_test_count=0,
+        regression_test_count_prior=0,
+        failed_run_count=0,
+        failed_run_count_prior=0,
+        same_commit_recovery_run_count=0,
+        same_commit_recovery_run_count_prior=0,
+        quarantined_failed_run_count=0,
+        quarantined_failed_run_count_prior=0,
+        last_seen_at=None,
     )
 
 
@@ -120,13 +178,15 @@ def query_team_ci_health(
     date_to: datetime | None,
     min_failed_prs: int,
     limit: int,
+    surface: TestSurface,
 ) -> TeamCIHealthList:
     # Fail closed, same as flaky_tests: without a repository identity another connected
     # repo's spans would leak into this roster.
     if not curated.repository:
-        return TeamCIHealthList(items=[], truncated=False, limit=limit)
+        return TeamCIHealthList(items=[], truncated=False, limit=limit, surface=surface)
 
-    placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to)
+    catalog_teams, catalog_captured_at = _query_ownership_catalog(curated)
+    placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to, surface=surface)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
@@ -137,39 +197,58 @@ def query_team_ci_health(
         workload=Workload.LOGS,
     )
     rows = response.results or []
+    signal_items = [
+        TeamCIHealthItem(
+            owner_team=owner_team,
+            has_test_activity=True,
+            flaky_test_count=flaky_test_count,
+            flaky_test_count_prior=flaky_test_count_prior,
+            regression_test_count=regression_test_count,
+            regression_test_count_prior=regression_test_count_prior,
+            failed_run_count=failed_run_count,
+            failed_run_count_prior=failed_run_count_prior,
+            same_commit_recovery_run_count=same_commit_recovery_run_count,
+            same_commit_recovery_run_count_prior=same_commit_recovery_run_count_prior,
+            quarantined_failed_run_count=quarantined_failed_run_count,
+            quarantined_failed_run_count_prior=quarantined_failed_run_count_prior,
+            last_seen_at=last_seen_at,
+        )
+        for (
+            owner_team,
+            flaky_test_count,
+            flaky_test_count_prior,
+            regression_test_count,
+            regression_test_count_prior,
+            failed_run_count,
+            failed_run_count_prior,
+            same_commit_recovery_run_count,
+            same_commit_recovery_run_count_prior,
+            quarantined_failed_run_count,
+            quarantined_failed_run_count_prior,
+            last_seen_at,
+        ) in rows
+    ]
+    by_team = {item.owner_team: item for item in signal_items}
+    for owner_team in catalog_teams or []:
+        by_team.setdefault(owner_team, _empty_team(owner_team))
+    items = sorted(
+        by_team.values(),
+        key=lambda item: (
+            not item.has_test_activity,
+            -(item.flaky_test_count + item.regression_test_count),
+            -(item.flaky_test_count_prior + item.regression_test_count_prior),
+            -item.failed_run_count,
+            -item.failed_run_count_prior,
+            item.owner_team,
+        ),
+    )
     return TeamCIHealthList(
-        items=[
-            TeamCIHealthItem(
-                owner_team=owner_team,
-                flaky_test_count=flaky_test_count,
-                flaky_test_count_prior=flaky_test_count_prior,
-                regression_test_count=regression_test_count,
-                regression_test_count_prior=regression_test_count_prior,
-                failed_run_count=failed_run_count,
-                failed_run_count_prior=failed_run_count_prior,
-                same_commit_recovery_run_count=same_commit_recovery_run_count,
-                same_commit_recovery_run_count_prior=same_commit_recovery_run_count_prior,
-                quarantined_failed_run_count=quarantined_failed_run_count,
-                quarantined_failed_run_count_prior=quarantined_failed_run_count_prior,
-                last_seen_at=last_seen_at,
-            )
-            for (
-                owner_team,
-                flaky_test_count,
-                flaky_test_count_prior,
-                regression_test_count,
-                regression_test_count_prior,
-                failed_run_count,
-                failed_run_count_prior,
-                same_commit_recovery_run_count,
-                same_commit_recovery_run_count_prior,
-                quarantined_failed_run_count,
-                quarantined_failed_run_count_prior,
-                last_seen_at,
-            ) in rows[:limit]
-        ],
-        truncated=len(rows) > limit,
+        items=items[:limit],
+        truncated=len(items) > limit,
         limit=limit,
+        surface=surface,
+        has_ownership_catalog=catalog_teams is not None,
+        ownership_catalog_captured_at=catalog_captured_at,
     )
 
 
@@ -180,11 +259,12 @@ def query_team_ci_activity(
     date_from: datetime,
     date_to: datetime | None,
     test_limit: int,
+    surface: TestSurface,
 ) -> TeamCIActivity:
     if not curated.repository:
-        return TeamCIActivity(owner_team=owner_team, tests=[], truncated_tests=False)
+        return TeamCIActivity(owner_team=owner_team, tests=[], truncated_tests=False, surface=surface)
 
-    placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to)
+    placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to, surface=surface)
     placeholders["owner_team"] = ast.Constant(value=owner_team)
 
     tests_response = curated.run(
@@ -200,11 +280,15 @@ def query_team_ci_activity(
             TeamTestSignal(
                 nodeid=nodeid,
                 selector=selector or selector_from_nodeid(nodeid),
+                surface=TestSurface(surface_value),
                 signal_count=signal_count,
                 signal_count_prior=signal_count_prior,
                 last_seen_at=last_seen_at,
             )
-            for nodeid, selector, signal_count, signal_count_prior, last_seen_at in test_rows[:test_limit]
+            for nodeid, surface_value, selector, signal_count, signal_count_prior, last_seen_at in test_rows[
+                :test_limit
+            ]
         ],
         truncated_tests=len(test_rows) > test_limit,
+        surface=surface,
     )

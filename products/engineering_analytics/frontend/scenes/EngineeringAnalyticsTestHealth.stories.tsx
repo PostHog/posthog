@@ -21,6 +21,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         {
             nodeid: 'posthog/api/test/test_decide/TestDecide::test_flag_rollout_consistency',
             selector: 'posthog/api/test/test_decide.py::TestDecide::test_flag_rollout_consistency',
+            surface: 'backend',
             classification: 'confirmed_flake',
             same_commit_recovery_run_count: 6,
             failed_run_count: 8,
@@ -32,6 +33,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         {
             nodeid: 'posthog/tasks/test/test_usage_report/TestUsageReport::test_full_report',
             selector: 'posthog/tasks/test/test_usage_report.py::TestUsageReport::test_full_report',
+            surface: 'backend',
             classification: 'suspected_regression',
             same_commit_recovery_run_count: 0,
             failed_run_count: 9,
@@ -43,6 +45,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         {
             nodeid: 'posthog/hogql/test/test_resolver/TestResolver::test_asterisk_expander',
             selector: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
+            surface: 'backend',
             classification: 'quarantined',
             same_commit_recovery_run_count: 0,
             failed_run_count: 1,
@@ -54,6 +57,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         {
             nodeid: 'posthog/temporal/tests/batch_exports/test_backfill::test_workflow_timeout',
             selector: 'posthog/temporal/tests/batch_exports/test_backfill.py::test_workflow_timeout',
+            surface: 'backend',
             classification: 'confirmed_flake',
             same_commit_recovery_run_count: 1,
             failed_run_count: 1,

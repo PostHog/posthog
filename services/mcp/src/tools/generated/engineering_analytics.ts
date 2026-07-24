@@ -83,6 +83,7 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
                 min_failed_prs: params.min_failed_prs,
                 repo: params.repo,
                 source_id: params.source_id,
+                surface: params.surface,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
@@ -170,6 +171,7 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
                 source_id: params.source_id,
+                surface: params.surface,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')

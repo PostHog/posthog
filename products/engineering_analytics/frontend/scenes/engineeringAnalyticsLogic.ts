@@ -41,6 +41,7 @@ import type {
     QuarantineRequestApi,
     QuarantineRequestResultApi,
     RunFailureLogsApi,
+    SurfaceEnumApi,
 } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
@@ -448,12 +449,14 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
 export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
+export type TestSurface = SurfaceEnumApi
 
 export interface FlakyTestRow {
     /** Reconstructed pytest nodeid (the CI span name): a stable grouping/display key. */
     nodeid: string
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
+    surface: TestSurface
     classification: FlakyTestClassification
     /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
     sameCommitRecoveryRunCount: number
@@ -637,6 +640,7 @@ export interface engineeringAnalyticsLogicValues {
     filteredQuarantineEntries: QuarantineEntryRow[]
     filteredWorkflowHealth: WorkflowHealthRow[]
     filters: PullRequestFilters
+    flakyTestSurface: TestSurface
     flakyTestWindow: FlakyTestWindow
     flakyTests: FlakyTestsData | null
     flakyTestsLoading: boolean
@@ -856,6 +860,9 @@ export interface engineeringAnalyticsLogicActions {
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
     }
+    setFlakyTestSurface: (surface: TestSurface) => {
+        surface: SurfaceEnumApi
+    }
     setFlakyTestWindow: (window: FlakyTestWindow) => {
         window: FlakyTestWindow
     }
@@ -1059,6 +1066,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
             setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
+            setFlakyTestSurface: (surface: TestSurface) => ({ surface }),
             setShowPrOnlyBrokenTests: (show: boolean) => ({ show }),
             refresh: true,
         }),
@@ -1176,12 +1184,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             limit: FLAKY_TEST_LIMIT,
                             source_id: values.sourceId ?? undefined,
                             repo: values.scopeRepo ?? undefined,
+                            surface: values.flakyTestSurface,
                         })
                         return {
                             rows: data.items.map(
                                 (it): FlakyTestRow => ({
                                     nodeid: it.nodeid,
                                     selector: it.selector,
+                                    surface: it.surface,
                                     classification: it.classification,
                                     sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
                                     failedRunCount: it.failed_run_count,
@@ -1377,6 +1387,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
             ],
+            flakyTestSurface: ['all' as TestSurface, { setFlakyTestSurface: (_, { surface }) => surface }],
             // Prototype panel hides the low-signal PR-only failures by default.
             showPrOnlyBrokenTests: [false, { setShowPrOnlyBrokenTests: (_, { show }) => show }],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
@@ -1717,6 +1728,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadBrokenTests()
             },
             setFlakyTestWindow: () => actions.loadFlakyTests(),
+            setFlakyTestSurface: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
             setScope: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {

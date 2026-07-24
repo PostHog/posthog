@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { urls } from 'scenes/urls'
@@ -12,22 +12,27 @@ import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { rowNavigationProps } from '../lib/rowNavigation'
 import {
     TEAMS_WINDOW_DATE_OPTIONS,
+    TEST_SURFACE_OPTIONS,
     TeamCIHealthRow,
     TeamsWindow,
+    TestSurface,
     UNOWNED_TEAM,
     isTeamsWindow,
     teamsLogic,
 } from './teamsLogic'
 
 /** The team's detail page, carrying the roster's window and active source so it opens scoped the same. */
-function detailUrlOf(ownerTeam: string, window: TeamsWindow, sourceId: string | null): string {
-    return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), { window, ...(sourceId ? { source: sourceId } : {}) })
-        .url
+function detailUrlOf(ownerTeam: string, window: TeamsWindow, sourceId: string | null, surface: TestSurface): string {
+    return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), {
+        window,
+        surface,
+        ...(sourceId ? { source: sourceId } : {}),
+    }).url
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
-    const { teams, teamsLoading, teamsWindow, sourceId } = useValues(teamsLogic)
-    const { setTeamsWindow } = useActions(teamsLogic)
+    const { teams, teamsLoading, teamsWindow, sourceId, testSurface } = useValues(teamsLogic)
+    const { setTeamsWindow, setTestSurface } = useActions(teamsLogic)
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
         {
@@ -39,7 +44,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 row.ownerTeam === UNOWNED_TEAM ? (
                     <div className="flex items-center gap-2">
                         <Link
-                            to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId)}
+                            to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId, testSurface)}
                             className="font-semibold"
                             data-attr="eng-analytics-team-link"
                         >
@@ -52,13 +57,16 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                         </Tooltip>
                     </div>
                 ) : (
-                    <Link
-                        to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId)}
-                        className="font-mono text-xs font-semibold"
-                        data-attr="eng-analytics-team-link"
-                    >
-                        {row.ownerTeam}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <Link
+                            to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId, testSurface)}
+                            className="font-mono text-xs font-semibold"
+                            data-attr="eng-analytics-team-link"
+                        >
+                            {row.ownerTeam}
+                        </Link>
+                        {!row.hasTestActivity && <LemonTag size="small">No recent signals</LemonTag>}
+                    </div>
                 ),
         },
         {
@@ -117,16 +125,24 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                         Team CI health
                     </h3>
                     <p className="m-0 text-xs text-tertiary">
-                        The CI test surfaces each team owns (flaky tests and failures), with the change vs the previous
-                        window. Ownership comes from the repo's ownership map, never from authorship.
+                        Recent test-health signals for every code-owning team, with the change vs the previous window.
+                        Ownership comes from OwnersResolver, never from authorship.
                     </p>
                 </div>
-                <DateFilter
-                    dateFrom={teamsWindow}
-                    onChange={(from) => isTeamsWindow(from) && setTeamsWindow(from)}
-                    dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
-                    size="small"
-                />
+                <div className="flex items-center gap-2">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={testSurface}
+                        onChange={setTestSurface}
+                        options={TEST_SURFACE_OPTIONS}
+                    />
+                    <DateFilter
+                        dateFrom={teamsWindow}
+                        onChange={(from) => isTeamsWindow(from) && setTeamsWindow(from)}
+                        dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
+                        size="small"
+                    />
+                </div>
             </div>
             <LemonTable
                 data-attr="engineering-analytics-teams-table"
@@ -135,11 +151,15 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 dataSource={teams?.rows ?? []}
                 rowKey={(row) => row.ownerTeam}
                 rowClassName="cursor-pointer"
-                onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, teamsWindow, sourceId))}
+                onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, teamsWindow, sourceId, testSurface))}
                 loading={teamsLoading}
                 pagination={{ pageSize: 25 }}
                 useURLForSorting={false}
-                emptyState="No team-attributed CI signal in this window. Signal appears once CI emits test spans with ownership stamps."
+                emptyState={
+                    teams && !teams.hasOwnershipCatalog
+                        ? 'No recent ownership catalog or test telemetry is available for this repository.'
+                        : 'No code-owning teams were reported for this repository.'
+                }
                 nouns={['team', 'teams']}
             />
             {teams?.truncated && (

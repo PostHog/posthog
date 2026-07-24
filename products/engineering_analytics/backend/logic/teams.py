@@ -1,6 +1,11 @@
 """Team-level orchestration: CI health rollups, per-team activity, and merge trend."""
 
-from products.engineering_analytics.backend.facade.contracts import TeamCIActivity, TeamCIHealthList, TeamMergeTrend
+from products.engineering_analytics.backend.facade.contracts import (
+    TeamCIActivity,
+    TeamCIHealthList,
+    TeamMergeTrend,
+    TestSurface,
+)
 from products.engineering_analytics.backend.logic._shared import _parse_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.team_ci_health import (
@@ -23,6 +28,13 @@ _DEFAULT_TEAM_TEST_LIMIT = 25
 _MAX_TEAM_TEST_LIMIT = 100
 
 
+def _parse_surface(surface: str | None) -> TestSurface:
+    try:
+        return TestSurface(surface or TestSurface.ALL)
+    except ValueError as exc:
+        raise ValueError("surface must be one of: all, backend, frontend") from exc
+
+
 def build_team_ci_health(
     *,
     curated: CuratedGitHubSource,
@@ -30,6 +42,7 @@ def build_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    surface: str | None = None,
 ) -> TeamCIHealthList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -48,6 +61,7 @@ def build_team_ci_health(
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        surface=_parse_surface(surface),
     )
 
 
@@ -58,6 +72,7 @@ def build_team_ci_activity(
     date_from: str | None = None,
     date_to: str | None = None,
     test_limit: int | None = None,
+    surface: str | None = None,
 ) -> TeamCIActivity:
     normalized_team = owner_team.strip()
     if not normalized_team:
@@ -74,6 +89,7 @@ def build_team_ci_activity(
         date_from=parsed_from,
         date_to=parsed_to,
         test_limit=test_limit,
+        surface=_parse_surface(surface),
     )
 
 
