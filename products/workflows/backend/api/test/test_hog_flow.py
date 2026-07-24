@@ -3172,6 +3172,39 @@ class TestHogFlowAPI(APIBaseTest):
         assert len(deleted_events) == 1
         assert deleted_events[0].args[2]["workflow_id"] == flow_id
 
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_delete_cascades_to_batch_jobs(self, _mock_dispatch):
+        # A workflow that has run a batch broadcast has referencing HogFlowBatchJob rows; deleting it must
+        # cascade to them rather than hit the FK constraint and 500 (the on_delete=DO_NOTHING regression).
+        flow_id = self._create_flow(name="Broadcast")
+        flow = HogFlow.objects.get(id=flow_id)
+        batch_job_id = HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow, status="completed").id
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert response.status_code == 204, response.content
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        assert not HogFlowBatchJob.objects.filter(id=batch_job_id).exists()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_bulk_delete_cascades_to_batch_jobs(self, _mock_dispatch):
+        flow_id = self._create_flow(name="Broadcast")
+        self._archive_flow(flow_id)
+        flow = HogFlow.objects.get(id=flow_id)
+        batch_job_id = HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow, status="completed").id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+            {"ids": [flow_id]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["deleted"] == 1
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        assert not HogFlowBatchJob.objects.filter(id=batch_job_id).exists()
+
     @parameterized.expand(
         [
             ("draft",),
