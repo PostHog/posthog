@@ -134,6 +134,7 @@ the row lists both.
 | codacy                           | HTTP                        | requests                                                        | ✅                          |
 | codecov                          | HTTP                        | requests                                                        | ✅                          |
 | codefresh                        | HTTP                        | requests                                                        | ✅                          |
+| codemagic                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | codescene                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cody                             | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | cohere                           | HTTP                        | requests                                                        | ✅                          |
@@ -846,7 +847,6 @@ doesn't conflict with concurrent PRs.
 - cockroachdb
 - codacy
 - codecov
-- codemagic
 - collibra
 - companycam
 - conekta
