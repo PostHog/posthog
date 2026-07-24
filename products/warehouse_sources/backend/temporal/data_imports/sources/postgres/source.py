@@ -702,6 +702,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",
