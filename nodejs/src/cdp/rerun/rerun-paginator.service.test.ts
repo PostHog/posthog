@@ -10,7 +10,8 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -188,9 +189,17 @@ describe('RerunPaginatorService integration', () => {
 
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
-        await resetKafka()
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
+        // Ensure every topic the ClickHouse Kafka engines subscribe to exists, idempotently and
+        // WITHOUT deleting anything. resetKafka() drops+recreates all topics, which forces the
+        // hog_invocation_results engine's consumer to reattach at auto.offset.reset=latest — rows
+        // produced during that reattach window are silently dropped, so the first seed loses a row
+        // and its count poll times out. Keeping the topics in place preserves the consumer's offset.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
+        // Prime the MV before any seeding: probe until a row lands so the engine's consumer is
+        // provably attached and reading. Without this, a cold consumer (e.g. after a sibling suite
+        // called resetKafka) drops the first seed's rows at offset=latest. Mirrors rerun-e2e.test.ts.
+        await waitForHogInvocationResultsMvReady(clickhouse)
     })
 
     beforeEach(async () => {
