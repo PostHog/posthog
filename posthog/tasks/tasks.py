@@ -23,6 +23,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -1177,7 +1178,9 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
+    # ClickHouseAtCapacity, so it must be listed alongside the raw CH error classes.
+    autoretry_for=(*CH_TRANSIENT_ERRORS, ClickHouseAtCapacity),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,

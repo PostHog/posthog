@@ -8,35 +8,72 @@
 //! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — this crate
 //! owns the parse, the scrub, and the serialize.
 //!
-//! Scrubbing operates on untrusted input and may panic on pathological payloads; callers that must
-//! fail closed (drop the message rather than crash) should wrap calls in `catch_unwind` under
-//! `panic = "unwind"`, as `replay-anonymizer-node` does.
+//! Scrubbing operates on untrusted input. The public entry points contain panics on pathological
+//! payloads and convert them to errors (fail closed: the caller drops the message) — no
+//! `catch_unwind` obligation on consumers. Caveat: under `panic = "abort"` the backstop cannot run
+//! and a panic still kills the process; builds that must fail closed need `panic = "unwind"` (the
+//! Node addon enforces this at compile time).
+//!
+//! # Supported API
+//!
+//! The stable crates.io surface is what this page documents: [`AllowLists`], [`Ctx`], the event
+//! entry points ([`anonymize_message`], [`anonymize_event`], [`anonymize_line`] and friends), the
+//! byte-buffer snapshot pipeline ([`anonymize_kafka_payload`] and friends), the rrweb routing
+//! constants in [`event`], and — behind the default `typed-parse` feature — the typed rrweb parse
+//! in [`typed`] ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this
+//! workspace (the Node addon, the parity tests) — it is internal and may change or disappear in
+//! any release.
 
 pub mod allow_lists;
+#[doc(hidden)]
 pub mod assets;
+#[doc(hidden)]
 pub mod blur;
+#[doc(hidden)]
 pub mod bytewalk;
+#[doc(hidden)]
 pub mod canvas;
+#[doc(hidden)]
+pub mod compression;
 pub mod context;
+#[doc(hidden)]
 pub mod css;
+#[doc(hidden)]
 pub mod cv;
+#[doc(hidden)]
 pub mod dom;
 pub mod event;
-pub mod gzip;
+pub mod images;
+#[doc(hidden)]
 pub mod json;
+#[doc(hidden)]
 pub mod scan;
 pub mod snapshot;
+#[doc(hidden)]
 pub mod text;
+pub mod timings;
+#[cfg(feature = "typed-parse")]
+pub mod typed;
+mod unwind;
+#[doc(hidden)]
 pub mod url;
+#[doc(hidden)]
 pub mod value;
 
 pub use allow_lists::AllowLists;
 pub use context::Ctx;
-pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
-pub use snapshot::{
-    anonymize_kafka_payload, anonymize_kafka_payload_opts, AnonymizeOpts, AnonymizedMessage,
-    FailKind, Failure, Route,
+pub use event::{
+    anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,
+    anonymize_message,
 };
+pub use images::ImagePolicy;
+pub use snapshot::{
+    anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_kafka_payload_timed,
+    AnonymizeOpts, AnonymizedMessage, FailKind, Failure, Route,
+};
+pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
+#[cfg(feature = "typed-parse")]
+pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]

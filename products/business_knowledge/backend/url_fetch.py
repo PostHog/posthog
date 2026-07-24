@@ -16,14 +16,13 @@ Responsibilities:
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import urllib.parse as urlparse
 from dataclasses import dataclass
 
 import requests
 import structlog
-from requests.adapters import HTTPAdapter
 
+from posthog.security.pinned_requests import PinnedIPAdapter
 from posthog.security.url_validation import validate_url_and_pin_ips
 
 from .constants import URL_CONNECT_TIMEOUT, URL_MAX_BYTES, URL_MAX_REDIRECTS, URL_READ_TIMEOUT, URL_USER_AGENT
@@ -100,78 +99,6 @@ def prefetch_key(url: str) -> str:
         return url
 
 
-# --- DNS-pinning adapter — eliminates TOCTOU rebinding window ----------------
-
-
-class _PinnedIPAdapter(HTTPAdapter):
-    """
-    Requests adapter that rewrites URLs to connect to pre-validated IPs,
-    preventing DNS rebinding between validation and connection.
-
-    For HTTPS, sets ``assert_hostname`` and ``server_hostname`` on the
-    connection pool so TLS SNI and certificate verification use the
-    original hostname (not the IP).
-
-    NOT thread-safe — designed for single-use sessions in ``_ssrf_safe_get``.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._pin_map: dict[str, str] = {}
-        self._current_original_host: str | None = None
-
-    def pin(self, hostname: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None:
-        self._pin_map[hostname.lower()] = str(ip)
-
-    def send(  # type: ignore[override]
-        self,
-        request: requests.PreparedRequest,
-        stream: bool = False,
-        timeout: None | float | tuple[float, float] = None,
-        verify: bool | str = True,
-        cert: None | str | tuple[str, str] = None,
-        proxies: dict[str, str] | None = None,
-    ) -> requests.Response:
-        parsed = urlparse.urlparse(request.url or "")
-        host = (parsed.hostname or "").lower()
-        ip_str = self._pin_map.get(host)
-
-        if ip_str is not None:
-            self._current_original_host = host
-
-            ip_netloc = f"[{ip_str}]" if ":" in ip_str else ip_str
-            if parsed.port:
-                ip_netloc = f"{ip_netloc}:{parsed.port}"
-
-            request.url = urlparse.urlunparse((parsed.scheme, ip_netloc, parsed.path, parsed.params, parsed.query, ""))
-
-            original_netloc = host
-            if parsed.port:
-                original_netloc = f"{host}:{parsed.port}"
-            if request.headers is not None:
-                request.headers["Host"] = original_netloc
-        else:
-            self._current_original_host = None
-
-        return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
-
-    def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
-        super().cert_verify(conn, url, verify, cert)
-        original = getattr(self, "_current_original_host", None)
-        if original:
-            # We mutate urllib3 pool internals intentionally — these attributes
-            # exist at runtime (verified against urllib3 2.6.3) but aren't
-            # visible to static type checkers.
-            if hasattr(conn, "assert_hostname"):
-                conn.assert_hostname = original  # ty: ignore[invalid-assignment]
-            # Inject server_hostname into conn_kw so newly created connections
-            # use the original hostname for TLS SNI (not the rewritten IP).
-            # urllib3 passes **conn_kw to ConnectionCls.__init__, and
-            # HTTPSConnection.connect() reads self.server_hostname for SNI.
-            if hasattr(conn, "conn_kw") and isinstance(getattr(conn, "conn_kw", None), dict):
-                conn.conn_kw["server_hostname"] = original  # ty: ignore[invalid-assignment]
-
-
 # --- Shared SSRF-safe fetch core ---------------------------------------------
 
 
@@ -209,7 +136,7 @@ def _ssrf_safe_get(
     """
 
     current = strip_userinfo(normalize_url(url))
-    adapter = _PinnedIPAdapter()
+    adapter = PinnedIPAdapter()
     session = requests.Session()
     session.mount("http://", adapter)  # nosemgrep: request-session-with-http
     session.mount("https://", adapter)

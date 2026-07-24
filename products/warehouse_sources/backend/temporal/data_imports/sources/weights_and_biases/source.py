@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.weightsandbiases import (
     WeightsAndBiasesSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.settings import (
@@ -121,6 +121,7 @@ If you use W&B Dedicated Cloud or a self-managed server, set the host to your de
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -142,7 +143,11 @@ If you use W&B Dedicated Cloud or a self-managed server, set the host to your de
         return schemas
 
     def validate_credentials(
-        self, config: WeightsAndBiasesSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WeightsAndBiasesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             validate_wandb_host(config.host)

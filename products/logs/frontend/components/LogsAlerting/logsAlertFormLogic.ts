@@ -105,7 +105,7 @@ export interface logsAlertFormLogicActions {
     createPendingHogFunctions: (alertId: string) => {
         alertId: string
     } // logsAlertNotificationLogic
-    loadAlerts: () => any // logsAlertingLogic
+    loadAlerts: (_?: any) => any // logsAlertingLogic
     setEditingAlert: (alert: LogsAlertConfigurationApi | null) => {
         alert: LogsAlertConfigurationApi | null
     } // logsAlertingLogic

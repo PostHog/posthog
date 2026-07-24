@@ -18,6 +18,7 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
+import { DEFAULT_THRESHOLDS } from './services/email-reputation/classifier'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -131,6 +132,12 @@ export type CdpConfig = ClickhouseConfig & {
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
+    // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
+    SES_ALLOWED_SNS_TOPIC_ARNS: string
+
+    // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
+    EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -150,6 +157,14 @@ export type CdpConfig = ClickhouseConfig & {
     // record (a give-up is lost, exactly as before this change). Flip to false to
     // roll back the recovery machinery instantly without a redeploy. Default true.
     CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Backoff on a stalled job's next scheduled time per janitor reset, keyed on
+    // janitor_touch_count. The first stall retries within seconds (so a transient
+    // stall / worker restart recovers fast); repeat stalls back off exponentially —
+    // at the defaults roughly ~30-60s, then ~1.5-3min, before give-up. Jittered
+    // throughout to de-sync a fleet-wide herd. Base 0 disables it (immediate retry);
+    // max caps the per-strike wait.
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
     // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
     // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
@@ -162,6 +177,19 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
+    EMAIL_REPUTATION_EVALUATION_HOUR_UTC: number
+    EMAIL_REPUTATION_TARGET_VOLUME: number
+    EMAIL_REPUTATION_MIN_WINDOW_HOURS: number
+    EMAIL_REPUTATION_LOOKBACK_DAYS: number
+    EMAIL_REPUTATION_MIN_SENDS: number
+    EMAIL_REPUTATION_BOUNCE_WARNING_RATE: number
+    EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: number
+    EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: number
+    EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: number
+    EMAIL_REPUTATION_BATCH_SIZE: number
+    EMAIL_REPUTATION_BATCH_DELAY_SECONDS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -281,6 +309,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+        SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -300,6 +330,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
         CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 60000,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 600000,
         // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
         // always wake against post-edit config. Rate sized well under hogflow worker
         // steady-state throughput: the past incident class here is an instantaneous
@@ -313,5 +345,21 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
+
+        // Thresholds sit ahead of AWS SES's review lines (5% bounce / 0.1% complaint at ~0.5%
+        // escalation). Rates are computed SES-style over a window spanning at least
+        // MIN_WINDOW_HOURS and at least TARGET_VOLUME sends — whichever reaches further back
+        // (capped at LOOKBACK_DAYS). Calculation only for now — enforcement ships separately.
+        EMAIL_REPUTATION_EVALUATION_HOUR_UTC: 6,
+        EMAIL_REPUTATION_TARGET_VOLUME: 1000,
+        EMAIL_REPUTATION_MIN_WINDOW_HOURS: 24,
+        EMAIL_REPUTATION_LOOKBACK_DAYS: 30,
+        EMAIL_REPUTATION_MIN_SENDS: DEFAULT_THRESHOLDS.minSends,
+        EMAIL_REPUTATION_BOUNCE_WARNING_RATE: DEFAULT_THRESHOLDS.bounceWarning,
+        EMAIL_REPUTATION_BOUNCE_CRITICAL_RATE: DEFAULT_THRESHOLDS.bounceCritical,
+        EMAIL_REPUTATION_COMPLAINT_WARNING_RATE: DEFAULT_THRESHOLDS.complaintWarning,
+        EMAIL_REPUTATION_COMPLAINT_CRITICAL_RATE: DEFAULT_THRESHOLDS.complaintCritical,
+        EMAIL_REPUTATION_BATCH_SIZE: 50,
+        EMAIL_REPUTATION_BATCH_DELAY_SECONDS: 30,
     }
 }

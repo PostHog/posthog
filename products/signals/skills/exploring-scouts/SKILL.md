@@ -30,13 +30,14 @@ It is the observability counterpart to the `authoring-scouts` skill (which teach
 The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
 
-There are five things you can observe about the fleet, each with its own tool:
+There are six things you can observe about the fleet, each with its own tool:
 
 | What you want to know                        | Tool                            | What it tells you                                                                                 |
 | -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`                      |
 | What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link |
 | What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                            |
+| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)              |
 | Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`         |
 | What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)       |
 
@@ -116,6 +117,9 @@ Present it as a table the user can scan — scout, cadence, posture, last run, l
    The end-of-run `summary` on each run is the scout's own account of what it looked at and decided.
 4. **Read what it remembered** — `scratchpad-search` (see below).
    The memory entries a scout wrote reveal the baselines and noise it has internalized about this project.
+5. **Read what it was told** — `scout-notes-list {"skill_name": "signals-scout-error-tracking"}` returns the steering notes humans left for this scout plus the general fleet-wide ones — exactly what its runs read as prior context.
+   A behavior change that doesn't trace to a skill edit or a scratchpad entry often traces to a note.
+   When asked to _steer_ a scout with a note (rather than observe), hand off to the `authoring-scouts` skill, which covers the notes channel's write side.
 
 ## Workflow: read recent runs
 
@@ -195,6 +199,7 @@ Each entry's `key` carries a category prefix that tells you _what kind_ of learn
 | `not-in-use:` | A product/surface this team doesn't use (close-out memo)                               |
 | `mcp-gap:`    | A tooling gap a scout noticed worth raising later                                      |
 | `improve:`    | A custom scout's suggested change to its own skill body, awaiting owner review         |
+| `reported:`   | A canonical scout's record of a skill gap already fed back upstream to PostHog         |
 | `report:`     | A report a scout authored — stores the `report_id` so later runs edit/dedup against it |
 | `reviewer:`   | A resolved owner (GitHub login) for an area, cached for `suggested_reviewers` routing  |
 
@@ -210,6 +215,7 @@ A custom scout on the report channel escalates recurring or material suggestions
 When assessing a custom scout, search `{"text": "improve:"}` and surface these to the user: an entry re-confirmed across several runs is the highest-signal edit the owner can make.
 Reviewing and applying them is a write operation — hand off to the `authoring-scouts` skill.
 Canonical scouts never write `improve:` entries (their skill bodies are synced from PostHog's fleet), so an `improve:` entry under a canonical scout's domain is itself worth flagging.
+Instead, a canonical scout routes skill-content gaps upstream to the PostHog team via the `agent-feedback` MCP tool (`feedback_type: "scout"`), generalized so no project data travels, and keeps a `reported:<skill-name>:<topic>` entry as its local record of what it already submitted — so a `reported:` entry tells you a gap has been raised with PostHog, not with this team.
 
 ## Workflow: see what scouts have written
 

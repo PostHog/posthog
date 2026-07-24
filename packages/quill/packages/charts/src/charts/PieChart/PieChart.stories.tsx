@@ -58,6 +58,18 @@ export const Donut: Story = {
     },
 }
 
+export const WithLegend: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: PieChartConfig = { legend: { show: true, position: 'right' } }
+        return (
+            <Stage>
+                <PieChart series={BROWSERS} theme={theme} config={config} />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()

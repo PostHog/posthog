@@ -1,16 +1,19 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.settings import (
     PAGERDUTY_ENDPOINTS,
     PagerDutyEndpointConfig,
@@ -24,21 +27,14 @@ PAGE_SIZE = 100
 # PagerDuty rejects requests where `offset + limit` exceeds 10,000 with an HTTP 400.
 # Stop paginating before we cross it. Incremental endpoints stay well under this because
 # the `since` filter bounds the window; full-refresh endpoints could in theory truncate
-# on very large accounts (logged when it happens).
+# on very large accounts.
 MAX_OFFSET = 10_000
-
-# Retry/throttle settings kept near the top for easy tuning.
-RETRY_ATTEMPTS = 5
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class PagerDutyRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class PagerDutyResumeConfig:
-    offset: int
+    # Row offset of the next unfetched page — PagerDuty list endpoints paginate with limit/offset.
+    offset: int = 0
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -51,6 +47,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _format_incremental_value_or_none(value: Any) -> Optional[str]:
+    # None means no watermark yet (first incremental sync) — return None so the framework drops the
+    # `since` param entirely rather than sending the literal string "None".
+    return _format_incremental_value(value) if value is not None else None
+
+
 def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Token token={api_token}",
@@ -59,23 +61,73 @@ def _get_headers(api_token: str) -> dict[str, str]:
     }
 
 
-def _build_params(
-    config: PagerDutyEndpointConfig,
-    offset: int,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset}
+class PagerDutyPaginator(BasePaginator):
+    """Offset paginator driven by PagerDuty's body-level ``more`` flag.
 
-    if config.supports_since:
-        # created_at is immutable, so an ascending sort means new rows append to the end
-        # and never shift pages we've already read. We send this on every sync (not just
-        # incremental ones) so full refreshes paginate over a stable ordering too.
-        params["sort_by"] = "created_at:asc"
-        if should_use_incremental_field and db_incremental_field_last_value:
-            params["since"] = _format_incremental_value(db_incremental_field_last_value)
+    PagerDuty signals another page with a ``more: true`` boolean rather than page fullness, and
+    rejects ``offset + limit > 10000`` with an HTTP 400 — so we stop before crossing that ceiling.
+    Neither shape is expressible with the built-in ``OffsetPaginator`` (which keys on a body ``total``
+    or a short page), hence this small local paginator. Resume is supported via the row offset.
+    """
 
-    return params
+    def __init__(self, limit: int = PAGE_SIZE, maximum_offset: int = MAX_OFFSET, offset: int = 0) -> None:
+        super().__init__()
+        self.limit = limit
+        self.maximum_offset = maximum_offset
+        self.offset = offset
+
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["limit"] = self.limit
+        request.params["offset"] = self.offset
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # Empty page: stop without advancing (the API returned nothing more to read).
+        if not data:
+            self._has_next_page = False
+            return
+
+        try:
+            more = bool(response.json().get("more", False))
+        except Exception:
+            more = False
+        if not more:
+            self._has_next_page = False
+            return
+
+        self.offset += self.limit
+        # PagerDuty 400s when offset + limit exceeds MAX_OFFSET; stop before requesting that page
+        # (results may be truncated on very large full-refresh accounts).
+        if self.offset + self.limit > self.maximum_offset:
+            self._has_next_page = False
+            return
+
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["offset"] = self.offset
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.offset already points at the next page to fetch (update_state incremented it).
+        return {"offset": self.offset} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
+
+
+def _non_secret_headers() -> dict[str, str]:
+    # Auth (the `Token token=...` Authorization header) is supplied via the framework auth config so
+    # its value is redacted from logs and errors; only the non-secret headers are set here.
+    return {
+        "Accept": "application/vnd.pagerduty+json;version=2",
+        "Content-Type": "application/json",
+    }
 
 
 def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
@@ -88,108 +140,102 @@ def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tupl
     path = config.path if config else "/users"
     url = f"{PAGERDUTY_BASE_URL}{path}?{urlencode({'limit': 1})}"
 
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, 0, str(e)
-
-    if response.status_code == 200:
-        return True, 200, None
-    if response.status_code == 401:
-        return False, 401, "Invalid PagerDuty API key"
-    if response.status_code == 403:
-        return False, 403, "Your PagerDuty API key does not have access to this resource"
-
-    try:
-        message = response.json().get("error", {}).get("message", response.text)
-    except Exception:
-        message = response.text
-    return False, response.status_code, message
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[PagerDutyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = PAGERDUTY_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume_config.offset if resume_config is not None else 0
-    if resume_config is not None:
-        logger.debug(f"PagerDuty: resuming {endpoint} from offset {offset}")
-
-    @retry(
-        retry=retry_if_exception_type((PagerDutyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers=_get_headers(api_token),
     )
-    def fetch_page(page_offset: int) -> dict:
-        params = _build_params(config, page_offset, should_use_incremental_field, db_incremental_field_last_value)
-        url = f"{PAGERDUTY_BASE_URL}{config.path}?{urlencode(params)}"
-        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise PagerDutyRetryableError(f"PagerDuty API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"PagerDuty API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(offset)
-
-        items = data.get(config.envelope_key, [])
-        if not items:
-            break
-
-        yield items
-
-        if not data.get("more", False):
-            break
-
-        offset += PAGE_SIZE
-        if offset + PAGE_SIZE > MAX_OFFSET:
-            logger.warning(
-                f"PagerDuty: reached max offset {MAX_OFFSET} for endpoint '{endpoint}'; "
-                f"stopping pagination (results may be truncated)"
-            )
-            break
-
-        # Save AFTER yielding so a crash re-fetches the last page; merge dedupes on primary key.
-        resumable_source_manager.save_state(PagerDutyResumeConfig(offset=offset))
+    if ok:
+        return True, status if status is not None else 200, None
+    if status is None:
+        return False, 0, "Could not reach PagerDuty"
+    if status == 401:
+        return False, 401, "Invalid PagerDuty API key"
+    if status == 403:
+        return False, 403, "Your PagerDuty API key does not have access to this resource"
+    return False, status, f"PagerDuty API error (status {status})"
 
 
 def pagerduty_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[PagerDutyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = PAGERDUTY_ENDPOINTS[endpoint]
+    config: PagerDutyEndpointConfig = PAGERDUTY_ENDPOINTS[endpoint]
+
+    params: dict[str, Any] = {}
+    if config.supports_since:
+        # created_at is immutable, so an ascending sort means new rows append to the end and never
+        # shift pages we've already read. Sent on every sync (not just incremental ones) so full
+        # refreshes paginate over a stable ordering too.
+        params["sort_by"] = "created_at:asc"
+        if should_use_incremental_field:
+            # The framework injects the watermark as `since`; on the first incremental sync the value
+            # is None and the param is dropped, so we only bound the window once we have a cursor.
+            params["since"] = {
+                "type": "incremental",
+                "cursor_path": "created_at",
+                "initial_value": None,
+                "convert": _format_incremental_value_or_none,
+            }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PAGERDUTY_BASE_URL,
+            "headers": _non_secret_headers(),
+            "auth": {
+                "type": "api_key",
+                "api_key": f"Token token={api_token}",
+                "name": "Authorization",
+                "location": "header",
+            },
+            "paginator": PagerDutyPaginator(limit=PAGE_SIZE, maximum_offset=MAX_OFFSET),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # A missing envelope key yields no rows and stops pagination — the API returning an
+                    # unexpected shape isn't treated as fatal here (matches the prior data.get(key, [])).
+                    "data_selector": config.envelope_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(PagerDutyResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
-        # We always request created_at ascending where a sort is available, and full-refresh
-        # endpoints replace wholesale, so ascending is correct everywhere.
+        # We always request created_at ascending where a sort is available, and full-refresh endpoints
+        # replace wholesale, so ascending is correct everywhere.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,

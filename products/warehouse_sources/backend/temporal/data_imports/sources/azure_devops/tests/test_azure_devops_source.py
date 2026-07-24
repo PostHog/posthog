@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AzureDevOpsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
+    AzureDevOpsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

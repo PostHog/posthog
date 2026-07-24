@@ -17,10 +17,17 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
 import { notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
+import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { buildNotebookDependencyGraph, collectPythonKernelNodes, collectSqlV2Nodes } from './notebookNodeContent'
+import {
+    buildNotebookDependencyGraph,
+    collectPythonKernelNodes,
+    collectSqlV2Nodes,
+    extractDuckSqlTables,
+} from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 
 export type SqlV2RunRef = {
@@ -42,7 +49,8 @@ export type SqlV2RunRef = {
 export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, SqlV2RunRef> {
     const refs: Record<string, SqlV2RunRef> = {}
     for (const node of collectSqlV2Nodes(doc)) {
-        if (node.nodeId && node.nodeId !== selfNodeId) {
+        // An unnamed cell (blank dataframe name) is display-only: nothing can reference it.
+        if (node.nodeId && node.nodeId !== selfNodeId && node.returnVariable) {
             refs[node.returnVariable] = { node_id: node.nodeId, kind: 'hogql' }
         }
     }
@@ -67,6 +75,18 @@ export type NotebookNodeSQLV2Page = {
     rows: (string | number | null)[][]
     has_more: boolean
 }
+
+// The full capped row set a direct (ClickHouse, no-sandbox) run returns with its result,
+// held in memory for client-side paging — never persisted into the document.
+export type NotebookNodeSQLV2DirectRows = {
+    columns: string[]
+    types: [string, string][]
+    rows: (string | number | null)[][]
+}
+
+// Which execution lane the node's current run took: 'direct' runs on ClickHouse with no
+// sandbox (no Stop affordance, client-side paging); 'kernel' runs in the sandbox.
+export type SqlV2RunLane = 'direct' | 'kernel'
 
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
@@ -97,6 +117,8 @@ export interface notebookNodeSQLV2LogicValues {
     staleNodeIds: Record<string, true> // notebookNodeStalenessLogic
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
+    activeRunLane: SqlV2RunLane | null
+    directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
     isRunning: boolean
     isStale: boolean
@@ -105,6 +127,7 @@ export interface notebookNodeSQLV2LogicValues {
     pageLoading: boolean
     pageResult: NotebookNodeSQLV2Page | null
     pageSize: number
+    pendingKernelStart: boolean
     runError: string | null
     staleDownstreamCount: number
 }
@@ -145,6 +168,9 @@ export interface notebookNodeSQLV2LogicActions {
     startOperation: (operation: NotebookOperation) => {
         operation: NotebookOperation
     } // notebookOperationsLogic
+    setShowKernelInfo: (showKernelInfo: boolean) => {
+        showKernelInfo: boolean
+    } // notebookSettingsLogic
     interruptRun: () => {
         value: true
     }
@@ -163,6 +189,12 @@ export interface notebookNodeSQLV2LogicActions {
         opts: RunQueryOptions
         refs: Record<string, SqlV2RunRef>
     }
+    setActiveRunLane: (activeRunLane: SqlV2RunLane) => {
+        activeRunLane: SqlV2RunLane
+    }
+    setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => {
+        directRows: NotebookNodeSQLV2DirectRows | null
+    }
     setIsInterrupting: (isInterrupting: boolean) => {
         isInterrupting: boolean
     }
@@ -180,6 +212,9 @@ export interface notebookNodeSQLV2LogicActions {
     }
     setPageSize: (pageSize: number) => {
         pageSize: number
+    }
+    setPendingKernelStart: (pendingKernelStart: boolean) => {
+        pendingKernelStart: boolean
     }
     setRunError: (runError: string | null) => {
         runError: string | null
@@ -225,6 +260,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             ['startOperation', 'finishOperation', 'finishNodeOperations'],
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
             ['nodeRunFinished', 'dispatchChainRun', 'runStaleChain', 'registerChainNode', 'unregisterChainNode'],
+            notebookSettingsLogic,
+            ['setShowKernelInfo'],
         ],
     })),
     actions({
@@ -249,6 +286,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         setPageResult: (pageResult: NotebookNodeSQLV2Page | null) => ({ pageResult }),
         setPageLoading: (pageLoading: boolean) => ({ pageLoading }),
         resetPaging: true,
+        setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
+        setActiveRunLane: (activeRunLane: SqlV2RunLane) => ({ activeRunLane }),
+        setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
     }),
     reducers({
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
@@ -311,12 +351,46 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 resetPaging: () => false,
             },
         ],
+        // Session-local rows for client-side paging of direct runs; a new run invalidates them.
+        directRows: [
+            null as NotebookNodeSQLV2DirectRows | null,
+            {
+                setDirectRows: (_, { directRows }) => directRows,
+                runQuery: () => null,
+            },
+        ],
+        activeRunLane: [
+            null as SqlV2RunLane | null,
+            {
+                setActiveRunLane: (_, { activeRunLane }) => activeRunLane,
+            },
+        ],
+        // A kernel-lane run was submitted while no kernel was known to be up: the backend is
+        // provisioning the sandbox; drives the "Starting compute sandbox…" caption.
+        pendingKernelStart: [
+            false,
+            {
+                setPendingKernelStart: (_, { pendingKernelStart }) => pendingKernelStart,
+                stopPolling: () => false,
+            },
+        ],
     }),
     listeners(({ props, actions, cache, values }) => {
         // One operation at a time across the whole notebook (see notebookOperationsLogic);
         // ids are per node + kind so re-registering our own operation stays idempotent.
         const runOperation: NotebookOperation = { id: `${props.nodeId}:run`, nodeId: props.nodeId, kind: 'run' }
         const pageOperation: NotebookOperation = { id: `${props.nodeId}:page`, nodeId: props.nodeId, kind: 'page' }
+
+        // Slice a page out of the in-memory direct-run rows — no network, no operation lock.
+        const sliceDirectRows = (rows: NotebookNodeSQLV2DirectRows, page: number, pageSize: number): void => {
+            const start = (page - 1) * pageSize
+            actions.setPageResult({
+                columns: rows.columns,
+                types: rows.types,
+                rows: rows.rows.slice(start, start + pageSize),
+                has_more: start + pageSize < rows.rows.length,
+            })
+        }
 
         const loadCurrentPage = async (): Promise<void> => {
             const { page, pageSize } = values
@@ -327,6 +401,10 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             if (page === 1 && pageSize === SQL_V2_DEFAULT_PAGE_SIZE) {
                 // The envelope already carries this page — no round trip.
                 actions.setPageResult(null)
+                return
+            }
+            if (values.directRows) {
+                sliceDirectRows(values.directRows, page, pageSize)
                 return
             }
             // The pagination UI is disabled while the notebook is busy; this guards the
@@ -340,6 +418,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             const fetchId = (cache.pageFetchId = (cache.pageFetchId ?? 0) + 1)
             actions.setPageLoading(true)
             try {
+                // A direct run keeps its full row set on the result endpoint while the backend's
+                // query result is alive — recover it once (e.g. after a reload) and page locally
+                // from then on. Kernel runs return no rows here and fall through to server paging.
+                try {
+                    const recovered = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
+                    if (recovered.status === 'done' && recovered.rows) {
+                        const directRows: NotebookNodeSQLV2DirectRows = {
+                            columns: recovered.result?.columns ?? [],
+                            types: recovered.result?.types ?? [],
+                            rows: recovered.rows,
+                        }
+                        actions.setDirectRows(directRows)
+                        if (cache.pageFetchId === fetchId) {
+                            sliceDirectRows(directRows, page, pageSize)
+                        }
+                        return
+                    }
+                } catch {
+                    // Recovery is best-effort; the server page below reports real errors.
+                }
                 const pageResult = await api.notebooks.sqlV2RunPage(props.notebookShortId, runId, {
                     offset: (page - 1) * pageSize,
                     limit: pageSize,
@@ -385,6 +483,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.setIsRunning(false)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
+                }
+                // Which lane will this run take? Mirrors the backend's routing: python always
+                // needs the kernel; SQL needs it only when it reads a local (python-made) frame.
+                // The backend stays authoritative — this only drives the Stop affordance and
+                // the kernel panel, never dispatch.
+                const isKernelLane =
+                    opts.nodeType === 'python' ||
+                    extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local')
+                actions.setActiveRunLane(isKernelLane ? 'kernel' : 'direct')
+                if (isKernelLane) {
+                    // The backend provisions the sandbox itself when none is running; open the
+                    // kernel panel so the user can watch it come up instead of guessing.
+                    const kernelKnownRunning =
+                        notebookKernelInfoLogic.findMounted({ shortId: props.notebookShortId })?.values.isRunning ??
+                        false
+                    if (!kernelKnownRunning) {
+                        actions.setShowKernelInfo(true)
+                        actions.setPendingKernelStart(true)
+                        lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
+                    }
                 }
                 actions.startOperation(runOperation)
                 try {
@@ -453,11 +571,21 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 }
                 cache.pollInFlight = true
                 try {
-                    const { status, result, error } = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
+                    const { status, result, error, rows } = await api.notebooks.sqlV2RunResult(
+                        props.notebookShortId,
+                        runId
+                    )
                     // A newer run started while this poll was in flight — its result and poller
                     // must win, so drop this stale response instead of overwriting/stopping it.
                     if (runId !== cache.activeRunId) {
                         return
+                    }
+                    // Once the kernel panel reports the sandbox up, the wait is execution, not startup.
+                    if (
+                        values.pendingKernelStart &&
+                        notebookKernelInfoLogic.findMounted({ shortId: props.notebookShortId })?.values.isRunning
+                    ) {
+                        actions.setPendingKernelStart(false)
                     }
                     const envelopeResult: NotebookNodeSQLV2Result | null = result
                         ? {
@@ -472,6 +600,17 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                           }
                         : null
                     if (status === 'done') {
+                        // A direct run's full capped row set arrives with the result — keep it
+                        // in memory for client-side paging (kernel runs return no rows here).
+                        actions.setDirectRows(
+                            rows
+                                ? {
+                                      columns: result?.columns ?? [],
+                                      types: result?.types ?? [],
+                                      rows,
+                                  }
+                                : null
+                        )
                         props.updateAttributes({ result: envelopeResult })
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()

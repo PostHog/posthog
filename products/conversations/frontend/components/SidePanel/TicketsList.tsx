@@ -20,7 +20,7 @@ export function TicketsList(): JSX.Element {
     if (!hasIdentityMode && (!posthog.conversations || !posthog.conversations.isAvailable())) {
         return (
             <div className="text-center text-muted-alt py-8">
-                <p>Conversations are not available for this team.</p>
+                <p>Support is not available for this team.</p>
             </div>
         )
     }

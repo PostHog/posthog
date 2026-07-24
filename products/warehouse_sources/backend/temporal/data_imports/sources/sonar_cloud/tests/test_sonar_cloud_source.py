@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SonarCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
+    SonarCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (

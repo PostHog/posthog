@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InfisicalSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.infisical import (
+    InfisicalSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.infisical import (
     HOST_NOT_ALLOWED_ERROR,
     INVALID_CREDENTIALS_ERROR,
@@ -130,6 +132,7 @@ In Infisical, create a machine identity under **Organization settings > Access c
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -149,7 +152,11 @@ In Infisical, create a machine identity under **Organization settings > Access c
         return schemas
 
     def validate_credentials(
-        self, config: InfisicalSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InfisicalSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_infisical_credentials(
             config.base_url,

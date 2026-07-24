@@ -406,8 +406,8 @@
                 },
                 "feedback_type": {
                     "type": "string",
-                    "enum": ["product", "mcp", "docs", "other"],
-                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"other\" = anything that doesn't fit the above."
+                    "enum": ["product", "mcp", "docs", "scout", "other"],
+                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"scout\" = a canonical PostHog scout skill's content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). \"other\" = anything that doesn't fit the above."
                 },
                 "sentiment": {
                     "type": "string",
@@ -430,6 +430,28 @@
                         "instructions_clarity",
                         "performance",
                         "error_message",
+                        "other"
+                    ]
+                },
+                "scout_skill_name": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the canonical scout skill the feedback is about (e.g. \"signals-scout-web-analytics\"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.",
+                    "type": "string"
+                },
+                "scout_skill_version": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                },
+                "scout_category": {
+                    "description": "For scout feedback (`feedback_type: \"scout\"`) only: the single category that best describes the skill gap. \"false_positive\" = the skill's detection rules surfaced something that wasn't real; \"missed_detection\" = a real issue the skill's instructions steered you past; \"discriminator_gap\" = the skill's signal-vs-baseline discriminator doesn't hold for a class of projects; \"wasted_investigation\" = an investigation pattern the skill mandates burned budget without payoff; \"instruction_ambiguity\" = an instruction that is ambiguous in practice. Omit for non-scout feedback.",
+                    "type": "string",
+                    "enum": [
+                        "false_positive",
+                        "missed_detection",
+                        "discriminator_gap",
+                        "wasted_investigation",
+                        "instruction_ambiguity",
                         "other"
                     ]
                 },
@@ -467,8 +489,15 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string",
-                    "description": "The insight ID or short_id to run."
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
                 },
                 "output_format": {
                     "default": "optimized",
@@ -509,6 +538,10 @@
             },
             "required": ["insightId"]
         },
+        "OrganizationGetAllSchema": {
+            "type": "object",
+            "properties": {}
+        },
         "OrganizationSetActiveSchema": {
             "anyOf": [
                 {
@@ -516,7 +549,7 @@
                     "properties": {
                         "orgId": {
                             "type": "string",
-                            "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id."
+                            "description": "The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id."
                         }
                     },
                     "required": ["orgId"]
@@ -530,6 +563,36 @@
                         }
                     },
                     "required": ["id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organizationId": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organizationId"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "organization_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["organization_id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "org_id": {
+                            "type": "string",
+                            "description": "Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`."
+                        }
+                    },
+                    "required": ["org_id"]
                 }
             ]
         },
@@ -694,6 +757,87 @@
                     "enum": ["full", "preview", "none"]
                 }
             }
+        },
+        "PropertyDefinitionUpdateInputSchema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "description": "Description explaining what the property represents",
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "Tags to organize properties by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\"). Warning: this REPLACES the property's entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "property_type": {
+                    "description": "The data type of the property. Controls how the property is parsed, displayed, and filtered.",
+                    "type": "string",
+                    "enum": ["DateTime", "String", "Numeric", "Boolean", "Duration"]
+                },
+                "verified": {
+                    "description": "Mark as verified to indicate the property is correctly instrumented and safe to use",
+                    "type": "boolean"
+                },
+                "hidden": {
+                    "description": "Mark property as no longer used. Hides it from the UI while preserving historical data",
+                    "type": "boolean"
+                }
+            }
+        },
+        "PropertyDefinitionUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "propertyName": {
+                    "type": "string",
+                    "description": "The exact name of the property to update (e.g. \"$browser\", \"plan_type\")"
+                },
+                "type": {
+                    "default": "event",
+                    "description": "Which property taxonomy the property belongs to. Defaults to \"event\" (event properties).",
+                    "type": "string",
+                    "enum": ["event", "person", "group", "session"]
+                },
+                "groupTypeIndex": {
+                    "description": "Required when type is \"group\": the zero-based index of the group type the property belongs to.",
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining what the property represents",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize properties by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\"). Warning: this REPLACES the property's entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "property_type": {
+                            "description": "The data type of the property. Controls how the property is parsed, displayed, and filtered.",
+                            "type": "string",
+                            "enum": ["DateTime", "String", "Numeric", "Boolean", "Duration"]
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the property is correctly instrumented and safe to use",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark property as no longer used. Hides it from the UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    },
+                    "description": "The property definition data to update"
+                }
+            },
+            "required": ["propertyName", "data"]
         },
         "ReadDataSchemaSchema": {
             "type": "object",

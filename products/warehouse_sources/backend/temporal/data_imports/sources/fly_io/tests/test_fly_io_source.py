@@ -12,7 +12,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

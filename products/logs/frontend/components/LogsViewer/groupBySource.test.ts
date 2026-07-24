@@ -3,7 +3,7 @@ import * as path from 'path'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import type { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { GROUPABLE_COLUMN_KEYS, resolveGroupBySource } from './groupBySource'
 
@@ -11,7 +11,7 @@ describe('resolveGroupBySource', () => {
     // A recent for a top-level column is recorded under LogAttributes (the search bar stores it as
     // filter type `log`), so trusting the group would send source `log` and the aggregation reads a
     // missing attribute -> empty results. These keys must resolve to `column` regardless of group.
-    it.each<[string, TaxonomicFilterGroupType, GroupBySourceEnumApi]>([
+    it.each<[string, TaxonomicFilterGroupType, LogsGroupBySourceEnumApi]>([
         ['severity_level', TaxonomicFilterGroupType.LogAttributes, 'column'],
         ['trace_id', TaxonomicFilterGroupType.LogAttributes, 'column'],
         ['span_id', TaxonomicFilterGroupType.LogAttributes, 'column'],

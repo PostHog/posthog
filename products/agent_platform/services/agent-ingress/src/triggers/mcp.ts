@@ -213,13 +213,23 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     res.json(errReply(RPC_UNAUTHORIZED, JSON.stringify(buildElevationResponse(existing, elevationReq))))
                     return
                 }
-                await deps.queue.appendPendingInput(continuationId, {
-                    role: 'user',
-                    content: message,
-                    timestamp: Date.now(),
-                    sender: principal,
-                })
-                await deps.queue.update(continuationId, { state: 'queued' })
+                const credentialWrite = await deps.broker.writeWithRollback(continuationId, auth.credentials)
+                try {
+                    await deps.queue.appendPendingInput(continuationId, {
+                        role: 'user',
+                        content: message,
+                        timestamp: Date.now(),
+                        sender: principal,
+                    })
+                    await deps.queue.update(continuationId, { state: 'queued' })
+                } catch (err) {
+                    try {
+                        await credentialWrite.rollback()
+                    } catch (rollbackError) {
+                        throw new AggregateError([err, rollbackError], 'credential rollback failed')
+                    }
+                    throw err
+                }
                 res.json(
                     reply({
                         content: [
@@ -246,6 +256,7 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     principal: principal,
                     trigger: 'mcp',
                     requesterDisplay: principalDisplay(principal),
+                    prepareSession: (sessionId) => deps.broker.writeWithRollback(sessionId, auth.credentials),
                 }
             )
             if (freshOutcome.kind === 'elevation_required') {

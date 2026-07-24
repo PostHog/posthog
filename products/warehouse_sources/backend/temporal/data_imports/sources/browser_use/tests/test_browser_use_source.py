@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browser_us
     BrowserUseResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.source import BrowserUseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserUseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
+    BrowserUseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

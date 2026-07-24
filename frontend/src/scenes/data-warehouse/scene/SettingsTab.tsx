@@ -101,11 +101,14 @@ export function SettingsTab(): JSX.Element {
         initialPassword,
         isResettingPassword,
         warehouseDomain,
-        tableName,
-        isValidTableName,
-        isEnablingBackfill,
-        backfillTableSuffix,
-        hasBackfill,
+        schemaName,
+        isValidSchemaName,
+        schemaNameAvailable,
+        schemaNameChecking,
+        isOnboardingTeam,
+        canOnboardTeam,
+        teamOnboarded,
+        teamSchemaName,
     } = useValues(warehouseProvisioningLogic)
     const {
         provisionWarehouse,
@@ -113,10 +116,10 @@ export function SettingsTab(): JSX.Element {
         setDatabaseName,
         clearInitialPassword,
         resetPassword,
-        setTableName,
-        enableBackfill,
+        setSchemaName,
+        onboardTeam,
     } = useActions(warehouseProvisioningLogic)
-    const deprovisionRestrictionReason = useRestrictedArea({
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -217,17 +220,17 @@ export function SettingsTab(): JSX.Element {
                         ) : null}
                     </div>
                     <div>
-                        <LemonLabel>Table name</LemonLabel>
-                        <LemonInput value={tableName} onChange={setTableName} placeholder="my_project" fullWidth />
-                        {tableName && !isValidTableName ? (
+                        <LemonLabel>Schema name</LemonLabel>
+                        <LemonInput value={schemaName} onChange={setSchemaName} placeholder="my_project" fullWidth />
+                        {schemaName && !isValidSchemaName ? (
                             <p className="text-danger text-xs mt-1">
                                 Use lowercase letters, numbers, and underscores only (max 63 characters).
                             </p>
                         ) : (
                             <p className="text-muted text-xs mt-1">
-                                This project's data lands in its own warehouse tables, suffixed with this name (e.g.{' '}
-                                <code>events_&lt;name&gt;</code>, <code>persons_&lt;name&gt;</code>). Other projects
-                                pick their own when they join.
+                                This project's data lands in its own schema in the warehouse. Other projects pick their
+                                own schema when they join. Unlike the project name, the schema name cannot be changed
+                                later.
                             </p>
                         )}
                     </div>
@@ -237,10 +240,10 @@ export function SettingsTab(): JSX.Element {
                         disabledReason={
                             isFailed
                                 ? !canRetryProvision
-                                    ? 'Enter a valid database name and table name'
+                                    ? 'Enter a valid database name and schema name'
                                     : undefined
                                 : !canProvision
-                                  ? 'Enter an available database name and table name'
+                                  ? 'Enter an available database name and schema name'
                                   : undefined
                         }
                         onClick={() => {
@@ -252,7 +255,7 @@ export function SettingsTab(): JSX.Element {
                                     'This will create a managed warehouse for your organization, shared by every project in it. Should take less than 5 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
-                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName, tableName }),
+                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName, schemaName }),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
@@ -301,73 +304,86 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </div>
 
-                    {isReady && warehouseStatus?.connection && (
+                    {isReady && teamOnboarded && warehouseStatus?.connection && (
                         <ConnectionDetails connection={warehouseStatus.connection} />
                     )}
 
-                    {isReady && (
+                    {isReady && !teamOnboarded && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
-                            <h3 className="mb-0">Warehouse tables for this project</h3>
-                            {hasBackfill ? (
-                                // A backfill already exists — the table name is fixed (immutable), so show
-                                // read-only state rather than re-offering the form.
-                                backfillTableSuffix ? (
-                                    <p className="text-muted text-xs mb-0">
-                                        This project writes to its own tables <code>events_{backfillTableSuffix}</code>{' '}
-                                        / <code>persons_{backfillTableSuffix}</code>. The table name is fixed once a
-                                        backfill is running.
+                            <h3 className="mb-0">Your organization's warehouse is running</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project isn't part of it yet. Ask an organization admin to enable it here.
+                            </p>
+                        </div>
+                    )}
+
+                    {isReady && !teamOnboarded && !adminRestrictionReason && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Your organization's warehouse is running</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project isn't part of it yet. Pick a schema name to enable it. The project's data
+                                lands in its own schema so it doesn't mix with other projects. Unlike the project name,
+                                the schema name cannot be changed later.
+                            </p>
+                            <div>
+                                <LemonLabel>Schema name</LemonLabel>
+                                <div className="flex items-center gap-2">
+                                    <LemonInput
+                                        value={schemaName}
+                                        onChange={setSchemaName}
+                                        placeholder="my_project"
+                                        fullWidth
+                                    />
+                                    {schemaName &&
+                                        isValidSchemaName &&
+                                        (schemaNameChecking ? (
+                                            <Spinner className="text-muted" />
+                                        ) : schemaNameAvailable === true ? (
+                                            <IconCheck className="text-success text-xl" />
+                                        ) : (
+                                            <IconX className="text-danger text-xl" />
+                                        ))}
+                                </div>
+                                {schemaName && !isValidSchemaName && (
+                                    <p className="text-danger text-xs mt-1">
+                                        Use lowercase letters, numbers, and underscores only (max 63 characters).
                                     </p>
-                                ) : (
-                                    <p className="text-muted text-xs mb-0">
-                                        This project writes to the shared <code>events</code> / <code>persons</code>{' '}
-                                        tables. Changing it would split existing data, so it's fixed.
-                                    </p>
-                                )
-                            ) : (
-                                <>
-                                    <p className="text-muted text-xs mb-0">
-                                        Each project writes its data into its own tables in the shared warehouse so they
-                                        don't merge. Choose a name for this project's warehouse tables — lowercase
-                                        letters, numbers, and underscores only; it's used as the suffix (e.g.{' '}
-                                        <code>events_&lt;name&gt;</code>). This can't be changed once a backfill runs.
-                                    </p>
-                                    <div>
-                                        <div className="flex items-end gap-2">
-                                            <div className="flex-1">
-                                                <LemonLabel>Table name</LemonLabel>
-                                                <LemonInput
-                                                    value={tableName}
-                                                    onChange={setTableName}
-                                                    placeholder="my_project"
-                                                    fullWidth
-                                                />
-                                            </div>
-                                            <LemonButton
-                                                type="primary"
-                                                loading={isEnablingBackfill}
-                                                disabledReason={
-                                                    !isValidTableName ? 'Enter a valid table name' : undefined
-                                                }
-                                                onClick={() => enableBackfill({ tableName })}
-                                                data-attr="enable-warehouse-backfill"
-                                            >
-                                                Enable backfill
-                                            </LemonButton>
-                                        </div>
-                                        {tableName && !isValidTableName && (
-                                            <p className="text-danger text-xs mt-1">
-                                                Use lowercase letters, numbers, and underscores only (max 63
-                                                characters).
-                                            </p>
-                                        )}
-                                    </div>
-                                </>
-                            )}
+                                )}
+                                {schemaName &&
+                                    isValidSchemaName &&
+                                    !schemaNameChecking &&
+                                    schemaNameAvailable !== true && (
+                                        <p className="text-danger text-xs mt-1">
+                                            {schemaNameAvailable === false
+                                                ? 'This schema name is already used by another project in your organization.'
+                                                : 'Unable to verify schema name availability.'}
+                                        </p>
+                                    )}
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                loading={isOnboardingTeam}
+                                disabledReason={!canOnboardTeam ? 'Enter an available schema name' : undefined}
+                                onClick={() => onboardTeam({ schemaName })}
+                                data-attr="onboard-warehouse-team"
+                            >
+                                Enable this project
+                            </LemonButton>
+                        </div>
+                    )}
+
+                    {isReady && teamOnboarded && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Warehouse schema for this project</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project's data lands in the <code>{teamSchemaName ?? 'unknown'}</code> schema. The
+                                schema name cannot be changed.
+                            </p>
                         </div>
                     )}
 
                     <div className="flex gap-2">
-                        {isReady && (
+                        {isReady && teamOnboarded && (
                             <LemonButton
                                 type="secondary"
                                 loading={isResettingPassword}
@@ -395,7 +411,7 @@ export function SettingsTab(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 loading={isDeprovisioning}
-                                disabledReason={deprovisionRestrictionReason ?? undefined}
+                                disabledReason={adminRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',

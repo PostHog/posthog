@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.se
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.source import DopplerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DopplerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doppler import (
+    DopplerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The activity log is the only endpoint with a usable incremental cursor (append-only,

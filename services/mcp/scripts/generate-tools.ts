@@ -468,6 +468,12 @@ interface SchemaComposition {
     renamedFields: Record<string, string>
     /** Maps param name → fallback key for optional params with state fallbacks */
     paramFallbacks: Record<string, string>
+    /**
+     * Maps canonical param name → accepted alias keys, from `param_overrides.<param>.aliases`.
+     * `generateToolCode` wraps the composed schema with
+     * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
+     */
+    paramAliases: Record<string, string[]>
 }
 
 function composeToolSchema(
@@ -654,10 +660,13 @@ function composeToolSchema(
     //   - description   → wrap the existing Orval-derived field with .describe(...)
     //   - optional+fallback → make param optional and resolve from state when omitted
     //   - cast          → wrap with z.preprocess(...) from @/tools/cast-helpers
+    //   - aliases       → collected here; generateToolCode wraps the finished schema
+    //                     with z.preprocess(normalizeParamAliases(...), ...)
     const toolInputsImports: string[] = []
     const castHelperImports = new Set<string>()
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
+    const paramAliases: Record<string, string[]> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -671,6 +680,10 @@ function composeToolSchema(
             // Track optional params with state fallbacks
             if (override.optional && override.fallback) {
                 paramFallbacks[paramName] = override.fallback
+            }
+
+            if (override.aliases?.length) {
+                paramAliases[paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -812,6 +825,7 @@ function composeToolSchema(
         variantSpecificBodyFieldNames,
         renamedFields,
         paramFallbacks,
+        paramAliases,
     }
 }
 
@@ -922,6 +936,14 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     // agent reads — point-of-use guidance without growing the tool description.
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
+    const informationalWrapper = config.response?.informational_wrapper
+    const wrapped = (expr: string): string => {
+        const notedExpression = noted(expr)
+        const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
+        return informationalWrapper
+            ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
+            : notedExpression
+    }
 
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
@@ -938,21 +960,21 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
-        return `        return ${noted(enriched)}\n`
+        return `        return ${wrapped(enriched)}\n`
     }
 
     if (config.list) {
-        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
-    return `        return ${noted(resultVar)}\n`
+    return `        return ${wrapped(resultVar)}\n`
 }
 
 // ------------------------------------------------------------------
@@ -978,7 +1000,8 @@ function generateToolCode(
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
-    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsWithInformationalResponse: boolean
+    toolUtilsValueImports: Set<string>
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -1017,6 +1040,19 @@ function generateToolCode(
             schemaExpr = `(${schemaExpr}).superRefine(${fn})`
             composition.toolInputsImports.push(fn)
         }
+    }
+
+    // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
+    // param before validation. Outermost wrapper so the rename happens before any
+    // field schema or validator runs; zod 4 renders a preprocess as the wrapped
+    // schema in JSON Schema output, so the advertised schema is unchanged.
+    const aliasEntries = Object.entries(composition.paramAliases)
+    if (aliasEntries.length > 0) {
+        composition.castHelperImports.add('normalizeParamAliases')
+        const aliasMapLiteral = `{ ${aliasEntries
+            .map(([canonical, aliases]) => `${canonical}: [${aliases.map((a) => `'${a}'`).join(', ')}]`)
+            .join(', ')} }`
+        schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
     }
 
     const schemaDecl = `const ${schemaName} = ${schemaExpr}`
@@ -1155,6 +1191,10 @@ function generateToolCode(
     if (needsWithAgentNote) {
         resultType = `WithAgentNote<${resultType}>`
     }
+    const needsWithInformationalResponse = !!config.response?.informational_wrapper
+    if (needsWithInformationalResponse) {
+        resultType = `WithInformationalResponse<${resultType}>`
+    }
 
     const appKey = config.ui_app ?? null
 
@@ -1182,6 +1222,9 @@ function generateToolCode(
             schemaDecl,
             originalHandlerBody: handlerBody,
             resultType,
+            needsProjectId,
+            needsOrgId,
+            paramFallbacks: composition.paramFallbacks,
         })
         return {
             code: wrapped.code,
@@ -1194,7 +1237,13 @@ function generateToolCode(
             hasEnrichment,
             needsWithAgentNote,
             hasAgentNote,
-            responseFilterImport: responseFilter.helperImport,
+            needsWithInformationalResponse,
+            toolUtilsValueImports: new Set(
+                [
+                    responseFilter.helperImport,
+                    config.response?.informational_wrapper && 'withInformationalResponse',
+                ].filter((value): value is string => !!value)
+            ),
         }
     }
 
@@ -1224,14 +1273,19 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasEnrichment,
         needsWithAgentNote,
         hasAgentNote,
-        responseFilterImport: responseFilter.helperImport,
+        needsWithInformationalResponse,
+        toolUtilsValueImports: new Set(
+            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
+                (value): value is string => !!value
+            )
+        ),
     }
 }
 
 /**
  * Emit prepare + execute factories for a tool that declares `confirmed_action`.
- * Returns the combined `code` block — the two factories plus the extended
- * schema used by `-execute`. The base schema is emitted exactly as the
+ * Returns the combined `code` block — the two factories plus the strict
+ * confirmation schema used by `-execute`. The base schema is emitted exactly as the
  * non-confirmed path does it, so the prepare variant reuses it directly.
  */
 function buildConfirmedActionFactories(args: {
@@ -1241,8 +1295,21 @@ function buildConfirmedActionFactories(args: {
     schemaDecl: string
     originalHandlerBody: string
     resultType: string
+    needsProjectId: boolean
+    needsOrgId: boolean
+    paramFallbacks: Record<string, string>
 }): { code: string } {
-    const { toolName, config, schemaName, schemaDecl, originalHandlerBody, resultType } = args
+    const {
+        toolName,
+        config,
+        schemaName,
+        schemaDecl,
+        originalHandlerBody,
+        resultType,
+        needsProjectId,
+        needsOrgId,
+        paramFallbacks,
+    } = args
     const baseFactory = toCamelCase(toolName)
     const prepareName = `${toolName}-prepare`
     const executeName = `${toolName}-execute`
@@ -1252,52 +1319,117 @@ function buildConfirmedActionFactories(args: {
     const actionLabel = config.confirmed_action?.action_label ?? config.title ?? toolName
     const messageTemplate = config.confirmed_action?.message ?? `Confirm ${actionLabel}?`
 
-    // Execute schema = base schema extended with the two framework fields.
+    // Execute accepts only the two framework fields. The action arguments
+    // were validated and signed at prepare time; accepting them again would
+    // advertise mutable inputs that the runtime intentionally discards.
     // `confirmation` is z.string() not z.literal('confirm') on purpose: the
     // runtime checks the value and refuses with a structured tool-call
     // result + metric counter. A literal would raise a generic zod parse
     // error before our guard runs, losing the metric and the
     // user-targetted refusal text.
-    const executeSchemaDecl = `const ${executeSchemaName} = ${schemaName}.extend({
+    const executeSchemaDecl = `const ${executeSchemaName} = z.strictObject({
     confirmation_hash: z.string().describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
     confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
 })`
 
+    // Bound scope: the active project/org is signed at prepare time and
+    // re-checked at execute time so a confirmation can't be replayed against
+    // a different project after `switch-project`. Resolved into locally-named
+    // consts so the `-execute` variant never collides with the `projectId`
+    // the original handler body declares.
+    const scopeResolveLines: string[] = []
+    const scopeParts: string[] = []
+    if (needsOrgId) {
+        scopeResolveLines.push(`        const __scopeOrgId = await context.stateManager.getOrgID()`)
+        scopeParts.push('orgId: String(__scopeOrgId)')
+    }
+    if (needsProjectId) {
+        scopeResolveLines.push(`        const __scopeProjectId = await context.stateManager.getProjectId()`)
+        scopeParts.push('projectId: String(__scopeProjectId)')
+    }
+    const hasScope = scopeParts.length > 0
+    const scopeResolveBlock = hasScope ? scopeResolveLines.join('\n') + '\n' : ''
+    const prepareScopeField = hasScope ? `            boundScope: { ${scopeParts.join(', ')} },\n` : ''
+    const executeScopeField = hasScope ? `            expectedScope: { ${scopeParts.join(', ')} },\n` : ''
+
+    // The original handler body re-reads project/org from state to build the
+    // API path. In the execute variant that would be a second, independent
+    // read after the scope check — MCP handles batched requests concurrently,
+    // so a `switch-project` racing between the scope check and the path build
+    // could retarget the request at a different project than the one the
+    // confirmation was bound to. Alias the path IDs to the scope values we
+    // captured once (and verified against `expectedScope`) so the check and
+    // the request always agree.
+    let executeHandlerBody = originalHandlerBody
+    if (needsOrgId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const orgId = await context.stateManager.getOrgID()\n',
+            '        const orgId = __scopeOrgId\n'
+        )
+    }
+    if (needsProjectId) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const projectId = await context.stateManager.getProjectId()\n',
+            '        const projectId = __scopeProjectId\n'
+        )
+    }
+
+    // Optional params with a state fallback (e.g. an omitted org/project `id`
+    // that defaults to the active one) are resolved to a concrete value BEFORE
+    // signing, so the confirmation is bound to the exact target the user saw.
+    // Otherwise the fallback would be re-read at execute time and a
+    // `switch-organization` / `switch-project` between prepare and execute
+    // could retarget the confirmed action at a different entity.
+    const fallbackMethodMap: Record<string, string> = {
+        orgId: 'context.stateManager.getOrgID()',
+        projectId: 'context.stateManager.getProjectId()',
+    }
+    let prepareFallbackBlock = ''
+    const resolvedFallbackNames: string[] = []
+    for (const [paramName, fallbackKey] of Object.entries(paramFallbacks)) {
+        const method = fallbackMethodMap[fallbackKey]
+        if (!method) {
+            continue
+        }
+        const entity = fallbackKey === 'orgId' ? 'organization' : 'project'
+        prepareFallbackBlock += `        const ${paramName} = params.${paramName} ?? await ${method}\n`
+        prepareFallbackBlock += `        if (!${paramName}) {\n`
+        prepareFallbackBlock += `            throw new Error('${paramName} is required. Provide it explicitly or set an active ${entity} first.')\n`
+        prepareFallbackBlock += `        }\n`
+        resolvedFallbackNames.push(paramName)
+    }
+    const prepareArgsExpr =
+        resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
-    // verbatim — bound to user identity + purpose.
+    // (with any state fallbacks resolved) — bound to user identity + purpose
+    // (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-        return await prepareConfirmedAction(context, {
-            args: params,
+${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
+            args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
-        })
+${prepareScopeField}        })
 `
 
     // Execute handler: guard, then re-run the original handler body with
-    // the verified args. `params` is reassigned to the verified payload so
-    // the rest of the original code path (which reads from `params.*`)
-    // works unchanged. The cast pins the type so TS knows the original
-    // shape survives.
+    // the signed, verified args under the same `params` name the generated
+    // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+            incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
-        })
+${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-${originalHandlerBody}`
+        const params = __guard.verifiedArgs
+${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
@@ -1309,7 +1441,7 @@ ${prepareHandler}    },
     const executeBody = `{
     name: '${executeName}',
     schema: ${executeSchemaName},
-    handler: async (context: Context, params: z.infer<typeof ${executeSchemaName}>) => {
+    handler: async (context: Context, confirmationParams: z.infer<typeof ${executeSchemaName}>) => {
 ${executeHandler}    },
 }`
 
@@ -1344,7 +1476,8 @@ function generateCustomSchemaToolCode(
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
-    responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsWithInformationalResponse: boolean
+    toolUtilsValueImports: Set<string>
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -1415,7 +1548,11 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    const customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    let customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    const needsWithInformationalResponse = !!config.response?.informational_wrapper
+    if (needsWithInformationalResponse) {
+        customResultType = `WithInformationalResponse<${customResultType}>`
+    }
 
     const code = `
 const ${schemaName} = ${baseSchemaExpr}
@@ -1439,7 +1576,12 @@ ${handlerBody}    },
         hasEnrichment: false,
         needsWithAgentNote,
         hasAgentNote,
-        responseFilterImport: responseFilter.helperImport,
+        needsWithInformationalResponse,
+        toolUtilsValueImports: new Set(
+            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
+                (value): value is string => !!value
+            )
+        ),
     }
 }
 
@@ -1522,8 +1664,8 @@ function generateCategoryFile(
 
     let hasWithAgentNote = false
     let hasAgentNote = false
-
-    const responseFilterImports = new Set<string>()
+    let hasWithInformationalResponse = false
+    const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
         const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
@@ -1563,8 +1705,11 @@ function generateCategoryFile(
         if (result.hasAgentNote) {
             hasAgentNote = true
         }
-        if (result.responseFilterImport) {
-            responseFilterImports.add(result.responseFilterImport)
+        if (result.needsWithInformationalResponse) {
+            hasWithInformationalResponse = true
+        }
+        for (const toolUtilsValueImport of result.toolUtilsValueImports) {
+            requiredToolUtilsValueImports.add(toolUtilsValueImport)
         }
     }
 
@@ -1697,13 +1842,16 @@ function generateCategoryFile(
     if (hasWithAgentNote) {
         toolUtilsTypeImports.push('WithAgentNote')
     }
+    if (hasWithInformationalResponse) {
+        toolUtilsTypeImports.push('WithInformationalResponse')
+    }
     if (hasEnrichment) {
         toolUtilsValueImports.push('withPostHogUrl')
     }
     if (hasAgentNote) {
         toolUtilsValueImports.push('withAgentNote')
     }
-    for (const imp of responseFilterImports) {
+    for (const imp of requiredToolUtilsValueImports) {
         toolUtilsValueImports.push(imp)
     }
     let toolUtilsImportLine = ''

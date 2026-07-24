@@ -1,5 +1,7 @@
 export { AssigneeDisplay, AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 export { AssigneeDropdown } from './AssigneeDropdown'
+export { AssigneeMultiSelect } from './AssigneeMultiSelect'
 export { AssigneeSelect } from './AssigneeSelect'
 export { assigneeSelectLogic } from './assigneeSelectLogic'
-export type { Assignee, RoleAssignee, TicketAssignee, UserAssignee } from './types'
+export { MAX_ASSIGNEE_FILTER_ENTRIES } from './types'
+export type { Assignee, AssigneeFilterEntry, RoleAssignee, TicketAssignee, UserAssignee } from './types'

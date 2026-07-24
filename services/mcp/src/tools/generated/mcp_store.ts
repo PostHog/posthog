@@ -1,20 +1,16 @@
 // AUTO-GENERATED from products/mcp_store/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
-import {
-    McpServerInstallationsListQueryParams,
-    McpServerInstallationsToolsRetrieveParams,
-} from '@/generated/mcp_store/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+
+import type { Schemas } from '@/api/generated'
+
+import { McpServerInstallationsListQueryParams, McpServerInstallationsToolsRetrieveParams } from '@/generated/mcp_store/api'
 
 const McpConnectionToolsListSchema = McpServerInstallationsToolsRetrieveParams.omit({ project_id: true })
 
-const mcpConnectionToolsList = (): ToolBase<
-    typeof McpConnectionToolsListSchema,
-    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
-> => ({
+const mcpConnectionToolsList = (): ToolBase<typeof McpConnectionToolsListSchema, WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>> => ({
     name: 'mcp-connection-tools-list',
     schema: McpConnectionToolsListSchema,
     handler: async (context: Context, params: z.infer<typeof McpConnectionToolsListSchema>) => {
@@ -29,10 +25,7 @@ const mcpConnectionToolsList = (): ToolBase<
 
 const McpConnectionsListSchema = McpServerInstallationsListQueryParams
 
-const mcpConnectionsList = (): ToolBase<
-    typeof McpConnectionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationList>
-> => ({
+const mcpConnectionsList = (): ToolBase<typeof McpConnectionsListSchema, WithPostHogUrl<Schemas.PaginatedMCPServerInstallationList>> => ({
     name: 'mcp-connections-list',
     schema: McpConnectionsListSchema,
     handler: async (context: Context, params: z.infer<typeof McpConnectionsListSchema>) => {

@@ -9,7 +9,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuggingFaceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huggingface import (
+    HuggingFaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.hugging_face import (
     HuggingFaceResumeConfig,
@@ -87,6 +89,8 @@ class TestHuggingFaceSourceClass:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "datasets"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         manager = MagicMock()
         with patch.object(source_module, "hugging_face_source") as mock_source:
             self.source.source_for_pipeline(_config(), manager, inputs)
@@ -94,8 +98,10 @@ class TestHuggingFaceSourceClass:
             api_token="hf_token",
             endpoint="datasets",
             author="acme",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:

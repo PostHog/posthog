@@ -365,7 +365,13 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
-                sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
+                sandbox_context = await asyncio.to_thread(
+                    self._demo_data.make_context,
+                    eval_case.name,
+                    disable_bundled_skills=(
+                        ctx.skill_delivery == "exec" or bool(original_case and original_case.disable_bundled_skills)
+                    ),
+                )
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
@@ -469,7 +475,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
         return f"sandboxed-agent-{self.experiment_name}" if self.is_public else self.experiment_name
 
     def _experiment_metadata(self) -> dict[str, Any]:
-        return {"agent_model": self.ctx.agent_model, "agent_runtime": self.ctx.agent_runtime}
+        return {
+            "agent_model": self.ctx.agent_model,
+            "agent_runtime": self.ctx.agent_runtime,
+            "skill_delivery": self.ctx.skill_delivery,
+        }
 
 
 async def SandboxedEval(

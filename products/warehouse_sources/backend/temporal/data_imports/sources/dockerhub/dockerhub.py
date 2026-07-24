@@ -306,6 +306,24 @@ def dockerhub_source(
     )
 
 
+def _unexpected_status_message(status_code: int) -> str:
+    """User-facing message for a Docker Hub status we don't handle specifically.
+
+    Login/probe failures other than auth (401/403) and the known namespace cases land here; echoing
+    the bare status left the user nothing to act on."""
+    if status_code == 400:
+        return (
+            "Docker Hub rejected the request (HTTP 400). Check that the Username field is your Docker Hub "
+            "username (not your email address) and that the personal access token is valid, then try again."
+        )
+    if status_code >= 500:
+        return f"Docker Hub is temporarily unavailable (HTTP {status_code}). Please try again in a few minutes."
+    return (
+        f"Docker Hub returned an unexpected response (HTTP {status_code}). "
+        "Please check your username, personal access token, and namespace, then try again."
+    )
+
+
 def check_access(username: str, personal_access_token: str, namespace: str) -> tuple[int, Optional[str]]:
     """Login with the PAT and probe the configured namespace.
 
@@ -337,7 +355,7 @@ def check_access(username: str, personal_access_token: str, namespace: str) -> t
         return response.status_code, None
 
     if not response.ok:
-        return response.status_code, f"Docker Hub returned HTTP {response.status_code}"
+        return response.status_code, _unexpected_status_message(response.status_code)
 
     data = response.json()
     token = data.get("token") if isinstance(data, dict) else None
@@ -364,7 +382,7 @@ def check_access(username: str, personal_access_token: str, namespace: str) -> t
         return 401, None
 
     if not probe.ok:
-        return probe.status_code, f"Docker Hub returned HTTP {probe.status_code}"
+        return probe.status_code, _unexpected_status_message(probe.status_code)
 
     return 200, None
 

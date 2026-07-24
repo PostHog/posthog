@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HatchetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
+    HatchetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
     HatchetResumeConfig,
     hatchet_source,
@@ -119,6 +121,7 @@ If you self-host Hatchet, or the token can't be decoded, set the **Host** and **
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = HATCHET_ENDPOINTS[endpoint]
@@ -138,7 +141,11 @@ If you self-host Hatchet, or the token can't be decoded, set the **Host** and **
         return schemas
 
     def validate_credentials(
-        self, config: HatchetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HatchetSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_hatchet_credentials(config.api_token, config.host or None, config.tenant_id or None, team_id)
 

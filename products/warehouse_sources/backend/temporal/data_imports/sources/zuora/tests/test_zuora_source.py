@@ -3,8 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZuoraSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zuora import ZuoraSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -63,6 +66,14 @@ class TestZuoraSource:
     def test_non_retryable_errors_match_known_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_permanent_oauth2_token_error_is_non_retryable(self):
+        # A permanent token-exchange failure carries the framework marker; it must map to an
+        # actionable auth message rather than being retried forever.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        observed_error = f"HTTP 401 from the OAuth2 token endpoint: invalid_client {OAUTH2_PERMANENT_ERROR_MARKER}"
+        matched = next(key for key in non_retryable_errors if key in observed_error)
+        assert "authentication failed" in (non_retryable_errors[matched] or "")
 
     def test_non_retryable_errors_does_not_match_server_errors(self):
         non_retryable_errors = self.source.get_non_retryable_errors()

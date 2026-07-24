@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
@@ -197,6 +198,27 @@ export const Show: Story = {
     parameters: {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
         testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+// Multi-viewport snapshots of the dashboard scene from mobile to superwide, so we catch the header
+// layout (and any squishing) across breakpoints. The "PostHog AI" button label is gated on a
+// multivariate experiment flag; DashboardHeader reads it through kea, so the `featureFlags`
+// parameter pins the arm. `skipCanvasDraw` is re-declared because per-story `testOptions` replaces
+// the meta-level object rather than merging into it.
+export const ShowWithoutPostHogAIButtonLabel: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'control' },
+        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
+    },
+}
+
+export const ShowWithPostHogAIButtonLabel: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'test' },
+        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
     },
 }
 

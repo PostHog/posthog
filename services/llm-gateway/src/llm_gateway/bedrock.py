@@ -68,7 +68,7 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
     },
     "claude-fable-5": {
         "us": "us.anthropic.claude-fable-5",
-        "eu": "eu.anthropic.claude-fable-5",
+        "eu": "global.anthropic.claude-fable-5",
     },
     "claude-sonnet-4-5": {
         "us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -310,7 +310,7 @@ async def count_tokens_with_bedrock(
     def _sync() -> int:
         bedrock_runtime_client = get_bedrock_runtime_client(aws_region_name, timeout_seconds)
 
-        # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
+        # CountTokens API does not support inference-profile prefixes ("us.anthropic.", "global.anthropic.")
         count_tokens_model = _strip_regional_inference_prefix(model)
 
         # Build the minimal invoke body Bedrock CountTokens accepts. Unlike invoke_model,
@@ -331,9 +331,13 @@ async def count_tokens_with_bedrock(
 
 
 def _strip_regional_inference_prefix(model: str) -> str:
-    """Drop the regional inference-profile prefix ("us.anthropic.", "eu.anthropic.") so the
-    bare foundation-model id ("anthropic.<model>") is used for token counting."""
-    return model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
+    """Drop the inference-profile prefix ("us.anthropic.", "eu.anthropic.", "global.anthropic.")
+    so the bare foundation-model id ("anthropic.<model>") is used for token counting."""
+    return (
+        model.replace("us.anthropic.", "anthropic.")
+        .replace("eu.anthropic.", "anthropic.")
+        .replace("global.anthropic.", "anthropic.")
+    )
 
 
 # Models bedrock-runtime CountTokens rejects outright with "The provided model doesn't support
