@@ -40,7 +40,12 @@ export function SqlInsightFilters({ query, setQuery, children }: SqlInsightFilte
     }
 
     const setSource = (newSource: HogQLQuery): void => {
-        setQuery(isDataVisualizationNode(query) || isDataTableNode(query) ? { ...query, source: newSource } : newSource)
+        if (isDataVisualizationNode(query) || isDataTableNode(query)) {
+            const nextQuery = { ...query, source: newSource }
+            setQuery(nextQuery)
+        } else {
+            setQuery(newSource)
+        }
     }
 
     return (
