@@ -107,7 +107,7 @@ class TestGoogleSearchConsoleEmitter:
         "impressions,expected_weight",
         [
             (100, 0.502),  # small opportunity, near the base
-            (25000, 1.0),  # 0.5 + 0.5, but capped
+            (25000, 0.95),  # 0.5 + 0.5 = 1.0, capped at 0.95
             (1_000_000, 0.95),  # capped at 0.95
         ],
     )
@@ -116,7 +116,7 @@ class TestGoogleSearchConsoleEmitter:
         result = google_search_console_opportunity_emitter(team_id=1, record=google_search_console_record)
 
         assert result is not None
-        assert result.weight == min(0.95, expected_weight)
+        assert result.weight == expected_weight
 
     def test_emitter_output_matches_contract(self, google_search_console_record):
         output = google_search_console_opportunity_emitter(team_id=1, record=google_search_console_record)
