@@ -906,6 +906,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'extend',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: 'https://github.com/PostHog/posthog/issues/7',
@@ -925,7 +926,8 @@ describe('engineeringAnalyticsLogic', () => {
 
         logic.actions.openQuarantineModal({
             action: 'quarantine',
-            selector: 'a/b.py::T::t',
+            selector: 'frontend/src/a.test.ts::renders',
+            runner: 'jest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -934,7 +936,8 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitQuarantine({
             input: {
                 action: 'quarantine',
-                selector: 'a/b.py::T::t',
+                selector: 'frontend/src/a.test.ts::renders',
+                runner: 'jest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',
@@ -948,10 +951,33 @@ describe('engineeringAnalyticsLogic', () => {
         // The viewed repo is threaded into the write so the PR targets it.
         expect(mockQuarantineRequest).toHaveBeenCalledWith(
             '1',
-            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog' })
+            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog', runner: 'jest' })
         )
         expect(logic.values.quarantineModal).toBeNull()
         expect(logic.values.quarantineSubmitLoading).toBe(false)
+    })
+
+    it('omits the runner when removing a forward-compatible quarantine entry', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'remove',
+                selector: 'future/runner/test',
+                reason: '',
+                owner: '',
+                issue: '',
+                expires: null,
+                mode: 'run',
+            },
+        })
+        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess'])
+
+        expect(mockQuarantineRequest).toHaveBeenCalledWith(
+            '1',
+            expect.not.objectContaining({ runner: expect.anything() })
+        )
     })
 
     it('a failed submit keeps the modal open so the user can retry', async () => {
@@ -963,6 +989,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'quarantine',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -972,6 +999,7 @@ describe('engineeringAnalyticsLogic', () => {
             input: {
                 action: 'quarantine',
                 selector: 'a/b.py::T::t',
+                runner: 'pytest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',
