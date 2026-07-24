@@ -655,7 +655,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # response small for teams with thousands of cohorts. Default output is
         # unchanged; only callers that explicitly ask get the trimmed shape.
         if self.context.get("basic_cohort_list"):
-            for field_name in ("filters", "query", "groups"):
+            # `last_error_message` is computed from a per-row correlated subquery over
+            # CohortCalculationHistory (see safely_get_queryset). Basic-list callers never
+            # read it, so drop the field here and skip the subquery there to keep the
+            # hot-path list cheap for teams with thousands of cohorts.
+            for field_name in ("filters", "query", "groups", "last_error_message"):
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
@@ -1578,24 +1582,25 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if self._is_basic_list_request():
                 queryset = queryset.defer("filters", "query", "groups")
 
-        last_error_code_subquery = Subquery(
-            CohortCalculationHistory.objects.filter(
-                cohort=OuterRef("pk"),
-                error__isnull=False,
-            )
-            .exclude(error="")
-            .order_by("-started_at")
-            .values("error_code")[:1]
-        )
-
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
         # `experiment_set` is a reverse relation, so it stays prefetched.
-        queryset = (
-            queryset.annotate(last_error_code=last_error_code_subquery)
-            .select_related("created_by", "team")
-            .prefetch_related("experiment_set")
-        )
+        queryset = queryset.select_related("created_by", "team").prefetch_related("experiment_set")
+
+        # The per-row correlated subquery over CohortCalculationHistory only feeds
+        # `last_error_message`, which the basic list payload drops. Skip it there so the
+        # hot-path fetch doesn't run a subquery per row for teams with thousands of cohorts.
+        if not self._is_basic_list_request():
+            last_error_code_subquery = Subquery(
+                CohortCalculationHistory.objects.filter(
+                    cohort=OuterRef("pk"),
+                    error__isnull=False,
+                )
+                .exclude(error="")
+                .order_by("-started_at")
+                .values("error_code")[:1]
+            )
+            queryset = queryset.annotate(last_error_code=last_error_code_subquery)
 
         if not search_ordered:
             queryset = queryset.order_by("-created_at")

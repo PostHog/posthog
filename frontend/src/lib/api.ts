@@ -3451,6 +3451,7 @@ const api = {
                 limit?: number
                 offset?: number
                 search?: string
+                basic?: boolean
             } = {}
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
