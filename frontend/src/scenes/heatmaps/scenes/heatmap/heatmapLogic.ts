@@ -385,7 +385,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.snapshotSavedDisplayUrl(item.url ?? null)
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
-                actions.setUserAccessLevel(item.user_access_level ?? null)
+                actions.setUserAccessLevel(item.user_access_level as AccessControlLevel | null)
                 actions.setType(item.type ?? 'screenshot')
                 posthog.capture('in-app heatmap viewed', {
                     heatmap_type: item.type,
