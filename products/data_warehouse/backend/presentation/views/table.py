@@ -370,8 +370,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "Can't delete a sourced table"}
             )
 
-        _delete_hosted_upload_file(instance)
         instance.soft_delete()
+        _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
