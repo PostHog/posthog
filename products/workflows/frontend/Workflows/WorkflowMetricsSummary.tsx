@@ -10,7 +10,6 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { WorkflowMetricCard } from './WorkflowMetricCard'
-
 import {
     type EmailMetric,
     type EmailMetricRow,
