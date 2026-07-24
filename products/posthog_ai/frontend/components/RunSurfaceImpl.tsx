@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { createContext, type ReactNode, useContext, useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
@@ -190,7 +190,17 @@ function RunSurfaceThread({
     className,
     listClassName,
     rowClassName,
-}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+    bottomOverlay,
+}: {
+    className?: string
+    listClassName?: string
+    rowClassName?: string
+    /**
+     * Input-region chrome floated over the thread's bottom edge (typically `<RunSurface.Composer>`); the
+     * thread scrolls behind it, with its measured height reserved so content can always scroll clear.
+     */
+    bottomOverlay?: ReactNode
+} = {}): JSX.Element {
     const { interaction, isScout } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
     const showSkeleton = bootstrapLoading && threadItems.length === 0
@@ -204,6 +214,7 @@ function RunSurfaceThread({
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
+            bottomOverlay={bottomOverlay}
             showContextUsage={interaction === 'live' && !isScout}
         />
     )
@@ -216,6 +227,10 @@ function RunSurfaceThread({
  * window, or when no composer children are supplied (e.g. `ReadonlyRunSurface`). The composer thus shows for
  * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
+ *
+ * Styled as floating chrome, meant to be pinned over the thread's bottom edge via `RunSurface.Thread`'s
+ * `bottomOverlay` — the thread scrolls behind it, visible through the translucent blur. Pointer events are
+ * re-enabled on the visible cards only, so the transparent gutters stay click-through to the thread.
  */
 function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
     const { interaction, runId } = useRunSurfaceContext()
@@ -223,17 +238,20 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
     if (interaction !== 'live') {
         return null
     }
-    // Pending approval/question takes precedence over the composer.
+    // Pending approval/question takes precedence over the composer. An opaque card in a blurred
+    // translucent gutter, matching the legacy sidebar's pending-approval treatment.
     if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
         const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
         return (
-            <div className="border-t px-4 py-3">
-                <div className="mx-auto w-full max-w-180">
-                    {isQuestion ? (
-                        <QuestionInput streamKey={runId} request={pendingPermissionRequest} />
-                    ) : (
-                        <PermissionInput streamKey={runId} request={pendingPermissionRequest} />
-                    )}
+            <div className="px-4 pb-3">
+                <div className="pointer-events-auto mx-auto w-full max-w-180 rounded-lg backdrop-blur-sm bg-glass-bg-3000">
+                    <div className="border border-primary rounded-lg bg-surface-primary">
+                        {isQuestion ? (
+                            <QuestionInput streamKey={runId} request={pendingPermissionRequest} />
+                        ) : (
+                            <PermissionInput streamKey={runId} request={pendingPermissionRequest} />
+                        )}
+                    </div>
                 </div>
             </div>
         )
@@ -241,10 +259,11 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
     if (!children || currentRunStatus === null) {
         return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
     }
+    // `flex flex-col` so the composer chrome (`Composer.Root` with `isSticky`) can center itself with
+    // `self-center`; the glass card itself re-enables pointer events.
     return (
-        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
-            <LemonDivider className="mt-0 mb-4" />
-            <div className="mx-auto w-full max-w-180">{children}</div>
+        <div data-attr="composer" className="flex flex-col px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
+            {children}
         </div>
     )
 }

@@ -30,6 +30,12 @@ export interface TaskRunChatProps {
     streamKey?: string
     /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
     onRunStarted?: (runId: string) => void
+    /**
+     * Scroll-content padding for the thread list. Hosts that overlay chrome on the thread's top edge (the
+     * side panel's floating header) pass extra top padding here so content clears the chrome at rest while
+     * still scrolling behind it.
+     */
+    threadListClassName?: string
 }
 
 /**
@@ -40,7 +46,13 @@ export interface TaskRunChatProps {
  * re-points scene selection to it. `RunSurface.Root` owns bootstrap: it reads the run status from the tasks
  * API and never opens SSE for an already-terminal run.
  */
-export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
+export function TaskRunChat({
+    taskId,
+    runId,
+    streamKey,
+    onRunStarted,
+    threadListClassName = 'py-4',
+}: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
     const { user } = useValues(userLogic)
@@ -65,7 +77,7 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <TaskRunChatContent logicProps={logicProps} readOnly={readOnly} />
+            <TaskRunChatContent logicProps={logicProps} readOnly={readOnly} threadListClassName={threadListClassName} />
         </BindLogic>
     )
 }
@@ -73,9 +85,11 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 function TaskRunChatContent({
     logicProps,
     readOnly,
+    threadListClassName,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
+    threadListClassName: string
 }): JSX.Element {
     // This surface renders the approval card, so persist tools must prompt here — register as a
     // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
@@ -92,16 +106,23 @@ function TaskRunChatContent({
             interaction="live"
         >
             <div className="@container/thread flex flex-col h-full -mx-4">
-                <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-                {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
-                {!readOnly && (
-                    <RunSurface.Composer>
-                        <RunSurface.Resources />
-                        {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
-                        the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
-                        <LiveComposer logicProps={logicProps} />
-                    </RunSurface.Composer>
-                )}
+                <RunSurface.Thread
+                    className="flex-1 min-h-0"
+                    listClassName={threadListClassName}
+                    rowClassName="px-4"
+                    // The composer floats over the thread's bottom edge (glass chrome, the thread scrolls
+                    // behind it) rather than sitting below it as a flex sibling — the legacy sidebar look.
+                    // Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer.
+                    bottomOverlay={
+                        !readOnly ? (
+                            <RunSurface.Composer>
+                                {/* The composer owns the per-keystroke draft in an isolated child so typing never
+                                re-renders the thread/virtualizer it overlays — that cascade is what made the input lag. */}
+                                <LiveComposer logicProps={logicProps} />
+                            </RunSurface.Composer>
+                        ) : undefined
+                    }
+                />
             </div>
         </RunSurface.Root>
     )
@@ -144,7 +165,17 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                 loading={isSubmitting}
                 isTurnActive={isBusy}
                 onStop={() => cancelRun()}
+                // The legacy sidebar's floating chrome: bordered translucent glass around an inset frame.
+                // This composer overlays the thread (see `bottomOverlay` above), which scrolls behind it,
+                // blurred through the glass. `px-0`: the `RunSurface.Composer` wrapper already provides the
+                // horizontal inset, keeping the card aligned with the thread rows. Pointer events come back
+                // on at the glass card so the gutters around it stay click-through to the thread.
+                isSticky
+                isThreadVisible
+                containerClassName="px-0"
+                className="pointer-events-auto"
             >
+                <RunSurface.Resources className="pt-2" />
                 {queuedMessages.length > 0 && (
                     <Composer.Banner>
                         <QueuedMessageList

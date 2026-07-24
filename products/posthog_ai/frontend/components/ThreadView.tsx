@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -55,6 +55,12 @@ interface ThreadViewProps {
      * non-scout runs.
      */
     showContextUsage?: boolean
+    /**
+     * Chrome pinned over the thread's bottom edge — the composer/input region — floating above the scroll
+     * viewport so rows scroll behind it; forwarded to `VirtualizedThread`, which reserves its measured
+     * height as scroll padding. Virtualized mode only.
+     */
+    bottomOverlay?: ReactNode
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -74,6 +80,7 @@ interface ThreadViewProps {
 export function ThreadView({
     virtualized = true,
     showContextUsage = false,
+    bottomOverlay,
     className,
     listClassName,
     rowClassName,
@@ -179,7 +186,11 @@ export function ThreadView({
             anchorItemKey={anchorItemKey}
             header={header}
             footer={footer}
+            bottomOverlay={bottomOverlay}
             stickToBottom
+            // Provisioning counts too: the optimistic "spinning up" window is part of the turn, so the
+            // thread is already pinned when the first streamed rows land.
+            turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}
