@@ -1187,6 +1187,7 @@ doesn't conflict with concurrent PRs.
 - preset
 - prestashop
 - primetric
+- printavo
 - procore
 - productiv
 - productive

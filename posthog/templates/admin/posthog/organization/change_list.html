@@ -6,6 +6,9 @@
         <li>
             <a href="{% url 'admin:send-usage-report' %}">Send Usage Report</a>
         </li>
+        <li>
+            <a href="{% url 'admin:send-ai-observability-usage-report' %}">Send AI observability usage report</a>
+        </li>
     {% endif %}
     {{ block.super }}
 {% endblock %}

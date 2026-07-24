@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
@@ -441,12 +441,13 @@ class TestEvaluateAlert:
 
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
+        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=CHQueryErrorTooManySimultaneousQueries("too many"),
+            side_effect=ClickHouseAtCapacity(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            with pytest.raises(ClickHouseAtCapacity):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written

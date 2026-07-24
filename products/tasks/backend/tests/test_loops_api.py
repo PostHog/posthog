@@ -109,6 +109,32 @@ class LoopsAPITestCase(TestCase):
 
 
 class LoopCRUDAPITest(LoopsAPITestCase):
+    @parameterized.expand(
+        [
+            ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
+            (
+                "pinned_glm_with_unsupported_effort",
+                "claude",
+                "@cf/zai-org/glm-5.2",
+                "medium",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_validates_model_and_reasoning_effort(
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+    ):
+        payload = self._valid_loop_payload(
+            runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
+        )
+
+        response = self.owner_client.post(self._loops_url(), payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+
     def test_create_list_retrieve_update_delete_loop(self):
         payload = self._valid_loop_payload(
             name="Weekly digest",

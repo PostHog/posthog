@@ -227,12 +227,8 @@ function EventCount(): JSX.Element {
 }
 
 function MRR(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
@@ -252,12 +248,8 @@ function MRR(): JSX.Element | null {
 }
 
 function LifetimeValue(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
