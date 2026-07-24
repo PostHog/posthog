@@ -7716,6 +7716,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-identity"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "personhog-common",
+ "personhog-proto",
+ "rand 0.8.5",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-leader"
 version = "0.1.0"
 dependencies = [
@@ -7847,6 +7871,7 @@ dependencies = [
  "hdrhistogram",
  "humantime",
  "metrics",
+ "personhog-common",
  "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",

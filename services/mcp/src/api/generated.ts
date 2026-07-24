@@ -59202,16 +59202,6 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
-
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -59225,6 +59215,16 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
+
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
 
     /**
      * * `bug` - bug
@@ -59392,6 +59392,12 @@ export namespace Schemas {
       perspective_selection: ReviewPerspectiveSelection | null;
       /** The rendered review body published to GitHub, as markdown. */
       report_markdown: string;
+      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      run_urgency_threshold: ReviewIssuePriorityEnum | null;
       /** The latest turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
       /** The latest turn's findings the validator dismissed, with its reasoning. */
@@ -60881,11 +60887,6 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
-      /**
-         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-         * @maxLength 200
-         */
-      skill_name: string;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -60904,6 +60905,73 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+    }
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+    }
+
+    /**
+     * Create a runnable custom scout and its config in one atomic request.
+     */
+    export interface SignalScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional reference files bundled with the scout prompt. */
+      files?: LLMSkillFileInput[];
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export interface SignalScoutSkillSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      /** Server-managed report tools granted to this scout. */
+      readonly allowed_tools: readonly string[];
+    }
+
+    export interface SignalScoutCreateResponse {
+      /** True when this request created the missing scout skill or config; false when both already existed. */
+      created: boolean;
+      skill: SignalScoutSkillSummary;
+      config: SignalScoutConfig;
     }
 
     /**
@@ -78440,7 +78508,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
@@ -78459,7 +78527,7 @@ export namespace Schemas {
 
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
