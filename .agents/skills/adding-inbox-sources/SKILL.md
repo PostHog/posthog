@@ -183,7 +183,9 @@ list is **hardcoded** — it is not read dynamically from the wizard endpoint. S
 source is invisible to self-driving onboarding until you add it there.
 
 Edit `context/skills/self-driving/references/5-connected-tools.md` (plus the source-list
-mentions in `4-sources.md`, `2-read-context.md`, and `description.md`):
+mentions in `references/4-sources.md`, `references/2-read-context.md`, and
+`context/skills/self-driving/description.md` — note `description.md` sits at the skill root,
+not under `references/`):
 
 1. Add the tool to the step-5 `wizard_ask` multi-select options (`{ label, value }`).
 2. Add its responder mapping — the same `source_product` / `source_type` pair as the
