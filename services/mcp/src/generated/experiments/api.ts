@@ -679,7 +679,7 @@ export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List experiments for the current project. Supports filtering by status and archival state.
+ * List experiments for the current project. Supports filtering by status, archival state, and a deleted-only view for restoring soft-deleted experiments.
  */
 export const ExperimentsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -696,6 +696,12 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, return only soft-deleted experiments (the recently deleted view, used to restore them). Defaults to hiding deleted experiments.'
         ),
     event: zod
         .string()

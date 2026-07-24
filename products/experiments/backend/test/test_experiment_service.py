@@ -4935,6 +4935,23 @@ class TestExperimentService(APIBaseTest):
         assert experiment.id not in default_queryset.values_list("id", flat=True)
         assert experiment.id in restore_queryset.values_list("id", flat=True)
 
+    def test_filter_experiments_queryset_deleted_param_shows_only_deleted_across_archive_states(self) -> None:
+        service = self._service()
+        service.create_experiment(name="Visible", feature_flag_key="list-visible")
+        service.create_experiment(name="Archived", feature_flag_key="list-archived", archived=True)
+        service.create_experiment(name="Deleted", feature_flag_key="list-deleted", deleted=True)
+        service.create_experiment(
+            name="Archived deleted", feature_flag_key="list-archived-deleted", archived=True, deleted=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"deleted": "true"},
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == {"Deleted", "Archived deleted"}
+
     @parameterized.expand(
         [
             ("draft", {"status": "draft"}, {"Draft"}),

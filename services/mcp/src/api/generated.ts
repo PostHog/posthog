@@ -75026,6 +75026,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * When true, return only soft-deleted experiments (the recently deleted view, used to restore them). Defaults to hiding deleted experiments.
+     */
+    deleted?: boolean;
+    /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
     event?: string;

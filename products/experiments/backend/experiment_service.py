@@ -3612,7 +3612,17 @@ class ExperimentService:
             if deleted_value is not None:
                 include_deleted = not str_to_bool(deleted_value)
 
-        if not include_deleted:
+        # The list view can opt into showing only soft-deleted experiments (the "recently deleted"
+        # view) so they can be restored self-serve; every other case hides deleted rows.
+        show_deleted = False
+        if action == "list":
+            deleted_param = query_params.get("deleted")
+            if deleted_param is not None:
+                show_deleted = str_to_bool(deleted_param)
+
+        if show_deleted:
+            queryset = queryset.filter(deleted=True)
+        elif not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
         if action == "list":
@@ -3676,12 +3686,15 @@ class ExperimentService:
                 if user_ids:
                     queryset = queryset.filter(created_by_id__in=user_ids)
 
-            archived = query_params.get("archived")
-            if archived is not None:
-                archived_bool = str(archived).lower() == "true"
-                queryset = queryset.filter(archived=archived_bool)
-            else:
-                queryset = queryset.filter(archived=False)
+            # The deleted view spans both archived and non-archived experiments, so only apply the
+            # archived filter when we're not listing deleted rows.
+            if not show_deleted:
+                archived = query_params.get("archived")
+                if archived is not None:
+                    archived_bool = str(archived).lower() == "true"
+                    queryset = queryset.filter(archived=archived_bool)
+                else:
+                    queryset = queryset.filter(archived=False)
 
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:

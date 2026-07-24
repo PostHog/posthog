@@ -4917,6 +4917,7 @@ export interface Experiment {
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
     archived?: boolean
+    deleted?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
     created_by: UserBasicType | null

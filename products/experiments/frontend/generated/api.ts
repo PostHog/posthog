@@ -294,7 +294,7 @@ export const getExperimentsListUrl = (projectId: string, params?: ExperimentsLis
 }
 
 /**
- * List experiments for the current project. Supports filtering by status and archival state.
+ * List experiments for the current project. Supports filtering by status, archival state, and a deleted-only view for restoring soft-deleted experiments.
  */
 export const experimentsList = async (
     projectId: string,

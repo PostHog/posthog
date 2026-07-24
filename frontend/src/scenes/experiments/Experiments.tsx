@@ -172,18 +172,23 @@ const ExperimentsTableFilters = ({
                         }}
                     />
                     <span className="ml-1">
-                        <b>Archived</b>
+                        <b>Show</b>
                     </span>
                     <LemonSelect
                         size="xsmall"
                         onChange={(value) => {
-                            onFiltersChange({ archived: value === 'archived', page: 1 })
+                            onFiltersChange({
+                                archived: value === 'archived',
+                                deleted: value === 'deleted',
+                                page: 1,
+                            })
                         }}
                         options={[
                             { label: 'Active', value: 'active' },
                             { label: 'Archived', value: 'archived' },
+                            { label: 'Recently deleted', value: 'deleted' },
                         ]}
-                        value={filters.archived ? 'archived' : 'active'}
+                        value={filters.deleted ? 'deleted' : filters.archived ? 'archived' : 'active'}
                         dropdownMatchSelectWidth={false}
                         dropdownMaxContentWidth
                     />
@@ -205,7 +210,7 @@ const ExperimentsTable = ({
 }): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
-    const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
+    const { loadExperiments, archiveExperiment, unarchiveExperiment, restoreExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
@@ -224,7 +229,7 @@ const ExperimentsTable = ({
             render: function Render(_, experiment: Experiment) {
                 return (
                     <LemonTableLink
-                        to={experiment.id ? urls.experiment(experiment.id) : undefined}
+                        to={experiment.id && !experiment.deleted ? urls.experiment(experiment.id) : undefined}
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
@@ -379,6 +384,27 @@ const ExperimentsTable = ({
         {
             width: 0,
             render: function Render(_, experiment: Experiment) {
+                if (experiment.deleted) {
+                    return (
+                        <More
+                            overlay={
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
+                                >
+                                    <LemonButton
+                                        onClick={() => restoreExperiment(experiment)}
+                                        data-attr={`experiment-${experiment.id}-dropdown-restore`}
+                                        fullWidth
+                                    >
+                                        Restore experiment
+                                    </LemonButton>
+                                </AccessControlAction>
+                            }
+                        />
+                    )
+                }
                 return (
                     <More
                         overlay={

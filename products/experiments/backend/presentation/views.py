@@ -210,7 +210,7 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
     ),
     # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
     list=extend_schema(
-        description="List experiments for the current project. Supports filtering by status and archival state.",
+        description="List experiments for the current project. Supports filtering by status, archival state, and a deleted-only view for restoring soft-deleted experiments.",
         parameters=[
             OpenApiParameter(
                 name="status",
@@ -231,6 +231,16 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 location=OpenApiParameter.QUERY,
                 type=bool,
                 description="Filter by archived state. Defaults to non-archived experiments only.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="deleted",
+                location=OpenApiParameter.QUERY,
+                type=bool,
+                description=(
+                    "When true, return only soft-deleted experiments (the recently deleted view, used to "
+                    "restore them). Defaults to hiding deleted experiments."
+                ),
                 required=False,
             ),
             OpenApiParameter(
