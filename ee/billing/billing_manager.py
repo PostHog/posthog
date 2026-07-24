@@ -21,6 +21,8 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
+from products.logs.backend.retention_entitlements import reset_revoked_logs_retention
+
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -477,7 +479,11 @@ class BillingManager:
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
+        revoked_feature_keys: set[str] = set()
         if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
+            new_feature_keys = {feature.get("key") for feature in available_product_features}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
@@ -513,6 +519,9 @@ class BillingManager:
 
         if org_modified:
             organization.save()
+
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
