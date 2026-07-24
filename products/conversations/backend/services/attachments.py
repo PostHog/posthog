@@ -7,7 +7,6 @@ from typing import Any
 from django.conf import settings
 
 import structlog
-from PIL import Image
 
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
@@ -42,6 +41,8 @@ def is_valid_image(content: bytes) -> bool:
 
     Uses the same PIL open + transpose check as the frontend upload API.
     """
+    from PIL import Image  # noqa: PLC0415 — keeps Pillow off the app-boot import path
+
     try:
         image = Image.open(BytesIO(content))
         image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
