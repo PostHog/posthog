@@ -109,6 +109,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public calls: QueryCall[] = []
     public findRows: MockRow[] = []
     public wakeRows: MockRow[] = []
+    public moveRows: MockRow[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -126,6 +127,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
+                return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
             }
             if (sql.startsWith('UPDATE cyclotron_jobs')) {
                 return Promise.resolve({ rows: [], rowCount: this.updateRowCount })
@@ -1325,6 +1329,134 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // The bad message is dropped; the valid one still parses.
             expect(result).toHaveLength(1)
             expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
+        })
+    })
+
+    describe('_parsePersonDistinctIdBatch', () => {
+        const rawMove = (overrides: Record<string, any> = {}): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: 1,
+                    distinct_id: 'anon-did',
+                    person_id: 'survivor-uuid',
+                    version: 2,
+                    is_deleted: 0,
+                    ...overrides,
+                })
+            ),
+        })
+
+        it('maps a version>0 repoint to its distinct_id + survivor person', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([rawMove()])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
+        })
+
+        it('drops version-0 inserts, deletions, missing-id and malformed messages', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([
+                rawMove({ version: 0 }), // brand-new distinct_id (person creation), not a repoint
+                rawMove({ is_deleted: 1 }), // distinct_id being deleted
+                rawMove({ person_id: '' }), // no survivor to point at
+                { value: Buffer.from('not json') }, // malformed
+                rawMove(),
+            ])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
+        })
+    })
+
+    describe('processMoveBatch', () => {
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        const parkedWaitRow = (overrides: Record<string, any> = {}): any => ({
+            id: 'job-1',
+            team_id: 1,
+            distinct_id: 'anon-did',
+            function_id: 'flow-1',
+            action_id: 'wait_node',
+            state: Buffer.from(JSON.stringify({ state: { personId: 'old-uuid' } })),
+            ...overrides,
+        })
+
+        const lastUpdate = (): QueryCall | undefined =>
+            matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+
+        it('re-keys a parked wait onto the survivor (person_id column + state.personId)', async () => {
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
+
+            const update = lastUpdate()
+            expect(update).toBeDefined()
+            // params: [ids, person_ids, states]. The person_id column moves to the survivor...
+            expect(update!.params[1]).toEqual(['survivor-uuid'])
+            const newState = parseJSON((update!.params[2][0] as Buffer).toString('utf-8')) as any
+            // ...and so does the persisted state.personId, so a distinct_id-less re-resolution follows it.
+            expect(newState.state.personId).toBe('survivor-uuid')
+            // The repoint also wakes the parked wait (scheduled = NOW()) so it re-checks against the
+            // merged person immediately, rather than depending on the poll tick — closes the race where
+            // the person-property update lands before this re-key. Dropping this hangs the wait.
+            expect(update!.sql).toContain('scheduled = NOW()')
+        })
+
+        it('re-keys onto the highest-version survivor when a batch chains merges out of order', async () => {
+            // anon-did → A (v2) then → B (v3) in the same batch, but the array carries them B-then-A.
+            // Repoints aren't Kafka-keyed, so this ordering is real; the highest version must win or the
+            // wait re-keys onto intermediate A, whose person-stream updates can't wake it once the poll is gone.
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-B', version: 3 },
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'intermediate-A', version: 2 },
+            ])
+
+            expect(lastUpdate()!.params[1]).toEqual(['survivor-B'])
+        })
+
+        it('rejects an older repoint that arrives in a later batch than a newer one already applied', async () => {
+            // Cross-batch ordering: anon-did → B (v3) was applied in an earlier batch (persisted as
+            // personIdRepointVersion), then a delayed anon-did → A (v2) lands. The version watermark must
+            // reject it — otherwise the wait rewinds onto obsolete A and B's updates no longer wake it.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    state: Buffer.from(
+                        JSON.stringify({ state: { personId: 'survivor-B', personIdRepointVersion: 3 } })
+                    ),
+                }),
+            ]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'obsolete-A', version: 2 },
+            ])
+
+            expect(lastUpdate()).toBeUndefined()
+        })
+
+        it('skips a job parked on a delay step and scopes the lock to wait actions only', async () => {
+            // A job of the same wait-containing flow can sit on a delay step; rewriting its person_id off
+            // a repoint would be wrong. Two layers keep it safe: the SELECT is scoped to wait action_ids
+            // ($4), and the JS guard skips any row whose action isn't a wait_until_condition. Assert both.
+            const flow = makeHogFlow({ id: 'flow-1', team_id: 1 })
+            flow.actions.push({
+                id: 'delay_node',
+                name: 'Delay',
+                type: 'delay',
+                config: { delay_duration: '1h' },
+            } as any)
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            matcher.moveRows = [parkedWaitRow({ action_id: 'delay_node' })]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
+
+            // JS guard: the delay-parked job is left untouched.
+            expect(lastUpdate()).toBeUndefined()
+            // SQL scoping: the lock/state fetch targets the wait step only — the delay/trigger/exit
+            // actions are excluded from the $4 action_id list.
+            const select = matcher.calls.find((c) =>
+                c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
+            )!
+            expect(select.params[3]).toEqual(['wait_node'])
         })
     })
 

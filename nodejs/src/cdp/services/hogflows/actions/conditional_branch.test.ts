@@ -8,10 +8,18 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
-import { ConditionalBranchHandler, checkConditions, counterHogflowWaitPollOnlyAdvance } from './conditional_branch'
+import {
+    ConditionalBranchHandler,
+    checkConditions,
+    counterHogflowRekeyWake,
+    counterHogflowWaitPollOnlyAdvance,
+} from './conditional_branch'
 
 const pollOnlyAdvanceCount = async (): Promise<number> =>
     (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.value ?? 0
+
+const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
+    (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -205,6 +213,7 @@ describe('action.conditional_branch', () => {
             }
             handler = new ConditionalBranchHandler()
             counterHogflowWaitPollOnlyAdvance.reset()
+            counterHogflowRekeyWake.reset()
         })
 
         it('advances to the matched branch and clears eventMatched', async () => {
@@ -335,6 +344,46 @@ describe('action.conditional_branch', () => {
             })
 
             expect(await pollOnlyAdvanceCount()).toBe(0)
+        })
+
+        it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
+            // A merge re-keyed this parked wait onto the survivor and woke it (rekeyWake). The re-check
+            // now finds the condition true. Consuming the flag is what keeps the next re-check from
+            // re-emitting the outcome — without it a re-parked wake would inflate the churn metric.
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.rekeyWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await rekeyWakeCount('advanced')).toBe(1)
+            expect(await rekeyWakeCount('reparked')).toBe(0)
+            expect(waitInvocation.state.currentAction!.rekeyWake).toBe(false)
+        })
+
+        it('records a rekey wake as reparked and consumes the one-shot flag when the merge does not satisfy the wait', async () => {
+            // The default condition still does not match after the re-key, so waking was wasted churn.
+            waitInvocation.state.currentAction!.rekeyWake = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toBeDefined()
+            expect(await rekeyWakeCount('reparked')).toBe(1)
+            expect(await rekeyWakeCount('advanced')).toBe(0)
+            expect(waitInvocation.state.currentAction!.rekeyWake).toBe(false)
         })
     })
 })

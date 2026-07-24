@@ -62,10 +62,24 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // rather than relying on event.distinct_id being empty so future changes to the
                 // synthetic event shape don't accidentally re-enable the lookup.
                 const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                // A person merge repointed this job's distinct_id and re-keyed personId onto the survivor.
+                // Resolve by that personId so the step reads the merged person — resolving by the repointed
+                // distinct_id would hit its stale ~1min cache entry (the pre-merge person) and e.g. drop an email.
+                const resolveByRepointedPerson =
+                    hogFlowInvocationState.personIdRepointed === true && !!hogFlowInvocationState.personId
+                // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal
+                // distinct_id-first resolution, which self-heals to the latest survivor if the distinct_id is
+                // repointed again (a second merge onto a non-wait step is out of processMoveBatch's scope).
+                if (resolveByRepointedPerson) {
+                    delete hogFlowInvocationState.personIdRepointed
+                }
                 const personIdOrDistinctId = isWarehouseRow
                     ? undefined
-                    : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
-                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
+                    : resolveByRepointedPerson
+                      ? hogFlowInvocationState.personId
+                      : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                const kind =
+                    resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
