@@ -97,6 +97,51 @@ def test_report_from_tool_calls_recovers_stringified_recommendations() -> None:
     assert report.recommendations == ["Check the dashboard.", "Ask the owning team."]
 
 
+def test_report_from_tool_calls_preserves_markup_inside_recovered_content() -> None:
+    report = _report_from_tool_calls(
+        [
+            {
+                "name": FINAL_REPORT_TOOL_NAME,
+                "args": {
+                    "verdict": "inconclusive",
+                    "summary": "x",
+                    "hypotheses": [],
+                    "recommendations": '<parameter name="recommendation">["Audit the <parameter name=foo> leak in the logs."]',
+                },
+            }
+        ]
+    )
+
+    assert report is not None
+    assert report.recommendations == ["Audit the <parameter name=foo> leak in the logs."]
+
+
+@parameterized.expand(
+    [
+        ("empty", ""),
+        ("whitespace", "   "),
+        ("tag_only", '<parameter name="hypothesis">'),
+        ("prose_no_array", "the metric doubled overnight"),
+    ]
+)
+def test_report_from_tool_calls_rejects_unrecoverable_stringified_hypotheses(_name: str, hypotheses: str) -> None:
+    report = _report_from_tool_calls(
+        [
+            {
+                "name": FINAL_REPORT_TOOL_NAME,
+                "args": {
+                    "verdict": "true_positive",
+                    "summary": "x",
+                    "hypotheses": hypotheses,
+                    "recommendations": [],
+                },
+            }
+        ]
+    )
+
+    assert report is None
+
+
 def test_report_from_tool_calls_ignores_invalid_structured_final_report() -> None:
     report = _report_from_tool_calls(
         [
