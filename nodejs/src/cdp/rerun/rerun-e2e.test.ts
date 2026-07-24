@@ -308,7 +308,7 @@ describe('CDP hog invocation rerun e2e', () => {
         const originalInvocationId = originalRows[0].invocation_id
         expect(originalRows[0].is_retry).toBe(0)
         expect(originalRows[0].function_kind).toBe('hog_function')
-        // invocation_globals is stored gzip+base64'd, not raw JSON — base64
+        // invocation_globals is stored compressed+base64'd, not raw JSON — base64
         // never starts with `{`. The rerun below proves the round-trip: it can
         // only rehydrate and re-run if `decodeInvocationGlobals` decompresses
         // this value correctly.
