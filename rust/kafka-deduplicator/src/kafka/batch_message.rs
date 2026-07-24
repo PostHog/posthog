@@ -295,6 +295,7 @@ mod tests {
                 uuid: event_uuid,
                 distinct_id: distinct_id.to_string(),
                 session_id: None,
+                snapshot_host: None,
                 ip: ip.clone(),
                 now: now_rfc3339.clone(),
                 token: token.clone(),

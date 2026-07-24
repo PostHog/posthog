@@ -104,6 +104,7 @@ pub fn build_events(
             uuid: Uuid::now_v7(),
             distinct_id: span_event.distinct_id,
             session_id: None,
+            snapshot_host: None,
             ip: client_ip.to_string(),
             data,
             now: now_rfc3339.clone(),

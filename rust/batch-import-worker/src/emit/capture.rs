@@ -314,6 +314,7 @@ mod tests {
                 uuid: Uuid::now_v7(),
                 distinct_id: distinct_id.to_string(),
                 session_id: None,
+                snapshot_host: None,
                 ip: "127.0.0.1".to_string(),
                 data: serde_json::to_string(&raw).unwrap(),
                 now: "2023-10-15T14:30:00+00:00".to_string(),

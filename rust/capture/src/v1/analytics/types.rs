@@ -296,6 +296,7 @@ impl SinkEvent for WrappedEvent {
             dlq_step,
             dlq_timestamp,
             content_encoding: None,
+            snapshot_host: None,
         }
     }
 

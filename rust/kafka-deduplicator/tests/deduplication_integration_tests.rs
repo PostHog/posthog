@@ -91,6 +91,7 @@ fn create_test_captured_event(
         uuid,
         distinct_id: distinct_id.to_string(),
         session_id: None,
+        snapshot_host: None,
         ip: "127.0.0.1".to_string(),
         data,
         now: format!("{timestamp}000"), // timestamp in milliseconds
