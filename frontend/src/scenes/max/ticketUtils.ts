@@ -1,6 +1,32 @@
 import { SupportTicketTargetArea, TARGET_AREA_OPTIONS } from 'lib/components/Support/supportLogic'
 
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
+
+/**
+ * Whether a composer submission is the /ticket slash command.
+ */
+export function isTicketCommand(content: string): boolean {
+    const trimmed = content.trim()
+    return trimmed === '/ticket' || trimmed.startsWith('/ticket ')
+}
+
+/**
+ * Mirrors the support side panel's plan gate (`canEmail` in SidePanelSupport.tsx, minus its
+ * billing-topic bypass): /ticket must not create tickets for orgs the panel would turn away.
+ */
+export function canCreateSupportTicket(billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean {
+    const hasActiveTrial =
+        billing?.trial?.status === 'active' &&
+        (billing.trial.target === 'boost' || billing.trial.target === 'scale' || billing.trial.target === 'enterprise')
+    return (
+        billing?.subscription_level === 'paid' ||
+        billing?.subscription_level === 'custom' ||
+        hasActiveTrial ||
+        isCurrentOrganizationNew
+    )
+}
 
 export interface TicketSummaryData {
     summary?: string
