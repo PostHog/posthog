@@ -6,6 +6,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.ai.telegram_app.activities import (
     cascade_telegram_repository_activity,
+    classify_telegram_task_needs_repo_activity,
     create_telegram_task_activity,
     enforce_telegram_billing_quota_activity,
     post_telegram_reply_activity,
@@ -47,11 +48,17 @@ class TelegramAppMentionWorkflow(PostHogWorkflow):
 
         outcome = await _execute(cascade_telegram_repository_activity, inputs)
         if outcome.mode == "agent_needed":
-            await _execute(
-                post_telegram_reply_activity,
-                inputs,
-                "You have several repos connected. Tell me which one to use (like org/repo) and mention me again.",
-            )
+            # Multiple repos and no explicit mention. Analytics and config questions
+            # don't need a repo at all — classify before demanding one, otherwise
+            # every question in a multi-repo workspace dead-ends here.
+            if await _execute(classify_telegram_task_needs_repo_activity, inputs):
+                await _execute(
+                    post_telegram_reply_activity,
+                    inputs,
+                    "You have several repos connected. Tell me which one to use (like org/repo) and mention me again.",
+                )
+                return
+            await _execute(create_telegram_task_activity, inputs, None, timeout=_CREATE_TIMEOUT)
             return
         if outcome.mode == "needs_user_github":
             await _execute(
