@@ -30,6 +30,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
+import { SessionReplayOverLimitBanner } from './filters/SessionReplayOverLimitBanner'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -170,6 +171,7 @@ function Warnings(): JSX.Element {
 
     return (
         <>
+            <SessionReplayOverLimitBanner />
             {recordingsDisabled ? (
                 <LemonBanner type="info" hideIcon={true}>
                     <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">

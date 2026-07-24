@@ -8,9 +8,12 @@ import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { SessionPlayerState } from '~/types'
 
 import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
@@ -68,8 +71,57 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
     )
 }
 
+const PlainBufferingContent = ({ isWaitingForIngestion }: { isWaitingForIngestion: boolean }): JSX.Element =>
+    isWaitingForIngestion ? (
+        <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
+            <div className="text-3xl italic font-medium">Still processing…</div>
+            <div className="text-sm max-w-100">
+                This recording is finishing ingestion. It's usually ready to play within a few minutes.
+            </div>
+        </div>
+    ) : (
+        <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
+    )
+
+// Reads billingLogic, so it is only mounted outside the exporter/shared context where billing isn't available.
+const PlayerBufferingContent = ({
+    isWaitingForIngestion,
+    bufferingStuck,
+}: {
+    isWaitingForIngestion: boolean
+    bufferingStuck: boolean
+}): JSX.Element => {
+    const { isProductOverUsageLimit } = useValues(billingLogic)
+
+    // Only surface the over-limit dead-end once buffering is genuinely stuck — a playable
+    // pre-limit recording still buffers briefly while loading, and shouldn't flash this.
+    if (bufferingStuck && isProductOverUsageLimit(ProductKey.SESSION_REPLAY)) {
+        return (
+            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
+                <IconWarning className="text-warning text-5xl" />
+                <div className="font-bold text-text-3000 text-lg">This recording is unavailable</div>
+                <div className="text-secondary text-sm text-center">
+                    You're over your session replay usage limit, so recordings captured while over the limit can't be
+                    played. Increase your billing limit to resume capturing and viewing recordings.
+                </div>
+                <LemonButton
+                    to={urls.organizationBilling([ProductKey.SESSION_REPLAY])}
+                    type="primary"
+                    fullWidth
+                    center
+                    data-attr="replay-player-over-limit-cta"
+                >
+                    Increase billing limit
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return <PlainBufferingContent isWaitingForIngestion={isWaitingForIngestion} />
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
+    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, bufferingStuck } =
         useValues(sessionRecordingPlayerLogic)
     const { setPlay } = useActions(sessionRecordingPlayerLogic)
 
@@ -121,15 +173,10 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         )
     }
     if (currentPlayerState === SessionPlayerState.BUFFER) {
-        content = isWaitingForIngestion ? (
-            <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
-                <div className="text-3xl italic font-medium">Still processing…</div>
-                <div className="text-sm max-w-100">
-                    This recording is finishing ingestion. It's usually ready to play within a few minutes.
-                </div>
-            </div>
+        content = isInExportContext ? (
+            <PlainBufferingContent isWaitingForIngestion={isWaitingForIngestion} />
         ) : (
-            <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
+            <PlayerBufferingContent isWaitingForIngestion={isWaitingForIngestion} bufferingStuck={bufferingStuck} />
         )
     }
     if (pausedState) {
