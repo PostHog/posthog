@@ -1287,7 +1287,9 @@ class EnterpriseExperimentsViewSet(
         query string; the endpoint only reads. Already-computed sessions are served from (and
         cold ones written to) the same short-lived per-viewer cache the single-session endpoint
         uses, so opening any prefetched recording renders its context instantly. Sessions whose
-        recording metadata doesn't exist yet are omitted from the response.
+        recording metadata doesn't exist yet are omitted from the response, as are sessions
+        beyond the batch's recording-day budget (each distinct recording day costs its own set
+        of ClickHouse scans, so only the most recent days are computed per request).
         """
         session_ids: list[str] = request.validated_data["session_ids"]
 
