@@ -163,10 +163,16 @@ def _build_envelope(payload: dict[str, Any], cancel_event: threading.Event | Non
 
     page_limit = int(payload.get("page_limit") or _DEFAULT_PAGE_LIMIT)
     cache_limit = max(int(payload.get("cache_limit") or _DEFAULT_CACHE_LIMIT), page_limit)
+    # The data-plane wait for the display fetch — the same phase a kernel node's input
+    # materialization reports, so one metric covers both lanes. Attached on error paths
+    # too: a run that died waiting on the data plane must still report where its time went.
+    timings: dict[str, float] = {}
     try:
         fetch_started = time.monotonic()
-        result = _fetch_capped_page(payload, limit=cache_limit, offset=0, cancel_event=cancel_event)
-        input_wait_s = round(time.monotonic() - fetch_started, 3)
+        try:
+            result = _fetch_capped_page(payload, limit=cache_limit, offset=0, cancel_event=cancel_event)
+        finally:
+            timings["input_wait_s"] = round(time.monotonic() - fetch_started, 3)
         rows = envelope.json_safe_rows(result["rows"])
         run_id = str(payload.get("run_id") or "")
         if run_id:
@@ -177,16 +183,15 @@ def _build_envelope(payload: dict[str, Any], cancel_event: threading.Event | Non
             result["types"],
             has_more=result["has_more"] or len(rows) > page_limit,
         )
-        # The data-plane wait for the display fetch — the same phase a kernel node's
-        # input materialization reports, so one metric covers both lanes.
-        built["timings"] = {"input_wait_s": input_wait_s}
-        return built
     except data_plane.DataPlaneInterrupted:
-        return envelope.as_interrupted(envelope.from_error(envelope.INTERRUPTED_MESSAGE))
+        built = envelope.as_interrupted(envelope.from_error(envelope.INTERRUPTED_MESSAGE))
     except data_plane.DataPlaneError as exc:
-        return envelope.from_error(str(exc))
+        built = envelope.from_error(str(exc))
     except Exception as exc:  # noqa: BLE001 — any failure must still produce a callback
-        return envelope.from_error(f"Run failed in the sandbox: {exc}")
+        built = envelope.from_error(f"Run failed in the sandbox: {exc}")
+    if timings:
+        built["timings"] = timings
+    return built
 
 
 def fetch_page(payload: dict[str, Any]) -> dict[str, Any]:

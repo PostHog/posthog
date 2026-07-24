@@ -2170,6 +2170,8 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(properties["exec_seconds"], 0.4)
         self.assertEqual(properties["sandbox_total_seconds"], 2.0)
         self.assertGreaterEqual(properties["duration_seconds"], 0)
+        # $groups must come from the run's own team, not the user's currently active project.
+        self.assertEqual(mock_report.call_args.kwargs["team"].id, self.team.id)
         after = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
         self.assertEqual(after, before + 1)
 
@@ -2199,10 +2201,10 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
     def test_direct_lane_finish_reports_the_winning_transition(
         self, _name, status, outcome_override, expected_outcome, mock_report
     ):
-        from products.notebooks.backend.sql_v2_direct import _finish_direct_run
+        from products.notebooks.backend.sql_v2_runs import finish_node_run
 
         run = self._create_run()
-        _finish_direct_run(run, status, envelope=None, error=None, outcome=outcome_override)
+        finish_node_run(run, status, error=None, outcome=outcome_override)
         mock_report.assert_called_once()
         event, properties = mock_report.call_args[0]
         self.assertEqual(event, "notebook node run completed")
@@ -2212,10 +2214,10 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
     def test_direct_lane_finish_does_not_report_a_lost_transition(self, mock_report):
         # A poller that loses the RUNNING -> terminal race (e.g. to an interrupt) must not
         # add a second sample for the same run.
-        from products.notebooks.backend.sql_v2_direct import _finish_direct_run
+        from products.notebooks.backend.sql_v2_runs import finish_node_run
 
         run = self._create_run(status=NotebookNodeRun.Status.INTERRUPTED)
-        _finish_direct_run(run, NotebookNodeRun.Status.DONE, envelope=None, error=None)
+        finish_node_run(run, NotebookNodeRun.Status.DONE, error=None)
         mock_report.assert_not_called()
 
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -2276,6 +2278,45 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         properties = mock_report.call_args[0][1]
         self.assertLessEqual(properties["exec_seconds"], 120)  # clamped to duration + slack
         self.assertEqual(properties["input_wait_seconds"], 0.2)  # honest values pass through
+
+    @parameterized.expand(
+        [
+            ("garbage_values", {"exec_s": "n/a", "input_wait_s": None, "nested": {"x": 1}}),
+            ("not_a_dict", "n/a"),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_malformed_envelope_timings_never_strand_the_run(self, _name, timings, mock_report):
+        # The callback is fire-and-forget from the sandbox: a 400 is swallowed like a
+        # network error and never retried, so a forged/garbage timings shape failing
+        # serializer validation would leave the run RUNNING forever.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "timings": timings}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.status, NotebookNodeRun.Status.DONE)
+        properties = mock_report.call_args[0][1]
+        self.assertNotIn("exec_seconds", properties)
+
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_completed_event_survives_a_hard_deleted_user(self, mock_report):
+        # run.user is db_constraint=False/DO_NOTHING: a hard-deleted user leaves a dangling
+        # id and descriptor access raises. The event must fall back to team attribution
+        # instead of silently vanishing inside the recorder's broad except.
+        from products.notebooks.backend.sql_v2_runs import finish_node_run
+
+        run = self._create_run()
+        User.objects.filter(id=self.user.id).delete()
+        finish_node_run(run, NotebookNodeRun.Status.DONE, error=None)
+        mock_report.assert_called_once()
+        self.assertIsNone(mock_report.call_args.kwargs["user"])
+        self.assertEqual(mock_report.call_args.kwargs["team"].id, self.team.id)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action", side_effect=RuntimeError("boom"))
     def test_metrics_failure_never_fails_the_callback(self, _mock_report):

@@ -12,7 +12,8 @@ measures end-to-end duration against the run row's ``created_at``
 Runs additionally carry phase timings in the envelope's ``timings`` dict. Kernel runs
 report them from the sandbox (``sandbox/kernel/runner.py``): ``input_wait_s`` (waiting on
 the data plane for referenced frames or the display fetch), ``download_s`` (the presigned
-frame downloads), ``exec_s`` (ipykernel cell execution), and ``sandbox_total_s`` (the whole
+frame downloads), ``kernel_boot_s`` (ensuring the ipykernel is up — ~0 when already warm),
+``exec_s`` (ipykernel cell execution), and ``sandbox_total_s`` (the whole
 sandbox-side run). Direct (hogql) runs report them from the async query manager's status
 (``sql_v2_direct._query_status_timings``): ``queued_s`` (enqueue -> Celery pickup) and
 ``clickhouse_s`` (pickup -> completion, i.e. HogQL compile + ClickHouse execution).
@@ -21,6 +22,7 @@ sandbox-side run). Direct (hogql) runs report them from the async query manager'
 import math
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 
 import structlog
@@ -55,6 +57,7 @@ _OUTCOME_BY_STATUS = {
 _PHASE_BY_TIMING_KEY = {
     "input_wait_s": "input_wait",
     "download_s": "download",
+    "kernel_boot_s": "kernel_boot",
     "exec_s": "exec",
     "sandbox_total_s": "sandbox_total",
     "queued_s": "queued",
@@ -98,8 +101,7 @@ def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
         _otel.record_histogram_twin(NODE_RUN_SECONDS, duration, {"node_type": run.node_type, "outcome": outcome})
 
         timings = _sanitized_timings(run.envelope, max_seconds=duration + _TIMING_CLOCK_SLACK_SECONDS)
-        for key, seconds in timings.items():
-            phase = _PHASE_BY_TIMING_KEY[key]
+        for phase, seconds in timings.items():
             NODE_RUN_PHASE_SECONDS.labels(phase=phase, node_type=run.node_type).observe(seconds)
             _otel.record_histogram_twin(NODE_RUN_PHASE_SECONDS, seconds, {"phase": phase, "node_type": run.node_type})
 
@@ -120,7 +122,7 @@ def _sanitized_timings(envelope: Any, max_seconds: float) -> dict[str, float]:
     if not isinstance(raw, dict):
         return {}
     return {
-        key: min(float(value), max_seconds)
+        _PHASE_BY_TIMING_KEY[key]: min(float(value), max_seconds)
         for key, value in raw.items()
         if key in _PHASE_BY_TIMING_KEY and isinstance(value, int | float) and math.isfinite(value) and value >= 0
     }
@@ -140,7 +142,16 @@ def _capture_completed_event(
         "duration_seconds": round(duration, 3),
         "row_count": envelope.get("row_count"),
         "has_error": bool(run.error),
-        **{f"{_PHASE_BY_TIMING_KEY[key]}_seconds": round(value, 3) for key, value in timings.items()},
+        **{f"{phase}_seconds": round(value, 3) for phase, value in timings.items()},
     }
-    team = None if run.user else Team.objects.filter(pk=run.team_id).first()
-    report_user_or_team_action(NODE_RUN_COMPLETED_EVENT, properties, user=run.user, team=team)
+    try:
+        user = run.user
+    except ObjectDoesNotExist:
+        # The FK is db_constraint=False/DO_NOTHING: a hard-deleted user leaves a dangling
+        # id, and descriptor access raises instead of reading back as None.
+        user = None
+    # Always resolve the run's own team: with team=None, report_user_or_team_action
+    # attributes $groups to the user's *currently active* project, which can differ
+    # from the project the run belongs to (multi-project users, personal API keys).
+    team = Team.objects.filter(pk=run.team_id).first()
+    report_user_or_team_action(NODE_RUN_COMPLETED_EVENT, properties, user=user, team=team)

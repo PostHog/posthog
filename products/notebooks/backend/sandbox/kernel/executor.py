@@ -64,7 +64,13 @@ class KernelExecutor:
             # into the kernel-phase metrics).
             timings: dict[str, float] = {}
             try:
-                self._ensure_kernel()
+                boot_started = time.monotonic()
+                try:
+                    self._ensure_kernel()
+                finally:
+                    # ~0 when the kernel is already warm; a cold start — or a boot
+                    # failure — shows up as its own phase instead of unattributed time.
+                    timings["kernel_boot_s"] = round(time.monotonic() - boot_started, 3)
                 fetch_notes: list[str] = []
                 inputs = self._materialize_inputs(payload, cancel_event, fetch_notes, timings)
                 exec_started = time.monotonic()
