@@ -62,6 +62,29 @@ struct MetricsData {
     evaluation_type: Option<EvaluationType>,
 }
 
+fn stamp_body_sdk_info(
+    request: &crate::flags::flag_request::FlagRequest,
+    metrics_library: &mut Library,
+) {
+    let lib = request.extract_lib();
+    let lib_version = request.extract_lib_version();
+
+    if let Some(lib) = lib.as_deref() {
+        *metrics_library = Library::from_sdk_name(lib);
+    }
+
+    if lib.is_some() || lib_version.is_some() {
+        with_canonical_log(|log| {
+            if let Some(lib) = lib {
+                log.lib = Some(lib);
+            }
+            if let Some(lib_version) = lib_version {
+                log.lib_version = Some(lib_version);
+            }
+        });
+    }
+}
+
 fn record_metrics(
     result: &Result<FlagsResponse, FlagError>,
     data: MetricsData,
@@ -139,7 +162,12 @@ async fn process_request_inner(
             // log; histogram emission is deferred to `emit_phase_metrics`
             // so the metric carries a `team_id` label.
             let _phase = PhaseGuard::enter(Phase::Auth);
-            authentication::parse_and_authenticate(&context, &flag_service).await?
+            authentication::parse_and_authenticate(
+                &context,
+                &flag_service,
+                &mut metrics_data.library,
+            )
+            .await?
         };
 
         let distinct_id_for_logging = original_distinct_id
@@ -320,6 +348,72 @@ fn apply_minimal_flag_called_events(response: &mut FlagsResponse, team: &Team) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod sdk_info_tests {
+    use crate::{flags::flag_request::FlagRequest, handler::Library};
+    use serde_json::json;
+
+    use super::{run_with_canonical_log, stamp_body_sdk_info, FlagsCanonicalLogLine};
+
+    #[tokio::test]
+    async fn body_sdk_info_overrides_existing_log_value() {
+        let request = FlagRequest::from_bytes(bytes::Bytes::from(
+            json!({
+                "token": "my_token1",
+                "distinct_id": "user123",
+                "person_properties": {
+                    "$lib": "web",
+                    "$lib_version": "body-1.0"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        let log = FlagsCanonicalLogLine {
+            lib: Some("posthog-node".to_string()),
+            lib_version: Some("fallback-1.0".to_string()),
+            ..Default::default()
+        };
+
+        let mut metrics_library = Library::PosthogNode;
+        let (_, final_log) = run_with_canonical_log(log, async {
+            stamp_body_sdk_info(&request, &mut metrics_library);
+        })
+        .await;
+
+        assert_eq!(metrics_library, Library::PosthogJs);
+        assert_eq!(final_log.lib.as_deref(), Some("web"));
+        assert_eq!(final_log.lib_version.as_deref(), Some("body-1.0"));
+    }
+
+    #[tokio::test]
+    async fn missing_body_sdk_info_keeps_existing_log_value() {
+        let request = FlagRequest::from_bytes(bytes::Bytes::from(
+            json!({
+                "token": "my_token1",
+                "distinct_id": "user123"
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        let log = FlagsCanonicalLogLine {
+            lib: Some("web".to_string()),
+            lib_version: Some("fallback-1.0".to_string()),
+            ..Default::default()
+        };
+
+        let mut metrics_library = Library::PosthogJs;
+        let (_, final_log) = run_with_canonical_log(log, async {
+            stamp_body_sdk_info(&request, &mut metrics_library);
+        })
+        .await;
+
+        assert_eq!(metrics_library, Library::PosthogJs);
+        assert_eq!(final_log.lib.as_deref(), Some("web"));
+        assert_eq!(final_log.lib_version.as_deref(), Some("fallback-1.0"));
+    }
+}
 
 #[cfg(test)]
 mod test_metrics {

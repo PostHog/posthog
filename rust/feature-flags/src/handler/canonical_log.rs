@@ -183,7 +183,7 @@ pub struct FlagsCanonicalLogLine {
 
     // Request metadata (useful for SDK debugging)
     pub user_agent: Option<String>,
-    pub lib: Option<&'static str>,
+    pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
 
@@ -388,7 +388,7 @@ impl FlagsCanonicalLogLine {
             anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
-            lib = self.lib,
+            lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
@@ -708,7 +708,7 @@ mod tests {
     fn test_emit_with_all_fields_populated() {
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
-        log.lib = Some("posthog-python");
+        log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
