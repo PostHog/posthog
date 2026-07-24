@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import DatabaseError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -198,6 +199,26 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
+
+    def test_bookkeeping_save_raises_instead_of_resurrecting_deleted_row(self) -> None:
+        # Source (and its schema, via CASCADE) deleted concurrently with a sync still holding a
+        # stale in-memory schema reference. Without force_update, Django's UUID-pk insert fallback
+        # would silently recreate the row here and hit an FK violation on source_id instead.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema_id = schema.pk
+        # A queryset delete (unlike self.source.delete()) doesn't null out this process's cached
+        # `schema.source`, matching production where the delete happens on another connection.
+        ExternalDataSource.objects.filter(pk=self.source.pk).delete()
+
+        # Postgres aborts the whole transaction on an unhandled DatabaseError; a savepoint keeps
+        # the failure scoped so the existence check below can still run.
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            schema.update_incremental_field_value(42)
+
+        assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
 
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
