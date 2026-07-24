@@ -28,6 +28,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
@@ -38,8 +39,15 @@ from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortC
 from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
 from products.cohorts.backend.parity.fold import fold_membership_changes, members, reconcile_completeness_by_cohort
 from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
-from products.cohorts.backend.parity.oracle import load_day_counts, load_leaf_members, load_run_context
+from products.cohorts.backend.parity.oracle import (
+    OracleSetTooLarge,
+    load_day_counts,
+    load_leaf_match_counts,
+    load_leaf_members,
+    load_run_context,
+)
 from products.cohorts.backend.parity.recompute import (
+    ExtendedLeafCounts,
     RecomputeComparison,
     RecomputeUnsupported,
     RunContext,
@@ -61,11 +69,27 @@ from products.cohorts.backend.parity.report import (
     to_recompute_json,
 )
 from products.cohorts.backend.parity.snapshots import load_old_membership, load_realtime_cohorts, make_activity_probe
-from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo, start_of_day_utc
+from products.cohorts.backend.parity.tzdates import resolve_zoneinfo, window_start_utc
 
 SHADOW_TOPIC_RETENTION_DAYS = 7
-# The fold (drained ≈ now) sees a later processor state than an oracle window ending well before now.
+# A pinned --at well behind the drain is sound (the fold converges to the same instant) but describes
+# a past state: reconcile markers and decisions made since are excluded, so say so.
 RECOMPUTE_STALE_AT_MINUTES = 15
+
+DEFAULT_THRESHOLD_PCT = 0.5
+DEFAULT_WARMUP_SAMPLE = 5000
+DEFAULT_GRACE_MINUTES = 10
+# A cohort window wider than this drives an unbounded `events` scan for no diagnostic gain; the Rust
+# side treats such a window as "never evicts" rather than sliding, so SKIP instead of scanning.
+DEFAULT_MAX_WINDOW_DAYS = 400
+# `load_leaf_members` materializes the whole set in a Python set; past this it OOMs a toolbox pod.
+DEFAULT_MAX_ORACLE_MEMBERS = 1_000_000
+# Grace is also the sweep-lag horizon, so a whole day of it would swallow the boundary day.
+MAX_GRACE_MINUTES = 24 * 60
+# Persons per diff side that the per-person reads will chunk through (1000 ids per query).
+MAX_DIFF_TARGETS = 50_000
+# The eviction split asks whether a false member is still a member one day-slide back.
+EVICTION_LOOKBACK_DAYS = 1
 
 # Deliberate coverage limits, restated with every report so a clean run is not over-read.
 COVERAGE_CAVEATS = (
@@ -77,12 +101,13 @@ COVERAGE_CAVEATS = (
 )
 
 RECOMPUTE_CAVEATS = (
-    "the oracle reproduces only performed_event / performed_event_multiple leaves with a string event key, no event_filters (property matching is HogVM bytecode, not SQL), and whole-day sliding windows; everything else SKIPs",
-    "over-count (false_members) is the hard gate; a pending-eviction share near team-tz midnight is sweep lag, reported but not gated",
-    "under-count segmentation needs a single supported leaf and a monotone op (gte/gt); multi-leaf, non-monotone, or no-run cohorts report membership parity only (missing left unsegmented)",
-    "missing_boundary_day is the expected decaying gap; missing_seed_domain and missing_unseeded_day gate FAIL",
-    "the window uses the current team tz; day-domain attribution uses the run tz — a mismatch warns",
-    "override/merge drift (fold ids resolved at processing time vs the oracle's current overrides) can pair a false_member with a missing person; both sets ship in the JSON for triage",
+    "the oracle reproduces only performed_event / performed_event_multiple leaves with a string event key, no event_filters (property matching is HogVM bytecode, not SQL), and whole-day sliding windows within --max-window-days; everything else SKIPs",
+    "over-count (false_members) is the hard gate; the sweep-lag share — still a member one day-slide back, or entered within --grace-minutes — is reported but not gated",
+    "under-count segmentation needs a single supported leaf, a monotone op (gte/gt), and a backfill run; without them the cohort reports SKIP (parity not established), never PASS",
+    "missing_boundary_day is the expected decaying gap; missing_seed_domain, missing_unseeded_day and missing_post_boundary gate FAIL — raise --grace-minutes to absorb known live-path lag",
+    "day boundaries use the current team tz, the only tz the processor uses; a run pinned to a different tz SKIPs rather than mis-attributing seed days",
+    "the oracle counts only events ingested by --at (the seeder's inserted_at cutoff), so a longer ingestion lag reads as neither over- nor under-count",
+    "override/merge drift (fold ids resolved at processing time vs the oracle's current overrides) can pair a false_member with a missing person; a bounded per-class person-id sample ships in the JSON for triage",
 )
 
 
@@ -141,8 +166,8 @@ def _collect_recompute_warnings(
     stale = now - at
     if stale > timedelta(minutes=RECOMPUTE_STALE_AT_MINUTES):
         warnings.append(
-            f"--at is {int(stale.total_seconds() // 60)}m before now; the fold reflects a later processor "
-            "state than the oracle window"
+            f"--at is {int(stale.total_seconds() // 60)}m before now; the fold is bounded to it, so this "
+            "report describes that instant rather than the current pipeline state"
         )
     for state in states:
         if state.ctx is None:
@@ -152,8 +177,8 @@ def _collect_recompute_warnings(
             continue
         if state.ctx.run_timezone != team_timezone:
             warnings.append(
-                f"cohort {state.cohort_id}: run tz {state.ctx.run_timezone} != team tz {team_timezone}; the "
-                "window uses team tz while day-domain attribution uses run tz"
+                f"cohort {state.cohort_id}: run tz {state.ctx.run_timezone} != team tz {team_timezone}; seed-chunk "
+                "days cannot be attributed to the team-tz days the processor bins by, so the cohort is SKIPPED"
             )
         if state.ctx.shape_hash_drift:
             warnings.append(
@@ -186,6 +211,34 @@ def _parse_since(raw: str) -> datetime:
     return _parse_iso_utc(raw, "--since")
 
 
+def _within_target_cap(targets: list[str], side: str, notes: list[str]) -> bool:
+    """Whether a diff side is small enough to drive per-person reads (1000 ids per query).
+
+    A blown cap is recorded in the report rather than silently truncated: past it the diagnostic
+    would run tens of thousands of sequential `events` scans on the offline pool.
+    """
+    if len(targets) <= MAX_DIFF_TARGETS:
+        return True
+    notes.append(
+        f"{len(targets)} {side} persons exceed the {MAX_DIFF_TARGETS} per-person read cap; "
+        f"{side} left unexplained (check --since: a wrong value empties the fold)"
+    )
+    return False
+
+
+def _reject_flags(options: dict[str, Any], flags: tuple[str, ...], mode: str) -> None:
+    """Reject flags belonging to the other oracle mode.
+
+    Every mode-specific flag defaults to ``None`` (or ``False`` for a store_true) precisely so an
+    explicit value that happens to equal the documented default is still caught.
+    """
+    rejected = [
+        f"--{flag.replace('_', '-')}" for flag in flags if options[flag] is not None and options[flag] is not False
+    ]
+    if rejected:
+        raise CommandError(f"not valid with --oracle {mode} (parameterizes the other oracle): {', '.join(rejected)}")
+
+
 class Command(BaseCommand):
     help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline or recompute) cohort membership"
 
@@ -208,7 +261,8 @@ class Command(BaseCommand):
             "--at",
             type=str,
             default=None,
-            help="recompute only: ISO8601 pinned instant for the oracle window (default now); must be after --since",
+            help="recompute only: ISO8601 pinned instant for both the oracle window and the fold (default: the "
+            "instant the drain finished); must be after --since",
         )
         parser.add_argument(
             "--run-id",
@@ -217,14 +271,38 @@ class Command(BaseCommand):
             help="recompute only: backfill run for segmentation metadata (default: latest run with a boundary)",
         )
         parser.add_argument(
-            "--grace-minutes", type=int, default=10, help="recompute only: last N minutes treated as lag noise"
+            "--grace-minutes",
+            type=int,
+            default=None,
+            help=f"recompute only: last N minutes treated as lag noise, both for a missing person's qualifying "
+            f"events and for a just-entered false member (default {DEFAULT_GRACE_MINUTES})",
         )
-        parser.add_argument("--threshold", type=float, default=0.5, help="old-pipeline only: max residual %% for PASS")
+        parser.add_argument(
+            "--max-window-days",
+            type=int,
+            default=None,
+            help=f"recompute only: cohorts whose leaf window exceeds this SKIP rather than driving an unbounded "
+            f"events scan (default {DEFAULT_MAX_WINDOW_DAYS})",
+        )
+        parser.add_argument(
+            "--max-oracle-members",
+            type=int,
+            default=None,
+            help=f"recompute only: cohorts whose leaf matches more persons than this SKIP rather than being "
+            f"materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
+        )
+        parser.add_argument(
+            "--threshold",
+            type=float,
+            default=None,
+            help=f"old-pipeline only: max residual %% for PASS (default {DEFAULT_THRESHOLD_PCT})",
+        )
         parser.add_argument(
             "--warmup-sample",
             type=int,
-            default=5000,
-            help="old-pipeline only: persons sampled per cohort for the missed-emission probe over old - O; 0 skips it",
+            default=None,
+            help=f"old-pipeline only: persons sampled per cohort for the missed-emission probe over old - O; "
+            f"0 skips it (default {DEFAULT_WARMUP_SAMPLE})",
         )
         parser.add_argument(
             "--no-classify",
@@ -245,8 +323,17 @@ class Command(BaseCommand):
             raise CommandError("--since is in the future")
         oracle = options["oracle"]
         as_json = options["format"] == "json"
+        # Validate every mode-specific flag up front: the drain below takes minutes, and a flag error
+        # surfacing after it wastes the whole run.
+        explicit_at: Optional[datetime] = None
         if oracle == "recompute":
-            self._reject_old_pipeline_flags(options)
+            self._validate_recompute_flags(options)
+            if options["at"] is not None:
+                explicit_at = _parse_iso_utc(options["at"], "--at")
+                if explicit_at <= since:
+                    raise CommandError("--at must be after --since")
+        else:
+            _reject_flags(options, ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"), oracle)
 
         def log(message: str) -> None:
             # Keep stdout clean for the JSON document.
@@ -291,12 +378,14 @@ class Command(BaseCommand):
             stats=drain_stats,
             max_messages=options["max_messages"],
         )
-        new_state, fold_stats = fold_membership_changes(messages, team_id=team_id, since=since)
+        # An explicit --at pins the comparison clock, so the fold has to converge to that instant too.
+        new_state, fold_stats = fold_membership_changes(messages, team_id=team_id, since=since, until=explicit_at)
         log(
             f"drained {drain_stats.consumed} messages from {drain_stats.partitions_read}/{drain_stats.partitions} "
             f"partitions; folded {fold_stats.folded} for team {team_id} across {len(fold_stats.cohorts_seen)} cohorts "
             f"({fold_stats.reconcile_markers_recorded} reconcile markers; "
             f"dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
+            f"{fold_stats.dropped_after_until} post-at, "
             f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable; "
             f"by origin: {dict(sorted(fold_stats.folded_by_origin.items()))})"
         )
@@ -307,11 +396,15 @@ class Command(BaseCommand):
 
         # 3. Oracle-specific classification + report.
         if oracle == "recompute":
+            # Stamped after the drain, not before it: the fold reflects every offset up to here, so an
+            # oracle window closing earlier would score cohort entries made during the drain as hard
+            # over-counts. --grace-minutes absorbs the remaining tail.
             self._report_recompute(
                 options=options,
                 team_id=team_id,
                 since=since,
-                now=now,
+                now=datetime.now(tz=UTC),
+                explicit_at=explicit_at,
                 cohorts=cohorts,
                 selected_ids=selected_ids,
                 screened=screened,
@@ -338,18 +431,23 @@ class Command(BaseCommand):
                 as_json=as_json,
             )
 
-    def _reject_old_pipeline_flags(self, options: dict[str, Any]) -> None:
-        rejected: list[str] = []
-        if options["threshold"] != 0.5:
-            rejected.append("--threshold")
-        if options["warmup_sample"] != 5000:
-            rejected.append("--warmup-sample")
-        if options["no_classify"]:
-            rejected.append("--no-classify")
-        if rejected:
-            raise CommandError(
-                f"{', '.join(rejected)} parameterize the old-pipeline classifier and are not valid with --oracle recompute"
-            )
+    def _validate_recompute_flags(self, options: dict[str, Any]) -> None:
+        _reject_flags(options, ("threshold", "warmup_sample", "no_classify"), "recompute")
+        grace = options["grace_minutes"]
+        if grace is not None and not 0 <= grace <= MAX_GRACE_MINUTES:
+            # Past a day, grace_start reaches back over the boundary day and buckets seed-day events
+            # as lag noise, collapsing the whole missing set into an ungated class.
+            raise CommandError(f"--grace-minutes must be between 0 and {MAX_GRACE_MINUTES}")
+        for flag in ("max_window_days", "max_oracle_members"):
+            if options[flag] is not None and options[flag] < 1:
+                raise CommandError(f"--{flag.replace('_', '-')} must be positive")
+        if options["run_id"] is not None:
+            try:
+                UUID(options["run_id"])
+            except ValueError as err:
+                # CohortBackfillRun is a UUID model; an unparseable id would otherwise surface as a
+                # raw Django ValidationError traceback after the drain.
+                raise CommandError(f"--run-id is not a UUID: {options['run_id']!r}") from err
 
     def _report_old_pipeline(
         self,
@@ -367,11 +465,13 @@ class Command(BaseCommand):
         drain_warnings: list[str],
         as_json: bool,
     ) -> None:
+        threshold_pct = DEFAULT_THRESHOLD_PCT if options["threshold"] is None else options["threshold"]
+        warmup_sample = DEFAULT_WARMUP_SAMPLE if options["warmup_sample"] is None else options["warmup_sample"]
         classifier_config = ClassifierConfig(
             since=since,
             now=now,
-            threshold_pct=options["threshold"],
-            warmup_sample=options["warmup_sample"],
+            threshold_pct=threshold_pct,
+            warmup_sample=warmup_sample,
             classify=not options["no_classify"],
             activity_probe=make_activity_probe(team_id),
         )
@@ -402,8 +502,8 @@ class Command(BaseCommand):
                 "since": since.isoformat(),
                 "now": now.isoformat(),
                 "shadow_topic": options["shadow_topic"],
-                "threshold_pct": options["threshold"],
-                "warmup_sample": options["warmup_sample"],
+                "threshold_pct": threshold_pct,
+                "warmup_sample": warmup_sample,
                 "classify": not options["no_classify"],
                 "caveats": list(COVERAGE_CAVEATS),
             }
@@ -422,7 +522,7 @@ class Command(BaseCommand):
 
         if summary.failed:
             raise CommandError(
-                f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% parity gate (residual or suspect-missing)"
+                f"{summary.failed} eligible cohort(s) FAIL the {threshold_pct}% parity gate (residual or suspect-missing)"
             )
 
     def _report_recompute(
@@ -432,6 +532,7 @@ class Command(BaseCommand):
         team_id: int,
         since: datetime,
         now: datetime,
+        explicit_at: Optional[datetime],
         cohorts: list[Any],
         selected_ids: list[int],
         screened: Any,
@@ -442,15 +543,20 @@ class Command(BaseCommand):
         as_json: bool,
         log: Any,
     ) -> None:
-        at = now if options["at"] is None else _parse_iso_utc(options["at"], "--at")
-        if at <= since:
-            raise CommandError("--at must be after --since")
+        at = now if explicit_at is None else explicit_at
+        grace_minutes = DEFAULT_GRACE_MINUTES if options["grace_minutes"] is None else options["grace_minutes"]
+        grace = timedelta(minutes=grace_minutes)
+        max_window_days = DEFAULT_MAX_WINDOW_DAYS if options["max_window_days"] is None else options["max_window_days"]
+        max_members = (
+            DEFAULT_MAX_ORACLE_MEMBERS if options["max_oracle_members"] is None else options["max_oracle_members"]
+        )
+        run_id: Optional[str] = options["run_id"]
 
         team = Team.objects.get(id=team_id)
         team_tz = resolve_zoneinfo(team.timezone)
         cohort_by_id = {c.pk: c for c in cohorts}
         completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
-        log(f"recompute oracle at {at.isoformat()} (team tz {team.timezone}); grace {options['grace_minutes']}m")
+        log(f"recompute oracle at {at.isoformat()} (team tz {team.timezone}); grace {grace_minutes}m")
 
         rows: list[RecomputeComparison] = []
         warn_states: list[RecomputeCohortState] = []
@@ -465,59 +571,108 @@ class Command(BaseCommand):
 
             cohort = cohort_by_id[cid]
             pinned_payload, _event_names = pin_conditions_for_cohorts([cohort])
-            screen = screen_for_recompute(cid, cohort.filters, pinned_payload["conditions"])
+            screen = screen_for_recompute(
+                cid, cohort.filters, pinned_payload["conditions"], max_window_days=max_window_days
+            )
             if isinstance(screen, RecomputeUnsupported):
                 rows.append(
                     skip_comparison(cohort_id=cid, name=name, reason=screen.reason, reconcile_runs=reconcile_runs)
                 )
                 continue
 
-            ctx = load_run_context(team_id, cid, options["run_id"])
-            seg_tz_name = ctx.run_timezone if ctx else team.timezone
-            seg_tz = resolve_zoneinfo(seg_tz_name)
+            ctx = load_run_context(team_id, cid, run_id)
+            if run_id is not None and ctx is None:
+                raise CommandError(
+                    f"--run-id {run_id} is not a backfill run with a boundary for cohort {cid}; without it the "
+                    "missing set would silently go unsegmented"
+                )
+            warn_states.append(
+                RecomputeCohortState(
+                    cohort_id=cid,
+                    ctx=ctx,
+                    has_complete_reconcile=any(run.complete for run in reconcile_runs),
+                )
+            )
+            if ctx is not None and ctx.run_timezone != team.timezone:
+                # The processor only ever bins days in the team tz, so seed-chunk days pinned to
+                # another tz cannot be attributed without shifting a day either way.
+                rows.append(
+                    skip_comparison(
+                        cohort_id=cid, name=name, reason="run_tz_differs_from_team_tz", reconcile_runs=reconcile_runs
+                    )
+                )
+                continue
 
-            leaf_members = {h: load_leaf_members(team_id, leaf, at=at, tz=team_tz) for h, leaf in screen.leaves.items()}
+            try:
+                leaf_members = {
+                    key: load_leaf_members(team_id, leaf, at=at, tz=team_tz, limit=max_members)
+                    for key, leaf in screen.leaves.items()
+                }
+            except OracleSetTooLarge as err:
+                rows.append(
+                    skip_comparison(
+                        cohort_id=cid, name=name, reason=f"oracle_set_over_{err.limit}", reconcile_runs=reconcile_runs
+                    )
+                )
+                continue
             oracle_members = compute_oracle_members(screen, leaf_members)
-            fold_members = members(new_state.get(cid, {}))
+            fold_records = new_state.get(cid, {})
+            fold_members = members(fold_records)
 
+            cohort_notes: list[str] = []
+            false_targets = sorted(fold_members - oracle_members)
+            missing_targets = sorted(oracle_members - fold_members)
+
+            # Over-count split: per-leaf counts over each window slid back one day, for the false set.
+            extended_leaf_counts: ExtendedLeafCounts = {}
+            if false_targets and _within_target_cap(false_targets, "over-count", cohort_notes):
+                extended_leaf_counts = {
+                    key: load_leaf_match_counts(
+                        team_id,
+                        leaf,
+                        person_ids=false_targets,
+                        at=at,
+                        tz=team_tz,
+                        extra_days=EVICTION_LOOKBACK_DAYS,
+                    )
+                    for key, leaf in screen.leaves.items()
+                }
+
+            # Under-count segmentation: per-day counts for the missing set of a single monotone leaf.
             day_counts: dict[str, list[Any]] = {}
-            if screen.single_leaf:
-                targets = list(oracle_members ^ fold_members)  # missing ∪ false_members
-                if targets:
+            segmentable = screen.single_leaf and screen.sole_leaf.monotone and ctx is not None
+            if segmentable and missing_targets:
+                if not _within_target_cap(missing_targets, "under-count", cohort_notes):
+                    segmentable = False
+                else:
                     leaf = screen.sole_leaf
-                    at_day = day_of_instant(at, seg_tz)
-                    scan_start = start_of_day_utc(at_day - timedelta(days=leaf.window_days + 1), seg_tz)
-                    grace_start = at - timedelta(minutes=options["grace_minutes"])
-                    boundary_at = ctx.boundary_at if ctx else at
+                    assert ctx is not None
                     day_counts = load_day_counts(
                         team_id,
                         event_name=leaf.event_name,
-                        person_ids=targets,
-                        scan_start=scan_start,
+                        person_ids=missing_targets,
+                        scan_start=window_start_utc(at, leaf.window_days, team_tz),
                         at=at,
-                        grace_start=grace_start,
-                        boundary_at=boundary_at,
-                        seg_tz=seg_tz_name,
+                        grace_start=at - grace,
+                        boundary_at=ctx.boundary_at,
+                        team_tz=team.timezone,
                     )
 
             rows.append(
                 classify_recompute(
                     spec=screen,
                     name=name,
-                    fold_members=fold_members,
+                    fold_records=fold_records,
                     oracle_members=oracle_members,
                     day_counts=day_counts,
+                    extended_leaf_counts=extended_leaf_counts,
                     ctx=ctx,
                     at=at,
-                    seg_tz=seg_tz,
+                    grace=grace,
+                    team_tz=team_tz,
+                    segmentable=segmentable,
                     reconcile_runs=reconcile_runs,
-                )
-            )
-            warn_states.append(
-                RecomputeCohortState(
-                    cohort_id=cid,
-                    ctx=ctx,
-                    has_complete_reconcile=any(run.complete for run in reconcile_runs),
+                    extra_notes=cohort_notes,
                 )
             )
 
@@ -534,8 +689,10 @@ class Command(BaseCommand):
                 "at": at.isoformat(),
                 "now": now.isoformat(),
                 "oracle": "recompute",
-                "grace_minutes": options["grace_minutes"],
-                "run_id": options["run_id"],
+                "grace_minutes": grace_minutes,
+                "run_id": run_id,
+                "max_window_days": max_window_days,
+                "max_oracle_members": max_members,
                 "shadow_topic": options["shadow_topic"],
                 "caveats": list(RECOMPUTE_CAVEATS),
             }
@@ -554,5 +711,6 @@ class Command(BaseCommand):
 
         if summary.failed:
             raise CommandError(
-                f"{summary.failed} cohort(s) FAIL the recompute parity gate (hard over-count or seed/unseeded miss)"
+                f"{summary.failed} cohort(s) FAIL the recompute parity gate "
+                "(hard over-count, or a seed/unseeded/post-boundary miss)"
             )

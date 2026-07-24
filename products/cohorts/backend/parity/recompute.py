@@ -8,6 +8,9 @@ the fold-vs-oracle diff is segmented by backfill day-domain.
 
 Oracle semantics are pinned to the Rust reference so the recompute matches what the processor emits:
 
+- Leaf identity = the full ``BehavioralLeafKey`` tuple, not ``conditionHash``: the hash digests only
+  the event matcher, so leaves differing in window or operator share it
+  (``rust/cohort-core/src/leaf_state/key.rs``).
 - Window = INCLUSIVE ``[at_day - N .. at_day]`` in team tz = ``N + 1`` day-buckets
   (``rust/cohort-core/src/bucket_tz.rs``, via :mod:`.tzdates`).
 - Membership floor = ``count >= 1 AND op(count)`` — zero-event persons are never members, even under
@@ -19,8 +22,9 @@ Oracle semantics are pinned to the Rust reference so the recompute matches what 
 
 MVP scope: ``performed_event`` / ``performed_event_multiple`` leaves with a string event key, no
 ``event_filters`` (property matching is HogVM bytecode, not reproducible in SQL), and whole-day
-sliding windows. Anything else SKIPs with a specific reason. Tree composition over supported leaves
-is in scope (cheap set algebra); single-leaf (the canary shape) is segmentable per day-domain.
+sliding windows within ``max_window_days``. Anything else SKIPs with a specific reason. Tree
+composition over supported leaves is in scope (cheap set algebra); the under-count segmentation
+additionally needs a single leaf and a monotone operator.
 
 Pure — no ClickHouse, no Kafka, no Django. The ClickHouse member-set / segmentation reads and the
 Django run-context load live in :mod:`.oracle`.
@@ -36,9 +40,10 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
+from products.cohorts.backend.models.leaf_shape import BehavioralLeafKey, behavioral_leaf_key
 from products.cohorts.backend.parity.classifier import VERDICT_FAIL, VERDICT_PASS, VERDICT_SKIP
 from products.cohorts.backend.parity.eligibility import explain_unsupported_window, resolve_behavioral_window
-from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
+from products.cohorts.backend.parity.fold import MembershipRecord, ReconcileRunCompleteness, members
 from products.cohorts.backend.parity.tzdates import window_dates
 
 _I32_MIN = -(2**31)
@@ -60,6 +65,10 @@ _MONOTONE_OPS = frozenset({"gte", "gt"})
 _POST_BOUNDARY = "post_boundary"
 _GRACE = "grace"
 
+# Person ids carried per class in the JSON so an operator can triage a gating class or override/merge
+# drift without re-deriving the diff. Bounded — the report is a summary, not a dump.
+SAMPLE_LIMIT = 20
+
 
 # ---------------------------------------------------------------------------
 # Spec: the recompute-supported shape of one cohort.
@@ -68,9 +77,9 @@ _GRACE = "grace"
 
 @dataclass(frozen=True)
 class OracleLeaf:
-    """A recompute-reproducible behavioral leaf: one member-set ClickHouse query per condition hash."""
+    """A recompute-reproducible behavioral leaf: one member-set ClickHouse query per leaf key."""
 
-    condition_hash: str
+    key: BehavioralLeafKey
     event_name: str
     op: str  # gte | lte | gt | lt | eq (whitelist keys, never user text)
     op_value: int  # clamped >= 0
@@ -83,7 +92,7 @@ class OracleLeaf:
 
 @dataclass(frozen=True)
 class _TreeLeaf:
-    condition_hash: str
+    key: BehavioralLeafKey
     negated: bool
 
 
@@ -100,8 +109,8 @@ _TreeNode = Union[_TreeGroup, _TreeLeaf]
 class RecomputeSpec:
     cohort_id: int
     root: _TreeNode
-    leaves: Mapping[str, OracleLeaf]  # deduped by condition hash
-    single_leaf: bool  # exactly one distinct leaf/event → segmentable per day-domain
+    leaves: Mapping[BehavioralLeafKey, OracleLeaf]  # deduped by leaf key
+    single_leaf: bool  # exactly one distinct leaf → the missing set is segmentable per day-domain
 
     @property
     def sole_leaf(self) -> OracleLeaf:
@@ -141,10 +150,26 @@ def _resolve_op(value: str, raw_operator: Any, raw_operator_value: Any) -> tuple
     return op, _clamp_op_value(raw_operator_value)
 
 
+def _leaf_key(source: Mapping[str, Any], *, condition_hash: str) -> BehavioralLeafKey:
+    """Build the leaf key from a raw filter node or a pinned condition row (same field names bar the
+    condition hash, which each side spells differently)."""
+    return behavioral_leaf_key(
+        condition_hash=condition_hash,
+        value=source.get("value"),
+        time_value=source.get("time_value"),
+        time_interval=source.get("time_interval"),
+        explicit_datetime=source.get("explicit_datetime"),
+        explicit_datetime_to=source.get("explicit_datetime_to"),
+        operator=source.get("operator"),
+        operator_value=source.get("operator_value"),
+    )
+
+
 class _ScreenCtx:
-    def __init__(self, pinned_by_hash: Mapping[str, Mapping[str, Any]]) -> None:
-        self.pinned = pinned_by_hash
-        self.leaves: dict[str, OracleLeaf] = {}
+    def __init__(self, pinned_by_key: Mapping[BehavioralLeafKey, Mapping[str, Any]], max_window_days: int) -> None:
+        self.pinned = pinned_by_key
+        self.max_window_days = max_window_days
+        self.leaves: dict[BehavioralLeafKey, OracleLeaf] = {}
         self.unsupported: Optional[str] = None
 
     def fail(self, reason: str) -> None:
@@ -158,7 +183,8 @@ def _parse_behavioral_leaf(node: Mapping[str, Any], ctx: _ScreenCtx) -> Optional
     if not isinstance(condition_hash, str) or not condition_hash:
         ctx.fail("parse_error")
         return None
-    pinned = ctx.pinned.get(condition_hash)
+    key = _leaf_key(node, condition_hash=condition_hash)
+    pinned = ctx.pinned.get(key)
     if pinned is None:
         ctx.fail("parse_error")
         return None
@@ -181,27 +207,34 @@ def _parse_behavioral_leaf(node: Mapping[str, Any], ctx: _ScreenCtx) -> Optional
     if window is None:
         ctx.fail(explain_unsupported_window(pinned))
         return None
-    if window.kind == "seconds":
+    if value == "performed_event_multiple":
+        # select.rs: `effective_window_days == 0` (sub-day, or any explicit shape but a relative
+        # lower bound) is HourlyDeferred — no realtime state at all, so the oracle must not
+        # over-count a whole calendar day for it.
+        if window.kind != "days" or window.days < 1:
+            ctx.fail("hourly_deferred")
+            return None
+    elif window.kind == "seconds":
         ctx.fail("sub_day_window")
         return None
-    if window.kind == "explicit":
+    elif window.kind == "explicit":
         ctx.fail("absolute_explicit_range")
         return None
     window_days = int(window.days)
-    # A 0-day performed_event_multiple is hourly-deferred in the processor (select.rs), no realtime
-    # state — treat as sub-day so the oracle SKIPs rather than over-counting a whole calendar day.
-    if value == "performed_event_multiple" and window_days < 1:
-        ctx.fail("sub_day_window")
+    # Rust treats an astronomical window as "never evicts"; the oracle would have to scan `events`
+    # over it, so screen instead of driving an unbounded read.
+    if window_days > ctx.max_window_days:
+        ctx.fail("window_exceeds_max_days")
         return None
     op, op_value = _resolve_op(value, pinned.get("operator"), pinned.get("operator_value"))
-    ctx.leaves[condition_hash] = OracleLeaf(
-        condition_hash=condition_hash,
+    ctx.leaves[key] = OracleLeaf(
+        key=key,
         event_name=event_name,
         op=op,
         op_value=op_value,
         window_days=window_days,
     )
-    return _TreeLeaf(condition_hash=condition_hash, negated=node.get("negation") is True)
+    return _TreeLeaf(key=key, negated=node.get("negation") is True)
 
 
 def _parse_node(node: Any, ctx: _ScreenCtx) -> Optional[_TreeNode]:
@@ -230,20 +263,24 @@ def screen_for_recompute(
     cohort_id: int,
     filters: Any,
     pinned_conditions: Sequence[Mapping[str, Any]],
+    *,
+    max_window_days: int,
 ) -> Union[RecomputeSpec, RecomputeUnsupported]:
     """Decide whether the oracle can reproduce this cohort, and build its :class:`RecomputeSpec`.
 
     ``filters`` is the current ``Cohort.filters`` (the fold reflects current definitions, so the
     oracle must too — never the run's frozen ``pinned``). ``pinned_conditions`` is
-    ``pin_conditions_for_cohorts([cohort])`` output, joined by ``conditionHash`` for the seeder-parity
-    event-name / action / operator resolution; the raw tree walk supplies structure, negation, and
-    ``event_filters`` presence. Assumes the cohort already passed the emit-eligibility screen (so the
-    tree is non-top-level-negated and ref-free at the group level).
+    ``pin_conditions_for_cohorts([cohort])`` output, joined on the full :class:`BehavioralLeafKey`
+    for the seeder-parity event-name / action resolution; the raw tree walk supplies structure,
+    negation, and ``event_filters`` presence. Assumes the cohort already passed the emit-eligibility
+    screen (so the tree is non-top-level-negated and ref-free at the group level).
     """
     if not isinstance(filters, Mapping) or "properties" not in filters:
         return RecomputeUnsupported("parse_error")
-    pinned_by_hash = {c["condition_hash"]: c for c in pinned_conditions if c.get("condition_hash")}
-    ctx = _ScreenCtx(pinned_by_hash)
+    pinned_by_key = {
+        _leaf_key(c, condition_hash=c["condition_hash"]): c for c in pinned_conditions if c.get("condition_hash")
+    }
+    ctx = _ScreenCtx(pinned_by_key, max_window_days)
     root = _parse_node(filters["properties"], ctx)
     if ctx.unsupported is not None:
         return RecomputeUnsupported(ctx.unsupported)
@@ -262,17 +299,20 @@ def screen_for_recompute(
 # ---------------------------------------------------------------------------
 
 
-def evaluate_tree(node: _TreeNode, leaf_bits: Mapping[str, bool]) -> bool:
+def evaluate_tree(node: _TreeNode, leaf_bits: Mapping[BehavioralLeafKey, bool]) -> bool:
     """Fold the tree to one membership bit. Mirror of evaluator.rs ``evaluate_tree``: absent leaf =
     ``false``, then ``bit ^ negated``; empty AND = ``true``, empty OR = ``false``."""
     if isinstance(node, _TreeGroup):
         if node.op == "AND":
             return all(evaluate_tree(child, leaf_bits) for child in node.children)
         return any(evaluate_tree(child, leaf_bits) for child in node.children)
-    return leaf_bits.get(node.condition_hash, False) ^ node.negated
+    return leaf_bits.get(node.key, False) ^ node.negated
 
 
-def compute_oracle_members(spec: RecomputeSpec, leaf_members: Mapping[str, set[str]]) -> set[str]:
+def compute_oracle_members(
+    spec: RecomputeSpec,
+    leaf_members: Mapping[BehavioralLeafKey, set[str]],
+) -> set[str]:
     """The oracle's member set: compose per-leaf member sets through the tree.
 
     A member must satisfy ``>= 1`` positive leaf (the all-absent evaluation is ``false`` for
@@ -282,12 +322,12 @@ def compute_oracle_members(spec: RecomputeSpec, leaf_members: Mapping[str, set[s
     if not leaf_members:
         return set()
     universe: set[str] = set().union(*leaf_members.values())
-    members: set[str] = set()
+    result: set[str] = set()
     for person in universe:
-        bits = {condition_hash: (person in ids) for condition_hash, ids in leaf_members.items()}
+        bits = {key: (person in ids) for key, ids in leaf_members.items()}
         if evaluate_tree(spec.root, bits):
-            members.add(person)
-    return members
+            result.add(person)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -311,15 +351,17 @@ class RunContext:
 
 @dataclass(frozen=True)
 class DayMatch:
-    """One (person, day-in-seg-tz, boundary-bucket) match count from the segmentation query."""
+    """One (person, team-tz day, boundary-bucket) match count from the segmentation query."""
 
     day: date
     bucket: str  # pre_boundary | post_boundary | grace
     matches: int
 
 
-# person_id -> their per-(day, bucket) match counts, over missing ∪ false_members.
+# person_id -> their per-(day, bucket) match counts, over the missing set.
 PersonDayCounts = Mapping[str, Sequence[DayMatch]]
+# leaf key -> {person_id: match count over the leaf's window slid back one day}, over the false set.
+ExtendedLeafCounts = Mapping[BehavioralLeafKey, Mapping[str, int]]
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +383,10 @@ def _min_count(op: str, op_value: int) -> int:
     raise ValueError(f"non-monotone op {op!r} has no membership threshold")
 
 
+def _sample(ids: Sequence[str]) -> tuple[str, ...]:
+    return tuple(sorted(ids)[:SAMPLE_LIMIT])
+
+
 @dataclass(frozen=True)
 class RecomputeComparison:
     cohort_id: int
@@ -352,16 +398,17 @@ class RecomputeComparison:
     oracle_count: int = 0
     both: int = 0
     false_members: int = 0  # members(fold) - oracle (over-count; hard invariant)
-    false_hard: int = 0  # false_members not explained by pending eviction
-    eviction_pending: int = 0  # still a member if the just-slid-out day were included (sweep lag)
+    false_hard: int = 0  # false_members not explained by sweep lag
+    eviction_pending: int = 0  # sweep lag: still a member one day back, or entered within grace
     missing: int = 0  # oracle - members(fold) (under-count)
     missing_grace: int = 0
     missing_seed_domain: int = 0  # qualified by confirmed seed days alone — gates FAIL
     missing_boundary_day: int = 0  # needs boundary-day pre-boundary events — the decaying gap
     missing_unseeded_day: int = 0  # needs a pre-boundary window day with no confirmed chunk — FAIL
-    missing_post_boundary: int = 0  # needs post-boundary events — live-path timing
-    missing_unsegmented: int = 0  # multi-leaf / non-monotone / no run context
+    missing_post_boundary: int = 0  # needs post-boundary events the live path owns — gates FAIL
+    missing_unsegmented: int = 0  # multi-leaf / non-monotone / no run context — not adjudicated
     expires_by_day: Mapping[str, int] = field(default_factory=dict)  # boundary-class decay prediction
+    samples: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # bounded person ids per class
     run_id: Optional[str] = None
     run_status: Optional[str] = None
     boundary_at: Optional[str] = None
@@ -371,10 +418,6 @@ class RecomputeComparison:
     shape_hash_drift: bool = False
     reconcile_runs: tuple[ReconcileRunCompleteness, ...] = ()
     notes: tuple[str, ...] = ()
-
-    @property
-    def gated(self) -> bool:
-        return self.verdict in (VERDICT_PASS, VERDICT_FAIL)
 
 
 def skip_comparison(
@@ -413,7 +456,9 @@ def _domain_counts(
 
     ``seed`` / ``boundary`` / ``unseeded`` partition the pre-boundary window days: boundary-day first
     (the seed/live handoff day, even if a chunk exists for it), then confirmed-seed days, then the
-    rest (window days with no confirmed chunk).
+    rest (window days with no confirmed chunk). The scan and the window share one tz and one range,
+    so the out-of-window skip is defensive only — a dropped in-window match would understate the
+    total and misfile the person as lag noise.
     """
     grace = seed = boundary = unseeded = post = 0
     for (day, bucket), count in _person_day_totals(matches).items():
@@ -441,7 +486,8 @@ def _classify_missing_person(
 ) -> str:
     """Assign a missing (oracle - fold) person to a day-domain class. Precedence grace ≻ seed ≻
     boundary ≻ unseeded ≻ post: the highest-precedence domain whose cumulative count crosses the
-    membership threshold."""
+    membership threshold. The classes are exhaustive — the final fall-through implies ``post > 0``,
+    since the three preceding sums were all below the threshold the total clears."""
     grace, seed, boundary, unseeded, post = _domain_counts(matches, window=window, ctx=ctx)
     if seed + boundary + unseeded + post < min_count:
         return "missing_grace"  # crossing depends on the last grace-minutes — lag noise
@@ -451,16 +497,21 @@ def _classify_missing_person(
         return "missing_boundary_day"  # needs boundary-day pre-boundary events — decaying gap
     if seed + boundary + unseeded >= min_count:
         return "missing_unseeded_day"  # needs an unseeded pre-boundary window day — gates FAIL
-    return "missing_post_boundary"  # needs post-boundary events — live-path timing
+    return "missing_post_boundary"  # needs post-boundary events the live path owns — gates FAIL
 
 
-def _expiry_date(matches: Sequence[DayMatch], *, window: frozenset[date], window_days: int, min_count: int) -> date:
+def _expiry_date(
+    matches: Sequence[DayMatch], *, window: frozenset[date], window_days: int, min_count: int
+) -> Optional[date]:
     """The smallest future date at which this person's window count drops below ``min_count`` absent
-    new events: the day the oldest still-needed match ages out, ``+ window_days + 1``."""
+    new events: the day the oldest still-needed match ages out, ``+ window_days + 1``. ``None`` when
+    no in-window match explains the membership, which leaves nothing to age out."""
     per_day: dict[date, int] = defaultdict(int)
     for match in matches:
         if match.day in window:
             per_day[match.day] += match.matches
+    if not per_day:
+        return None
     accumulated = 0
     critical_day = min(per_day)
     for day in sorted(per_day, reverse=True):  # newest first
@@ -471,19 +522,31 @@ def _expiry_date(matches: Sequence[DayMatch], *, window: frozenset[date], window
     return critical_day + timedelta(days=window_days + 1)
 
 
+def _unsegmentable_note(leaf: Optional[OracleLeaf], ctx: Optional[RunContext]) -> str:
+    if leaf is None:
+        return "multi-leaf cohort: day-domain segmentation unavailable"
+    if not leaf.monotone:
+        return f"non-monotone op {leaf.op!r}: missing set left unsegmented (membership parity only)"
+    return "no backfill run with a boundary; missing set left unsegmented"
+
+
 def classify_recompute(
     *,
     spec: RecomputeSpec,
     name: str,
-    fold_members: set[str],
+    fold_records: Mapping[str, MembershipRecord],
     oracle_members: set[str],
     day_counts: PersonDayCounts,
+    extended_leaf_counts: ExtendedLeafCounts,
     ctx: Optional[RunContext],
     at: datetime,
-    seg_tz: ZoneInfo,
+    grace: timedelta,
+    team_tz: ZoneInfo,
+    segmentable: bool = True,
     reconcile_runs: Sequence[ReconcileRunCompleteness] = (),
     extra_notes: Sequence[str] = (),
 ) -> RecomputeComparison:
+    fold_members = members(fold_records)
     both = fold_members & oracle_members
     false_set = fold_members - oracle_members
     missing_set = oracle_members - fold_members
@@ -497,44 +560,68 @@ def classify_recompute(
         "missing_post_boundary": 0,
         "missing_unsegmented": 0,
     }
-    eviction_pending: set[str] = set()
+    per_class: dict[str, list[str]] = defaultdict(list)
     expires_by_day: dict[str, int] = defaultdict(int)
 
-    if spec.single_leaf:
-        leaf = spec.sole_leaf
-        window = frozenset(window_dates(at, leaf.window_days, seg_tz))
+    # Over-count split. A false member is sweep lag, not over-inclusion, when either
+    #   (a) the tree still evaluates true once every leaf window is slid back one day — the person is
+    #       due for eviction but the tz-midnight sweep has not caught up; or
+    #   (b) they entered within the grace window — the processor enters on the event and only leaves
+    #       on a sweep tick, so a just-ingested historical event legitimately shows as a member
+    #       (`event_path.rs` sets has_match on any match; only the sweep clears it).
+    entered_after = at - grace
+    eviction_pending: set[str] = set()
+    for person in false_set:
+        if fold_records[person].last_updated >= entered_after:
+            eviction_pending.add(person)
+            continue
+        if not extended_leaf_counts:
+            continue  # slid-back counts were not loaded (the caller says why); score the person hard
+        extended_bits = {
+            key: _member(extended_leaf_counts.get(key, {}).get(person, 0), leaf.op, leaf.op_value)
+            for key, leaf in spec.leaves.items()
+        }
+        if evaluate_tree(spec.root, extended_bits):
+            eviction_pending.add(person)
 
-        # Eviction split: a false member still a member once the just-slid-out day (at_day - N - 1) is
-        # included is sweep-lag noise, not over-inclusion. The segmentation scan reaches that extra day.
-        for person in false_set:
-            extended = sum(match.matches for match in day_counts.get(person, ()))
-            if _member(extended, leaf.op, leaf.op_value):
-                eviction_pending.add(person)
-
-        if leaf.monotone and ctx is not None:
-            min_count = _min_count(leaf.op, leaf.op_value)
-            for person in missing_set:
-                matches = day_counts.get(person, ())
-                bucket = _classify_missing_person(matches, window=window, ctx=ctx, min_count=min_count)
-                counts[bucket] += 1
-                if bucket == "missing_boundary_day":
-                    day = _expiry_date(matches, window=window, window_days=leaf.window_days, min_count=min_count)
+    # Under-count segmentation. Needs one leaf (a per-day scan of one event name), a monotone op (a
+    # day's matches can only push a person toward membership), and a run to attribute days against.
+    leaf = spec.sole_leaf if spec.single_leaf else None
+    if segmentable and leaf is not None and leaf.monotone and ctx is not None:
+        window = frozenset(window_dates(at, leaf.window_days, team_tz))
+        min_count = _min_count(leaf.op, leaf.op_value)
+        for person in missing_set:
+            matches = day_counts.get(person, ())
+            bucket = _classify_missing_person(matches, window=window, ctx=ctx, min_count=min_count)
+            counts[bucket] += 1
+            per_class[bucket].append(person)
+            if bucket == "missing_boundary_day":
+                day = _expiry_date(matches, window=window, window_days=leaf.window_days, min_count=min_count)
+                if day is not None:
                     expires_by_day[day.isoformat()] += 1
-        else:
-            counts["missing_unsegmented"] = len(missing_set)
-            if ctx is None:
-                notes.append("no backfill run with a boundary; missing set left unsegmented")
-            else:
-                notes.append(f"non-monotone op {leaf.op!r}: missing set left unsegmented (membership parity only)")
     else:
         counts["missing_unsegmented"] = len(missing_set)
-        notes.append(
-            "multi-leaf cohort: domain segmentation and eviction split unavailable; false members counted hard"
-        )
+        per_class["missing_unsegmented"] = list(missing_set)
+        # A caller that passed segmentable=False already recorded why in extra_notes.
+        if segmentable:
+            notes.append(_unsegmentable_note(leaf, ctx))
 
-    false_hard = len(false_set) - len(eviction_pending)
-    fail = false_hard > 0 or (counts["missing_seed_domain"] + counts["missing_unseeded_day"]) > 0
-    verdict = VERDICT_FAIL if fail else VERDICT_PASS
+    false_hard_set = false_set - eviction_pending
+    gated_missing = counts["missing_seed_domain"] + counts["missing_unseeded_day"] + counts["missing_post_boundary"]
+    if false_hard_set or gated_missing:
+        verdict = VERDICT_FAIL
+    elif counts["missing_unsegmented"]:
+        # Not a PASS: the over-count side is clean but the under-count was never adjudicated.
+        verdict = VERDICT_SKIP
+        notes.append(f"{counts['missing_unsegmented']} missing person(s) unadjudicated; parity not established")
+    else:
+        verdict = VERDICT_PASS
+
+    samples = {
+        "false_hard": _sample(list(false_hard_set)),
+        "eviction_pending": _sample(list(eviction_pending)),
+        **{cls: _sample(ids) for cls, ids in per_class.items()},
+    }
 
     return RecomputeComparison(
         cohort_id=spec.cohort_id,
@@ -545,7 +632,7 @@ def classify_recompute(
         oracle_count=len(oracle_members),
         both=len(both),
         false_members=len(false_set),
-        false_hard=false_hard,
+        false_hard=len(false_hard_set),
         eviction_pending=len(eviction_pending),
         missing=len(missing_set),
         missing_grace=counts["missing_grace"],
@@ -555,6 +642,7 @@ def classify_recompute(
         missing_post_boundary=counts["missing_post_boundary"],
         missing_unsegmented=counts["missing_unsegmented"],
         expires_by_day=dict(sorted(expires_by_day.items())),
+        samples={cls: ids for cls, ids in sorted(samples.items()) if ids},
         run_id=ctx.run_id if ctx else None,
         run_status=ctx.status if ctx else None,
         boundary_at=ctx.boundary_at.isoformat() if ctx else None,
@@ -578,6 +666,8 @@ class RecomputeSummary:
     seed_domain_total: int = 0
     unseeded_total: int = 0
     boundary_total: int = 0
+    post_boundary_total: int = 0
+    unsegmented_total: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -596,4 +686,6 @@ def summarize_recompute(rows: Sequence[RecomputeComparison]) -> RecomputeSummary
         summary.seed_domain_total += row.missing_seed_domain
         summary.unseeded_total += row.missing_unseeded_day
         summary.boundary_total += row.missing_boundary_day
+        summary.post_boundary_total += row.missing_post_boundary
+        summary.unsegmented_total += row.missing_unsegmented
     return summary

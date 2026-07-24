@@ -92,23 +92,35 @@ def _sorted_recompute_rows(rows: Sequence[RecomputeComparison]) -> list[Recomput
     return sorted(rows, key=lambda r: (_RECOMPUTE_VERDICT_ORDER.get(r.verdict, 9), -r.false_hard, r.cohort_id))
 
 
+_RECOMPUTE_LABEL_WIDTH = 32
+_RECOMPUTE_VERDICT_WIDTH = 7
+_RECOMPUTE_HEADER = (
+    f"{'cohort':<{_RECOMPUTE_LABEL_WIDTH}} {'fold':>8} {'oracle':>8} {'both':>8} {'false':>7} {'hard':>6} "
+    f"{'evict':>6} {'miss':>7} {'grace':>6} {'seed':>6} {'bdry':>6} {'unseed':>6} {'post':>6} "
+    f"{'verdict':>{_RECOMPUTE_VERDICT_WIDTH}}"
+)
+# A screen-skipped row spends every numeric column on the reason, so the line still aligns.
+_RECOMPUTE_SKIP_WIDTH = len(_RECOMPUTE_HEADER) - _RECOMPUTE_LABEL_WIDTH - _RECOMPUTE_VERDICT_WIDTH - 2
+
+
 def format_recompute_table(rows: Sequence[RecomputeComparison]) -> str:
-    header = (
-        f"{'cohort':<32} {'fold':>8} {'oracle':>8} {'both':>8} {'false':>7} {'hard':>6} {'evict':>6} "
-        f"{'miss':>7} {'grace':>6} {'seed':>6} {'bdry':>6} {'unseed':>6} {'post':>6} {'verdict':>7}"
-    )
-    lines = [header, "-" * len(header)]
+    lines = [_RECOMPUTE_HEADER, "-" * len(_RECOMPUTE_HEADER)]
     for r in _sorted_recompute_rows(rows):
         label = f"{r.cohort_id} {r.name}"
-        if len(label) > 31:
-            label = label[:28] + "..."
+        if len(label) > _RECOMPUTE_LABEL_WIDTH - 1:
+            label = label[: _RECOMPUTE_LABEL_WIDTH - 4] + "..."
         if not r.supported:
-            lines.append(f"{label:<32} {('SKIP: ' + r.skip_reason):<95} {r.verdict:>7}")
+            reason = f"SKIP: {r.skip_reason}"[:_RECOMPUTE_SKIP_WIDTH]
+            lines.append(
+                f"{label:<{_RECOMPUTE_LABEL_WIDTH}} {reason:<{_RECOMPUTE_SKIP_WIDTH}} "
+                f"{r.verdict:>{_RECOMPUTE_VERDICT_WIDTH}}"
+            )
             continue
         lines.append(
-            f"{label:<32} {r.fold_count:>8} {r.oracle_count:>8} {r.both:>8} {r.false_members:>7} {r.false_hard:>6} "
-            f"{r.eviction_pending:>6} {r.missing:>7} {r.missing_grace:>6} {r.missing_seed_domain:>6} "
-            f"{r.missing_boundary_day:>6} {r.missing_unseeded_day:>6} {r.missing_post_boundary:>6} {r.verdict:>7}"
+            f"{label:<{_RECOMPUTE_LABEL_WIDTH}} {r.fold_count:>8} {r.oracle_count:>8} {r.both:>8} "
+            f"{r.false_members:>7} {r.false_hard:>6} {r.eviction_pending:>6} {r.missing:>7} {r.missing_grace:>6} "
+            f"{r.missing_seed_domain:>6} {r.missing_boundary_day:>6} {r.missing_unseeded_day:>6} "
+            f"{r.missing_post_boundary:>6} {r.verdict:>{_RECOMPUTE_VERDICT_WIDTH}}"
         )
     return "\n".join(lines)
 
@@ -135,8 +147,9 @@ def format_recompute_summary(summary: RecomputeSummary) -> str:
     lines = [
         f"verdicts: {summary.passed} PASS, {summary.failed} FAIL, {summary.skipped} SKIP",
         f"over-count: false_hard={summary.false_hard_total} (eviction_pending={summary.eviction_pending_total}); "
-        f"under-count: missing={summary.missing_total} "
-        f"(seed_domain={summary.seed_domain_total}, unseeded={summary.unseeded_total}, boundary={summary.boundary_total})",
+        f"under-count: missing={summary.missing_total} (seed_domain={summary.seed_domain_total}, "
+        f"unseeded={summary.unseeded_total}, post_boundary={summary.post_boundary_total}, "
+        f"boundary={summary.boundary_total}, unsegmented={summary.unsegmented_total})",
     ]
     for warning in summary.warnings:
         lines.append(f"WARNING: {warning}")

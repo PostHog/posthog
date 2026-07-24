@@ -55,16 +55,38 @@ def start_of_day_utc(day: date, tz: ZoneInfo) -> datetime:
     return local_midnight.astimezone(UTC)
 
 
+# Saturation floor for an astronomical window: the earliest day a ClickHouse `DateTime64` event
+# timestamp can hold, so the saturated bound still renders as a query parameter.
+EPOCH_DAY = date(1970, 1, 1)
+
+
+def window_start_day(at_day: date, window_days: int) -> date:
+    """``at_day - N``, **saturating** at :data:`EPOCH_DAY` for an astronomical window.
+
+    Mirrors ``bucket_tz.rs`` ``window_start_for_now``, which saturates to ``DayIdx::MIN`` rather than
+    wrapping: an essentially infinite window covers everything and never evicts. Python would raise
+    ``OverflowError`` instead. Defense in depth only — callers screen oversized windows before they
+    drive a scan (see ``recompute.screen_for_recompute``).
+    """
+    if window_days < 0:
+        raise ValueError("window_days must be non-negative")
+    try:
+        start = at_day - timedelta(days=window_days)
+    except OverflowError:
+        return EPOCH_DAY
+    return max(start, EPOCH_DAY)
+
+
 def window_dates(at: datetime, window_days: int, tz: ZoneInfo) -> list[date]:
     """The inclusive ``[at_day - N .. at_day]`` set = ``N + 1`` team-tz dates, ascending.
 
     ``window_days`` is the leaf's whole-day sliding window ``N``; the returned list has ``N + 1``
-    entries (the ``+ 1`` is the off-by-one the pipeline's inclusive lower bound demands).
+    entries (the ``+ 1`` is the off-by-one the pipeline's inclusive lower bound demands), unless the
+    start saturates at :attr:`date.min`.
     """
-    if window_days < 0:
-        raise ValueError("window_days must be non-negative")
     at_day = day_of_instant(at, tz)
-    return [at_day - timedelta(days=offset) for offset in range(window_days, -1, -1)]
+    start = window_start_day(at_day, window_days)
+    return [start + timedelta(days=offset) for offset in range((at_day - start).days + 1)]
 
 
 def window_start_utc(at: datetime, window_days: int, tz: ZoneInfo) -> datetime:
@@ -73,5 +95,4 @@ def window_start_utc(at: datetime, window_days: int, tz: ZoneInfo) -> datetime:
     Paired with an ``e.timestamp <= at`` upper bound, ``e.timestamp >= window_start_utc(...)``
     selects exactly the whole-day window set without per-event day-bucketing.
     """
-    start_day = day_of_instant(at, tz) - timedelta(days=window_days)
-    return start_of_day_utc(start_day, tz)
+    return start_of_day_utc(window_start_day(day_of_instant(at, tz), window_days), tz)

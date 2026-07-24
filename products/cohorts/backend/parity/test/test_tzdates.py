@@ -5,7 +5,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cohorts.backend.parity.tzdates import day_of_instant, start_of_day_utc, window_dates, window_start_utc
+from products.cohorts.backend.parity.tzdates import (
+    EPOCH_DAY,
+    day_of_instant,
+    start_of_day_utc,
+    window_dates,
+    window_start_utc,
+)
 
 PACIFIC = ZoneInfo("US/Pacific")
 
@@ -92,6 +98,20 @@ class TestTzDates(SimpleTestCase):
         dates = window_dates(at, window_days, PACIFIC)
         self.assertEqual(dates, expected)
         self.assertEqual(len(dates), window_days + 1)
+
+    @parameterized.expand(
+        [
+            # `time_value: 10000, time_interval: "year"` resolves to 3_650_000 days; i32::MAX is the
+            # ceiling the filter grammar allows. Both overflow `date` arithmetic, and an uncaught
+            # OverflowError would kill a whole team-wide report after the drain.
+            ("ten_thousand_years", 3_650_000),
+            ("i32_max", 2**31 - 1),
+        ]
+    )
+    def test_astronomical_window_saturates_instead_of_overflowing(self, _name: str, window_days: int) -> None:
+        at = datetime(2026, 7, 24, 18, 0, tzinfo=UTC)
+        self.assertEqual(window_start_utc(at, window_days, PACIFIC), start_of_day_utc(EPOCH_DAY, PACIFIC))
+        self.assertEqual(window_dates(at, window_days, PACIFIC)[0], EPOCH_DAY)
 
     def test_window_start_utc_is_midnight_of_at_day_minus_n(self) -> None:
         at = datetime(2026, 7, 24, 18, 0, tzinfo=UTC)  # 2026-07-24 in US/Pacific
