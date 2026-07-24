@@ -4,6 +4,7 @@ describe('promotePosthogCustomMetadata', () => {
     it.each([
         ['posthog_tags', 'tags', ['beta', 'internal']],
         ['posthog_environment', 'environment', 'prod'],
+        ['posthog_constructor', 'constructor', 'ctor-value'],
     ])('promotes <namespace>%s to %s with the prefix stripped', (suffix, name, value) => {
         const props: Record<string, unknown> = { [`ns.${suffix}`]: value }
         promotePosthogCustomMetadata(props, 'ns.')
@@ -24,5 +25,11 @@ describe('promotePosthogCustomMetadata', () => {
         const props: Record<string, unknown> = { tags: ['keep'], 'ns.posthog_tags': ['drop'] }
         promotePosthogCustomMetadata(props, 'ns.')
         expect(props['tags']).toEqual(['keep'])
+    })
+
+    it('skips __proto__ instead of polluting the prototype', () => {
+        const props: Record<string, unknown> = { 'ns.posthog___proto__': { polluted: true } }
+        promotePosthogCustomMetadata(props, 'ns.')
+        expect(Object.getPrototypeOf(props)).toBe(Object.prototype)
     })
 })

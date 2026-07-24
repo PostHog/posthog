@@ -1,5 +1,5 @@
 const CUSTOM_METADATA_MARKER = 'posthog_'
-const RESERVED_CUSTOM_NAMES = new Set(['distinct_id'])
+const RESERVED_CUSTOM_NAMES = new Set(['distinct_id', '__proto__'])
 
 export function promotePosthogCustomMetadata(props: Record<string, unknown>, namespacePrefix: string): void {
     const prefix = `${namespacePrefix}${CUSTOM_METADATA_MARKER}`
@@ -11,7 +11,7 @@ export function promotePosthogCustomMetadata(props: Record<string, unknown>, nam
         if (!name || name.startsWith('$') || RESERVED_CUSTOM_NAMES.has(name)) {
             continue
         }
-        if (props[name] === undefined) {
+        if (!Object.prototype.hasOwnProperty.call(props, name)) {
             props[name] = props[key]
         }
     }
