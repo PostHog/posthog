@@ -314,7 +314,26 @@ export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
             if (!expected) {
                 return { ok: false, status: 500, reason: 'shared_secret_not_set' }
             }
-            if (!secretsMatch(provided, expected)) {
+            if (mode.scheme === 'hmac_sha256') {
+                // The header carries a signature over the raw body, not the
+                // secret — signers like GitHub never transmit the secret itself.
+                const prefix = mode.signature_prefix ?? 'sha256='
+                if (!provided.startsWith(prefix)) {
+                    return { ok: false, status: 401, reason: 'malformed_signature' }
+                }
+                // Hash the exact bytes the sender signed. A missing capture is a
+                // server misconfiguration (a route reached here without the
+                // raw-body hook), not a bad credential — fail loudly rather than
+                // hashing '' and rejecting every legitimate delivery as a 401.
+                const rawBody = (req as Request & { rawBodyBytes?: Buffer }).rawBodyBytes
+                if (rawBody === undefined) {
+                    return { ok: false, status: 500, reason: 'raw_body_unavailable' }
+                }
+                const digest = createHmac('sha256', expected).update(rawBody).digest('hex')
+                if (!secretsMatch(provided.slice(prefix.length).toLowerCase(), digest)) {
+                    return { ok: false, status: 401, reason: 'invalid_signature' }
+                }
+            } else if (!secretsMatch(provided, expected)) {
                 return { ok: false, status: 401, reason: 'invalid_secret' }
             }
             const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id }

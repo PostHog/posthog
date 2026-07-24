@@ -1,4 +1,5 @@
-import { DataWarehouseSource } from '../../signalSourcesLogic'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+
 import { SignalSourceProduct } from '../../types'
 
 /**
@@ -11,10 +12,13 @@ export type AgentRosterSource =
     | 'conversations'
     | 'session_replay'
     | 'llm_analytics'
+    | 'analytics'
+    | 'health_checks'
     | 'github'
     | 'linear'
     | 'zendesk'
     | 'pganalyze'
+    | 'engineering_analytics'
 
 export interface AgentRosterDefinition {
     source: AgentRosterSource
@@ -25,12 +29,8 @@ export interface AgentRosterDefinition {
     docsUrl?: string
     docsLabel?: string
     alpha?: boolean
-    /**
-     * For data-warehouse-backed sources, the wizard product passed to
-     * `initiateDataWarehouseSourceToggle`. Absent for native PostHog sources
-     * (error tracking, session replay).
-     */
-    dataWarehouseSource?: DataWarehouseSource
+    /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
+    flag?: FeatureFlagKey
 }
 
 export interface AgentRosterGroup {
@@ -75,6 +75,21 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 docsLabel: 'AI observability',
             },
+            {
+                source: 'analytics',
+                sourceProduct: SignalSourceProduct.Analytics,
+                label: 'Product analytics',
+                description: 'Anomalies and unexpected shifts detected in your product metrics.',
+                docsUrl: 'https://posthog.com/docs/product-analytics',
+                docsLabel: 'Product analytics',
+                alpha: true,
+            },
+            {
+                source: 'health_checks',
+                sourceProduct: SignalSourceProduct.HealthChecks,
+                label: 'Health checks',
+                description: 'Instrumentation issues - missing events, proxy gaps, and outdated SDKs.',
+            },
         ],
     },
     {
@@ -85,28 +100,32 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 sourceProduct: SignalSourceProduct.Github,
                 label: 'GitHub Issues',
                 description: 'Issues filed in GitHub.',
-                dataWarehouseSource: 'Github',
+            },
+            {
+                source: 'engineering_analytics',
+                sourceProduct: SignalSourceProduct.EngineeringAnalytics,
+                label: 'GitHub CI',
+                description: 'Flaky checks, broken default branch, and slowing workflows in GitHub Actions.',
+                alpha: true,
+                flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             },
             {
                 source: 'linear',
                 sourceProduct: SignalSourceProduct.Linear,
                 label: 'Linear',
                 description: 'Issues tracked in Linear.',
-                dataWarehouseSource: 'Linear',
             },
             {
                 source: 'zendesk',
                 sourceProduct: SignalSourceProduct.Zendesk,
                 label: 'Zendesk',
                 description: 'Incoming Zendesk tickets.',
-                dataWarehouseSource: 'Zendesk',
             },
             {
                 source: 'pganalyze',
                 sourceProduct: SignalSourceProduct.Pganalyze,
                 label: 'pganalyze',
                 description: 'Postgres performance problems – slow queries and bad indexes.',
-                dataWarehouseSource: 'PgAnalyze',
             },
         ],
     },

@@ -18,6 +18,7 @@ import type {
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
@@ -38,6 +39,7 @@ import type {
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
+    DashboardsSubscribeNudgeCreateParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
     DashboardsUpdateWidgetsBatchParams,
@@ -777,6 +779,41 @@ export const dashboardsStreamTilesRetrieve = async (
     return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDashboardsSubscribeNudgeCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsSubscribeNudgeCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/subscribe_nudge/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/subscribe_nudge/`
+}
+
+/**
+ * Send the requesting user an in-app notification suggesting they subscribe to this dashboard. Deduplicated server-side: at most one notification per user and dashboard, ever, so repeat calls return 200 with created=false.
+ */
+export const dashboardsSubscribeNudgeCreate = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsSubscribeNudgeCreateParams,
+    options?: RequestInit
+): Promise<DashboardSubscribeNudgeResponseApi> => {
+    return apiMutator<DashboardSubscribeNudgeResponseApi>(getDashboardsSubscribeNudgeCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
     })
 }
 

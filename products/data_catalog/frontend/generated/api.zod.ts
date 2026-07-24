@@ -36,6 +36,9 @@ export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
+export const dataCatalogMetricsCreateBodyConfidenceMin = 0
+export const dataCatalogMetricsCreateBodyConfidenceMax = 1
+
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -76,7 +79,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsCreateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsCreateBodyConfidenceMin)
+        .max(dataCatalogMetricsCreateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -93,6 +101,9 @@ export const dataCatalogMetricsUpdateBodyUnitMax = 64
 export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -134,7 +145,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -151,6 +167,9 @@ export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -193,7 +212,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -221,3 +245,61 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
+
+/**
+ * Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.
+ */
+export const dataCatalogRelationshipProposalsCreateBodySourceTableNameMax = 400
+
+export const dataCatalogRelationshipProposalsCreateBodySourceTableKeyMax = 400
+
+export const dataCatalogRelationshipProposalsCreateBodyJoiningTableNameMax = 400
+
+export const dataCatalogRelationshipProposalsCreateBodyJoiningTableKeyMax = 400
+
+export const dataCatalogRelationshipProposalsCreateBodyFieldNameMax = 400
+
+export const dataCatalogRelationshipProposalsCreateBodyConfidenceMin = 0
+export const dataCatalogRelationshipProposalsCreateBodyConfidenceMax = 1
+
+export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.object({
+    source_table_name: zod
+        .string()
+        .max(dataCatalogRelationshipProposalsCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from.'),
+    source_table_key: zod
+        .string()
+        .max(dataCatalogRelationshipProposalsCreateBodySourceTableKeyMax)
+        .describe('HogQL key expression on the source table (casts allowed).'),
+    joining_table_name: zod
+        .string()
+        .max(dataCatalogRelationshipProposalsCreateBodyJoiningTableNameMax)
+        .describe('Name of the table being joined in.'),
+    joining_table_key: zod
+        .string()
+        .max(dataCatalogRelationshipProposalsCreateBodyJoiningTableKeyMax)
+        .describe('HogQL key expression on the joining table (casts allowed).'),
+    field_name: zod
+        .string()
+        .max(dataCatalogRelationshipProposalsCreateBodyFieldNameMax)
+        .describe('Accessor the join adds to the source table.'),
+    configuration: zod.unknown().optional().describe('Extra join configuration, e.g. a field mapping.'),
+    confidence: zod
+        .number()
+        .min(dataCatalogRelationshipProposalsCreateBodyConfidenceMin)
+        .max(dataCatalogRelationshipProposalsCreateBodyConfidenceMax)
+        .nullish()
+        .describe('Discovery confidence in this join, 0-1.'),
+    reasoning: zod.string().optional().describe('Why this join is proposed.'),
+    evidence: zod.unknown().optional().describe('Sampling evidence: match rates, sample values.'),
+})
+
+/**
+ * Reject the proposal. Persists forever so the pair is never re-proposed.
+ */
+export const DataCatalogRelationshipProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
+    rejection_reason: zod
+        .string()
+        .optional()
+        .describe('Why the proposal is rejected. Persisted so it is never re-proposed.'),
+})

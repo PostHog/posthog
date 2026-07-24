@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { insightsApi } from 'scenes/insights/utils/api'
 
@@ -54,13 +55,20 @@ describe('accountBillingLogic', () => {
             logic.mount()
         }
 
-        it('loads every saved insight configured for the kind', async () => {
+        it('loads every saved insight configured for the kind, with product-attribution query tags', async () => {
             mountForKind()
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.savedInsights?.map((insight) => insight.short_id)).toEqual(
                 BILLING_INSIGHT_SHORT_IDS[kind]
             )
+            // Without these tags the ad-hoc SQL is untagged and local dev rejects it (UntaggedQueryError).
+            for (const insight of logic.values.savedInsights ?? []) {
+                expect((insight.query as Record<string, any>).source.tags).toEqual({
+                    productKey: 'customer_analytics',
+                    scene: 'CustomerAnalytics',
+                })
+            }
         })
 
         it('injects the external id into each saved insight variables', async () => {
@@ -96,6 +104,50 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        it('keeps hidden series keyed per insight, so hiding on one of the two spend charts sharing this logic does not hide on the other, and resets them on date change', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            mountForKind()
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': ['Events-0'],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: true,
+                series_count: 2,
+            })
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': [],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: false,
+                series_count: 3,
+            })
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({})
+        })
+
+        // Environments without the saved billing insight (or a failing fetch) must degrade to an
+        // empty list, which is what drives the tab's not-found state instead of a crash or broken chart.
+        it.each([
+            ['is absent', () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null)],
+            ['fails to load', () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom'))],
+        ])('resolves to no saved insights when the billing insight %s', async (_label, mockGetByShortId) => {
+            mockGetByShortId()
+            mountForKind()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.savedInsights).toEqual([])
         })
     })
 })

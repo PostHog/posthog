@@ -2,12 +2,28 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 
-from ...api.skill_services import MAX_SKILL_FILE_COUNT
+from ee.models.rbac.access_control import AccessControl
+
+from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
+from ...api.skill_services import (
+    MAX_SKILL_FILE_COUNT,
+    archive_skill,
+    create_skill,
+    publish_skill_version,
+    resolve_skill_owners,
+    set_skill_owners,
+)
 from ...models.skills import LLMSkill, LLMSkillFile
 
 
@@ -255,6 +271,8 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(results) == 2
         assert all("description" in r for r in results)
         assert all("body" not in r for r in results)
+        # Body-paging metadata is meaningless without the body — it must not leak into the list.
+        assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
 
     def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
@@ -331,6 +349,133 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
+    # --- Search ---
+
+    def test_search_skills_orders_fields_by_relevance_and_skips_non_markdown_file_contents(self):
+        self.create_skill(name="needle", description="Exact name match.", body="# Exact")
+        self.create_skill(name="needle-name", description="Partial name match.", body="# Name")
+        self.create_skill(name="description-skill", description="Contains the needle here.", body="# Description")
+        self.create_skill(name="body-skill", description="Body match.", body="# Body\nContains the needle here.")
+
+        path_skill = self.create_skill(name="file-path-skill", description="Path match.", body="# Path")
+        LLMSkillFile.objects.create(
+            skill=path_skill,
+            path="references/needle-guide.txt",
+            content="No matching content.",
+        )
+        content_skill = self.create_skill(name="file-content-skill", description="File match.", body="# File")
+        LLMSkillFile.objects.create(
+            skill=content_skill,
+            path="references/guide.md",
+            content="# Guide\nContains the needle here.",
+            content_type="text/markdown",
+        )
+        script_skill = self.create_skill(name="script-content-skill", description="Script match.", body="# Script")
+        LLMSkillFile.objects.create(
+            skill=script_skill,
+            path="scripts/run.py",
+            content="print('needle')",
+            content_type="text/x-python",
+        )
+
+        response = self.client.get(self._url("search?query=NeEdLe"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["name"] for result in results] == [
+            "needle",
+            "needle-name",
+            "description-skill",
+            "body-skill",
+            "file-path-skill",
+            "file-content-skill",
+        ]
+        assert [result["matches"][0]["matched_field"] for result in results] == [
+            "name",
+            "name",
+            "description",
+            "body",
+            "file_path",
+            "file_content",
+        ]
+        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert results[5]["matches"][0]["line"] == 2
+
+    def test_search_skills_limits_file_queries_to_remaining_matches(self):
+        path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
+        content_skill = self.create_skill(name="content-skill", description="Contains needle.")
+        for index in range(3):
+            LLMSkillFile.objects.create(
+                skill=path_skill,
+                path=f"references/needle-{index}.txt",
+                content="Unused file content.",
+            )
+            LLMSkillFile.objects.create(
+                skill=content_skill,
+                path=f"references/guide-{index}.md",
+                content="# Guide\nContains needle.",
+                content_type="text/markdown",
+            )
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url("search?query=needle"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["matches"][-1]["matched_field"] for result in response.json()["results"]] == [
+            "file_content",
+            "file_path",
+        ]
+        file_queries = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if query["sql"].lstrip().startswith('SELECT "llm_analytics_llmskillfile".')
+        ]
+        assert file_queries
+        assert all("LIMIT 1" in query for query in file_queries), "\n---\n".join(file_queries)
+        path_queries = [
+            query
+            for query in file_queries
+            if query.lstrip().startswith('SELECT "llm_analytics_llmskillfile"."path" AS "path" FROM ')
+        ]
+        assert len(path_queries) == 2
+
+    def test_search_skills_returns_only_latest_active_ordinary_skills_for_the_current_team(self):
+        self.create_skill(name="current-skill", body="Contains boundary-match.")
+        self.create_skill(name="scout-skill", body="Contains boundary-match.", category="scout")
+        self.create_skill(name="deleted-skill", body="Contains boundary-match.", deleted=True)
+        self.create_skill(name="versioned-skill", body="Old boundary-match.", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", body="Latest content.", version=2, is_latest=True)
+
+        other_team = self.create_team_with_organization(self.organization)
+        LLMSkill.objects.create(
+            team=other_team,
+            name="other-team-skill",
+            description="Other team.",
+            body="Contains boundary-match.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(self._url("search?query=boundary-match"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["current-skill"]
+
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["llm_skill:read"], status.HTTP_200_OK),
+            ("unrelated_scope_denied", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_skills_pak_scope_end_to_end(self, _label, scopes, expected_status):
+        self.create_skill(name="scope-search-skill")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.get(self._url("search?query=scope"))
+
+        assert response.status_code == expected_status
+
     # --- Get by name ---
 
     def test_get_skill_by_name(self):
@@ -345,6 +490,55 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["body"] == "# Fetch me body"
         assert "files" in data
 
+    def test_get_skill_by_name_returns_short_body_whole_without_paging(self):
+        self.create_skill(name="whole-body", body="0123456789")
+
+        data = self.client.get(self._url("name/whole-body")).json()
+
+        assert data["body"] == "0123456789"
+        assert data["body_total_length"] == 10
+        # A body under the default page cap fits in the first page, so nothing is left to fetch.
+        assert data["body_next_offset"] is None
+
+    def test_get_skill_by_name_caps_first_page_and_reports_next_offset_without_paging(self):
+        # A body larger than the default page cap would be truncated in transit; the un-paged
+        # response must hand back a valid continuation offset rather than claiming completeness.
+        body = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
+        self.create_skill(name="huge-body", body=body)
+
+        data = self.client.get(self._url("name/huge-body")).json()
+
+        assert data["body"] == body[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
+        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
+
+    @parameterized.expand(
+        [
+            # label, query, expected_body, expected_next_offset
+            ("first_page_has_more", "?body_offset=0&body_length=4", "0123", 4),
+            ("middle_page_has_more", "?body_offset=4&body_length=3", "456", 7),
+            ("last_page_exact_end", "?body_offset=8&body_length=2", "89", None),
+            ("length_past_end", "?body_offset=8&body_length=50", "89", None),
+            ("offset_only_returns_remainder", "?body_offset=7", "789", None),
+        ]
+    )
+    def test_get_skill_by_name_pages_through_body(self, _label, query, expected_body, expected_next_offset):
+        self.create_skill(name="paged-body", body="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-body{query}")).json()
+
+        assert data["body"] == expected_body
+        # Total always reflects the full body, so a client can detect a truncated response.
+        assert data["body_total_length"] == 10
+        assert data["body_next_offset"] == expected_next_offset
+
+    def test_get_skill_by_name_rejects_negative_body_offset(self):
+        self.create_skill(name="bad-offset", body="hello")
+
+        response = self.client.get(self._url("name/bad-offset?body_offset=-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
@@ -355,9 +549,9 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         files = response.json()["files"]
         assert len(files) == 2
-        paths = {f["path"] for f in files}
-        assert "scripts/setup.sh" in paths
-        assert "references/guide.md" in paths
+        manifest = {f["path"]: (f["line_count"], f["char_count"]) for f in files}
+        assert manifest["scripts/setup.sh"] == (2, len("#!/bin/bash\necho hi"))
+        assert manifest["references/guide.md"] == (1, len("# Guide"))
 
     def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
@@ -1139,3 +1333,313 @@ class TestLLMSkillAPI(APIBaseTest):
         assert len(data["versions"]) == 2
         assert data["versions"][0]["version"] == 2
         assert data["versions"][1]["version"] == 1
+
+
+# llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
+# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillAccessControlRBAC(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Default is "none" - a member only gets skill access via an explicit grant below.
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        self.member = User.objects.create_and_join(self.organization, "rbac-member@posthog.com", "pw")
+        self.client.force_login(self.member)
+
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def _grant_llm_skill_access(self, access_level: str) -> None:
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    @parameterized.expand(
+        [
+            ("list",),
+            ("get_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_read(self, action):
+        path = "" if action == "list" else f"name/{self.skill.name}"
+        response = self.client.get(self._url(path))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("update_by_name",),
+        ]
+    )
+    def test_member_without_skill_access_cannot_write(self, action):
+        if action == "create":
+            response = self.client.post(
+                self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        else:
+            response = self.client.patch(
+                self._url(f"name/{self.skill.name}"),
+                data={"description": "d2", "base_version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_viewer_can_read_but_not_write(self):
+        self._grant_llm_skill_access("viewer")
+
+        assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+        assert self.client.get(self._url(f"name/{self.skill.name}")).status_code == status.HTTP_200_OK
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_editor_can_create_and_update(self):
+        self._grant_llm_skill_access("editor")
+
+        create_response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        update_response = self.client.patch(
+            self._url(f"name/{self.skill.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK
+
+    def test_org_admin_has_full_access_without_explicit_grant(self):
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        response = self.client.post(
+            self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+
+class TestLLMSkillOwners(APIBaseTest):
+    """The owners primitive: a durable, version-independent set of owner users on a skill.
+
+    The point of the primitive is that ownership can't drift when the body is edited (the misroute
+    that motivated it), so the load-bearing test is `test_owners_survive_version_publish_by_another_user`.
+    """
+
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def _member(self, email: str) -> User:
+        return User.objects.create_and_join(self.organization, email, None)
+
+    def test_create_seeds_creator_as_owner(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"name": "seeded", "description": "d", "body": "# b"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_create_with_explicit_owners_does_not_add_creator(self) -> None:
+        member = self._member("owner1@example.com")
+        response = self.client.post(
+            self._url(),
+            data={"name": "explicit", "description": "d", "body": "# b", "owners": [str(member.uuid)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+
+    def test_create_with_non_member_owner_is_rejected(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"name": "bad-owner", "description": "d", "body": "# b", "owners": [str(uuid.uuid4())]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(name="bad-owner").exists()
+
+    def test_update_replaces_then_clears_owners(self) -> None:
+        member = self._member("owner2@example.com")
+        # Seeded via ORM helper (no owner row) so this exercises setting from empty, then replacing.
+        LLMSkill.objects.create(team=self.team, name="editable", description="d", body="# b", created_by=self.user)
+
+        set_resp = self.client.patch(
+            self._url("name/editable"),
+            data={"owners": [str(member.uuid)], "base_version": 1},
+            format="json",
+        )
+        assert set_resp.status_code == status.HTTP_200_OK, set_resp.json()
+        assert [o["email"] for o in set_resp.json()["owners"]] == [member.email]
+
+        # Owner-only PATCHes don't publish a version, so the skill is still at version 1.
+        clear_resp = self.client.patch(
+            self._url("name/editable"),
+            data={"owners": [], "base_version": 1},
+            format="json",
+        )
+        assert clear_resp.status_code == status.HTTP_200_OK, clear_resp.json()
+        assert clear_resp.json()["owners"] == []
+
+    def test_update_without_owners_leaves_them_untouched(self) -> None:
+        create_skill(self.team, user=self.user, name="untouched", description="d", body="# v1")
+        response = self.client.patch(
+            self._url("name/untouched"),
+            data={"body": "# v2", "base_version": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_owner_only_update_replaces_owners_without_publishing_a_version(self) -> None:
+        # Owners live on the logical skill, so an owner-only PATCH must not mint an identical version
+        # (rewriting version-history authorship and burning toward the version limit for a no-op body).
+        member = self._member("newowner@example.com")
+        create_skill(self.team, user=self.user, name="ownersonly", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/ownersonly"),
+            data={"owners": [str(member.uuid)], "base_version": 1},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+        assert response.json()["version"] == 1
+        assert LLMSkill.objects.filter(team=self.team, name="ownersonly").count() == 1
+
+    def test_owner_only_update_without_base_version_succeeds(self) -> None:
+        # The generated PATCH contract marks every body field optional, so an MCP client can send
+        # `{owners: [...]}` alone — that shape must replace owners (skipping the version check), not
+        # 400 on a runtime-only base_version requirement the schema doesn't advertise.
+        member = self._member("schemaowner@example.com")
+        create_skill(self.team, user=self.user, name="noversion", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/noversion"),
+            data={"owners": [str(member.uuid)]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [member.email]
+        assert LLMSkill.objects.filter(team=self.team, name="noversion").count() == 1
+
+    def test_publish_without_base_version_is_rejected(self) -> None:
+        # base_version became an optional field for the owner-only shape; any payload that publishes
+        # a version must still be forced to carry the optimistic-concurrency anchor.
+        create_skill(self.team, user=self.user, name="anchored", description="d", body="# v1")
+        response = self.client.patch(
+            self._url("name/anchored"),
+            data={"body": "# v2"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "base_version" in str(response.json())
+
+    def test_owner_only_update_with_stale_base_version_conflicts(self) -> None:
+        # The optimistic-concurrency contract holds even when no version is published: a stale
+        # base_version 409s and leaves ownership untouched.
+        member = self._member("wouldbe@example.com")
+        create_skill(self.team, user=self.user, name="staleowners", description="d", body="# b")
+
+        response = self.client.patch(
+            self._url("name/staleowners"),
+            data={"owners": [str(member.uuid)], "base_version": 2},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert [o.email for o in resolve_skill_owners(self.team, "staleowners")] == [self.user.email]
+
+    def test_owners_survive_version_publish_by_another_user(self) -> None:
+        # The whole reason the primitive exists: editing a shared skill must not transfer ownership to
+        # the editor. Reconstructing from version-row `created_by` would return the editor here.
+        editor = self._member("editor@example.com")
+        create_skill(self.team, user=self.user, name="durable", description="d", body="# v1")
+        publish_skill_version(self.team, user=editor, skill_name="durable", body="# v2", base_version=1)
+
+        owners = resolve_skill_owners(self.team, "durable")
+        assert [o.email for o in owners] == [self.user.email]
+
+    def test_create_with_empty_owners_creates_with_no_owners(self) -> None:
+        # An explicit empty list must mean "no owners", not fall through to the creator-owns default
+        # (a truthiness check on the list would silently seed the creator, unlike the update path).
+        response = self.client.post(
+            self._url(),
+            data={"name": "ownerless", "description": "d", "body": "# b", "owners": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["owners"] == []
+
+    def test_recreated_skill_does_not_inherit_archived_owners(self) -> None:
+        # Owners are keyed on the logical `(team, name)`. Archiving must retire them, or a later skill
+        # reusing the name inherits the archived skill's owners and routes reports to unrelated people.
+        old_owner = self._member("oldowner@example.com")
+        create_skill(self.team, user=old_owner, name="reused", description="d", body="# v1")
+        assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [old_owner.email]
+
+        archive_skill(self.team, "reused")
+        create_skill(self.team, user=self.user, name="reused", description="d", body="# fresh")
+
+        assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]
+
+    def test_skill_get_excludes_owner_who_lost_access(self) -> None:
+        # An owner row survives the member losing access; the read path serializes UserBasic, so a
+        # former member's profile must not keep leaking through skill-get.
+        member = self._member("leaving@example.com")
+        create_skill(self.team, user=self.user, name="leaky", description="d", body="# b")
+        set_skill_owners(self.team, "leaky", [self.user, member])
+
+        member.organization_memberships.filter(organization=self.organization).delete()
+
+        response = self.client.get(self._url("name/leaky"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
+
+    def test_owners_are_scoped_to_the_exact_environment(self) -> None:
+        # Skills are environment-scoped (LLMSkill filters team=<env>); owners must match. If owners
+        # canonicalized to the parent project, two sibling environments' same-named skills would share
+        # one owner set — a routing/profile collision. Set distinct owners per env, assert isolation.
+        parent = Team.objects.create(organization=self.organization, name="proj")
+        env_a = Team.objects.create(organization=self.organization, parent_team=parent, name="env-a")
+        env_b = Team.objects.create(organization=self.organization, parent_team=parent, name="env-b")
+        alice = self._member("alice@example.com")
+        bob = self._member("bob@example.com")
+
+        set_skill_owners(env_a, "shared-name", [alice])
+        set_skill_owners(env_b, "shared-name", [bob])
+
+        assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
+        assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]

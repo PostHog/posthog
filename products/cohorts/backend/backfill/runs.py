@@ -1,9 +1,11 @@
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models.functions import Now
+from django.utils import timezone as django_timezone
 
 from posthog.models.team.team import Team
 
@@ -16,6 +18,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
     CohortBackfillScope,
+    CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
@@ -122,9 +125,20 @@ def create_team_backfill_run(
     trigger_kind: str,
     cohort_ids: Iterable[int] | None = None,
     created_by_id: int | None = None,
+    boundary_at: datetime | None = None,
 ) -> CohortBackfillRun:
     if not is_realtime_cohort_team(team_id):
         raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+
+    if boundary_at is not None:
+        if trigger_kind != CohortBackfillTrigger.DISASTER_RECOVERY:
+            raise ValueError("boundary_at is only valid for disaster recovery runs")
+        if django_timezone.is_naive(boundary_at):
+            raise ValueError("boundary_at must include a UTC offset")
+        try:
+            boundary_at = boundary_at.astimezone(UTC)
+        except OverflowError as error:
+            raise ValueError("boundary_at falls outside the supported UTC range") from error
 
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
     with transaction.atomic():
@@ -161,6 +175,7 @@ def create_team_backfill_run(
             trigger_kind=trigger_kind,
             scope=CohortBackfillScope.TEAM,
             status=status,
+            boundary_at=boundary_at,
             timezone=team.timezone,
             pinned=_pinned_payload(cohorts),
             preconditions=preconditions,

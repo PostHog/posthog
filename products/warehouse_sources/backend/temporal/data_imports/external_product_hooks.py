@@ -135,3 +135,140 @@ def person_property_projection_for(
     if _person_property_projection_resolver is None:
         return None
     return _person_property_projection_resolver(team_id, schema_id)
+
+
+def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bool:
+    """Gate for starting the person-property sync child workflow: true when the schema feeds at
+    least one enabled person-target source (i.e. there are columns to stage/upsert)."""
+    return person_property_projection_for(team_id, schema_id) is not None
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncSource:
+    """One enabled person- or group-target source's sync config, resolved through the hook below so
+    the sync job (owned by warehouse_sources) never imports the customer_analytics config models.
+    ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column`` holds
+    the identifier (a person's distinct_id, or a group's key) and ``column_property_map`` maps
+    warehouse column -> property name. ``target`` is "person" or "group"; ``group_type_index`` is the
+    group type (0-4) for group targets, else None."""
+
+    source_id: str
+    definition_id: str
+    key_column: str
+    column_property_map: dict[str, str]
+    target: str = "person"
+    group_type_index: int | None = None
+
+
+PersonPropertySyncSourcesResolver = Callable[[int, "str | uuid.UUID"], Optional[list[PersonPropertySyncSource]]]
+_person_property_sync_sources_resolver: Optional[PersonPropertySyncSourcesResolver] = None
+
+
+def register_person_property_sync_sources(fn: PersonPropertySyncSourcesResolver) -> None:
+    global _person_property_sync_sources_resolver
+    _person_property_sync_sources_resolver = fn
+
+
+def person_property_sync_sources_for(
+    team_id: int, schema_id: "str | uuid.UUID"
+) -> Optional[list[PersonPropertySyncSource]]:
+    if _person_property_sync_sources_resolver is None:
+        return None
+    return _person_property_sync_sources_resolver(team_id, schema_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncActivityInputs:
+    """Payload the import workflow sends to the person-property sync child workflow."""
+
+    team_id: int
+    schema_id: uuid.UUID
+    source_id: uuid.UUID
+    job_id: str
+    source_type: str
+    schema_name: str
+    last_synced_at: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": str(self.schema_id),
+            "source_id": str(self.source_id),
+            "job_id": self.job_id,
+            "source_type": self.source_type,
+            "schema_name": self.schema_name,
+        }
+
+
+# --- Person-property backfill trigger contract ----------------------------------------
+# A backfill reads a warehouse table's full Delta data from S3 (rather than the incrementally
+# staged rows) to populate historical rows a new/changed person mapping never saw. It is keyed by
+# schema, not source: one backfill workflow reads the table once and upserts every enabled person
+# source on it.
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertyBackfillActivityInputs:
+    """Payload for the person-property backfill workflow (see person_property_backfill_job.py)."""
+
+    team_id: int
+    schema_id: uuid.UUID
+    source_type: str
+    schema_name: str
+    # "backfill" (auto on create/enable) or "manual" (a user asked to re-run). Recorded on the run.
+    trigger: str
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": str(self.schema_id),
+            "source_type": self.source_type,
+            "schema_name": self.schema_name,
+            "trigger": self.trigger,
+        }
+
+
+# --- Person-property sync run recorder ------------------------------------------------
+# The sync/backfill activities (owned by warehouse_sources) persist each run's funnel counts so the
+# customer_analytics UI can show run history and affected-person counts. Recording is inverted the
+# same way as the resolvers above: customer_analytics registers a recorder at app-ready that writes
+# the CustomPropertySyncRun row (and updates the source's status fields); when nothing is registered
+# this is a no-op, so warehouse_sources stays importable and a bookkeeping failure never blocks a sync.
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncRunRecord:
+    """One source's run outcome. Timestamps are ISO strings so the record crosses the hook boundary
+    without timezone/serialization surprises."""
+
+    team_id: int
+    schema_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    status: str
+    started_at: str
+    finished_at: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
+    error: str | None
+
+
+PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]
+_person_property_sync_recorder: Optional[PersonPropertySyncRecorder] = None
+
+
+def register_person_property_sync_recorder(fn: PersonPropertySyncRecorder) -> None:
+    global _person_property_sync_recorder
+    _person_property_sync_recorder = fn
+
+
+def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None:
+    if _person_property_sync_recorder is None:
+        return
+    _person_property_sync_recorder(record)

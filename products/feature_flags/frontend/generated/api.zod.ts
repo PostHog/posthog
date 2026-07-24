@@ -91,12 +91,14 @@ export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
 export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
+export const featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
     from_project: zod.number().describe('Source project ID to copy the flag from'),
     target_project_ids: zod
         .array(zod.number())
+        .min(1)
         .max(featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax)
         .describe('List of target project IDs to copy the flag to'),
     copy_schedule: zod
@@ -109,6 +111,22 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
         ),
+    copy_dependencies: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyCopyDependenciesDefault)
+        .describe('Whether to also copy missing feature flags that this flag depends on'),
+})
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax = 50
+
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = /* @__PURE__ */ zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to check'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to check dependency copy eligibility for'),
 })
 
 /**
@@ -515,8 +533,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -942,8 +958,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -1030,8 +1044,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -1118,8 +1130,6 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),

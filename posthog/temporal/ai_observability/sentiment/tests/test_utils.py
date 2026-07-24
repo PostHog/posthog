@@ -1,0 +1,44 @@
+from parameterized import parameterized
+
+from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
+from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
+from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
+
+
+class TestSelectSentimentLabel:
+    @parameterized.expand(
+        [
+            # Near-tie between a polar label and neutral resolves to neutral (the terse-query case).
+            ("coin_flip_negative", {"negative": 0.504, "neutral": 0.468, "positive": 0.028}, "neutral"),
+            ("coin_flip_positive", {"negative": 0.02, "neutral": 0.49, "positive": 0.49}, "neutral"),
+            # Confident polar labels are kept.
+            ("clear_negative", {"negative": 0.8, "neutral": 0.15, "positive": 0.05}, "negative"),
+            ("clear_positive", {"negative": 0.05, "neutral": 0.15, "positive": 0.8}, "positive"),
+            # Neutral winner is always neutral.
+            ("neutral_winner", {"negative": 0.2, "neutral": 0.7, "positive": 0.1}, "neutral"),
+            # A gap exactly at the margin is not enough to promote (must beat it).
+            ("exactly_at_margin", {"negative": 0.55, "neutral": 0.4, "positive": 0.05}, "neutral"),
+            # A gap just past the margin promotes the polar label.
+            ("just_past_margin", {"negative": 0.57, "neutral": 0.4, "positive": 0.03}, "negative"),
+        ]
+    )
+    def test_select_sentiment_label(self, _name: str, scores: dict[str, float], expected: str):
+        assert select_sentiment_label(scores) == expected
+
+
+class TestBuildGenerationResult:
+    def test_applies_neutral_margin_to_generation_label(self):
+        pending = [
+            PendingClassification(trace_id="t", gen_uuid="g", msg_index=17, text="retention graph for these people")
+        ]
+        # Coin-flip scores that argmax to negative but should resolve to neutral.
+        classification = [
+            SentimentResult(
+                label="neutral", score=0.468, scores={"negative": 0.504, "neutral": 0.468, "positive": 0.028}
+            )
+        ]
+
+        result = build_generation_result("g", pending, classification)
+
+        assert result["label"] == "neutral"
+        assert result["messages"]["17"]["scores"] == {"negative": 0.504, "neutral": 0.468, "positive": 0.028}

@@ -1,14 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
@@ -17,6 +20,10 @@ import { NotebookDataframeResult } from './pythonExecution'
 // The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
 // path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
 // the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
+
+// The default node height only fits a couple of table rows; grow to this once output lands
+// so results and figures aren't clipped and the user doesn't have to resize by hand to read them.
+const RESULT_MIN_HEIGHT = 300
 
 export type NotebookNodePythonV2Attributes = {
     code: string
@@ -50,9 +57,22 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        isChainRunning,
+        staleDownstreamCount,
+        pendingKernelStart,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -69,11 +89,26 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
+    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+
+    // Grow a still-default (too-short) node the first time output lands so it's readable without
+    // a manual resize. Only grows below the target and only on fresh output, so a deliberate
+    // resize (or a taller reload) is left untouched.
+    const hadOutputRef = useRef(hasStreamOutput || !!dataframeResult)
+    useEffect(() => {
+        const hasOutput = hasStreamOutput || !!dataframeResult
+        if (hasOutput && !hadOutputRef.current) {
+            if (typeof attributes.height !== 'number' || attributes.height < RESULT_MIN_HEIGHT) {
+                updateAttributes({ height: RESULT_MIN_HEIGHT })
+            }
+        }
+        hadOutputRef.current = hasOutput
+        // oxlint-disable-next-line exhaustive-deps
+    }, [dataframeResult, hasStreamOutput])
+
     if (!expanded) {
         return null
     }
-
-    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
@@ -82,6 +117,22 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
@@ -112,6 +163,9 @@ const Component = ({
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
+                            // Wide text columns (long strings, JSON blobs) shouldn't make every
+                            // row tall; clamp to one line here and let the user open a cell.
+                            truncateCells
                             paginationDisabledReason={
                                 pageLoading
                                     ? 'Fetching page…'
@@ -168,9 +222,10 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     const run = (): void => {
         // Guard here (not just on the button) so Cmd+Enter can't fire a second run mid-flight —
@@ -197,17 +252,26 @@ const Settings = ({
                 className="flex w-full shrink-0 flex-row items-center gap-2 border-t border-b bg-white py-1 pl-2 pr-2 dark:bg-black"
                 onClick={(event) => event.stopPropagation()}
             >
+                {/* Run flips to Cancel while the cell runs, mirroring the SQL editor's affordance. */}
                 <LemonButton
                     data-attr="notebook-python-v2-run-button"
                     size="small"
                     type="primary"
-                    icon={<IconPlayFilled color="var(--success)" />}
-                    onClick={() => run()}
-                    loading={isRunning}
+                    icon={isRunning ? <IconCancel /> : <IconPlayFilled color="var(--success)" />}
+                    onClick={() => {
+                        if (isRunning) {
+                            if (!isInterrupting) {
+                                interruptRun()
+                            }
+                        } else {
+                            run()
+                        }
+                    }}
+                    loading={isInterrupting}
                     disabledReason={operationBlockReason ?? undefined}
-                    tooltip="Run Python (⌘⏎)"
+                    tooltip={isRunning ? 'Stop the running cell' : 'Run Python (⌘⏎)'}
                 >
-                    Run
+                    {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
             <div className="min-h-0 flex-1">

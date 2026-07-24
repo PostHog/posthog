@@ -6,6 +6,7 @@ from typing import ClassVar, Final
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
+from llm_gateway.modal import MODAL_ALLOWED_MODELS, is_modal_configured
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
@@ -63,6 +64,13 @@ def _cloudflare_configured() -> bool:
     return is_cloudflare_configured(get_settings())
 
 
+def _glm_backend_configured(model_id: str) -> bool:
+    """A `@cf/` model is servable when Cloudflare or its Modal equivalent is configured."""
+    if _cloudflare_configured():
+        return True
+    return model_id in MODAL_ALLOWED_MODELS and is_modal_configured(get_settings())
+
+
 def _is_text_generation_model(cost_data: ModelCost) -> bool:
     """Check if a model supports text generation (chat/completions/responses)."""
     mode = cost_data.get("mode", "")
@@ -118,21 +126,23 @@ class ModelRegistryService:
             if model is not None:
                 models.append(model)
 
-        # Append CF models, filtered by the product allowlist (module header explains why they're
-        # not reachable through the litellm loop above).
-        if _cloudflare_configured():
-            for model_id in CLOUDFLARE_ALLOWED_MODELS:
-                if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
-                    continue
-                models.append(
-                    ModelInfo(
-                        id=model_id,
-                        provider=_CLOUDFLARE_PROVIDER,
-                        context_window=_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW,
-                        supports_streaming=True,
-                        supports_vision=False,
-                    )
+        # Append `@cf/` models with a configured backend (module header explains why they're not in
+        # the litellm loop above). Always advertised as provider "cloudflare" — clients key model
+        # handling off the `@cf/` id/owner, and the Modal ramp must not change what they see.
+        for model_id in CLOUDFLARE_ALLOWED_MODELS:
+            if not _glm_backend_configured(model_id):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    provider=_CLOUDFLARE_PROVIDER,
+                    context_window=_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW,
+                    supports_streaming=True,
+                    supports_vision=False,
                 )
+            )
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
@@ -144,10 +154,10 @@ class ModelRegistryService:
             if not _model_matches_allowlist(model_id, config.allowed_models):
                 return False
 
-        # Cloudflare-served models aren't in litellm's cost map (so get_model returns None) — gate
-        # them on the CF allowlist + configured CF creds instead.
+        # `@cf/`-served models aren't in litellm's cost map (so get_model returns None) — gate them
+        # on the CF allowlist + a configured backend (Cloudflare or Modal) instead.
         if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
-            return _cloudflare_configured()
+            return _glm_backend_configured(model_id)
 
         model = self.get_model(model_id)
         if model is None:

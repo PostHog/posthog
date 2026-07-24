@@ -1,29 +1,30 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from jsonpath_ng import DatumInContext, JSONPath
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.settings import BLAND_AI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
-# The authorization header is the raw API key (no "Bearer" prefix).
 BASE_URL = "https://api.bland.ai"
 
 # GET /v1/calls default (and documented maximum) page size.
 PAGE_SIZE = 1000
-
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class BlandAIRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -33,48 +34,24 @@ class BlandAIResumeConfig:
     # The exact `start_date` filter the interrupted run used. The pipeline checkpoints the
     # incremental watermark per batch, so on resume `db_incremental_field_last_value` may already
     # have advanced past the value we filtered by — reusing the original filter keeps the saved
-    # offset pointing into the same result set.
+    # cursor pointing into the same result set.
     start_date: str | None = None
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "authorization": api_key,
-        "Accept": "application/json",
-    }
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (BlandAIRetryableError, requests.ReadTimeout, requests.ConnectionError),
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # Bland's read-endpoint rate limits aren't documented, so back off politely on 429 and 5xx.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise BlandAIRetryableError(f"Bland AI API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Bland AI API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    # Framework fan-out checkpoint for call_transcripts (completed/current child paths plus the
+    # in-progress child paginator state). Optional so state saved before this field existed
+    # (offset-only) still parses; such state restarts the fan-out fresh under the saved filter.
+    fanout_state: dict[str, Any] | None = None
 
 
 def validate_credentials(api_key: str) -> bool:
     # Cheapest probe that exercises the token: list a single call. A bad key returns
     # 401 {"errors": [{"error": "AUTH_FAILURE", ...}]}.
-    url = f"{BASE_URL}/v1/calls?{urlencode({'limit': 1})}"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{BASE_URL}/v1/calls?limit=1",
+        # Bland expects the raw key in the authorization header (no "Bearer" prefix).
+        headers={"authorization": api_key, "Accept": "application/json"},
+    )
+    return ok
 
 
 def _format_start_date(value: Any) -> str | None:
@@ -94,84 +71,100 @@ def _format_start_date(value: Any) -> str | None:
     return str(value)
 
 
-def _get_pathway_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    data = _fetch(session, f"{BASE_URL}/v1/pathway", headers, logger)
+class _PathwaysBodySelector(JSONPath):
+    """Data selector normalizing GET /v1/pathway's response body.
 
-    # The docs' response example shows a single pathway object without an explicit list wrapper,
-    # and we couldn't verify the live shape without account credentials — accept a bare list,
-    # common list wrappers, or a single object.
-    if isinstance(data, list):
-        rows = data
-    elif isinstance(data, dict):
-        wrapped = next((data[key] for key in ("pathways", "data") if isinstance(data.get(key), list)), None)
-        rows = wrapped if wrapped is not None else [data]
-    else:
-        rows = []
+    The docs' response example shows a single pathway object without an explicit list wrapper,
+    and we couldn't verify the live shape without account credentials — accept a bare list,
+    common list wrappers, or a single object.
+    """
 
-    if rows:
-        yield rows
+    def find(self, data: Any) -> list[DatumInContext]:
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            wrapped = next((data[key] for key in ("pathways", "data") if isinstance(data.get(key), list)), None)
+            rows = wrapped if wrapped is not None else [data]
+        else:
+            rows = []
+        return [DatumInContext(rows)]
 
 
-def _transcript_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    calls: list[dict[str, Any]],
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for call in calls:
-        detail = _fetch(session, f"{BASE_URL}/v1/calls/{call['call_id']}", headers, logger)
-        for utterance in detail.get("transcripts") or []:
-            rows.append(
-                {
-                    **utterance,
-                    "call_id": call["call_id"],
-                    # The parent call's creation time. Utterance `created_at`s aren't monotonic
-                    # across calls (a long call's utterances postdate the next call's creation),
-                    # so this is the field the incremental cursor and partitioning key off.
-                    # Direct access on purpose: a silent None here would corrupt partitions and
-                    # stall the incremental watermark.
-                    "call_created_at": call["created_at"],
-                }
-            )
-    return rows
+def _adopt_parent_call_fields(row: dict[str, Any]) -> dict[str, Any]:
+    # Rename the injected parent fields onto the utterance row: `call_id` (part of the composite
+    # primary key) and `call_created_at`, the parent call's creation time. Utterance `created_at`s
+    # aren't monotonic across calls (a long call's utterances postdate the next call's creation),
+    # so `call_created_at` is the field the incremental cursor and partitioning key off.
+    # `pop` without a default on purpose: a silent None here would corrupt partitions and stall
+    # the incremental watermark.
+    row["call_id"] = row.pop("_calls_call_id")
+    row["call_created_at"] = row.pop("_calls_created_at")
+    return row
 
 
-def get_rows(
+def _calls_list_resource(params: dict[str, Any]) -> EndpointResource:
+    return {
+        "name": "calls",
+        "endpoint": {
+            "path": "v1/calls",
+            "params": params,
+            "data_selector": "calls",
+            # Index-offset pagination (`from` + `limit`) with `total_count` in the response body.
+            "paginator": OffsetPaginator(
+                limit=PAGE_SIZE,
+                offset_param="from",
+                limit_param="limit",
+                total_path="total_count",
+            ),
+        },
+    }
+
+
+def bland_ai_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = BLAND_AI_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across every list page and hydration request so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+) -> SourceResponse:
+    endpoint_config = BLAND_AI_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": BASE_URL,
+            # Auth is supplied via the framework auth config so its value is redacted from logs;
+            # Bland expects the raw API key (no "Bearer" prefix) in the authorization header.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "authorization", "location": "header"},
+            "headers": {"Accept": "application/json"},
+        },
+        "resources": [],
+    }
+
+    resource: Resource
     if endpoint == "pathways":
-        yield from _get_pathway_rows(session, headers, logger)
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        offset = resume.offset
-        start_date = resume.start_date
-        logger.debug(f"Bland AI: resuming {endpoint} from offset {offset} (start_date={start_date})")
+        # Small (name/description/nodes/edges per pathway), no timestamp filters — a single
+        # unordered page on a full-refresh-only endpoint.
+        rest_config["resources"] = [
+            {
+                "name": "pathways",
+                "endpoint": {
+                    "path": "v1/pathway",
+                    "data_selector": _PathwaysBodySelector(),
+                    "paginator": SinglePagePaginator(),
+                },
+            }
+        ]
+        resource = rest_api_resource(rest_config, team_id, job_id, None)
     else:
-        offset = 0
-        start_date = _format_start_date(db_incremental_field_last_value) if should_use_incremental_field else None
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        if resume is not None:
+            start_date = resume.start_date
+        else:
+            start_date = _format_start_date(db_incremental_field_last_value) if should_use_incremental_field else None
 
-    while True:
-        params: dict[str, Any] = {
-            "from": offset,
-            "limit": PAGE_SIZE,
+        list_params: dict[str, Any] = {
             # Ascending creation order so the pipeline's incremental watermark can checkpoint
             # after every batch, and so index offsets stay stable while new calls append.
             "ascending": "true",
@@ -179,47 +172,65 @@ def get_rows(
         }
         if start_date:
             # `start_date` is inclusive; the boundary row is re-fetched and deduped by merge.
-            params["start_date"] = start_date
-        data = _fetch(session, f"{BASE_URL}/v1/calls?{urlencode(params)}", headers, logger)
+            list_params["start_date"] = start_date
 
-        calls = data.get("calls") or []
-        if not calls:
-            break
+        if endpoint == "calls":
+            initial_paginator_state = {"offset": resume.offset} if resume is not None else None
 
-        rows = _transcript_rows(session, headers, calls, logger) if config.hydrate_transcripts else calls
-        if rows:
-            yield rows
+            def save_calls_checkpoint(state: Optional[dict[str, Any]]) -> None:
+                # Persist only when a next page remains; the hook fires AFTER a page is yielded so
+                # a crash re-yields the last page (merge dedupes) rather than skipping it. The
+                # exact filter is saved alongside so a resume continues the same result set.
+                if state and state.get("offset") is not None:
+                    resumable_source_manager.save_state(
+                        BlandAIResumeConfig(offset=int(state["offset"]), start_date=start_date)
+                    )
 
-        offset += len(calls)
-        total_count = data.get("total_count")
-        if isinstance(total_count, int) and offset >= total_count:
-            break
+            rest_config["resources"] = [_calls_list_resource(list_params)]
+            resource = rest_api_resource(
+                rest_config,
+                team_id,
+                job_id,
+                None,
+                resume_hook=save_calls_checkpoint,
+                initial_paginator_state=initial_paginator_state,
+            )
+        else:  # call_transcripts
+            # Transcripts are excluded from the list endpoint for size reasons, so this endpoint
+            # lists calls (same pagination/filtering as `calls`) and hydrates each via
+            # GET /v1/calls/{call_id}, emitting one row per transcript utterance.
+            def save_transcripts_checkpoint(state: Optional[dict[str, Any]]) -> None:
+                if state is not None:
+                    resumable_source_manager.save_state(BlandAIResumeConfig(start_date=start_date, fanout_state=state))
 
-        # Save AFTER yielding the page so a crash re-yields the just-finished page rather than
-        # skipping it — merge dedupes on the primary key. Resume picks up at the next offset.
-        resumable_source_manager.save_state(BlandAIResumeConfig(offset=offset, start_date=start_date))
-
-
-def bland_ai_source(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> SourceResponse:
-    endpoint_config = BLAND_AI_ENDPOINTS[endpoint]
+            rest_config["resources"] = [
+                _calls_list_resource(list_params),
+                {
+                    "name": "call_transcripts",
+                    "include_from_parent": ["call_id", "created_at"],
+                    "data_map": _adopt_parent_call_fields,
+                    "endpoint": {
+                        "path": "v1/calls/{call_id}",
+                        "params": {"call_id": {"type": "resolve", "resource": "calls", "field": "call_id"}},
+                        # A call with no transcripts (e.g. unanswered) is a legit zero-row detail.
+                        "data_selector": "transcripts",
+                        "paginator": SinglePagePaginator(),
+                    },
+                },
+            ]
+            resources = rest_api_resources(
+                rest_config,
+                team_id,
+                job_id,
+                None,
+                resume_hook=save_transcripts_checkpoint,
+                initial_paginator_state=resume.fanout_state if resume is not None else None,
+            )
+            resource = next(r for r in resources if r.name == "call_transcripts")
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,

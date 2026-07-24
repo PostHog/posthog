@@ -16,17 +16,24 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/src/queries/schema/*",
         "posthog/schema_migrations/*",
     ),
+    # Python-only globs on the api/presentation trees: OpenAPI is generated from
+    # code, so metadata files that live alongside it (owners.yaml) must not
+    # trigger a regen.
     "build:openapi": (
-        "posthog/api/*",
+        "posthog/api/*.py",
         "posthog/scopes.py",
-        "ee/api/*",
-        "products/*/backend/api/*",
-        "products/*/backend/presentation/*",
-        "products/*/backend/widget_specs/*",
+        "ee/api/*.py",
+        "products/*/backend/api/*.py",
+        "products/*/backend/presentation/*.py",
+        "products/*/backend/widget_specs/*.py",
         "products/*/mcp/*.yaml",
         "products/*/mcp/prompts/*",
         "services/mcp/definitions/*",
         "services/mcp/schema/tool-definitions.json",
+        # The generator formats its output, so lint/format scope decides the bytes
+        # that land in the generated trees — a config-only edit silently invalidates them.
+        ".oxfmtrc.json",
+        ".oxlintrc.json",
     ),
     "build:grammar": ("posthog/hogql/grammar/*",),
     "build:taxonomy-json": ("posthog/taxonomy/*",),

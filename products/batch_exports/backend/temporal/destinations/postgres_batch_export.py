@@ -90,6 +90,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UniqueViolation",
     # Something changed in the target table's schema that we were not expecting.
     "UndefinedColumn",
+    # Only if raised by the copy method, would indicate missing USAGE permissions on the schema.
+    # Otherwise we should create the table and not see this.
+    "UndefinedTable",
     # A VARCHAR column is too small.
     "StringDataRightTruncation",
     # Raised by PostgreSQL client. Self explanatory.
@@ -1003,6 +1006,18 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         json_columns=(),
                         records_total=inputs.records_total,
                     )
+                except psycopg.errors.UndefinedTable:
+                    # Table was not found in the search path despite guaranteed to exist
+                    # at this point likely points to missing USAGE permissions on the schema.
+                    external_logger.exception(
+                        "The table '%s.%s' could not be found, even after we explicitly created it."
+                        " This likely points to missing privileges on the schema (particularly 'USAGE')."
+                        " Review the required privileges as described in the docs (https://posthog.com/docs/cdp/batch-exports/postgres) and retry.",
+                        inputs.schema,
+                        inputs.table_name,
+                    )
+                    raise
+
                 finally:
                     if merge_settings.requires_merge:
                         merge_query_timeout = get_query_timeout(

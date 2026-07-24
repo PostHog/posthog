@@ -47,6 +47,8 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
+from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
@@ -61,8 +63,10 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    get_scout_report_status,
     get_scout_report_title,
     record_report_edit,
+    record_scout_run_task_artefact,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -101,10 +105,14 @@ class ReviewerInput:
     Mirrors the inbox `SuggestedReviewerEntryWriteSerializer`: at least one of the two must be set. A
     `user_uuid` is resolved server-side to the org member's linked GitHub login (and wins over a
     supplied `github_login` when both are given), so a scout that only knows a PostHog user — e.g.
-    routing a report to an account owner — can route it without first looking up the handle."""
+    routing a report to an account owner — can route it without first looking up the handle.
+    `reason` is the evidence behind the pick (recent author on the affected surface, human
+    correction, …), persisted on the artefact so the routing is auditable without the run
+    transcript."""
 
     github_login: str | None = None
     user_uuid: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -238,58 +246,142 @@ def _build_priority(priority: str | None, explanation: str | None) -> PriorityAs
     return PriorityAssessment(priority=priority_level, explanation=explanation)
 
 
-def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | None) -> SuggestedReviewers | None:
-    """Resolve scout-supplied reviewer entries to a canonical, lowercased, deduped `suggested_reviewers`
-    artefact (GitHub logins), or None to omit it.
+def _owner_reviewer_entries(team: Team, skill_name: str) -> list[SuggestedReviewerEntry]:
+    """The running scout's owners as reviewer entries (GitHub logins), seed-creator first.
 
-    Each entry identifies a reviewer by `github_login`, `user_uuid`, or both — mirroring the inbox
-    `SuggestedReviewerEntryWriteSerializer`. A `user_uuid` is resolved to the org member's linked GitHub
-    login (and wins over a supplied `github_login` when both are given), so a scout that only knows a
-    PostHog user can still route a report. Resolution is fail-loud: a `user_uuid` that isn't an org
-    member of this team with a linked GitHub identity raises `InvalidScoutReportError` rather than
-    silently dropping the reviewer (matching the inbox artefact-write endpoint), since a quietly-lost
-    reviewer is what leaves a report routed to no one. Entries are deduped by resolved login; an
-    all-empty list yields None. Does a DB read (UUID resolution), so callers on the async path must
-    bridge it off the event loop."""
-    if not reviewers:
-        return None
-
-    # Cap the input list *before* resolving — otherwise a malformed call with hundreds of uuid entries
-    # would fire one unbounded `IN` query (parameter/timeout risk) just to be rejected afterwards. The
-    # DRF ListField enforces the same bound at the API boundary; this guards the direct callers too.
-    if len(reviewers) > MAX_SUGGESTED_REVIEWERS:
-        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(reviewers)}")
-
-    for entry in reviewers:
-        has_login = bool(entry.github_login and entry.github_login.strip())
-        if not has_login and not entry.user_uuid:
-            raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
-
-    uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
-    uuid_to_login = get_org_member_github_logins_by_user_uuid(team_id, uuids_to_resolve) if uuids_to_resolve else {}
-
-    logins: list[str] = []
+    This is the deterministic half of the guardrail: owners come from `LLMSkillOwner`, not the model's
+    prose, so ownership is always represented regardless of what the LLM picked. Owners with no linked
+    GitHub identity are skipped — a `suggested_reviewers` artefact is GitHub-login-keyed, so there's no
+    one to route to (the prompt still names them by email)."""
+    owner_uuids = resolve_skill_owner_user_uuids(team, skill_name)
+    if not owner_uuids:
+        return []
+    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, owner_uuids)
+    entries: list[SuggestedReviewerEntry] = []
     seen: set[str] = set()
-    for entry in reviewers:
-        if entry.user_uuid:
-            resolved = uuid_to_login.get(str(entry.user_uuid))
-            if not resolved:
-                raise InvalidScoutReportError(
-                    f"user_uuid '{entry.user_uuid}' is not an org member of this team with a linked GitHub identity"
-                )
-            login = resolved.lower()
-        else:
-            login = (entry.github_login or "").strip().lower()
-            if not login:
-                raise InvalidScoutReportError("github_login resolved to empty after normalization")
-        if login in seen:
+    for owner_uuid in owner_uuids:
+        login = uuid_to_login.get(owner_uuid)  # already lowercased by the resolver
+        if not login or login in seen:
             continue
         seen.add(login)
-        logins.append(login)
+        # `is_skill_owner=True` is the provenance flag autostart uses to keep these editor-controlled
+        # entries out of task-identity selection — they route the report but never mint a session.
+        entries.append(SuggestedReviewerEntry(github_login=login, reason="skill owner", is_skill_owner=True))
+    return entries
 
-    if not logins:
+
+def _skill_authored_report(team: Team, skill_name: str, report_id: str) -> bool:
+    """Whether any run of this (team, skill) emitted the report. Reports carry no skill column — the
+    run-side `emitted_report_ids` tally is the authorship record, so the check is a containment query
+    across the skill's runs. `for_team` (not the ambient-context manager) so it works on the async
+    harness path too, where no request scope is set and the fail-closed manager would raise."""
+    return (
+        SignalScoutRun.objects.for_team(team.id)
+        .filter(skill_name=skill_name, emitted_report_ids__contains=report_id)
+        .exists()
+    )
+
+
+def _build_suggested_reviewers(
+    team: Team,
+    reviewers: list[ReviewerInput] | None,
+    *,
+    skill_name: str | None = None,
+    enforce_owners: bool = False,
+) -> SuggestedReviewers | None:
+    """Resolve reviewer entries to a canonical, lowercased, deduped `suggested_reviewers` artefact
+    (GitHub logins), or None to omit it.
+
+    Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both — mirroring
+    the inbox `SuggestedReviewerEntryWriteSerializer`. A `user_uuid` is resolved to the org member's
+    linked GitHub login (and wins over a supplied `github_login` when both are given), so a scout that
+    only knows a PostHog user can still route a report. Resolution is fail-loud: a `user_uuid` that
+    isn't an org member of this team with a linked GitHub identity raises `InvalidScoutReportError`
+    rather than silently dropping the reviewer, since a quietly-lost reviewer is what leaves a report
+    routed to no one.
+
+    **Owner guardrail:** with `enforce_owners` and a `skill_name`, the running scout's owners
+    (`LLMSkillOwner`) are resolved deterministically and placed *first*, ahead of the model's picks —
+    so a report about a scout always routes to whoever owns it, even if the model picked the wrong
+    person or none at all. This is a code rule the LLM can't prose past; it replaces the old reliance
+    on the model reading a prompt line correctly. Owners and the model's picks are then deduped by
+    login and capped, owners never dropped; an owner the scout also names keeps owner provenance
+    (`is_skill_owner=True`), since a steerable scout repeating an owner is not independent evidence.
+
+    Does DB reads (UUID + owner resolution), so callers on the async path must bridge it off the event
+    loop."""
+    owner_entries = _owner_reviewer_entries(team, skill_name) if enforce_owners and skill_name else []
+
+    if not reviewers and not owner_entries:
         return None
-    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
+
+    scout_entries: list[SuggestedReviewerEntry] = []
+    if reviewers:
+        # Cap the input list *before* resolving — otherwise a malformed call with hundreds of uuid
+        # entries would fire one unbounded `IN` query (parameter/timeout risk) just to be rejected
+        # afterwards. The DRF ListField enforces the same bound at the API boundary; this guards the
+        # direct callers too.
+        if len(reviewers) > MAX_SUGGESTED_REVIEWERS:
+            raise InvalidScoutReportError(
+                f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(reviewers)}"
+            )
+
+        for entry in reviewers:
+            has_login = bool(entry.github_login and entry.github_login.strip())
+            if not has_login and not entry.user_uuid:
+                raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
+
+        uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
+        uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+
+        for entry in reviewers:
+            if entry.user_uuid:
+                resolved = uuid_to_login.get(str(entry.user_uuid))
+                if not resolved:
+                    raise InvalidScoutReportError(
+                        f"user_uuid '{entry.user_uuid}' is not an org member of this team with a linked GitHub identity"
+                    )
+                login = resolved.lower()
+            else:
+                login = (entry.github_login or "").strip().lower()
+                if not login:
+                    raise InvalidScoutReportError("github_login resolved to empty after normalization")
+            reason = entry.reason.strip() if entry.reason and entry.reason.strip() else None
+            scout_entries.append(SuggestedReviewerEntry(github_login=login, reason=reason))
+
+    # Owners first (guardrail), then the scout's picks; dedupe by login so an owner the scout also
+    # named isn't listed twice, and cap — owners lead, so they're never the ones truncated. An owner
+    # the scout *also* picked keeps `is_skill_owner=True` (only the scout's reason merges in): the
+    # skill body is the run's steering layer, so a scout repeating an owner's login is not
+    # independent commit-authorship evidence — clearing the flag would let a skill editor name a
+    # privileged member as owner, steer the scout to repeat that login, and mint the autostart
+    # session as them. The invariant is that an owner row never adds identity eligibility; an
+    # owner-picked reviewer still routes the report, and autostart falls to the next non-owner
+    # reviewer or the team fallback.
+    entries_by_login: dict[str, SuggestedReviewerEntry] = {e.github_login: e for e in owner_entries}
+    for scout_entry in scout_entries:
+        existing = entries_by_login.get(scout_entry.github_login)
+        if existing is None:
+            entries_by_login[scout_entry.github_login] = scout_entry
+        elif existing.is_skill_owner and scout_entry.reason:
+            entries_by_login[scout_entry.github_login] = SuggestedReviewerEntry(
+                github_login=scout_entry.github_login,
+                reason=scout_entry.reason,
+                is_skill_owner=True,
+            )
+    merged = list(entries_by_login.values())
+    entries = merged[:MAX_SUGGESTED_REVIEWERS]
+    # A skill can have more routable owners than the reviewer cap (MAX_SKILL_OWNERS exceeds it), and
+    # owner entries never carry PR intent — so an owner-only capped list would silently discard the
+    # scout's explicit picks and with them the `_wants_repo_selection` signal. Reserve the last slot
+    # for the first non-owner pick so routing keeps owners first but intent survives the cap.
+    non_owner_picks = [e for e in merged if not e.is_skill_owner]
+    if non_owner_picks and all(e.is_skill_owner for e in entries):
+        entries = [*merged[: MAX_SUGGESTED_REVIEWERS - 1], non_owner_picks[0]]
+
+    if not entries:
+        return None
+    return SuggestedReviewers(root=entries)
 
 
 def _wants_repo_selection(
@@ -298,8 +390,15 @@ def _wants_repo_selection(
     """Whether to run repo selection at all. Resolve a repo only when the scout signalled PR intent —
     either an explicit `repository`, or the priority + reviewers an autostart needs. An informational
     report that supplies none of these skips selection entirely, so it never pays for the (free-form)
-    selection sandbox just to surface in the inbox."""
-    return repository is not None or (priority is not None and reviewers is not None)
+    selection sandbox just to surface in the inbox.
+
+    Owner-guardrail entries don't count as PR intent: they're injected on every emit for routing, so
+    counting them would run free-form repo selection — and later autostart under the team fallback
+    runner — for a prioritized report whose scout supplied neither a repo nor a reviewer."""
+    if repository is not None:
+        return True
+    scout_picked_reviewer = reviewers is not None and any(not entry.is_skill_owner for entry in reviewers.root)
+    return priority is not None and scout_picked_reviewer
 
 
 def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidence]) -> str:
@@ -707,7 +806,7 @@ async def emit_report(
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
     # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
     reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
-        team.id, suggested_reviewers
+        team, suggested_reviewers, skill_name=run.skill_name, enforce_owners=True
     )
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
@@ -759,6 +858,14 @@ async def emit_report(
         run=run,
     )
     if surfaced:
+        await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
+            run_id=run.id,
+            output_type="report",
+            output_id=persisted.report_id,
+            # A report is emitted once, so its id is the natural idempotency key (mirrors
+            # findings using the emission id); edits keep per-delivery ids since each notifies.
+            delivery_id=persisted.report_id,
+        )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
     forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
@@ -807,7 +914,7 @@ def emit_report_sync(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
+    reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name, enforce_owners=True)
 
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
@@ -859,6 +966,12 @@ def emit_report_sync(
         run=run,
     )
     if surfaced:
+        queue_configured_scout_slack_delivery(
+            run_id=run.id,
+            output_type="report",
+            output_id=persisted.report_id,
+            delivery_id=persisted.report_id,
+        )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
     forward = _capture_report_emitted(
@@ -901,7 +1014,16 @@ def _do_edit_report(
     # reject caller input — an unresolvable user_uuid raises, which the view turns into a 400. Doing it
     # first means a combined edit (title/summary + a bad reviewer) fails before the content write
     # commits, rather than leaving the report partially mutated behind a failed call.
-    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
+    #
+    # Enforce owners only when this edit actually sets reviewers — otherwise a title-only edit would
+    # inject owners over a routing a human may have already chosen — and only on a report this skill
+    # authored: `edit_report` can target any inbox report, and the guardrail exists to make a scout's
+    # own reports route to its owners, not to stamp the editing skill's owners onto unrelated reports.
+    # When no reviewers are supplied, this resolves to None and existing reviewers are left untouched.
+    enforce_owners = bool(suggested_reviewers) and _skill_authored_report(team, run.skill_name, report_id)
+    reviewers = _build_suggested_reviewers(
+        team, suggested_reviewers, skill_name=run.skill_name, enforce_owners=enforce_owners
+    )
 
     updated_fields: list[str] = []
     if title is not None or summary is not None:
@@ -973,6 +1095,20 @@ def _do_edit_report(
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended or reviewers_set:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        # Also link the run itself on the report's work log (deduped), so the editing scout's
+        # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
+        record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
+        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
+        # its content to a configured destination. The delivery worker re-checks status at send time
+        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
+        # and skips queueing work that would no-op.
+        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        if report_status is not None and _surfaced(report_status):
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="report",
+                output_id=report_id,
+            )
     return result
 
 

@@ -8,11 +8,13 @@ from uuid import UUID, uuid4
 
 from posthog.test.base import _create_event, flush_persons_and_events
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, Team
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.util import _json_dumps_for_clickhouse
 from posthog.models.group.util import get_group_by_key
 from posthog.models.person.util import get_person_by_distinct_id
 
@@ -126,7 +128,8 @@ def journeys_for(
 
 
 def _create_all_events_raw(all_events: list[dict]):
-    parsed = ""
+    legacy_rows = ""
+    json_rows = ""
     for event in all_events:
         timestamp = timezone.now()
         data: dict[str, Any] = {
@@ -160,14 +163,70 @@ def _create_all_events_raw(all_events: list[dict]):
             if not data[key]:
                 data[key] = timestamp
         in_memory_event = InMemoryEvent(**data)
-        parsed += f"""
-        ('{in_memory_event.event_uuid}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
-        """
+        created_at = timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        legacy_rows += _event_row_values(
+            in_memory_event,
+            properties=json.dumps(in_memory_event.properties),
+            person_properties=json.dumps(in_memory_event.person_properties),
+            created_at=created_at,
+        )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            json_rows += _event_row_values(
+                in_memory_event,
+                properties=_json_dumps_for_clickhouse(in_memory_event.properties),
+                person_properties=_json_dumps_for_clickhouse(in_memory_event.person_properties),
+                created_at=created_at,
+            )
 
+    _insert_event_rows_raw(EVENTS_DATA_TABLE(), legacy_rows)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        _insert_event_rows_raw(EVENTS_JSON_DATA_TABLE, json_rows)
+
+
+def _event_row_values(
+    in_memory_event: "InMemoryEvent",
+    *,
+    properties: str,
+    person_properties: str,
+    created_at: str,
+) -> str:
+    values = [
+        f"'{in_memory_event.event_uuid}'",
+        f"'{in_memory_event.event}'",
+        f"'{properties}'",
+        f"'{in_memory_event.timestamp}'",
+        str(in_memory_event.team.pk),
+        f"'{in_memory_event.distinct_id}'",
+        "''",
+        f"'{in_memory_event.person_id}'",
+        f"'{person_properties}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.person_created_at)}'",
+        f"'{json.dumps(in_memory_event.group0_properties)}'",
+        f"'{json.dumps(in_memory_event.group1_properties)}'",
+        f"'{json.dumps(in_memory_event.group2_properties)}'",
+        f"'{json.dumps(in_memory_event.group3_properties)}'",
+        f"'{json.dumps(in_memory_event.group4_properties)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group0_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group1_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group2_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group3_created_at)}'",
+        f"'{_format_clickhouse_timestamp(in_memory_event.group4_created_at)}'",
+        f"'{created_at}'",
+        "now()",
+        "0",
+    ]
+    return f"\n        ({', '.join(values)})\n        "
+
+
+def _format_clickhouse_timestamp(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _insert_event_rows_raw(table_name: str, rows: str) -> None:
     sync_execute(
         f"""
-    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
-    {parsed}
+    INSERT INTO {table_name} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
+    {rows}
     """
     )
 

@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.mixins import validated_request
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.helpers.impersonation import is_impersonated
@@ -62,24 +63,8 @@ WARM_RUN_SCOPES = ["all_teams", "teams_with_flags"]
 READABLE_CACHE_CHOICES = CACHE_CHOICES
 
 
-class _RepeatedOrCommaSeparatedListField(serializers.ListField):
-    """A ListField for query params that accepts values either as repeated keys
-    (?team_ids=1&team_ids=2) or as a single comma-separated value (?team_ids=1,2). The latter is
-    how our generated TS client (and plain URLSearchParams) serializes a number[] query param, so
-    without this a caller using the generated client gets a validation error. Matches the
-    repeated-or-comma-separated handling already used for query params elsewhere, e.g. the
-    `include` param in posthog/api/element.py.
-    """
-
-    def get_value(self, dictionary: Any) -> Any:
-        value = super().get_value(dictionary)
-        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str) and "," in value[0]:
-            return value[0].split(",")
-        return value
-
-
 def _team_ids_field(help_text: str, *, max_length: int = MAX_TEAMS_PER_MUTATION) -> serializers.ListField:
-    return _RepeatedOrCommaSeparatedListField(
+    return RepeatedOrCommaSeparatedListField(
         child=serializers.IntegerField(), max_length=max_length, help_text=help_text
     )
 

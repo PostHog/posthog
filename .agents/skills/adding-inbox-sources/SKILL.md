@@ -1,26 +1,29 @@
 ---
 name: adding-inbox-sources
-description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers BOTH repos (posthog/code UI wiring + posthog/posthog scout emitter) and the deploy ordering between them.
+description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze, Jira). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers all three surfaces (posthog/posthog scout emitter + posthog/code UI wiring + the context-mill self-driving wizard skill that offers the source in `npx @posthog/wizard self-driving`), the deploy ordering between them, and created_via attribution.
 ---
 
 # Adding a Self-driving Inbox source
 
 The Self-driving Inbox connects a PostHog **data-warehouse source** (GitHub, Linear,
-Zendesk, pganalyze today), syncs one "actionable records" table (`issues` /
+Zendesk, pganalyze, Jira today), syncs one "actionable records" table (`issues` /
 `tickets` / `conversations`), and a server-side **signals scout** in
 `posthog/posthog` watches new rows and emits findings/reports into the Code Inbox.
 
-**Adding a source is a two-repo change.** The scout is not generic over arbitrary
-tables — it is driven by a static registry keyed on `(source_type, table)`. So you
-must change both:
+**Adding a source touches three surfaces.** The scout is not generic over arbitrary
+tables — it is driven by a static registry keyed on `(source_type, table)`. The
+first two surfaces are mandatory (without them the source can't emit signals or be
+toggled in the app); the third is what makes the CLI `self-driving` wizard _offer_
+the source during onboarding.
 
-This skill lives in `posthog/posthog`; the UI half lives in the separate
-`posthog/code` repo. Both must change:
+This skill lives in `posthog/posthog`; the UI lives in the separate `posthog/code`
+repo; the wizard's onboarding script lives in `PostHog/context-mill`:
 
-| Repo                          | What changes                                                                                                                                                                             |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do). |
-| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                  |
+| Surface                       | What changes                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do).                                                                                |
+| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                                                                                                 |
+| `PostHog/context-mill`        | The `self-driving` skill's connected-tools list, so `npx @posthog/wizard self-driving` offers the source. **Optional** — skip it and the source still works everywhere else; the wizard just won't proactively suggest it. See "The self-driving wizard surface" below. |
 
 > Backend work in `posthog/posthog` should be done in a **git worktree** (see
 > "Worktree setup" below). Merges in both repos go through the Trunk merge queue —
@@ -46,19 +49,24 @@ A new credential-based source needs **zero form code** — just route its
 `sourceType` and the `schemas` to sync.
 
 - Endpoint: `GET /api/environments/{projectId}/external_data_sources/wizard/?source_type=<Type>` → `Record<string, SourceConfig>`. Client method: `PostHogAPIClient.getExternalDataSourceConfigs`. Hook: `useSourceConfig(sourceType)`.
-- `SourceConfig.fields` is a union: `input` (text/email/password/url/number/…), `select`, `switch-group`, `oauth`, `ssh-tunnel`, `file-upload`. `DynamicSourceSetup` renders input/select/switch-group and builds the `createExternalDataSource` payload from field `name`s. The backend is the single source of truth for field names/labels/required/secret, so forms never drift.
+- `SourceConfig.fields` is a union: `input` (text/email/password/url/number/…), `select`, `switch-group`, `oauth`, `oauth-account-select`, `ssh-tunnel`, `file-upload`. `DynamicSourceSetup` renders input/select/switch-group **and `oauth`/`oauth-account-select`** generically, and builds the `createExternalDataSource` payload from field `name`s. The backend is the single source of truth for field names/labels/required/secret, so forms never drift.
 - The field `name`s become the `payload` keys — so you no longer hand-maintain them. (Jira → `subdomain`, `email`, `api_token`; all `secret:false` except the token.)
 
-Three cases still need bespoke handling (the generic renderer flags `oauth`/`ssh-tunnel`/`file-upload` as unsupported and disables submit):
+**OAuth sources need NO bespoke form.** `DynamicSourceSetup` renders the `oauth` field (a
+connect button that starts the flow by `kind` and polls `getIntegrationsForProject` for the new
+integration, writing its id into `payload[<name>]`) and the `oauth-account-select` field (a
+server-side-searched picker over the integration's resources) generically. The connect flow is
+started by the generic, `kind`-parameterized `integration` tRPC router
+(`packages/host-router/src/routers/integration.router.ts` → `IntegrationService`), so any
+provider in `OauthIntegration.supported_kinds` works with no per-kind service or router. So an
+OAuth source (Intercom, HubSpot, Salesforce, …) is the same one-registry-entry change as a
+credential source — route its `DataSourceSetup` case to `DynamicSourceSetup`.
 
-| Case                                  | When                                                                                                                                              | Existing example                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| **Generic dynamic form**              | Credential inputs only (Jira, Zendesk, Freshdesk, Front, Gorgias, Sentry, GitLab).                                                                | `DynamicSourceSetup` (route the switch case to it) |
-| **OAuth + integration polling**       | Source authenticates via OAuth grant (Intercom `kind=intercom`); poll `getIntegrationsForProject` for the `kind`, pass `<source>_integration_id`. | `LinearSetup`                                      |
-| **Deep-link OAuth + resource picker** | User must pick a specific resource (repo/board) during setup.                                                                                     | `GitHubSetup`                                      |
-
-`ZendeskSetup`/`PgAnalyzeSetup` are the _old_ hardcoded forms — leave them or
-migrate them to `DynamicSourceSetup` opportunistically; don't add new ones.
+Only two field types still lack a generic renderer (disable submit): `ssh-tunnel` and
+`file-upload`. Route those to a bespoke form. Resource pickers that must run _after_ OAuth
+(GitHub's repo picker) are handled by `oauth-account-select`; the old `GitHubSetup`/`ZendeskSetup`
+/`PgAnalyzeSetup` hardcoded forms remain only for historical reasons — leave them or migrate to
+`DynamicSourceSetup` opportunistically; don't add new ones.
 
 Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
 `posthog/models/integration.py`): `slack, salesforce, hubspot, google-ads,
@@ -83,10 +91,12 @@ Verify exact `source_type` + `payload` key names against the posthog
 | Freshdesk | `Freshdesk`   | `tickets`       | API key                 | `DynamicSourceSetup` | `subdomain`, `api_key`                             |
 | Front     | `Front`       | `conversations` | API token               | `DynamicSourceSetup` | `api_token`                                        |
 | Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
-| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | Linear               | `intercom_integration_id`                          |
+| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | `DynamicSourceSetup` | `intercom_integration_id`                          |
 
-(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`
-are already shipped — copy them, don't re-add.)
+(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`,
+and Jira `issues` are already shipped — copy them, don't re-add. The Jira row above
+stays as the canonical worked example for `payload` keys and the JSON-blob emitter
+gotcha below.)
 
 ---
 
@@ -114,18 +124,23 @@ source-list-relevant is a place you must add the new product. The canonical list
 8. `packages/core/src/inbox/signalSourceService.ts` — mirror `SOURCE_TYPE_MAP`, `DATA_WAREHOUSE_SOURCES`, `ALL_SOURCE_PRODUCTS`, `computeSourceValues` init, plus `WarehouseSourceProduct`/`SignalSourceValues`.
 9. `packages/core/src/inbox/dataSourceService.ts` — `DataSourceType`, `REQUIRED_SCHEMAS`, a `createXDataSource` method.
 
-### OAuth plumbing — **only** for OAuth sources (Intercom); API-key sources skip this
+### OAuth plumbing — NOT needed per source anymore
 
-10. `packages/core/src/integrations/<source>.ts` — `XIntegrationService.startFlow(region, projectId)` (clone `linear.ts`).
-11. `packages/core/src/integrations/identifiers.ts` — new `X_INTEGRATION_SERVICE` symbol.
-12. `packages/core/src/integrations/integrations.module.ts` — bind it.
-13. `packages/host-router/src/routers/<source>-integration.router.ts` — clone `linear-integration.router.ts`.
-14. `packages/host-router/src/router.ts` — import + register the router in `appRouter`.
+There is now a **generic, `kind`-parameterized** integration flow: `IntegrationService`
+(`packages/core/src/integrations/integration.ts`) + the `integration` tRPC router
+(`packages/host-router/src/routers/integration.router.ts`). `DynamicSourceSetup` starts any
+OAuth flow through it via the field's `kind`. So a new OAuth source needs **no** per-kind
+service, symbol, or router — do not clone `linear.ts`/`linear-integration.router.ts` per source.
+(The old per-kind linear/slack/github routers still exist for other callers; leave them.)
 
 ### Setup-form specifics
 
-- **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup` (above). Nothing else — the fields come from the wizard endpoint.
-- **OAuth form:** clone `LinearSetup`. Change the `kind` matched in the poll loop and the `<source>_integration_id` payload key; swap `trpc.linearIntegration.startFlow` for the new router.
+- **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup`. Nothing else — the fields come from the wizard endpoint.
+- **OAuth source:** also just route to `DynamicSourceSetup`. Its connect-form schema carries the
+  `oauth` field (and, if the provider needs a resource picked, an `oauth-account-select` field),
+  which `DynamicSourceSetup` renders generically — connect button + integration polling + account
+  picker, all by `kind`. No bespoke form. The provider must be in
+  `OauthIntegration.supported_kinds`.
 - Issues sources (`github`/`linear`/`jira`) force `issues` to `full_refresh` in `ensureRequiredTableSyncing` (`useSignalSourceToggles.ts`) — add the new product to that condition if it syncs an `issues` table (issues get edited/closed, so incremental append would miss updates). Ticket/conversation sources only force `should_sync=true`.
 
 ### Verify
@@ -156,6 +171,52 @@ generic; only the per-source emitter + registry entry are new.
 
 - Migration applies cleanly; `python manage.py makemigrations --check` is clean afterward.
 - The `ExternalDataSourceType` member exists in `products/warehouse_sources/backend/types.py`.
+
+---
+
+## The self-driving wizard surface (`PostHog/context-mill`) — optional
+
+The two surfaces above make a source work in the app. They do **not** make the CLI
+`npx @posthog/wizard self-driving` onboarding _offer_ it. That flow is an AI agent
+driven by a skill in the separate `PostHog/context-mill` repo, and its connected-tool
+list is **hardcoded** — it is not read dynamically from the wizard endpoint. So a new
+source is invisible to self-driving onboarding until you add it there.
+
+Edit `context/skills/self-driving/references/5-connected-tools.md` (plus the source-list
+mentions in `4-sources.md`, `2-read-context.md`, and `description.md`):
+
+1. Add the tool to the step-5 `wizard_ask` multi-select options (`{ label, value }`).
+2. Add its responder mapping — the same `source_product` / `source_type` pair as the
+   posthog emitter (e.g. Jira → `jira` / `issue`).
+3. Add its DWH `source_type` to the "already connected" detection list.
+4. Classify how the run connects it:
+   - **Credential source** (API key/token — Jira, Zendesk, pganalyze): the run can't
+     collect credentials in-flight, so it never sends the user to the UI. Group it with
+     Zendesk — arm the dormant responder and record a follow-up. **No connector file.**
+   - **One-click OAuth source** (Linear-style, `kind=<source>` integration): add a
+     dedicated connector reference (`5X-<source>.md`, clone `5b-linear.md`) that hands
+     over the authorize link and creates the source from the integration id.
+
+`dist/` is gitignored (built in CI), but run `node scripts/build.js` (Node ≥20) once to
+confirm the skill bundles; the build validates structure.
+
+## created_via attribution
+
+`ExternalDataSource.created_via` records **how** a source was created and is derived
+**server-side from the request transport** (`get_event_source` in
+`posthog/event_usage.py`, keyed on the user-agent) — an API caller **cannot** set it
+directly, which is deliberate (otherwise any client could self-label). A new source
+inherits this for free; there is nothing per-source to wire. For reference, the machine
+value `mcp` is upgraded based on the caller:
+
+| Caller                                       | Transport                  | `created_via`  |
+| -------------------------------------------- | -------------------------- | -------------- |
+| PostHog Code app inbox (`posthog/code`)      | `EventSource.POSTHOG_CODE` | `self_driving` |
+| `npx @posthog/wizard` (self-driving program) | `EventSource.WIZARD`       | `self_driving` |
+| Other MCP clients                            | `EventSource.MCP`          | `mcp`          |
+
+The upgrade lives in `_create_external_data_source` in
+`products/warehouse_sources/backend/presentation/views/external_data_source.py`.
 
 ---
 

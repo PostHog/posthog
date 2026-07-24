@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import type { QuickFilter } from '~/types'
 
 import {
@@ -38,21 +40,65 @@ export function getWidgetTileFiltersSetup(widgetType: DashboardWidgetCatalogKey)
 }
 
 export function useWidgetTileConfigPersist(
-    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
+    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>,
+    receivedConfig?: Record<string, unknown>
 ): {
+    getLatestConfig: () => Record<string, unknown>
     persistConfigDebounced: (config: Record<string, unknown>) => void
     persistConfigNow: (config: Record<string, unknown>) => Promise<void>
 } {
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const debouncedConfigRef = useRef<Record<string, unknown> | null>(null)
+    const latestConfigRef = useRef<Record<string, unknown>>(receivedConfig ?? {})
+    const receivedConfigRef = useRef(receivedConfig)
+    const pendingPersistCountRef = useRef(0)
+    const persistQueueRef = useRef<Promise<void>>(Promise.resolve())
     const onUpdateConfigRef = useRef(onUpdateConfig)
     onUpdateConfigRef.current = onUpdateConfig
+
+    if (receivedConfig !== receivedConfigRef.current) {
+        receivedConfigRef.current = receivedConfig
+        if (!debounceRef.current && pendingPersistCountRef.current === 0 && receivedConfig) {
+            latestConfigRef.current = receivedConfig
+        }
+    }
+
+    const getLatestConfig = useCallback((): Record<string, unknown> => latestConfigRef.current, [])
 
     const persistConfigNow = useCallback(async (config: Record<string, unknown>): Promise<void> => {
         if (debounceRef.current) {
             clearTimeout(debounceRef.current)
             debounceRef.current = null
+            debouncedConfigRef.current = null
         }
-        await onUpdateConfigRef.current?.(config)
+        latestConfigRef.current = config
+        pendingPersistCountRef.current += 1
+        const persistPromise = persistQueueRef.current
+            .catch(() => undefined)
+            .then(() => onUpdateConfigRef.current?.(config))
+        persistQueueRef.current = persistPromise
+        try {
+            await persistPromise
+        } catch (error) {
+            if (receivedConfigRef.current && latestConfigRef.current === config) {
+                latestConfigRef.current = receivedConfigRef.current
+            }
+            if (
+                error instanceof Error &&
+                error.name === 'WidgetConfigValidationError' &&
+                'fieldErrors' in error &&
+                typeof error.fieldErrors === 'object' &&
+                error.fieldErrors !== null
+            ) {
+                const fieldErrors = error.fieldErrors as Record<string, string | undefined>
+                const validationMessage = Object.values(fieldErrors).find((message) => !!message)
+                lemonToast.error(
+                    validationMessage ?? 'Could not update widget filters. Check the values and try again.'
+                )
+            }
+        } finally {
+            pendingPersistCountRef.current -= 1
+        }
     }, [])
 
     const persistConfigDebounced = useCallback(
@@ -63,8 +109,11 @@ export function useWidgetTileConfigPersist(
             if (debounceRef.current) {
                 clearTimeout(debounceRef.current)
             }
+            latestConfigRef.current = config
+            debouncedConfigRef.current = config
             debounceRef.current = setTimeout(() => {
                 debounceRef.current = null
+                debouncedConfigRef.current = null
                 void persistConfigNow(config)
             }, WIDGET_TILE_REFRESH_DEBOUNCE_MS)
         },
@@ -75,9 +124,15 @@ export function useWidgetTileConfigPersist(
         return () => {
             if (debounceRef.current) {
                 clearTimeout(debounceRef.current)
+                debounceRef.current = null
+            }
+            if (debouncedConfigRef.current) {
+                const pendingConfig = debouncedConfigRef.current
+                debouncedConfigRef.current = null
+                void persistConfigNow(pendingConfig)
             }
         }
-    }, [])
+    }, [persistConfigNow])
 
-    return { persistConfigDebounced, persistConfigNow }
+    return { getLatestConfig, persistConfigDebounced, persistConfigNow }
 }

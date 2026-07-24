@@ -5,6 +5,7 @@ import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
@@ -46,28 +47,33 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
 export function InboxCardSourceMeta({
     sourceProducts,
-    scoutName,
+    scoutSkillName,
 }: {
     sourceProducts?: string[] | null
-    /** Authoring scout's display name, when scout-authored — appended to the "Scout" label. */
-    scoutName?: string | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
+    scoutSkillName?: string | null
 }): JSX.Element | null {
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
-    const primaryLabel =
-        primary.key === SignalSourceProduct.SignalsScout && scoutName
-            ? `${primary.meta.label} · ${scoutName}`
-            : primary.meta.label
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
                 <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
                 <span>
-                    {primaryLabel}
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
                 </span>
             </div>
@@ -79,9 +85,9 @@ export function InboxCardSourceMeta({
 
 /**
  * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). We have no real PR status from GitHub on the report, so it's inferred from the
- * report status: a resolved report means its implementation PR merged (webhook-driven on merge),
- * a failed one means the PR never landed, everything else is still an open PR.
+ * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
+ * merge — report status can't stand in for it, since a report can be resolved directly without its
+ * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
  */
 const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
     open: { label: 'open', type: 'success' },
@@ -91,8 +97,8 @@ const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type
 
 type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-function derivePrState(status: SignalReportStatus): PrBadgeState {
-    if (status === SignalReportStatus.RESOLVED) {
+function derivePrState(status: SignalReportStatus, prMerged: boolean): PrBadgeState {
+    if (prMerged) {
         return 'merged'
     }
     if (status === SignalReportStatus.FAILED) {
@@ -214,7 +220,11 @@ export function ReportCard({
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
             {hasPr && prNumber != null ? (
                 <div className="absolute right-4 top-3 z-10">
-                    <PrBadge prNumber={prNumber} prUrl={prUrl} state={derivePrState(report.status)} />
+                    <PrBadge
+                        prNumber={prNumber}
+                        prUrl={prUrl}
+                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                    />
                 </div>
             ) : null}
 
@@ -266,7 +276,7 @@ export function ReportCard({
                             {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                             <InboxCardSourceMeta
                                 sourceProducts={report.source_products}
-                                scoutName={scoutDisplayName(report.scout_name)}
+                                scoutSkillName={report.scout_name}
                             />
                             {!hasPr && (!isReady || !report.actionability) && (
                                 <SignalReportStatusBadge status={report.status} />

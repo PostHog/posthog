@@ -1,14 +1,17 @@
-from typing import Any
+import json
+from collections.abc import Callable, Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 import requests
+from parameterized import parameterized
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
     PAGE_SIZE,
-    get_rows,
     optimizely_source,
     validate_credentials,
 )
@@ -17,156 +20,172 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely
     OPTIMIZELY_ENDPOINTS,
 )
 
+# The RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the optimizely module.
+OPTIMIZELY_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
+)
 
-def _response(items: list[dict[str, Any]], next_url: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = items
-    resp.status_code = 200
-    resp.ok = True
-    resp.links = {"next": {"url": next_url}} if next_url else {}
+
+def _response(items: list[dict[str, Any]], *, status: int = 200, next_url: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(items).encode()
+    if next_url:
+        # RFC 5988 Link header — requests parses it into `response.links`, which HeaderLinkPaginator reads.
+        resp.headers["Link"] = f'<{next_url}>; rel="next"'
     return resp
 
 
-def _http_error(status: int) -> requests.HTTPError:
-    response = mock.MagicMock()
-    response.status_code = status
-    return requests.HTTPError(f"{status} Client Error", response=response)
+def _wire(mock_make_session: mock.MagicMock, router: Callable[[str], Any]) -> list[str]:
+    """Route the RESTClient's session to ``router(prepared.url)``, capturing each sent URL.
+
+    A real ``requests.Session`` prepares requests (so ``prepared.url`` — used by the framework's
+    host-pinning guard — is a genuine URL), while ``send`` is mocked to look up the fixture by URL.
+    A router result that is an ``Exception`` is raised; anything else is returned as the response.
+    """
+    session = requests.Session()
+    sent: list[str] = []
+
+    def _send(prepared: Any, **kwargs: Any) -> Response:
+        sent.append(prepared.url)
+        result = router(prepared.url)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    mock_make_session.return_value = session
+    return sent
+
+
+def _rows(endpoint: str) -> list[dict[str, Any]]:
+    response = optimizely_source("token", endpoint, team_id=1, job_id="j")
+    return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (403, True),
-            (401, False),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
+    @parameterized.expand([(200, True), (403, True), (401, False)])
+    @mock.patch(OPTIMIZELY_SESSION_PATCH)
+    def test_status_mapping(self, status_code, expected, mock_session):
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("token") is expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
+    @mock.patch(OPTIMIZELY_SESSION_PATCH)
+    def test_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("token") is False
 
 
-class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_projects_paginates_via_link_header(self, mock_session):
+class TestSimpleEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_projects_paginates_via_link_header(self, mock_make_session):
         next_url = "https://api.optimizely.com/v2/projects?page=2&per_page=100"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": 1}], next_url=next_url),
-            _response([{"id": 2}]),
+
+        def router(url: str) -> Response:
+            if "page=2" in url:
+                return _response([{"id": 2}])
+            return _response([{"id": 1}], next_url=next_url)
+
+        sent = _wire(mock_make_session, router)
+        rows = _rows("projects")
+
+        assert [row["id"] for row in rows] == [1, 2]
+        # The second request follows the Link header URL verbatim.
+        assert sent[1] == next_url
+        assert parse_qs(urlparse(sent[0]).query)["per_page"] == [str(PAGE_SIZE)]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_yields_nothing(self, mock_make_session):
+        _wire(mock_make_session, lambda url: _response([]))
+        assert _rows("projects") == []
+
+    @parameterized.expand(
+        [
+            ("attacker_host", "https://evil.example.com/v2/projects?page=2&per_page=100"),
+            ("subdomain_spoof", "https://api.optimizely.com.evil.com/v2/projects?page=2"),
+            ("internal_metadata", "http://169.254.169.254/latest/meta-data/"),
         ]
-
-        batches = list(get_rows("token", "projects", mock.MagicMock()))
-
-        assert [item["id"] for batch in batches for item in batch] == [1, 2]
-        assert mock_session.return_value.get.call_args_list[1].args[0] == next_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
     )
-    def test_project_scoped_endpoint_fans_out_over_projects(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": 11}, {"id": 22}]),  # projects list
-            _response([{"id": "exp-1", "project_id": 11}]),
-            _response([{"id": "exp-2", "project_id": 22}]),
-        ]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_refuses_to_follow_offhost_next_link(self, _name, off_host_url, mock_make_session):
+        # A hostile upstream points the `Link` next URL off-host; the credentialed request must never
+        # be sent. The old transport stopped silently; the framework fails loud instead — but the
+        # security guarantee (the off-host URL is never fetched) is identical.
+        def router(url: str) -> Response:
+            return _response([{"id": 1}], next_url=off_host_url)
 
-        batches = list(get_rows("token", "experiments", mock.MagicMock()))
+        sent = _wire(mock_make_session, router)
 
-        assert [item["id"] for batch in batches for item in batch] == ["exp-1", "exp-2"]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urlparse(urls[0]).path == "/v2/projects"
-        assert parse_qs(urlparse(urls[1]).query)["project_id"] == ["11"]
-        assert parse_qs(urlparse(urls[2]).query)["project_id"] == ["22"]
-        assert all(parse_qs(urlparse(u).query)["per_page"] == [str(PAGE_SIZE)] for u in urls)
+        with pytest.raises(ValueError):
+            _rows("projects")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely._iterate_pages")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_fan_out_skips_projects_without_feature_access(self, mock_session, mock_iterate):
-        def iterate(session, path, params, logger):
-            if path == "/projects":
-                yield [{"id": 11}, {"id": 22}]
-                return
-            if params.get("project_id") == 11:
-                raise _http_error(403)
-            yield [{"id": "camp-1"}]
+        assert off_host_url not in sent
+        assert sent == ["https://api.optimizely.com/v2/projects?per_page=100"]
 
-        mock_iterate.side_effect = iterate
 
-        logger = mock.MagicMock()
-        batches = list(get_rows("token", "campaigns", logger))
+class TestProjectScopedFanOut:
+    def _router_over_two_projects(self) -> Callable[[str], Any]:
+        def router(url: str) -> Response:
+            parsed = urlparse(url)
+            if parsed.path == "/v2/projects":
+                return _response([{"id": 11}, {"id": 22}])
+            project_id = parse_qs(parsed.query)["project_id"][0]
+            return _response([{"id": f"exp-{project_id}", "project_id": int(project_id)}])
 
-        assert batches == [[{"id": "camp-1"}]]
-        logger.warning.assert_called_once()
+        return router
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely._iterate_pages")
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_fan_out_raises_on_unexpected_errors(self, mock_session, mock_iterate):
-        # 401 and other non-retried 4xx (not in the skip set 400/403/404) are the
-        # cases that actually reach the `raise` branch via requests.HTTPError.
-        # 5xx would arrive as OptimizelyRetryableError (after retries), bypassing
-        # the HTTPError handler entirely.
-        def iterate(session, path, params, logger):
-            if path == "/projects":
-                yield [{"id": 11}]
-                return
-            raise _http_error(401)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_every_project_with_scoped_query_param(self, mock_make_session):
+        sent = _wire(mock_make_session, self._router_over_two_projects())
+        rows = _rows("experiments")
 
-        mock_iterate.side_effect = iterate
+        assert sorted(row["id"] for row in rows) == ["exp-11", "exp-22"]
+
+        child_urls = [url for url in sent if urlparse(url).path == "/v2/experiments"]
+        project_ids = sorted(parse_qs(urlparse(url).query)["project_id"][0] for url in child_urls)
+        assert project_ids == ["11", "22"]
+        assert all(parse_qs(urlparse(url).query)["per_page"] == [str(PAGE_SIZE)] for url in child_urls)
+
+    @parameterized.expand([(400,), (403,), (404,)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_projects_without_feature_access(self, skip_status, mock_make_session):
+        def router(url: str) -> Response:
+            parsed = urlparse(url)
+            if parsed.path == "/v2/projects":
+                return _response([{"id": 11}, {"id": 22}])
+            project_id = parse_qs(parsed.query)["project_id"][0]
+            if project_id == "11":
+                return _response([], status=skip_status)
+            return _response([{"id": "camp-22"}])
+
+        _wire(mock_make_session, router)
+        rows = _rows("campaigns")
+
+        # Project 11 lacks access (4xx) and is skipped; project 22 still syncs.
+        assert [row["id"] for row in rows] == ["camp-22"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_raises_on_unexpected_child_error(self, mock_make_session):
+        # 401 is not in the skip set (400/403/404), so it fails the whole stream loudly.
+        def router(url: str) -> Response:
+            parsed = urlparse(url)
+            if parsed.path == "/v2/projects":
+                return _response([{"id": 11}])
+            return _response([], status=401)
+
+        _wire(mock_make_session, router)
 
         with pytest.raises(requests.HTTPError):
-            list(get_rows("token", "experiments", mock.MagicMock()))
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_pagination_stops_on_foreign_next_url(self, mock_session):
-        # A next_url on an unexpected host must not be followed — it could
-        # redirect our authenticated Bearer request and leak the token.
-        evil_url = "https://evil.example.com/v2/projects?page=2&per_page=100"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": 1}], next_url=evil_url),
-            _response([{"id": 2}]),
-        ]
-
-        batches = list(get_rows("token", "projects", mock.MagicMock()))
-
-        assert [item["id"] for batch in batches for item in batch] == [1]
-        assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely.make_tracked_session"
-    )
-    def test_empty_response_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        assert list(get_rows("token", "projects", mock.MagicMock())) == []
+            _rows("experiments")
 
 
 class TestOptimizelySourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint):
         config = OPTIMIZELY_ENDPOINTS[endpoint]
-        response = optimizely_source("token", endpoint, mock.MagicMock())
+        response = optimizely_source("token", endpoint, team_id=1, job_id="j")
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

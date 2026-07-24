@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
+    RevenueCatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     EVENT_RESOURCE_NAME,
@@ -44,7 +46,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
     RevenueCatResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.settings import (
-    REVENUECAT_API_ENDPOINTS,
     REVENUECAT_API_SCHEMA_NAMES,
     REVENUECAT_WEBHOOK_SCHEMA_NAMES,
 )
@@ -55,6 +56,24 @@ if TYPE_CHECKING:
 
 
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
+
+
+# Event-payload fields RevenueCat documents as doubles. JSON drops the decimal point on
+# whole values (`0`, `20`), so they parse as Python ints, and events like TRANSFER carry
+# them as nulls. If the batch that creates the Delta table holds only whole values, the
+# column gets locked to int64 and the first fractional price (e.g. 19.99) fails every
+# subsequent sync with an Arrow truncation error; if it holds only nulls, the column is
+# stored as string (Delta has no null type) and later prices are silently stringified.
+# Force these columns to double so neither can happen.
+_EVENT_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "takehome_percentage",
+    "tax_percentage",
+    "commission_percentage",
+    "discount_percentage",
+    "discount_amount",
+)
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
@@ -68,7 +87,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     We also derive a ``created_at`` field (Unix seconds) from RevenueCat's
     ``event_timestamp_ms`` so this table can share the same datetime partition
     convention as the API endpoints. The original ``event_timestamp_ms`` is
-    preserved unchanged for callers that need sub-second precision.
+    preserved unchanged for callers that need sub-second precision. Columns
+    documented as doubles are forced to float64 so whole-valued or all-null
+    batches can't pin them to an integer or string type (see
+    ``_EVENT_DOUBLE_FIELDS``).
     """
     if "event" not in table.column_names:
         return table_from_py_list([])
@@ -92,7 +114,23 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             row["created_at"] = event_ts_ms // 1000
         rows.append(row)
 
-    return table_from_py_list(rows)
+    result = table_from_py_list(rows)
+
+    # Cast at the table level rather than per value: an all-null column carries no values
+    # to coerce, yet still needs the float64 type or it infers `null` (stored as string).
+    for field_name in _EVENT_DOUBLE_FIELDS:
+        if field_name not in result.column_names:
+            continue
+        field_index = result.schema.get_field_index(field_name)
+        column_type = result.schema.field(field_index).type
+        if pa.types.is_null(column_type) or pa.types.is_integer(column_type):
+            result = result.set_column(
+                field_index,
+                pa.field(field_name, pa.float64()),
+                result.column(field_name).cast(pa.float64()),
+            )
+
+    return result
 
 
 @SourceRegistry.register
@@ -101,6 +139,9 @@ class RevenueCatSource(
     WebhookSource[RevenueCatSourceConfig],
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.revenuecat.com/docs/api-v2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -215,10 +256,20 @@ class RevenueCatSource(
             "404 Client Error: Not Found": (
                 "RevenueCat could not find the project. Double-check the project id and that the API key belongs to it."
             ),
+            "Source column type changed": (
+                "A column in this table started receiving values that don't fit the type stored from "
+                "earlier syncs (for example a price column created from whole-number values now "
+                "receiving a decimal price). We can't widen an existing column in place — reset and "
+                "fully re-sync this table to adopt the new type."
+            ),
         }
 
     def validate_credentials(
-        self, config: RevenueCatSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RevenueCatSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.secret_api_key, config.project_id)
 
@@ -229,6 +280,7 @@ class RevenueCatSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `events` is webhook-only — the v2 API doesn't expose a historical
         # backfill endpoint for webhook events, so the only way to populate
@@ -269,7 +321,9 @@ class RevenueCatSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         # The user hasn't entered the auth-header value yet on the warehouse
         # side. Skip passing one and the surrounding flow will collect it via
         # `webhookFields`, then bind it to the integration in place.
@@ -280,7 +334,12 @@ class RevenueCatSource(
         )
 
     def webhook_inputs_updated(
-        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self,
+        config: RevenueCatSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        inputs: dict[str, Any],
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Once the user provides the authorization header value, bind it to the
         # integration so RevenueCat starts sending the header on every
@@ -301,11 +360,13 @@ class RevenueCatSource(
         return True, None
 
     def get_external_webhook_info(
-        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.secret_api_key, config.project_id, webhook_url)
 
-    def delete_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.secret_api_key, config.project_id, webhook_url)
 
     def source_for_pipeline(
@@ -350,36 +411,15 @@ class RevenueCatSource(
         resumable_source_manager: ResumableSourceManager[RevenueCatResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        endpoint = REVENUECAT_API_ENDPOINTS[inputs.schema_name]
-
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        starting_after = resume.starting_after if resume is not None and resume.endpoint == inputs.schema_name else None
-
-        def on_cursor_advance(endpoint_name: str, last_id: str) -> None:
-            resumable_source_manager.save_state(RevenueCatResumeConfig(endpoint=endpoint_name, starting_after=last_id))
-
-        def items() -> Iterable[dict[str, Any]]:
-            yield from api_client.iterate_list_endpoint(
-                api_key=config.secret_api_key,
-                project_id=config.project_id,
-                path_suffix=endpoint.path_suffix,
-                endpoint_name=inputs.schema_name,
-                timestamp_fields=tuple(endpoint.partition_keys),
-                starting_after=starting_after,
-                on_cursor_advance=on_cursor_advance,
-            )
-
-        # Datetime partitioning on the endpoint's timestamp field (`created_at`,
-        # or `first_seen_at` for customers) — `iterate_list_endpoint` normalizes
-        # RevenueCat's ms-epoch value down to Unix seconds so the partition layer
-        # (which treats bare ints as seconds) produces sane bucket dates.
-        return SourceResponse(
-            items=items,
-            primary_keys=endpoint.primary_keys,
-            name=inputs.schema_name,
-            partition_keys=endpoint.partition_keys,
-            partition_mode="datetime",
-            partition_format="week",
-            partition_count=1,
-            partition_size=1,
+        # Datetime partitioning on the endpoint's timestamp field (`created_at`, or
+        # `first_seen_at` for customers) — the transport normalizes RevenueCat's ms-epoch value
+        # down to Unix seconds so the partition layer (which treats bare ints as seconds) produces
+        # sane bucket dates.
+        return api_client.revenuecat_api_source(
+            api_key=config.secret_api_key,
+            project_id=config.project_id,
+            schema_name=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )

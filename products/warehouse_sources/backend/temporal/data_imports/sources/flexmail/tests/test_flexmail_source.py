@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.flexmail import FlexmailResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source import FlexmailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FlexmailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
+    FlexmailSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

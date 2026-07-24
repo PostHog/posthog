@@ -79,10 +79,11 @@ seam — don't use it.)
 Every identity-gated call resolves to one of three outcomes:
 
 - **`ok`** — a bearer was available; the call runs as the user.
-- **`link_required`** — the user hasn't linked yet. The tool/MCP returns a
-  connect link (an `auth_required` payload, or the MCP degrades with one). The
-  agent **relays it as a markdown link** ("Connect your PostHog account: [link]"),
-  asks the user to click, then retries — it is NOT an error or a dead capability.
+- **`link_required`** — an explicitly invoked identity-gated tool found that
+  the user hasn't linked yet. The tool returns a connect link in an
+  `auth_required` payload. The agent **relays it as a markdown link**
+  ("Connect your PostHog account: [link]"), asks the user to click, then
+  retries. MCP startup is lookup-only and never initiates this flow.
 - **`unavailable`** — can't link here (e.g. a shared thread, or an
   anonymous principal). Surface plainly.
 
@@ -94,10 +95,11 @@ Where the bearer comes from depends on the surface:
   persisted per-user and reused.
 
 **`@posthog/identity-connect`** mints a connect/reconnect link on demand for any
-declared provider — use it to proactively hand the user a link ("connect my
-PostHog account") rather than waiting for a call to fail. If a linked grant is
-later missing a scope the service now requires, the same path offers a
-**reconnect** link (re-authorize with the updated scopes).
+declared provider. The runtime makes it available when the agent declares an
+identity provider or an identity-backed MCP. Use it for an explicit connection
+need such as "connect my PostHog account"; merely opening an MCP never invokes
+it. If a linked grant is later missing a scope the service now requires, the
+same path offers a **reconnect** link (re-authorize with the updated scopes).
 
 ## Choosing scopes
 

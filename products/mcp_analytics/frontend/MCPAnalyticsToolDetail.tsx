@@ -1,11 +1,12 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
+    type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
@@ -27,17 +28,18 @@ import {
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
@@ -49,6 +51,10 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
+import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { formatBucketLabel } from './timeBuckets'
+import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
+import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -116,7 +122,8 @@ function ResultTable({
     rows,
     loading,
     columns,
-    emptyMessage = 'No data for the last 7 days.',
+    emptyMessage = 'No data for the selected date range.',
+    onRowClick,
 }: {
     title?: React.ReactNode
     description?: React.ReactNode
@@ -125,6 +132,7 @@ function ResultTable({
     loading: boolean
     columns: ResultColumn[]
     emptyMessage?: string
+    onRowClick?: (rowIndex: number) => void
 }): JSX.Element {
     return (
         <Card size="sm" className="gap-0">
@@ -166,7 +174,25 @@ function ResultTable({
                 ) : (
                     <TableBody>
                         {rows.map((row, i) => (
-                            <TableRow key={i}>
+                            <TableRow
+                                key={i}
+                                className={onRowClick ? 'cursor-pointer hover:bg-fill-highlight-50' : undefined}
+                                onClick={onRowClick ? () => onRowClick(i) : undefined}
+                                // A bare <tr> isn't keyboard-operable — mirror the tracing tables'
+                                // pattern so the drill-down opens on Enter/Space too.
+                                role={onRowClick ? 'button' : undefined}
+                                tabIndex={onRowClick ? 0 : undefined}
+                                onKeyDown={
+                                    onRowClick
+                                        ? (e: React.KeyboardEvent) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                  e.preventDefault()
+                                                  onRowClick(i)
+                                              }
+                                          }
+                                        : undefined
+                                }
+                            >
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
                                         {col.render(row)}
@@ -190,12 +216,9 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
     )
 }
 
-// Tile sparkline window — the trailing slice of the 30-day daily series.
-const SPARKLINE_DAYS = 7
-
-// Trailing window of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
+// Coalesce latency gaps (NaN) to 0 so the sparkline draws a continuous line over the window.
 function spark(values: number[]): number[] {
-    return values.slice(-SPARKLINE_DAYS).map((v) => (Number.isFinite(v) ? v : 0))
+    return values.map((v) => (Number.isFinite(v) ? v : 0))
 }
 
 function StatTiles({
@@ -203,17 +226,21 @@ function StatTiles({
     loading,
     daily,
     theme,
+    dateRangeLabel,
+    interval,
 }: {
     summary: ToolSummary | null
     loading: boolean
     daily: DailyChartData
     theme: ChartTheme
+    dateRangeLabel: string
+    interval: TimeInterval
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.slice(-SPARKLINE_DAYS).map(formatBucketLabel)
+    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -282,7 +309,7 @@ function StatTiles({
                     loading={loading}
                     labels={sparkLabels}
                     theme={theme}
-                    restingSubtitle="Last 7 days"
+                    restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
                 />
             ))}
@@ -358,7 +385,11 @@ function DescriptionBlock({
     )
 }
 
-function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
+function trendChartConfig(
+    timezone: string,
+    interval: TimeInterval,
+    yAxis?: TimeSeriesLineChartConfig['yAxis']
+): TimeSeriesLineChartConfig {
     return {
         curve: 'monotone',
         showAxisLines: true,
@@ -366,7 +397,7 @@ function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['y
         showCrosshair: true,
         showGrid: true,
         yAxis,
-        xAxis: { interval: 'day', timezone },
+        xAxis: { interval, timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -413,7 +444,7 @@ function TrendChart({
                     <Skeleton className="flex-1" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
-                        No data for the last 7 days.
+                        No data for the selected date range.
                     </div>
                 ) : (
                     <TimeSeriesLineChart
@@ -445,8 +476,8 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         descriptionsLoading,
         dailyChartData,
         dailyStatsLoading,
-        failureRows,
-        failureRowsLoading,
+        failureBuckets,
+        failureBucketsLoading,
         sampleIntentRows,
         sampleIntentRowsLoading,
         intentCoverage,
@@ -459,7 +490,11 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         byHarnessRowsLoading,
         topUserRows,
         topUserRowsLoading,
+        dateRangeLabel,
+        dateFilter,
+        interval,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
@@ -471,10 +506,10 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone, interval), [timezone, interval])
     const latencyConfig = useChartConfig(
-        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
-        [timezone]
+        () => trendChartConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
+        [timezone, interval]
     )
 
     return (
@@ -485,20 +520,27 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: urls.mcpAnalyticsToolQuality(),
+                    path: mcpToolQualityUrlWithDates(dateFilter),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />
-                <StatTiles summary={summary} loading={summaryLoading} daily={dailyChartData} theme={theme} />
+                <StatTiles
+                    summary={summary}
+                    loading={summaryLoading}
+                    daily={dailyChartData}
+                    theme={theme}
+                    dateRangeLabel={dateRangeLabel}
+                    interval={interval}
+                />
             </div>
 
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader title="Reliability" subtitle="Last 30 days" />
+                <SectionHeader title="Reliability" subtitle={dateRangeLabel} />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <TrendChart
                         title="Calls and errors"
@@ -531,7 +573,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         action={<IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />}
                         rows={sampleIntentRows}
                         loading={sampleIntentRowsLoading}
-                        emptyMessage="No intents captured in the last 7 days."
+                        emptyMessage="No intents captured for the selected date range."
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
@@ -640,10 +682,11 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
-                    rows={failureRows}
-                    loading={failureRowsLoading}
-                    emptyMessage="No errored calls recorded for this tool in the last 7 days."
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Click a row to see individual occurrences."
+                    rows={failureBuckets.map((b) => [b.message, b.occurrences, b.last_seen, b.harnesses])}
+                    loading={failureBucketsLoading}
+                    emptyMessage="No errored calls recorded for this tool in the selected date range."
+                    onRowClick={(i) => selectFailure(failureBuckets[i] ?? null)}
                     columns={[
                         {
                             header: 'Error type',
@@ -663,7 +706,99 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     ]}
                 />
             </div>
+
+            <FailureOccurrencesModal toolName={toolName} />
         </SceneContent>
+    )
+}
+
+// Drill-down into one failure bucket: the individual errored calls, each with a
+// copyable, paste-ready context block for handing to a coding agent.
+function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Element {
+    const { selectedFailure, failureOccurrences, failureOccurrencesLoading } = useValues(
+        mcpAnalyticsToolDetailLogic({ toolName })
+    )
+    const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
+
+    const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPErrorContext => ({
+        toolName,
+        errorType: selectedFailure?.error_type ?? '',
+        errorStatus: o.error_status || selectedFailure?.error_status || undefined,
+        errorMessage: o.error_message || undefined,
+        timestamp: o.timestamp,
+        harness: o.harness,
+        intent: o.intent,
+        sessionId: o.session_id || undefined,
+    })
+
+    return (
+        <LemonModal
+            isOpen={selectedFailure != null}
+            onClose={() => selectFailure(null)}
+            title={
+                <span>
+                    Failures: <span className="font-mono">{selectedFailure?.message}</span>
+                </span>
+            }
+            description="Most recent errored calls in this bucket (up to 50, last 7 days). Copy an occurrence's context to hand it to a coding agent."
+            width={880}
+        >
+            <ResultTable
+                rows={failureOccurrences.map((o) => [o.timestamp, o.harness, o.error_message, o])}
+                loading={failureOccurrencesLoading}
+                emptyMessage="No occurrences found in the last 7 days."
+                columns={[
+                    { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
+                    { header: 'Harness', render: (r) => <span>{String(r[1] ?? '') || '—'}</span> },
+                    {
+                        header: 'Error message',
+                        expand: true,
+                        render: (r) =>
+                            r[2] ? (
+                                <span className="font-mono text-xs whitespace-pre-wrap break-all line-clamp-4">
+                                    {String(r[2])}
+                                </span>
+                            ) : (
+                                <span className="text-muted text-xs">
+                                    Not captured (event predates error message capture)
+                                </span>
+                            ),
+                    },
+                    {
+                        header: '',
+                        render: (r) => {
+                            const occurrence = r[3] as MCPToolFailureOccurrenceItem
+                            return (
+                                <div className="flex items-center gap-1 whitespace-nowrap">
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconCopy />}
+                                        tooltip="Copy error context for a coding agent"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            void copyToClipboard(
+                                                formatErrorContext(occurrenceContext(occurrence)),
+                                                'error context'
+                                            )
+                                        }}
+                                    />
+                                    <CreateFixTaskButton context={occurrenceContext(occurrence)} />
+                                    {occurrence.session_id ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            to={mcpSessionUrl(occurrence.session_id)}
+                                            tooltip="View the session this call belongs to"
+                                        >
+                                            Session
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
+                            )
+                        },
+                    },
+                ]}
+            />
+        </LemonModal>
     )
 }
 

@@ -228,7 +228,9 @@ def get_rows(
     def fetch_page(page_url: str) -> Any:
         response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on Datadog's side; retry it like 429/5xx rather than
+        # letting it raise_for_status() into a fatal, non-retried HTTPError.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise DatadogRetryableError(f"Datadog API error (retryable): status={response.status_code}, url={page_url}")
 
         if not response.ok:

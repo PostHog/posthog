@@ -14,6 +14,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -60,6 +61,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.models import Element
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
@@ -267,7 +269,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
         # works correctly. Worth considering other approaches as we generally like to
         # avoid truncating tables in tests for speed.
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
         with freeze_time("2012-01-01T03:21:34.000Z"):
             funnel = self._basic_funnel()
 

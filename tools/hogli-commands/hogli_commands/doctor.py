@@ -25,6 +25,15 @@ from hogli.manifest import REPO_ROOT, get_manifest
 from . import hints
 
 MAX_SAMPLE_PATHS = 8
+
+# Flox writes a fresh log per shell activation, and direnv re-activates on every
+# `cd` into the tree (plus every agent/non-interactive shell), so the log dir can
+# reach tens of GB well inside any age window. We bound it two ways: drop anything
+# older than the age cutoff, then trim the oldest survivors past a total-size
+# budget so churn alone can't balloon the directory.
+FLOX_LOG_MAX_AGE_DAYS = 7
+FLOX_LOG_MAX_TOTAL_BYTES = 512 * 1024 * 1024  # 512 MiB of recent logs is plenty for debugging
+
 PYTHON_CACHE_PATTERNS = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
 NODE_ARTIFACT_PATTERNS = (
     ".parcel-cache",
@@ -156,13 +165,17 @@ def doctor_disk(
             id="flox_logs",
             title="📁 Flox logs (.flox/log)",
             description=[
-                "Remove Flox CLI logs older than 7 days from the dev environment manager.",
-                "These logs can grow to 32GB+ after repeated 'flox' operations.",
+                f"Remove Flox CLI logs older than {FLOX_LOG_MAX_AGE_DAYS} days, then trim the",
+                f"remainder past {_format_size(FLOX_LOG_MAX_TOTAL_BYTES)} (oldest first).",
+                "Every shell activation writes a log, so these grow to tens of GB otherwise.",
             ],
             estimate=_estimate_flox_logs,
-            cleanup=_cleanup_flox_logs,
-            confirmation_prompt="Clean up Flox logs older than 7 days?",
-            dry_run_message="Would run: find .flox/log -name '*.log' -mtime +7 -delete",
+            cleanup=_cleanup_items,
+            confirmation_prompt="Clean up old and oversized Flox logs?",
+            dry_run_message=(
+                f"Would remove Flox logs older than {FLOX_LOG_MAX_AGE_DAYS} days "
+                f"and trim the rest past {_format_size(FLOX_LOG_MAX_TOTAL_BYTES)}"
+            ),
         ),
         CleanupCategory(
             id="docker",
@@ -367,7 +380,11 @@ def _run_category(
 
 
 def _estimate_flox_logs(repo_root: Path) -> CleanupEstimate:
-    """Check Flox log directory - cleanup happens via find command."""
+    """Select Flox logs to remove: everything past the age cutoff, plus the
+    oldest survivors past the total-size budget.
+
+    The returned items are deleted by the generic ``_cleanup_items`` handler.
+    """
 
     flox_log_dir = repo_root / ".flox" / "log"
     if not flox_log_dir.exists():
@@ -377,16 +394,58 @@ def _estimate_flox_logs(repo_root: Path) -> CleanupEstimate:
             items=[],
         )
 
-    # Just check if directory exists and has logs - don't calculate sizes
-    # Cleanup is done via find command for simplicity
-    log_count = len(list(flox_log_dir.glob("*.log")))
+    logs: list[tuple[Path, int, float]] = []  # (path, size, mtime)
+    for log in flox_log_dir.rglob("*.log"):
+        try:
+            stat = log.stat()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if not log.is_file():
+            continue
+        logs.append((log, stat.st_size, stat.st_mtime))
+
+    if not logs:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No Flox log files found."])
+
+    doomed, retained_size = _select_flox_logs_to_remove(logs)
 
     details = [
-        "   Runs: find .flox/log -name '*.log' -mtime +7 -delete",
-        f"   Found {log_count} log file(s) in directory.",
+        f"   Removes logs older than {FLOX_LOG_MAX_AGE_DAYS} days, then trims the rest "
+        f"past {_format_size(FLOX_LOG_MAX_TOTAL_BYTES)}.",
+        f"   Found {len(logs)} log file(s); {len(doomed)} to remove, keeping {_format_size(retained_size)}.",
     ]
+    if doomed:
+        details.extend(_describe_items(doomed, repo_root, "   Sample files:"))
 
-    return CleanupEstimate(total_size=0.0, items=[], details=details)
+    total = sum(item.size for item in doomed)
+    return CleanupEstimate(total_size=total, items=doomed, details=details)
+
+
+def _select_flox_logs_to_remove(logs: Sequence[tuple[Path, int, float]]) -> tuple[list[CleanupItem], float]:
+    """Return the logs to delete and the retained size, applying age then budget.
+
+    Deletes anything older than the age cutoff, then — oldest first — trims the
+    survivors until the retained set fits within the size budget.
+    """
+
+    cutoff = time.time() - (FLOX_LOG_MAX_AGE_DAYS * 24 * 60 * 60)
+    doomed: list[CleanupItem] = []
+    survivors: list[tuple[Path, int, float]] = []
+    for path, size, mtime in logs:
+        if mtime < cutoff:
+            doomed.append(CleanupItem(path, size, is_dir=False))
+        else:
+            survivors.append((path, size, mtime))
+
+    survivors.sort(key=lambda entry: entry[2])  # oldest first
+    retained_size = float(sum(size for _, size, _ in survivors))
+    for path, size, _ in survivors:
+        if retained_size <= FLOX_LOG_MAX_TOTAL_BYTES:
+            break
+        doomed.append(CleanupItem(path, size, is_dir=False))
+        retained_size -= size
+
+    return doomed, retained_size
 
 
 def _estimate_python_caches(repo_root: Path) -> CleanupEstimate:
@@ -584,24 +643,6 @@ def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
 
     freed = _delete_items(estimate.items)
     return CleanupStats(freed=freed, deleted_anything=freed > 0)
-
-
-def _cleanup_flox_logs(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    """Execute find command to clean up old Flox logs."""
-
-    flox_log_dir = repo_root / ".flox" / "log"
-    if not flox_log_dir.exists():
-        return CleanupStats(deleted_anything=False)
-
-    result = subprocess.run(
-        ["find", str(flox_log_dir), "-name", "*.log", "-type", "f", "-mtime", "+7", "-delete"],
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode == 0:
-        return CleanupStats(deleted_anything=True)
-
-    return CleanupStats(deleted_anything=False)
 
 
 def _cleanup_git(_: CleanupEstimate, repo_root: Path) -> CleanupStats:

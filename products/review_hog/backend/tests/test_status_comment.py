@@ -32,7 +32,7 @@ _INTEGRATION = f"{_MODULE}.GitHubIntegration"
 _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     (None, "Step 1/6 · Preparing the diff"),
     ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
-    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Reviewing chunks · 7/18"),
+    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Running review passes · 7/18"),
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 
@@ -92,7 +92,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Found no issues worth raising, so no review was posted."],
+                ["Nothing worth raising this time, so here's a calming picture instead:", "![", "pr-assets"],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
@@ -123,6 +123,20 @@ class TestRenderFinalBody:
         for fragment in absent:
             assert fragment not in body, f"unexpected {fragment!r} in:\n{body}"
         assert status_marker("rid") in body
+
+    @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
+    def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=0,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+        )
+
+        assert "![A happy dog](https://example.test/dog.png)" in body
+        mock_choice.assert_called_once()
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -201,13 +215,16 @@ class TestEnsureStatusComment(BaseTest):
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
     ) -> None:
         # Crash between POST and saving the id: the marker scan must find the orphan, or every retry
-        # posts a duplicate status comment.
+        # posts a duplicate status comment. It must only adopt app-bot comments — a human comment
+        # carrying a pasted marker would otherwise get clobbered by the next edit.
         _wire_auth(mock_integration)
         report = self._report()
+        marker = status_marker(str(report.id))
         mock_paginated.return_value = iter(
             [
-                {"id": 1, "body": "unrelated"},
-                {"id": 888, "body": f"hello\n{status_marker(str(report.id))}"},
+                {"id": 1, "body": "unrelated", "user": {"login": "someone", "type": "User"}},
+                {"id": 7, "body": f"pasted copy: {marker}", "user": {"login": "prankster", "type": "User"}},
+                {"id": 888, "body": f"hello\n{marker}", "user": {"login": "posthog[bot]", "type": "Bot"}},
             ]
         )
 

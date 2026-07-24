@@ -1,20 +1,26 @@
 import uuid
 import logging
 from datetime import timedelta
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
+from django.conf import settings
 from django.db.models import Max, QuerySet
 from django.utils import timezone
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.user import User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -34,10 +40,16 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
+from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.types import TRIGGER_UI
 
 logger = logging.getLogger(__name__)
 
-RECENT_REVIEWS_LIMIT = 5
+DEFAULT_REVIEWS_LIMIT = 5
+# Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
+MAX_REVIEWS_LIMIT = 100
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -49,6 +61,34 @@ IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
 _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
+
+SCOPE_MINE = "mine"
+SCOPE_EVERYONE = "everyone"
+
+
+class ReviewsListParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
+    limit = serializers.IntegerField(
+        default=DEFAULT_REVIEWS_LIMIT,
+        min_value=1,
+        max_value=MAX_REVIEWS_LIMIT,
+        help_text="Maximum rows to return. The list grows this instead of paging by offset — "
+        "in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.",
+    )
+
+
+class PerspectiveStatsParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
 
 
 class ReviewProgressSerializer(serializers.Serializer):
@@ -162,6 +202,36 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     )
 
 
+class ReviewRecentReviewsPageSerializer(serializers.Serializer):
+    results = ReviewRecentReviewSerializer(
+        many=True, help_text="The scoped reviews: in-progress runs first, then completed newest first."
+    )
+    has_more = serializers.BooleanField(
+        help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
+    )
+
+
+class ReviewTriggerRequestSerializer(serializers.Serializer):
+    pr_url = serializers.CharField(
+        help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
+        "The repository must be accessible to the project's GitHub App installation.",
+    )
+
+
+class ReviewTriggerResponseSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(
+        allow_blank=True, help_text="Temporal workflow id for the started review run; empty when no run was started."
+    )
+    status = serializers.CharField(
+        help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
+        "pull request's current commit already has a published review (no new run starts)."
+    )
+
+
+class ReviewTriggerErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
+
+
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
     start = serializers.IntegerField(help_text="First affected line.")
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
@@ -228,6 +298,41 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     perspectives = ReviewPerspectiveStatItemSerializer(
         many=True, help_text="Per-skill effectiveness across those reviews, most kept findings first."
     )
+
+
+class _PageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `has_more`), not a bare collection. The
+    default heuristic already returns False for this viewset's other operations, but forcing it
+    renames the list operation to `*_retrieve` — pin the operationId back so the generated client
+    keeps its `*List` name and doesn't collide with the real retrieve.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
+def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
+    """One `GET /pulls/{n}` with the installation token — enough to answer the trigger honestly.
+
+    Raises `GitHubAPIError` (404 for a nonexistent PR); the caller maps it to a clear response.
+    """
+    token, installation_id = github.get_access_token(), github.github_installation_id
+    pr = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+    ).json()
+    return PRFetcher(owner=owner, repo=repo, pr_number=pr_number, token=token).fetch_pr_metadata(pr)
 
 
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
@@ -341,12 +446,16 @@ def _review_payload(
 
 
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's most recent ReviewHog reviews (reports where they are the acting user).
+    """Recent ReviewHog reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
-    the latest turn. `retrieve` adds the findings themselves (valid + dismissed) and the published
-    review body.
+    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
+    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
+    "For you / Entire project" switch; `perspective_stats` honors the same `scope` so the
+    effectiveness cards can follow the page-level switch. `retrieve` adds the findings themselves
+    (valid + dismissed) and the published review body; it is project-wide so any listed review can
+    be opened.
     """
 
     scope_object = "INTERNAL"
@@ -354,29 +463,42 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
+    schema = _PageEnvelopeSchema()
 
-    def _reports(self, request: Request) -> tuple[int, QuerySet[ReviewReport]]:
+    def _reports(self, request: Request, scope: str = SCOPE_MINE) -> tuple[int, QuerySet[ReviewReport]]:
         team_id = resolve_effective_team_id(self.team_id)
-        return team_id, ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
+        queryset = ReviewReport.objects.for_team(team_id, canonical=True)
+        if scope == SCOPE_MINE:
+            queryset = queryset.filter(acting_user_id=request.user.id)
+        return team_id, queryset
 
     @extend_schema(
+        parameters=[ReviewsListParamsSerializer],
         responses={
             200: OpenApiResponse(
-                response=ReviewRecentReviewSerializer(many=True),
-                description="The user's reviews: in-progress runs first, then completed newest first.",
+                response=ReviewRecentReviewsPageSerializer,
+                description="The scoped reviews: in-progress runs first, then completed newest first, "
+                "with a flag for whether more exist beyond `limit`.",
             ),
         },
-        summary="List the user's recent reviews",
-        description="The requesting user's ReviewHog reviews on this project: actively running reviews "
-        "first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).",
+        summary="List recent reviews",
+        description="Recent ReviewHog reviews on this project: actively running reviews first (with the "
+        "in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), "
+        "plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting "
+        "user's reviews; `scope=everyone` lists every review on the project.",
     )
     def list(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
-        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:RECENT_REVIEWS_LIMIT])
+        params = ReviewsListParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        limit: int = params.validated_data["limit"]
+        # One row beyond the limit proves whether "Show more" has anything left to reveal.
+        probe_limit = limit + 1
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
         # First-turn runs have no completed turn yet; they only surface while visibly running.
         running_first_turn = list(
             queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
-                :RECENT_REVIEWS_LIMIT
+                :probe_limit
             ]
         )
         # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
@@ -384,7 +506,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # an actively reviewed PR vanishes from the list mid-run.
         running_re_review = list(
             queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=False).order_by("-updated_at")[
-                :RECENT_REVIEWS_LIMIT
+                :probe_limit
             ]
         )
         in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
@@ -400,7 +522,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             if str(report.id) not in seen:
                 seen.add(str(report.id))
                 reports.append(report)
-        reports = reports[:RECENT_REVIEWS_LIMIT]
+        has_more = len(reports) > limit
+        reports = reports[:limit]
 
         # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
         # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
@@ -430,22 +553,26 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     current_pairs,
                 )
             items.append(_review_payload(report, snapshot, turn, pairs, progress))
-        return Response(ReviewRecentReviewSerializer(items, many=True).data)
+        return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
 
     @extend_schema(
+        parameters=[PerspectiveStatsParamsSerializer],
         responses={
             200: OpenApiResponse(
                 response=ReviewPerspectiveStatsSerializer,
-                description="Per-skill effectiveness across the user's recent completed reviews.",
+                description="Per-skill effectiveness across the recent completed reviews in scope.",
             ),
         },
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
-        "requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.",
+        "recent completed reviews in scope — the requesting user's by default, every review on this project "
+        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False)
     def perspective_stats(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
+        params = PerspectiveStatsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
@@ -466,24 +593,144 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
 
     @extend_schema(
+        request=ReviewTriggerRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ReviewTriggerResponseSerializer,
+                description="No new run needed: the PR's current commit already has a published review.",
+            ),
+            202: OpenApiResponse(response=ReviewTriggerResponseSerializer, description="Review run started."),
+            400: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="Invalid PR URL, inaccessible repository, or a nonexistent, closed, or fork PR.",
+            ),
+            403: OpenApiResponse(
+                response=ReviewTriggerErrorSerializer,
+                description="The ReviewHog UI trigger is not enabled for this project.",
+            ),
+            429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
+        },
+        summary="Start a review of a pull request",
+        description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
+        "access, and publish it back to the PR. The requesting user is the review's acting user: their "
+        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
+        "appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "a PR whose current commit already has a published review returns 'already_reviewed' without "
+        "starting a run, and triggering a PR whose review is currently running joins the in-flight run. "
+        "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
+        "the worker.",
+    )
+    @action(methods=["POST"], detail=False)
+    def trigger(self, request: Request, **kwargs) -> Response:
+        team_id = resolve_effective_team_id(self.team_id)
+        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
+        # expensive, so widening beyond it is a deliberate later decision, not a default.
+        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+            return Response(
+                {"error": "ReviewHog reviews can't be started from this project yet"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = ReviewTriggerRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
+        except ValueError:
+            return Response(
+                {
+                    "error": "That doesn't look like a GitHub pull request URL (expected https://github.com/OWNER/REPO/pull/NUMBER)"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        repository = f"{pr_info['owner']}/{pr_info['repo']}"
+        # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
+        # asynchronously the fetch activity would fail before the report row exists, showing nothing.
+        try:
+            github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if github is None:
+            return Response(
+                {
+                    "error": f"ReviewHog's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pr_number = int(pr_info["pr_number"])
+        # One PR fetch so the answer is honest: without it a typo'd number or fork dies async (before
+        # the report row exists — nothing appears), and an already-reviewed head silently no-ops while
+        # the response still claims "started". Fork/closed rejection here is UX; the fetch activity
+        # keeps the authoritative fork gate.
+        try:
+            pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubAPIError as e:
+            if e.status == 404:
+                return Response(
+                    {"error": f"No pull request #{pr_number} found in {repository}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+        if pr_meta.is_fork:
+            return Response(
+                {"error": "ReviewHog doesn't review fork pull requests (a fork's head can't be trusted)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if pr_meta.state != "open":
+            return Response(
+                {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Repository casing can differ per trigger (the report stores whatever its trigger carried).
+        report = (
+            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+        )
+        if report is not None and pr_meta.head_sha and report.published_head_sha == pr_meta.head_sha:
+            # The workflow would early-exit before resolving the acting user anyway — say so instead
+            # of answering "started" for a run that will do nothing.
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
+                status=status.HTTP_200_OK,
+            )
+        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
+        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        # The requester is both the run user (sandbox identity) and the acting user (whose
+        # perspectives/validator/threshold apply). The route is authenticated, so never anonymous.
+        requester_id = cast(User, request.user).id
+        workflow_id = start_review_pr_workflow(
+            pr_url=pr_url,
+            team_id=team_id,
+            user_id=requester_id,
+            publish=True,
+            acting_user_id=requester_id,
+            trigger_source=TRIGGER_UI,
+        )
+        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
+        return Response(
+            ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
         responses={
             200: OpenApiResponse(
                 response=ReviewDetailSerializer,
                 description="The review's detail: findings (valid and dismissed) and the published body.",
             ),
-            404: OpenApiResponse(description="No such review of the requesting user's pull requests."),
+            404: OpenApiResponse(description="No such review on this project."),
         },
         summary="Retrieve one review's detail",
-        description="One completed ReviewHog review of the requesting user's pull requests, with the latest "
-        "turn's validated findings, the findings the validator dismissed (and why), and the review body "
-        "published to GitHub.",
+        description="One completed ReviewHog review on this project, with the latest turn's validated "
+        "findings, the findings the validator dismissed (and why), and the review body published to "
+        "GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.",
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         try:
             report_uuid = uuid.UUID(str(pk))
         except ValueError:
             raise NotFound("Review not found.")
-        team_id, queryset = self._reports(request)
+        # Project-wide on purpose: the detail must open for any review the everyone-scope list shows.
+        team_id, queryset = self._reports(request, scope=SCOPE_EVERYONE)
         # Detail describes a completed turn — a first run still in flight has nothing to show yet.
         report = queryset.filter(id=report_uuid, last_run_at__isnull=False).first()
         if report is None:

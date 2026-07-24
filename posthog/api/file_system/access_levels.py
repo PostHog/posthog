@@ -1,7 +1,9 @@
+import logging
 from collections.abc import Sequence
 from typing import Any, Optional, cast
 
 from django.apps import apps
+from django.core.cache import cache
 from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
 from django.db.models.functions import Cast
 
@@ -17,8 +19,42 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import APIScopeObject
 
+logger = logging.getLogger(__name__)
+
 # (file system type, ref, created_by_id of the underlying object - None when unknown)
 FileSystemAccessEntry = tuple[str, Optional[str], Optional[int]]
+
+# A ref (short_id) maps to exactly one immutable pk for the life of the object, so the
+# translation is safe to cache across requests. Caching it keeps the multi-model UNION off
+# the high-traffic list endpoint on every page load - the query that translates short_id refs
+# to pks otherwise runs per request and adds DB pool load under contention.
+_REF_PK_CACHE_PREFIX = "fs_ref_pk:v1"
+_REF_PK_CACHE_TTL = 60 * 60
+
+
+def _ref_pk_cache_key(project_id: int, entry_type: str, ref: str) -> str:
+    return f"{_REF_PK_CACHE_PREFIX}:{project_id}:{entry_type}:{ref}"
+
+
+def _get_cached_ref_pks(project_id: int, entry_type: str, refs: list[str]) -> dict[str, str]:
+    """Return the subset of refs whose pk is already cached. Cache failures degrade to a miss."""
+    key_to_ref = {_ref_pk_cache_key(project_id, entry_type, ref): ref for ref in refs}
+    try:
+        cached = cache.get_many(list(key_to_ref))
+    except Exception:
+        logger.warning("Failed reading file system ref->pk cache", exc_info=True)
+        return {}
+    return {key_to_ref[key]: str(pk) for key, pk in cached.items()}
+
+
+def _set_cached_ref_pks(project_id: int, pk_by_type_ref: dict[tuple[str, str], str]) -> None:
+    if not pk_by_type_ref:
+        return
+    to_set = {_ref_pk_cache_key(project_id, entry_type, ref): pk for (entry_type, ref), pk in pk_by_type_ref.items()}
+    try:
+        cache.set_many(to_set, timeout=_REF_PK_CACHE_TTL)
+    except Exception:
+        logger.warning("Failed writing file system ref->pk cache", exc_info=True)
 
 
 def _is_access_controlled_type(file_system_type: str) -> bool:
@@ -69,7 +105,9 @@ def bulk_file_system_access_levels(
 
     AccessControl rows are keyed by the target object's pk, while some file system types
     (insight, notebook, session_recording_playlist) use short_id as their ref, so those refs
-    are translated through the registered models - all types UNIONed into a single query.
+    are translated through the registered models - the types still needing a DB lookup are
+    UNIONed into a single query. The short_id->pk translation is immutable, so it is cached
+    across requests, keeping that query off the list endpoint's hot path on a warm cache.
 
     Refs that don't resolve to an object still go through resource-level resolution rather
     than short-circuiting to None: refs can be caller-supplied (shortcuts), and a distinct
@@ -89,27 +127,47 @@ def bulk_file_system_access_levels(
         if by_ref.get(ref) is None or created_by_id == user_id:
             by_ref[ref] = created_by_id
 
+    # (type, ref) -> (pk, created_by_id)
+    translated: dict[tuple[str, str], tuple[str, Optional[int]]] = {}
+
     # One UNION query across every type needing a ref->pk translation or a creator lookup
     translation_querysets = []
+    cacheable_query_types: set[str] = set()  # non-id-keyed types we query, to backfill the pk cache
     for entry_type, creator_by_provided_ref in entries_by_type.items():
         registration = get_file_system_registration(entry_type)
         if not registration:
             continue
         needs_creator = any(created_by_id is None for created_by_id in creator_by_provided_ref.values())
-        if registration.lookup_field == "id" and not needs_creator:
+        id_keyed = registration.lookup_field == "id"
+        if id_keyed and not needs_creator:
             continue
-        translation_querysets.append(
-            _ref_translation_queryset(entry_type, registration, list(creator_by_provided_ref), project_id)
-        )
 
-    # (type, ref) -> (pk, created_by_id)
-    translated: dict[tuple[str, str], tuple[str, Optional[int]]] = {}
+        refs = list(creator_by_provided_ref)
+        # When we only need the ref->pk translation (not a fresh creator lookup), serve it from
+        # the cache and only query the refs still missing - a warm cache takes the UNION off the
+        # request entirely. Creator lookups always hit the DB so they never read stale creators.
+        if not id_keyed and not needs_creator:
+            cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
+            for ref, pk in cached_pks.items():
+                translated[(entry_type, ref)] = (pk, None)
+            refs = [ref for ref in refs if ref not in cached_pks]
+            if not refs:
+                continue
+        if not id_keyed:
+            cacheable_query_types.add(entry_type)
+        translation_querysets.append(_ref_translation_queryset(entry_type, registration, refs, project_id))
+
     if translation_querysets:
         union_qs = translation_querysets[0]
         if len(translation_querysets) > 1:
             union_qs = union_qs.union(*translation_querysets[1:], all=True)
+        pk_cache_updates: dict[tuple[str, str], str] = {}
         for row_type, ref_value, pk_value, created_by_id in union_qs:
-            translated[(row_type, str(ref_value))] = (str(pk_value), created_by_id)
+            ref_str, pk_str = str(ref_value), str(pk_value)
+            translated[(row_type, ref_str)] = (pk_str, created_by_id)
+            if row_type in cacheable_query_types:
+                pk_cache_updates[(row_type, ref_str)] = pk_str
+        _set_cached_ref_pks(project_id, pk_cache_updates)
 
     for entry_type, creator_by_provided_ref in entries_by_type.items():
         resource = cast(APIScopeObject, entry_type)

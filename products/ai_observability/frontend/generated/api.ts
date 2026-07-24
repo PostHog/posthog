@@ -32,8 +32,10 @@ import type {
     LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
+    LLMPromptLabelApi,
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
+    LLMPromptSetLabelApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
@@ -140,7 +142,7 @@ export const getLlmAnalyticsPersonalSpendListUrl = (params: LlmAnalyticsPersonal
 }
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendList = async (
     params: LlmAnalyticsPersonalSpendListParams,
@@ -1241,27 +1243,6 @@ export const llmAnalyticsProviderKeysDestroy = async (
     })
 }
 
-export const getLlmAnalyticsProviderKeysAssignCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/assign/`
-}
-
-/**
- * Assign this key to evaluations and optionally re-enable them.
- */
-export const llmAnalyticsProviderKeysAssignCreate = async (
-    projectId: string,
-    id: string,
-    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
-    options?: RequestInit
-): Promise<LLMProviderKeyApi> => {
-    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysAssignCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMProviderKeyApi),
-    })
-}
-
 export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
 }
@@ -1295,23 +1276,6 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
-    })
-}
-
-export const getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/provider_keys/trial_evaluations/`
-}
-
-/**
- * List enabled evaluations currently using trial credits for a given provider.
- */
-export const llmAnalyticsProviderKeysTrialEvaluationsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<LLMProviderKeyApi> => {
-    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -1964,6 +1928,41 @@ export const llmPromptsNameDuplicateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMPromptDuplicateApi),
+    })
+}
+
+export const getLlmPromptsNameLabelsUpdateUrl = (projectId: string, promptName: string, labelName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
+}
+
+export const llmPromptsNameLabelsUpdate = async (
+    projectId: string,
+    promptName: string,
+    labelName: string,
+    lLMPromptSetLabelApi: LLMPromptSetLabelApi,
+    options?: RequestInit
+): Promise<LLMPromptLabelApi> => {
+    return apiMutator<LLMPromptLabelApi>(getLlmPromptsNameLabelsUpdateUrl(projectId, promptName, labelName), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptSetLabelApi),
+    })
+}
+
+export const getLlmPromptsNameLabelsDestroyUrl = (projectId: string, promptName: string, labelName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/labels/${labelName}/`
+}
+
+export const llmPromptsNameLabelsDestroy = async (
+    projectId: string,
+    promptName: string,
+    labelName: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmPromptsNameLabelsDestroyUrl(projectId, promptName, labelName), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

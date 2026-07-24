@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest'
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
 import type { GroupType } from '@/api/client'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildActiveEnvironmentContextPrompt, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
@@ -98,14 +100,40 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: {},
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
             groupTypes: STATIC_CTX.groupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
 
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-claude-chat.txt'))
+    })
+
+    // claude.ai never surfaces server `instructions`, so the exec command reference is the
+    // only always-visible catalog-steering surface. The compact metrics/trust one-liner must
+    // render there when the data-catalog flag is on and stay absent when it's off — otherwise
+    // skill-less claude.ai clients get zero catalog routing. The flag-off case is covered by
+    // the snapshot above; this locks the gating in both directions.
+    it('renders the compact metrics/trust one-liner for claude.ai only when the data-catalog flag is on', () => {
+        const buildClaudeChatReference = (dataCatalogEnabled: boolean): string => {
+            const state = {
+                allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
+                toolFeatureFlags: dataCatalogEnabled ? { [PRODUCT_DATA_CATALOG_FLAG]: true } : {},
+                renderUiEnabled: STATIC_CTX.renderUiEnabled,
+                metadata: STATIC_CTX.metadata,
+                groupTypes: STATIC_CTX.groupTypes,
+                requestContext: { mcpConsumer: undefined },
+                sessionContext: null,
+            } as unknown as ResolvedState
+            return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
+        }
+
+        expect(buildClaudeChatReference(true)).toContain('Metrics & SQL trust')
+        expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
     })
 
     // ------------------------------------------------------------------------------------------------
@@ -160,10 +188,15 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            toolFeatureFlags: {},
+            // Both flags on is the worst case: the analytics learn-topic description is
+            // longer with the data catalog, and topic descriptions are inlined in the
+            // command reference.
+            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true, [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })

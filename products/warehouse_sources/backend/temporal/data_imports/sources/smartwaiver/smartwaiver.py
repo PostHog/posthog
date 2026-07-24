@@ -1,42 +1,35 @@
-import time
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import (
-    SMARTWAIVER_ENDPOINTS,
-    SmartwaiverEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import SMARTWAIVER_ENDPOINTS
 
 SMARTWAIVER_BASE_URL = "https://api.smartwaiver.com"
 # /v4/waivers documents limit 1-300 and /v4/checkins documents 1-100; 100 keeps every endpoint on
 # the largest page size both allow.
 PAGE_SIZE = 100
 # /v4/checkins caps `offset` at 1000. Past that the remainder of the window can't be paged, so we
-# stop and log rather than loop.
+# stop rather than loop.
 CHECKINS_MAX_OFFSET = 1000
-REQUEST_TIMEOUT_SECONDS = 60
-# Accounts are limited to 100 requests/minute in a fixed window; a 429 carries a Retry-After header
-# with the seconds until the window resets. Cap the sleep so a bogus header can't stall the worker.
-MAX_RETRY_AFTER_SECONDS = 120
 # /v4/checkins requires `fromDts`; on a full sync we use a date safely before any Smartwaiver data.
 DEFAULT_FROM_DTS = "2000-01-01T00:00:00"
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every endpoint.
 DEFAULT_PROBE_PATH = "/v4/templates"
-
-
-class SmartwaiverRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -47,10 +40,6 @@ class SmartwaiverResumeConfig:
     next_offset: int = 0
     from_dts: str | None = None
     to_dts: str | None = None
-
-
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
 
 
 def _format_dts(value: Any) -> str:
@@ -89,213 +78,191 @@ def _clamp_before_current_hour(value: Any, now: datetime) -> str:
     return min(formatted, boundary_formatted)
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    if not params:
-        return f"{SMARTWAIVER_BASE_URL}{path}"
-    return f"{SMARTWAIVER_BASE_URL}{path}?{urlencode(params)}"
+def _inject_offset(request: Request, offset: int) -> None:
+    if request.params is None:
+        request.params = {}
+    request.params["offset"] = offset
 
 
-@retry(
-    retry=retry_if_exception_type((SmartwaiverRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+class _PageOffsetPaginator(BasePaginator):
+    """`/v4/waivers` pagination: `offset` is a zero-based PAGE index (not a row offset), incremented
+    by one per page. There is no has-more flag, so a partial (or empty) page means the end."""
 
-    if response.status_code == 429:
-        # The rate-limit window is fixed, so exponential backoff alone can retry into the same
-        # window; sleep out Retry-After here. Tenacity still adds its jitter wait on top of this
-        # sleep, but the Retry-After sleep is the dominant delay for large windows.
-        retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-        logger.debug(f"Smartwaiver rate limited; sleeping {retry_after}s before retrying {url}")
-        time.sleep(retry_after)
-        raise SmartwaiverRetryableError(f"Smartwaiver API error (retryable): status=429, url={url}")
+    def __init__(self, page_size: int, offset: int = 0) -> None:
+        super().__init__()
+        self.page_size = page_size
+        self.offset = offset
 
-    if response.status_code >= 500:
-        raise SmartwaiverRetryableError(f"Smartwaiver API error (retryable): status={response.status_code}, url={url}")
+    def init_request(self, request: Request) -> None:
+        _inject_offset(request, self.offset)
 
-    if not response.ok:
-        logger.error(f"Smartwaiver API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is None or len(data) < self.page_size:
+            self._has_next_page = False
+            return
+        self.offset += 1
+        self._has_next_page = True
 
-    data = response.json()
-    if not isinstance(data, dict):
-        raise SmartwaiverRetryableError(f"Smartwaiver returned an unexpected payload for {url}: {type(data).__name__}")
+    def update_request(self, request: Request) -> None:
+        _inject_offset(request, self.offset)
 
-    return data
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"offset": self.offset} if self._has_next_page else None
 
-
-def _parse_retry_after(header: str | None) -> int:
-    try:
-        seconds = int(header) if header is not None else 60
-    except ValueError:
-        seconds = 60
-    return max(1, min(seconds, MAX_RETRY_AFTER_SECONDS))
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
 
 
-def _get_templates(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
-    data = _fetch_page(session, _build_url("/v4/templates", {}), logger)
-    items = data.get("templates", [])
-    if items:
-        yield items
+class _CheckinsPaginator(BasePaginator):
+    """`/v4/checkins` pagination: `offset` is a zero-based PAGE index. The payload carries a
+    `moreCheckins` flag; the API rejects offsets past `max_offset`, so a window with more results
+    past the cap terminates (the next incremental sync restarts from the advanced watermark)."""
 
+    def __init__(self, max_offset: int, offset: int = 0) -> None:
+        super().__init__()
+        self.max_offset = max_offset
+        self.offset = offset
 
-def _get_waivers(
-    session: requests.Session,
-    config: SmartwaiverEndpointConfig,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SmartwaiverResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Iterator[list[dict[str, Any]]]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        offset, from_dts = resume.next_offset, resume.from_dts
-        logger.debug(f"Smartwaiver: resuming {config.name} from offset {offset}")
-    else:
-        offset = 0
-        from_dts = (
-            _clamp_before_current_hour(db_incremental_field_last_value, datetime.now(UTC))
-            if should_use_incremental_field and db_incremental_field_last_value
-            else None
-        )
+    def init_request(self, request: Request) -> None:
+        _inject_offset(request, self.offset)
 
-    while True:
-        params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset}
-        if from_dts:
-            params["fromDts"] = from_dts
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+            payload = body.get("checkins") if isinstance(body, dict) else None
+            more = bool(payload.get("moreCheckins")) if isinstance(payload, dict) else False
+        except Exception:
+            more = False
 
-        data = _fetch_page(session, _build_url(config.path, params), logger)
-        items = data.get(config.response_key, [])
-        if items:
-            yield items
+        if not more:
+            self._has_next_page = False
+            return
+        # The API rejects offsets past the cap, so the remainder of this window is unreachable in
+        # one sync — stop here instead of requesting a page the API would reject.
+        if self.offset >= self.max_offset:
+            self._has_next_page = False
+            return
+        self.offset += 1
+        self._has_next_page = True
 
-        # No has-more flag on this endpoint: a partial page means we've reached the end.
-        if len(items) < PAGE_SIZE:
-            break
+    def update_request(self, request: Request) -> None:
+        _inject_offset(request, self.offset)
 
-        # `offset` is a zero-based page index ("based on the limit"), not a row offset.
-        offset += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled page on the primary key.
-        resumable_source_manager.save_state(SmartwaiverResumeConfig(next_offset=offset, from_dts=from_dts))
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"offset": self.offset} if self._has_next_page else None
 
-
-def _get_checkins(
-    session: requests.Session,
-    config: SmartwaiverEndpointConfig,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SmartwaiverResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Iterator[list[dict[str, Any]]]:
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        offset, from_dts, to_dts = resume.next_offset, resume.from_dts, resume.to_dts
-        logger.debug(f"Smartwaiver: resuming {config.name} from offset {offset}")
-    else:
-        offset = 0
-        now = datetime.now(UTC)
-        # Both bounds are required: `fromDts` must not be within the current hour and `toDts` must
-        # be before it, so incremental check-in data lags real time by up to an hour. Rows landing
-        # after `toDts` are picked up by the next sync (`fromDts` restarts from the watermark).
-        cursor = (
-            db_incremental_field_last_value
-            if should_use_incremental_field and db_incremental_field_last_value
-            else DEFAULT_FROM_DTS
-        )
-        from_dts = _clamp_before_current_hour(cursor, now)
-        to_dts = (_start_of_current_hour(now) - timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
-
-    while True:
-        params: dict[str, Any] = {"fromDts": from_dts, "toDts": to_dts, "limit": PAGE_SIZE, "offset": offset}
-
-        data = _fetch_page(session, _build_url(config.path, params), logger)
-        # The check-in list nests inside a payload object that also carries the paging flag.
-        payload = data.get(config.response_key) or {}
-        items = payload.get("checkins", []) if isinstance(payload, dict) else []
-        if items:
-            yield items
-
-        if not (isinstance(payload, dict) and payload.get("moreCheckins")):
-            break
-
-        if offset >= CHECKINS_MAX_OFFSET:
-            # The API rejects offsets past 1000, so the remainder of this window is unreachable in
-            # one sync; the next incremental sync restarts from the advanced watermark.
-            logger.warning(
-                f"Smartwaiver: checkins window {from_dts}..{to_dts} has more results past the "
-                f"offset cap ({CHECKINS_MAX_OFFSET}); stopping this sync early"
-            )
-            break
-
-        offset += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes any re-pulled page on the primary key.
-        resumable_source_manager.save_state(
-            SmartwaiverResumeConfig(next_offset=offset, from_dts=from_dts, to_dts=to_dts)
-        )
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SmartwaiverResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SMARTWAIVER_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    if endpoint == "templates":
-        yield from _get_templates(session, logger)
-    elif endpoint == "checkins":
-        yield from _get_checkins(
-            session,
-            config,
-            logger,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-    elif endpoint == "waivers":
-        yield from _get_waivers(
-            session,
-            config,
-            logger,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-    else:
-        # Explicit so an endpoint added to SMARTWAIVER_ENDPOINTS without a dispatch branch fails
-        # fast instead of silently paging with the waivers logic.
-        raise ValueError(f"No fetcher implemented for Smartwaiver endpoint '{endpoint}'")
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self.offset = int(offset)
+            self._has_next_page = True
 
 
 def smartwaiver_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SmartwaiverResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SMARTWAIVER_ENDPOINTS[endpoint]
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    now = datetime.now(UTC)
+
+    from_dts: str | None = None
+    to_dts: str | None = None
+    offset = 0
+    params: dict[str, Any] = {}
+    paginator: BasePaginator
+    data_selector: str
+
+    if endpoint == "templates":
+        # No pagination — the endpoint returns every template in one response.
+        paginator = SinglePagePaginator()
+        data_selector = "templates"
+    elif endpoint == "waivers":
+        if resume is not None:
+            offset, from_dts = resume.next_offset, resume.from_dts
+        else:
+            from_dts = (
+                _clamp_before_current_hour(db_incremental_field_last_value, now)
+                if should_use_incremental_field and db_incremental_field_last_value
+                else None
+            )
+        # `fromDts` is dropped by the client when None (full refresh).
+        params = {"limit": PAGE_SIZE, "fromDts": from_dts}
+        paginator = _PageOffsetPaginator(PAGE_SIZE, offset=offset)
+        data_selector = "waivers"
+    elif endpoint == "checkins":
+        if resume is not None:
+            offset, from_dts, to_dts = resume.next_offset, resume.from_dts, resume.to_dts
+        else:
+            # Both bounds are required: `fromDts` must not be within the current hour and `toDts`
+            # must be before it, so incremental check-in data lags real time by up to an hour. Rows
+            # landing after `toDts` are picked up by the next sync (`fromDts` restarts from the
+            # watermark).
+            cursor = (
+                db_incremental_field_last_value
+                if should_use_incremental_field and db_incremental_field_last_value
+                else DEFAULT_FROM_DTS
+            )
+            from_dts = _clamp_before_current_hour(cursor, now)
+            to_dts = (_start_of_current_hour(now) - timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        params = {"fromDts": from_dts, "toDts": to_dts, "limit": PAGE_SIZE}
+        paginator = _CheckinsPaginator(CHECKINS_MAX_OFFSET, offset=offset)
+        # The check-in list nests inside the `checkins` payload object that also carries `moreCheckins`.
+        data_selector = "checkins.checkins"
+    else:
+        raise ValueError(f"No fetcher implemented for Smartwaiver endpoint '{endpoint}'")
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": SMARTWAIVER_BASE_URL,
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+            # logs and raised errors; only the non-secret accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": data_selector,
+                    "paginator": paginator,
+                },
+            }
+        ],
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it. The window is persisted alongside
+        # the offset so a resumed job continues the exact query it was paging through.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(
+                SmartwaiverResumeConfig(next_offset=int(state["offset"]), from_dts=from_dts, to_dts=to_dts)
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -306,34 +273,24 @@ def smartwaiver_source(
         # newest-first, so declare "desc": the watermark then only advances once a sync completes,
         # which is correct for either actual order.
         sort_mode="desc",
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe a single endpoint to validate the API key.
 
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
+    The API key is account-wide, so one probe validates access to every endpoint.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(_build_url(path, {}), timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Smartwaiver: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Smartwaiver returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{SMARTWAIVER_BASE_URL}{DEFAULT_PROBE_PATH}",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Smartwaiver API key"
-    return False, message or "Could not validate Smartwaiver API key"
+    if status is None:
+        return False, "Could not validate Smartwaiver API key"
+    return False, f"Smartwaiver returned HTTP {status}"

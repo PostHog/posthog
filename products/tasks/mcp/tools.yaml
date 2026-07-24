@@ -7,13 +7,149 @@
 category: Tasks
 feature: tasks
 url_prefix: /tasks
-ui_apps: {}
+ui_apps:
+    loops-review:
+        type: custom
+        app_name: PostHog Loop Review
+        description: Review card for a loop before creation, with a Create loop action.
 tools:
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false
     code-invites-redeem-create:
         operation: code_invites_redeem_create
+        enabled: false
+    loops-create:
+        operation: loops_create
+        enabled: true
+        scopes:
+            - loop:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create loop
+        description: >
+            Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an
+            authenticated API call. Set `instructions` (the prompt delivered to the agent on every run),
+            `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
+            loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
+        feature_flag: loops
+        confirmed_action:
+            message: >
+                About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and
+                connector access whenever its triggers fire. Reply 'confirm' to create it.
+            action_label: create loop
+    loops-destroy:
+        operation: loops_destroy
+        enabled: true
+        scopes:
+            - loop:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete loop
+        description: >
+            Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project
+            admin can delete a loop.
+        feature_flag: loops
+    loops-list:
+        operation: loops_list
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List loops
+        description: >
+            List loops visible to the current user in the project: personal loops the user owns plus every team-visible
+            loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`,
+            `consecutive_failures`).
+        feature_flag: loops
+    loops-partial-update:
+        operation: loops_partial_update
+        enabled: true
+        scopes:
+            - loop:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update loop
+        description: >
+            Update an existing loop's config. On a team loop, identity-bearing fields (`instructions`, `repositories`,
+            `connectors`, `behaviors`, `triggers`) are editable only by the current owner: editing them as another
+            member takes ownership and re-validates repositories and connectors against that member's own access.
+            Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.
+        feature_flag: loops
+    loops-preview-create:
+        operation: loops_preview_create
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview a loop fire
+        description: >
+            Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic
+            schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's
+            prompt before enabling it.
+        feature_flag: loops
+    loops-retrieve:
+        operation: loops_retrieve
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get loop
+        description: >
+            Get a specific loop by ID, including its full config (instructions, model, repositories, triggers,
+            behaviors, connectors, notifications) and run bookkeeping.
+        feature_flag: loops
+    loops-run-create:
+        operation: loops_run_create
+        enabled: true
+        scopes:
+            - loop:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Manually run a loop
+        description: >
+            Manually fire a loop right now, outside its configured triggers. Creates a fresh task run using the loop's
+            current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as
+            trigger-fired runs.
+        feature_flag: loops
+    loops-runs-retrieve:
+        operation: loops_runs_retrieve
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}/runs'
+        list: true
+        title: List loop runs
+        description: >
+            List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch,
+            error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
+            what they produced.
+        feature_flag: loops
+    loops-trigger-create:
+        operation: loops_trigger_create
         enabled: false
     sandbox-create:
         operation: sandbox_create
@@ -32,6 +168,9 @@ tools:
         enabled: false
     sandbox-custom-images-list:
         operation: sandbox_custom_images_list
+        enabled: false
+    sandbox-custom-images-partial-update:
+        operation: sandbox_custom_images_partial_update
         enabled: false
     sandbox-custom-images-retrieve:
         operation: sandbox_custom_images_retrieve
@@ -87,9 +226,50 @@ tools:
     task-mentions-list:
         operation: task_mentions_list
         enabled: false
+    tasks-active-wizard-run-retrieve:
+        operation: tasks_active_wizard_run_retrieve
+        enabled: false
     tasks-create:
         operation: tasks_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create task
+        description: >
+            Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as
+            investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt
+            handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for
+            code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task
+            record only — it does not start the agent. Returns the created task including its URL; open that URL to
+            start the run. Requires the calling token's organization to have Tasks access enabled.
+        include_params:
+            - title
+            - description
+            - repository
+        param_overrides:
+            description:
+                description: >
+                    The task for the agent to carry out, written as a direct prompt (e.g. "Investigate the spike in
+                    $exception events on the checkout page and open a PR with a fix"). Passed verbatim to the agent as
+                    its instructions, so be specific.
+                required: true
+        feature_flag: tasks
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - created_at
+                - updated_at
     tasks-destroy:
         operation: tasks_destroy
         enabled: false

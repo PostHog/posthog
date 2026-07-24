@@ -1,185 +1,202 @@
+import json
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax import mixmax
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.mixmax import (
     MixmaxResumeConfig,
     _build_url,
-    _extract_page,
-    get_rows,
     mixmax_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import MIXMAX_ENDPOINTS
 
-
-class _FakeResumableManager:
-    def __init__(self, state: MixmaxResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[MixmaxResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> MixmaxResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: MixmaxResumeConfig) -> None:
-        self.saved.append(data)
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
-class TestExtractPage:
-    @parameterized.expand(
-        [
-            # Wrapped collection with more pages: rows plus the next cursor.
-            ("wrapped_has_next", {"results": [{"_id": "1"}], "next": "cur2", "hasNext": True}, [{"_id": "1"}], "cur2"),
-            # Wrapped collection on its last page: hasNext False means stop, even if `next` echoes a value.
-            ("wrapped_last_page", {"results": [{"_id": "1"}], "next": "cur2", "hasNext": False}, [{"_id": "1"}], None),
-            # `hasNext` missing is treated as no more pages.
-            ("wrapped_no_flag", {"results": [{"_id": "1"}]}, [{"_id": "1"}], None),
-            ("wrapped_empty", {"results": [], "hasNext": False}, [], None),
-            # `/…/me` single-object endpoints return the object directly — one record, no pagination.
-            ("single_object", {"_id": "u1", "email": "a@b.com"}, [{"_id": "u1", "email": "a@b.com"}], None),
-            # A bare array (defensive) is treated as a full, unpaginated page.
-            ("bare_list", [{"_id": "1"}, {"_id": "2"}], [{"_id": "1"}, {"_id": "2"}], None),
-        ]
+def _resp(body: Any, *, status: int = 200, url: str = "https://api.mixmax.com/v1/sequences") -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: MixmaxResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Any]) -> list[dict[str, Any]]:
+    """Wire the mock session; return a list capturing each request's (url, params) AT SEND TIME.
+
+    The paginator carries the next-page cursor inside a self-contained URL and clears ``params``, so
+    both are snapshotted per prepared request (the single ``Request`` object is mutated in place).
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(session: mock.MagicMock, endpoint: str, manager: mock.MagicMock) -> list[dict[str, Any]]:
+    return _rows(
+        mixmax_source(api_key="tok", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
     )
-    def test_extract_page(self, _name: str, data: Any, expected_rows: list[dict], expected_cursor: str | None) -> None:
-        assert _extract_page(data) == (expected_rows, expected_cursor)
 
 
 class TestBuildUrl:
     def test_collection_url_has_page_limit(self) -> None:
-        url = _build_url("/sequences", single_object=False)
-        assert url == "https://api.mixmax.com/v1/sequences?limit=100"
+        assert _build_url("/sequences", single_object=False) == "https://api.mixmax.com/v1/sequences?limit=100"
 
     def test_collection_url_carries_next_cursor(self) -> None:
         url = _build_url("/sequences", single_object=False, next_cursor="abc123")
         assert url == "https://api.mixmax.com/v1/sequences?limit=100&next=abc123"
 
     def test_single_object_url_has_no_pagination_params(self) -> None:
-        # `/users/me` must not receive limit/next — it isn't a paginated collection.
-        url = _build_url("/users/me", single_object=True)
-        assert url == "https://api.mixmax.com/v1/users/me"
+        assert _build_url("/users/me", single_object=True) == "https://api.mixmax.com/v1/users/me"
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], endpoint: str) -> list[dict]:
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-            return pages[url]
-
-        monkeypatch.setattr(mixmax, "_fetch_page", fake_fetch)
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="tok",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_walks_cursor_pages_and_saves_state_after_each_yield(self, monkeypatch: Any) -> None:
-        next_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
-        pages = {
-            "https://api.mixmax.com/v1/sequences?limit=100": {
-                "results": [{"_id": "1"}],
-                "next": "cur2",
-                "hasNext": True,
-            },
-            next_url: {"results": [{"_id": "2"}], "hasNext": False},
-        }
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, pages, "sequences")
-
-        assert rows == [{"_id": "1"}, {"_id": "2"}]
-        # State is saved only when another page follows, pointing at the next page URL — so a crash
-        # re-yields the last page rather than skipping it.
-        assert manager.saved == [MixmaxResumeConfig(next_url=next_url)]
-
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        resume_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
-        pages = {resume_url: {"results": [{"_id": "2"}], "hasNext": False}}
-        manager = _FakeResumableManager(MixmaxResumeConfig(next_url=resume_url))
-        rows = self._collect(manager, monkeypatch, pages, "sequences")
-
-        # The first page is skipped entirely — only the saved cursor's page is fetched.
-        assert rows == [{"_id": "2"}]
-        assert manager.saved == []
-
-    def test_single_object_endpoint_yields_once_without_saving_state(self, monkeypatch: Any) -> None:
-        pages = {"https://api.mixmax.com/v1/users/me": {"_id": "u1", "email": "a@b.com"}}
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, pages, "users")
-
-        assert rows == [{"_id": "u1", "email": "a@b.com"}]
-        assert manager.saved == []
-
-
-class TestFetchPageRetries:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
-        bad = MagicMock()
-        bad.status_code = status
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.json.return_value = {"results": [], "hasNext": False}
-
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
-
-        with patch.object(mixmax._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = mixmax._fetch_page(session, "https://api.mixmax.com/v1/sequences", {}, MagicMock())
-
-        assert result == {"results": [], "hasNext": False}
-        assert session.get.call_count == 2
+class TestExtractionShapes:
+    """The old `_extract_page` heuristic (now `_reshape_row` + the cursor paginator), asserted end to
+    end: each body shape produces the same rows and terminates after a single request."""
 
     @parameterized.expand(
         [
-            ("read_timeout", requests.ReadTimeout("Read timed out.")),
-            ("connection_error", requests.ConnectionError("Connection reset by peer")),
+            # Wrapped collection on its last page: hasNext False stops even though `next` echoes a value.
+            (
+                "wrapped_last_page",
+                "sequences",
+                {"results": [{"_id": "1"}], "next": "cur2", "hasNext": False},
+                [{"_id": "1"}],
+            ),
+            # `hasNext` missing is treated as no more pages.
+            ("wrapped_no_flag", "sequences", {"results": [{"_id": "1"}]}, [{"_id": "1"}]),
+            # Empty wrapped page yields no rows.
+            ("wrapped_empty", "sequences", {"results": [], "hasNext": False}, []),
+            # `/…/me` single-object endpoints return the object directly — one record, no pagination.
+            ("single_object", "users", {"_id": "u1", "email": "a@b.com"}, [{"_id": "u1", "email": "a@b.com"}]),
+            # A dict-without-results on a defensive collection endpoint maps to one record.
+            ("dict_without_results", "appointment_links", {"_id": "x"}, [{"_id": "x"}]),
+            # A bare array (defensive) is treated as a full, unpaginated page.
+            ("bare_list", "appointment_links", [{"_id": "1"}, {"_id": "2"}], [{"_id": "1"}, {"_id": "2"}]),
         ]
     )
-    def test_transient_network_errors_are_retried(self, _name: str, transient: Exception) -> None:
-        good = MagicMock()
-        good.status_code = 200
-        good.ok = True
-        good.json.return_value = {"results": [], "hasNext": False}
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_shape(
+        self, _name: str, endpoint: str, body: Any, expected: list[dict[str, Any]], MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_resp(body)])
+        manager = _make_manager()
 
-        session = MagicMock()
-        session.get.side_effect = [transient, good]
+        assert _run(session, endpoint, manager) == expected
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-        with patch.object(mixmax._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = mixmax._fetch_page(session, "https://api.mixmax.com/v1/sequences", {}, MagicMock())
 
-        assert result == {"results": [], "hasNext": False}
-        assert session.get.call_count == 2
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_cursor_pages_and_checkpoints_after_each_yield(self, MockSession: mock.MagicMock) -> None:
+        next_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _resp({"results": [{"_id": "1"}], "next": "cur2", "hasNext": True}),
+                _resp({"results": [{"_id": "2"}], "hasNext": False}),
+            ],
+        )
+        manager = _make_manager()
 
-    def test_client_error_raises_immediately(self) -> None:
+        rows = _run(session, "sequences", manager)
+
+        assert rows == [{"_id": "1"}, {"_id": "2"}]
+        # First request hits the base collection path with the page limit; the second targets the
+        # self-contained next-page URL with params cleared.
+        assert snaps[0] == {"url": "https://api.mixmax.com/v1/sequences", "params": {"limit": 100}}
+        assert snaps[1] == {"url": next_url, "params": {}}
+        # Checkpoint saved only when another page follows, pointing at that next page — so a crash
+        # re-yields the last page rather than skipping it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == MixmaxResumeConfig(next_url=next_url)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession: mock.MagicMock) -> None:
+        resume_url = "https://api.mixmax.com/v1/sequences?limit=100&next=cur2"
+        session = MockSession.return_value
+        snaps = _wire(session, [_resp({"results": [{"_id": "2"}], "hasNext": False})])
+        manager = _make_manager(MixmaxResumeConfig(next_url=resume_url))
+
+        rows = _run(session, "sequences", manager)
+
+        # The first page is skipped entirely — only the saved cursor's page is fetched.
+        assert rows == [{"_id": "2"}]
+        assert snaps[0] == {"url": resume_url, "params": {}}
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_object_endpoint_targets_bare_path_without_limit(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_resp({"_id": "u1"})])
+        manager = _make_manager()
+
+        _run(session, "users", manager)
+
+        assert snaps[0] == {"url": "https://api.mixmax.com/v1/users/me", "params": {}}
+
+
+class TestRetryClassification:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_retried_then_succeeds(
+        self, _name: str, status: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, [_resp({}, status=status), _resp({"results": [], "hasNext": False})])
+        manager = _make_manager()
+
+        rows = _run(session, "sequences", manager)
+
+        assert rows == []
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises_immediately(self, MockSession: mock.MagicMock) -> None:
         # A 401 is not retryable — it must surface as an HTTPError so the sync fails fast.
-        error_response = requests.Response()
-        error_response.status_code = 401
-        bad = MagicMock()
-        bad.status_code = 401
-        bad.ok = False
-        bad.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
+        session = MockSession.return_value
+        _wire(session, [_resp({"error": "unauthorized"}, status=401)])
+        manager = _make_manager()
 
-        session = MagicMock()
-        session.get.return_value = bad
+        with mock.patch("tenacity.nap.time.sleep"):
+            try:
+                _run(session, "sequences", manager)
+            except requests.HTTPError:
+                pass
+            else:
+                raise AssertionError("expected an HTTPError")
 
-        with pytest.raises(requests.HTTPError):
-            mixmax._fetch_page(session, "https://api.mixmax.com/v1/sequences", {}, MagicMock())
-        assert session.get.call_count == 1
+        assert session.send.call_count == 1
 
 
-class TestMixmaxSource:
+class TestSourceResponse:
     @parameterized.expand(
         [
             ("sequences", ["_id"]),
@@ -192,8 +209,9 @@ class TestMixmaxSource:
         response = mixmax_source(
             api_key="tok",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_pks

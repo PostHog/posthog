@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+pub use cohort_core::fingerprint::CatalogFingerprint;
+
 use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets};
 use crate::stage1::transition::TransitionKind;
 
@@ -79,39 +81,6 @@ impl PropsFingerprint {
     }
 
     /// The raw digest-prefix bytes (little-endian of the `u128`).
-    fn to_bytes(self) -> [u8; 16] {
-        self.0.to_le_bytes()
-    }
-
-    fn from_bytes(bytes: [u8; 16]) -> Self {
-        Self(u128::from_le_bytes(bytes))
-    }
-}
-
-/// 128 bits of SHA-256 over the concatenation of a team's `person_conditions_ordered` (its sorted
-/// person condition hashes). Two catalog snapshots with the same person conditions produce the same
-/// fingerprint; adding, removing, or changing a person condition changes it. Empty conditions hash
-/// the empty input, a stable constant.
-///
-/// A content fingerprint, so a no-op catalog refresh (same conditions) does not invalidate stored
-/// records.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CatalogFingerprint(pub u128);
-
-impl CatalogFingerprint {
-    /// Fingerprint the already-sorted person condition hashes. The input must be sorted (as
-    /// `person_conditions_ordered` is) so a permutation of the same conditions yields one value.
-    pub fn of_sorted(conditions: &[[u8; 16]]) -> Self {
-        let mut hasher = Sha256::new();
-        for condition in conditions {
-            hasher.update(condition);
-        }
-        let digest = hasher.finalize();
-        Self(u128::from_le_bytes(
-            digest[..16].try_into().expect("SHA-256 yields 32 bytes"),
-        ))
-    }
-
     fn to_bytes(self) -> [u8; 16] {
         self.0.to_le_bytes()
     }
@@ -558,7 +527,7 @@ fn encode(record: &PersonRecord) -> Vec<u8> {
     out.extend_from_slice(&record.stamp.ms.to_be_bytes());
     out.extend_from_slice(&record.stamp.offset.to_be_bytes());
     out.extend_from_slice(&record.props_fingerprint.to_bytes());
-    out.extend_from_slice(&record.catalog_fingerprint.to_bytes());
+    out.extend_from_slice(&record.catalog_fingerprint.0.to_le_bytes());
 
     write_u32(&mut out, record.matched.len());
     for hash in record.matched.iter() {
@@ -599,7 +568,8 @@ fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
         offset: cur.take_i64("stamp.offset")?,
     };
     let props_fingerprint = PropsFingerprint::from_bytes(cur.take_16("props_fingerprint")?);
-    let catalog_fingerprint = CatalogFingerprint::from_bytes(cur.take_16("catalog_fingerprint")?);
+    let catalog_fingerprint =
+        CatalogFingerprint(u128::from_le_bytes(cur.take_16("catalog_fingerprint")?));
 
     let matched_count = cur.take_u32("matched.count")? as usize;
     let mut matched = Vec::with_capacity(matched_count.min(1024));

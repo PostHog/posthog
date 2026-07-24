@@ -6,7 +6,12 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-import { EMAIL_METRIC_LOG_FILTERS, EmailMetric, WORKFLOW_EMAIL_METRICS } from './workflowMetricsSummaryLogic'
+import {
+    EMAIL_METRIC_INVOCATION_FILTERS,
+    EmailMetric,
+    METRIC_COLORS,
+    WORKFLOW_EMAIL_METRICS,
+} from './workflowMetricsSummaryLogic'
 
 const EMAIL_METRIC_KEYS = Object.keys(WORKFLOW_EMAIL_METRICS) as (keyof typeof WORKFLOW_EMAIL_METRICS)[]
 
@@ -31,7 +36,6 @@ export function EmailMetricsSummary({
                               name:
                                   WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.name ??
                                   series.name,
-                              color: WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.color,
                           })),
                   }
                 : null,
@@ -43,7 +47,7 @@ export function EmailMetricsSummary({
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
-                    const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_LOG_FILTERS[key]
+                    const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
                     return (
                         <AppMetricSummary
                             key={key}
@@ -60,7 +64,11 @@ export function EmailMetricsSummary({
                     )
                 })}
             </div>
-            <AppMetricsTrends appMetricsTrends={emailTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={emailTrends}
+                loading={appMetricsTrendsLoading}
+                seriesColors={METRIC_COLORS}
+            />
         </>
     )
 }

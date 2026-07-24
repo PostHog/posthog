@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 
@@ -23,7 +24,7 @@ PERSON_DISTINCT_IDS_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
     ),
-    "person_id": StringDatabaseField(
+    "person_id": UUIDDatabaseField(
         name="person_id",
         nullable=False,
         description="Resolved person this distinct_id belongs to; matches `persons.id`.",

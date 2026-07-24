@@ -27,7 +27,10 @@ import { humanizeBytes } from 'lib/utils/numbers'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
-import { externalDataSourcesRepairCdcCreate } from 'products/warehouse_sources/frontend/generated/api'
+import {
+    externalDataSourcesRepairCdcCreate,
+    externalDataSourcesResumeCdcCreate,
+} from 'products/warehouse_sources/frontend/generated/api'
 
 import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -260,6 +263,32 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
         })
     }
 
+    const onResume = (): void => {
+        confirmThen({
+            title: 'Resume CDC',
+            description: (
+                <p className="m-0">
+                    CDC extraction was paused after a failure. If you've fixed the cause (for example, corrected the
+                    database credentials), resuming picks up streaming from where it left off — no re-sync.
+                </p>
+            ),
+            primaryText: 'Resume',
+            onConfirm: async () => {
+                setBusy(true)
+                try {
+                    await externalDataSourcesResumeCdcCreate(String(ApiConfig.getCurrentTeamId()), source.id)
+                    lemonToast.success('CDC resumed')
+                    loadSource()
+                    loadCdcStatus()
+                } catch (e: any) {
+                    lemonToast.error(e?.message ?? "Couldn't resume CDC")
+                } finally {
+                    setBusy(false)
+                }
+            },
+        })
+    }
+
     const onDisable = (): void => {
         confirmThen({
             title: 'Disable CDC',
@@ -379,6 +408,26 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                                     </LemonButton>
                                 </AccessControlAction>
                             )}
+                        </div>
+                    </LemonBanner>
+                )}
+                {status?.schedule_paused && status.slot_exists && status.publication_exists && (
+                    <LemonBanner type="warning" className="mt-2">
+                        <div className="space-y-2">
+                            <p className="m-0">
+                                CDC extraction is paused after a non-retryable failure (often bad credentials). The
+                                replication slot is still intact, so once you've fixed the cause you can resume without
+                                a re-sync.
+                            </p>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ExternalDataSource}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={source.user_access_level}
+                            >
+                                <LemonButton type="secondary" size="small" onClick={onResume} loading={busy}>
+                                    Resume CDC
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     </LemonBanner>
                 )}

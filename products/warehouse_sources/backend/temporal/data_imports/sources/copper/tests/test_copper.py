@@ -1,43 +1,78 @@
-from collections.abc import Iterable
+import json
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.copper import (
     COPPER_DEFAULT_PAGE_SIZE,
     CopperResumeConfig,
     _to_unix_seconds,
     copper_source,
-    get_rows,
     validate_credentials,
 )
 
-
-def _make_response(json_data: Any, status_code: int = 200) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = json_data
-    return response
-
-
-def _make_manager(can_resume: bool = False, state: CopperResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
-    return manager
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the copper module.
+COPPER_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.copper.copper.make_tracked_session"
+)
 
 
-def _records(ids: list[int]) -> list[dict]:
+def _response(items: list[dict[str, Any]] | None, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(items).encode() if items is not None else b""
+    return resp
+
+
+def _records(ids: list[int]) -> list[dict[str, Any]]:
     return [{"id": i, "date_created": 1700000000 + i, "date_modified": 1700000100 + i} for i in ids]
 
 
-def _patch_session():
-    return patch("products.warehouse_sources.backend.temporal.data_imports.sources.copper.copper.make_tracked_session")
+def _make_manager(resume_state: CopperResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session; return a list capturing each request's JSON body AT SEND TIME.
+
+    The paginator injects `page_number` into a single body dict that's mutated in place across pages,
+    so inspecting it after the run shows only the final state — snapshot a copy at prepare time.
+    """
+    session.headers = {}
+    body_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        body_snapshots.append(dict(request.json) if request.json else {})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return body_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return copper_source(
+        api_key="key",
+        user_email="user@example.com",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestToUnixSeconds:
@@ -66,277 +101,170 @@ class TestToUnixSeconds:
         assert _to_unix_seconds(date(2023, 11, 14)) == int(datetime(2023, 11, 14, tzinfo=UTC).timestamp())
 
 
-class TestGetRows:
-    def test_paginated_terminates_on_short_page(self) -> None:
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminates_on_short_first_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(_records([1, 2]))])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response(_records([1, 2]))
+        rows = _rows(_source("people", manager))
 
-            batches = list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert len(batches) == 1
-        assert [r["id"] for r in batches[0]] == [1, 2]
-        assert session.request.call_count == 1
-        # A short first page terminates the loop without persisting resume state.
+        assert [r["id"] for r in rows] == [1, 2]
+        # A short first page stops the loop with no extra empty-page request and no checkpoint.
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    def test_empty_first_page_yields_nothing(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response([])
+        rows = _rows(_source("companies", manager))
 
-            batches = list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="companies",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == []
+        assert rows == []
         manager.save_state.assert_not_called()
 
-    def test_save_state_called_per_full_page(self) -> None:
-        full_page_a = _records(list(range(COPPER_DEFAULT_PAGE_SIZE)))
-        full_page_b = _records(
-            list(range(COPPER_DEFAULT_PAGE_SIZE, COPPER_DEFAULT_PAGE_SIZE + COPPER_DEFAULT_PAGE_SIZE))
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_next_page_after_each_full_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_a = _records(list(range(COPPER_DEFAULT_PAGE_SIZE)))
+        full_b = _records(list(range(COPPER_DEFAULT_PAGE_SIZE, 2 * COPPER_DEFAULT_PAGE_SIZE)))
         tail = _records([99999])
-
+        bodies = _wire(session, [_response(full_a), _response(full_b), _response(tail)])
         manager = _make_manager()
-        logger = MagicMock()
 
-        # Capture page_number at call time: the request body is a single dict mutated in place,
-        # so recording it directly would only show its final value.
-        requested_pages: list[int] = []
-        responses = iter([_make_response(full_page_a), _make_response(full_page_b), _make_response(tail)])
+        rows = _rows(_source("people", manager))
 
-        def fake_request(method: str, url: str, json: dict, timeout: int) -> MagicMock:
-            requested_pages.append(json["page_number"])
-            return next(responses)
-
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.side_effect = fake_request
-
-            list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
+        assert len(rows) == 2 * COPPER_DEFAULT_PAGE_SIZE + 1
+        # Requests walk pages 1, 2, 3; a checkpoint pointing at the next page is saved after each
+        # full page, and the short final page ends the loop without a checkpoint.
+        assert [b["page_number"] for b in bodies] == [1, 2, 3]
         saved_pages = [call.args[0].page_number for call in manager.save_state.call_args_list]
         assert saved_pages == [2, 3]
-        assert requested_pages == [1, 2, 3]
 
-    def test_resume_starts_from_saved_page(self) -> None:
-        manager = _make_manager(can_resume=True, state=CopperResumeConfig(page_number=4))
-        logger = MagicMock()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_starts_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response(_records([1]))])
+        manager = _make_manager(CopperResumeConfig(page_number=4))
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response(_records([1]))
+        _rows(_source("people", manager))
 
-            list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session.request.call_args_list[0].kwargs["json"]["page_number"] == 4
+        assert bodies[0]["page_number"] == 4
         manager.load_state.assert_called_once()
 
+
+class TestSearchBody:
     @parameterized.expand(
         [
             ("date_modified", "minimum_modified_date", "date_modified"),
             ("date_created", "minimum_created_date", "date_created"),
         ]
     )
-    def test_incremental_sets_filter_and_sort(self, incremental_field: str, min_param: str, sort_field: str) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_sets_filter_and_sort(
+        self, incremental_field: str, min_param: str, sort_field: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response([])
-
-            list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=1700000000,
-                    incremental_field=incremental_field,
-                )
+        _rows(
+            _source(
+                "people",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+                incremental_field=incremental_field,
             )
+        )
 
-        body = session.request.call_args_list[0].kwargs["json"]
+        body = bodies[0]
         assert body[min_param] == 1700000000
         assert body["sort_by"] == sort_field
         assert body["sort_direction"] == "asc"
+        assert body["page_size"] == COPPER_DEFAULT_PAGE_SIZE
 
-    def test_full_refresh_sorts_by_created_for_searchable(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_sorts_by_created_for_searchable(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([])])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response([])
+        _rows(_source("people", manager, should_use_incremental_field=False))
 
-            list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=False,
-                )
-            )
-
-        body = session.request.call_args_list[0].kwargs["json"]
+        body = bodies[0]
         assert body["sort_by"] == "date_created"
         assert "minimum_modified_date" not in body
+        assert "minimum_created_date" not in body
 
-    def test_reference_endpoint_single_get(self) -> None:
+
+class TestReferenceEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_get_no_body_and_no_resume(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [_response([{"id": 1, "name": "Won"}])])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response([{"id": 1, "name": "Won"}])
+        rows = _rows(_source("loss_reasons", manager))
 
-            batches = list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="loss_reasons",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert batches == [[{"id": 1, "name": "Won"}]]
-        assert session.request.call_count == 1
-        assert session.request.call_args_list[0].args[0] == "GET"
-        # GET reference endpoints carry no request body.
-        assert session.request.call_args_list[0].kwargs["json"] is None
+        assert rows == [{"id": 1, "name": "Won"}]
+        assert session.send.call_count == 1
+        # GET reference endpoints carry no request body and never consult the resumable manager.
+        assert bodies[0] == {}
         manager.can_resume.assert_not_called()
 
+
+class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    def test_retryable_status_raises_then_retries(self, _name: str, status_code: int) -> None:
+    @mock.patch("tenacity.nap.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_retries_then_succeeds(self, _name: str, status_code: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, status_code=status_code), _response(_records([1]))])
         manager = _make_manager()
-        logger = MagicMock()
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.side_effect = [
-                _make_response(None, status_code=status_code),
-                _make_response(_records([1])),
-            ]
+        rows = _rows(_source("people", manager))
 
-            batches = list(
-                get_rows(
-                    api_key="key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert [r["id"] for r in batches[0]] == [1]
-        assert session.request.call_count == 2
-
-    def test_redacts_api_key_and_closes_session(self) -> None:
-        manager = _make_manager()
-        logger = MagicMock()
-
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response(_records([1]))
-
-            list(
-                get_rows(
-                    api_key="secret-key",
-                    user_email="user@example.com",
-                    endpoint="people",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert session_cls.call_args.kwargs["redact_values"] == ("secret-key",)
-        session.close.assert_called_once()
+        assert [r["id"] for r in rows] == [1]
+        assert session.send.call_count == 2
 
 
-class TestCopperSource:
-    def test_source_response_metadata_for_searchable(self) -> None:
-        manager = _make_manager()
-        logger = MagicMock()
+class TestRedaction:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_registers_api_key_for_redaction(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(_records([1]))])
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response(_records([1]))
+        _rows(_source("people", _make_manager()))
 
-            response = copper_source(
-                api_key="key",
-                user_email="user@example.com",
-                endpoint="opportunities",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
-            batches = list(cast(Iterable[Any], response.items()))
+        assert MockSession.call_args.kwargs["redact_values"] == ("key",)
+
+
+class TestSourceResponseMetadata:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metadata_for_searchable(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(_records([1]))])
+
+        response = _source("opportunities", _make_manager())
+        rows = _rows(response)
 
         assert response.name == "opportunities"
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date_created"]
         assert response.sort_mode == "asc"
-        assert [r["id"] for r in batches[0]] == [1]
+        assert [r["id"] for r in rows] == [1]
 
-    def test_source_response_metadata_for_reference(self) -> None:
-        manager = _make_manager()
-        logger = MagicMock()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_metadata_for_reference(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
 
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.request.return_value = _make_response([{"id": 1}])
-
-            response = copper_source(
-                api_key="key",
-                user_email="user@example.com",
-                endpoint="pipelines",
-                logger=logger,
-                resumable_source_manager=manager,
-            )
+        response = _source("pipelines", _make_manager())
 
         assert response.partition_mode is None
         assert response.partition_keys is None
@@ -351,12 +279,11 @@ class TestValidateCredentials:
             ("server_error", 500, False),
         ]
     )
-    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.get.return_value = _make_response({}, status_code=status_code)
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
-            valid, error = validate_credentials("key", "user@example.com")
+        valid, error = validate_credentials("key", "user@example.com")
 
         assert valid is expected_valid
         if expected_valid:
@@ -364,22 +291,19 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    def test_exception_returns_error(self) -> None:
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.get.side_effect = Exception("boom")
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_transport_error_maps_to_invalid(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
 
-            valid, error = validate_credentials("key", "user@example.com")
+        valid, error = validate_credentials("key", "user@example.com")
 
         assert valid is False
-        assert error == "boom"
+        assert error is not None
 
-    def test_redacts_api_key_and_closes_session(self) -> None:
-        with _patch_session() as session_cls:
-            session = session_cls.return_value
-            session.get.return_value = _make_response({}, status_code=200)
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_registers_api_key_for_redaction(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-            validate_credentials("secret-key", "user@example.com")
+        validate_credentials("secret-key", "user@example.com")
 
-        assert session_cls.call_args.kwargs["redact_values"] == ("secret-key",)
-        session.close.assert_called_once()
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)

@@ -19,22 +19,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HumanitixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
+    HumanitixSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.humanitix import (
     HumanitixResumeConfig,
-    check_access,
     humanitix_source,
+    validate_credentials as validate_humanitix_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import (
     ENDPOINTS,
     HUMANITIX_ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://api.humanitix.com/v1/documentation"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,34 +102,22 @@ You can generate an API key under **Account → Advanced → Public API key** in
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Humanitix's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: HumanitixSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HumanitixSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema; there is
         # no per-endpoint scope to check.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Humanitix API key"
-        return False, message or "Could not validate Humanitix API key"
+        return validate_humanitix_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HumanitixResumeConfig]:
         return ResumableSourceManager[HumanitixResumeConfig](inputs, HumanitixResumeConfig)
@@ -136,6 +134,8 @@ You can generate an API key under **Account → Advanced → Public API key** in
         return humanitix_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Humanitix endpoint is full refresh
         )

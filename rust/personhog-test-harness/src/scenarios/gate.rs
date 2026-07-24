@@ -1,25 +1,21 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
-use sqlx::Row;
 
 use crate::cli::GateArgs;
 use crate::client::HarnessClient;
-use crate::report::{print_report, ConsistencyViolation};
+use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
-use crate::state::{verify_properties, ExpectedPerson, PersonState};
+use crate::state::PersonState;
 use crate::stats::StatsCollector;
-
-/// How long to wait for the writer to drain acked writes into Postgres
-/// before declaring them lost.
-const QUIESCE_DEADLINE: Duration = Duration::from_secs(60);
+use crate::verify::verify_postgres;
 
 /// A chaos disruption scheduled relative to the start of the traffic phase.
 enum ChaosEvent {
@@ -32,7 +28,8 @@ enum ChaosEvent {
     WriterCrash,
     WriterPause,
     WriterResume,
-    RouterKill,
+    RouterKill { fast: bool },
+    RouterShutdown,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -48,7 +45,11 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::WriterCrash => write!(f, "writer crash-restart"),
             ChaosEvent::WriterPause => write!(f, "writer pause (lag injection)"),
             ChaosEvent::WriterResume => write!(f, "writer resume"),
-            ChaosEvent::RouterKill => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: true } => write!(f, "coordinator router kill"),
+            ChaosEvent::RouterKill { fast: false } => {
+                write!(f, "coordinator router crash (lease TTL expiry)")
+            }
+            ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
         }
     }
 }
@@ -84,7 +85,15 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
         events.push((after + args.writer_pause_duration, ChaosEvent::WriterResume));
     }
     if let Some(after) = args.router_kill_after {
-        events.push((after, ChaosEvent::RouterKill));
+        events.push((
+            after,
+            ChaosEvent::RouterKill {
+                fast: args.router_kill_fast,
+            },
+        ));
+    }
+    if let Some(after) = args.router_shutdown_after {
+        events.push((after, ChaosEvent::RouterShutdown));
     }
     events.sort_by_key(|(after, _)| *after);
     events
@@ -118,8 +127,14 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
-    if args.router_kill_after.is_some() && args.routers < 2 {
-        bail!("--router-kill-after requires --routers >= 2 (traffic targets the last router)");
+    if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
+        && args.routers < 3
+    {
+        bail!(
+            "coordinator chaos requires --routers >= 3: traffic targets the last router, \
+             which never campaigns, so two routers leave no standby to win the failover \
+             election"
+        );
     }
     if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
         bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
@@ -141,6 +156,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     writer_flush_interval_ms: 1000,
                     pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
+                    recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                 })
                 .await?,
@@ -161,8 +177,10 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     // A crashed prior run may have left rows behind; the team id belongs to
     // the harness, so start from a clean slate.
-    seed::cleanup_team(&pool, args.team_id).await?;
-    let person_ids = Arc::new(seed::seed_persons(&pool, args.team_id, args.persons).await?);
+    seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+    let person_ids = Arc::new(
+        seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons).await?,
+    );
     println!(
         "Seeded {} persons for team {}",
         person_ids.len(),
@@ -189,9 +207,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 person_ids,
                 duration,
                 concurrency,
+                None,
                 "harness_gate_",
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -214,6 +234,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -247,7 +268,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 stack.resume_writer()?;
                 None
             }
-            ChaosEvent::RouterKill => Some(stack.kill_coordinator_router().await?),
+            ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
+            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",
@@ -275,13 +297,21 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let prober_violations = probers.await.context("prober task panicked")??;
 
     // Verification asserts data visibility on a converged topology, not
-    // recovery speed: chaos legitimately leaves handoffs to re-drive, and
-    // the protocol's convergence is bounded (worst known case ~40s via the
-    // drained pod's lifecycle timeout). An already-settled run waits zero
-    // time; a run that cannot converge fails here with the stuck state.
+    // recovery speed: chaos legitimately leaves handoffs to re-drive. The
+    // slowest legitimate recoveries can serialize: a leader kill with
+    // --kill-fast false is blind until the leader lease expires (30s
+    // default), and a concurrent slow router crash appends the election
+    // TTL + campaign retry + registration TTL chain (~16s) — so the
+    // deadline stretches with the configured leader TTL plus that chain
+    // with margin, floored at 30s. A regression toward the old
+    // multi-tens-of-seconds wedges still fails loudly. An already-settled
+    // run waits zero time; a run that cannot converge fails here with the
+    // stuck state.
     if let Some(stack) = stack.as_mut() {
+        let convergence_deadline =
+            Duration::from_secs(30).max(Duration::from_secs(args.leader_lease_ttl as u64 + 30));
         let settled = stack
-            .wait_converged(Duration::from_secs(90))
+            .wait_converged(convergence_deadline)
             .await
             .context("coordination must converge before verification")?;
         println!(
@@ -309,10 +339,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
 
     if !args.keep_data {
-        let persons = seed::cleanup_team(&pool, args.team_id).await?;
-        if args.pg_target_table != "posthog_person" {
-            seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
-        }
+        let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
         println!("Cleaned up {persons} persons");
     }
 
@@ -341,97 +368,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
     Ok(())
-}
-
-/// Poll Postgres until every journaled person row contains all acked
-/// property writes at the acked version, or the quiesce deadline passes.
-/// Returns the outstanding violations (empty = converged).
-async fn verify_postgres(
-    pool: &PgPool,
-    table: &str,
-    team_id: i64,
-    journal: &HashMap<i64, ExpectedPerson>,
-) -> Result<Vec<ConsistencyViolation>> {
-    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-    let person_ids: Vec<i64> = journal.keys().copied().collect();
-    if person_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let query = format!(
-        "SELECT id, properties::text AS properties, version \
-         FROM {table} WHERE team_id = $1 AND id = ANY($2)"
-    );
-    let deadline = Instant::now() + QUIESCE_DEADLINE;
-    loop {
-        let rows = sqlx::query(&query)
-            .bind(team)
-            .bind(&person_ids)
-            .fetch_all(pool)
-            .await
-            .context("reading persons from Postgres")?;
-
-        let mut by_id: HashMap<i64, (serde_json::Value, i64)> = HashMap::new();
-        for row in rows {
-            let id: i64 = row.get("id");
-            let properties: Option<String> = row.get("properties");
-            let version: Option<i64> = row.get("version");
-            let props = properties
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .context("parsing properties JSON")?
-                .unwrap_or_else(|| serde_json::json!({}));
-            by_id.insert(id, (props, version.unwrap_or(0)));
-        }
-
-        let mut violations = Vec::new();
-        for (person_id, expected) in journal {
-            match by_id.get(person_id) {
-                Some((props, version)) => {
-                    violations.extend(verify_properties(
-                        *person_id,
-                        &expected.written_properties,
-                        props,
-                    ));
-                    // The highest acked version is a floor, not an exact
-                    // target: a write that produced its record but lost the
-                    // response (a drain, a client timeout) is unacked yet
-                    // still applied, legitimately leaving the row above the
-                    // floor. Below it, an acked write never reached
-                    // Postgres.
-                    if *version < expected.last_version {
-                        violations.push(ConsistencyViolation {
-                            person_id: *person_id,
-                            key: "__version".to_string(),
-                            expected: serde_json::json!(format!(">= {}", expected.last_version)),
-                            actual: serde_json::json!(version),
-                        });
-                    }
-                }
-                None => {
-                    violations.push(ConsistencyViolation {
-                        person_id: *person_id,
-                        key: "__row".to_string(),
-                        expected: serde_json::json!("present"),
-                        actual: serde_json::Value::Null,
-                    });
-                }
-            }
-        }
-
-        if violations.is_empty() {
-            return Ok(violations);
-        }
-        if Instant::now() > deadline {
-            tracing::error!(
-                outstanding = violations.len(),
-                "Postgres did not converge within {QUIESCE_DEADLINE:?}"
-            );
-            return Ok(violations);
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
 }
 
 #[cfg(test)]

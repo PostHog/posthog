@@ -91,10 +91,10 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, PersonLeafConfig};
-    use crate::filters::CohortId;
+    use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, CohortTree, PersonLeafConfig};
+    use crate::filters::{CohortId, TeamId};
     use crate::stage1::pick_state::PredicateOp;
-    use crate::stage2::eligibility::condition_negation;
+    use crate::stage2::{classify, CohortEligibility, CohortParseFlags, ExcludedReason};
 
     fn lsk(byte: u8) -> LeafStateKey {
         LeafStateKey([byte; 16])
@@ -131,6 +131,32 @@ mod tests {
 
     fn group(op: BoolOp, children: Vec<FilterNode>) -> FilterNode {
         FilterNode::Group { op, children }
+    }
+
+    fn classifier_excludes_top_level_negation(root: &FilterNode) -> bool {
+        fn state_keyed_leaf_count(node: &FilterNode) -> u32 {
+            match node {
+                FilterNode::Group { children, .. } => {
+                    children.iter().map(state_keyed_leaf_count).sum()
+                }
+                FilterNode::Leaf(leaf) => u32::from(leaf.leaf_state_key().is_some()),
+            }
+        }
+
+        let tree = CohortTree {
+            cohort_id: CohortId(1),
+            team_id: TeamId(1),
+            root: root.clone(),
+        };
+        let flags = CohortParseFlags {
+            state_keyed_leaf_count: state_keyed_leaf_count(root),
+            has_cohort_ref: false,
+            has_dropped_leaf: false,
+        };
+        matches!(
+            classify(&tree, &flags),
+            CohortEligibility::Excluded(ExcludedReason::TopLevelNegation)
+        )
     }
 
     fn person_meta() -> LeafStateMeta {
@@ -516,7 +542,7 @@ mod tests {
             let leaf = person_leaf_neg(lsk(1), neg);
             for &op in &ops {
                 let tree = group(op, vec![leaf.clone()]);
-                if !condition_negation(&tree) {
+                if !classifier_excludes_top_level_negation(&tree) {
                     assert!(
                         !evaluate_tree(&tree, &empty, &no_refs()),
                         "depth=1, op={op:?}, neg={neg}",
@@ -532,7 +558,7 @@ mod tests {
                 let b = person_leaf_neg(lsk(2), neg_b);
                 for &op in &ops {
                     let tree = group(op, vec![a.clone(), b.clone()]);
-                    if !condition_negation(&tree) {
+                    if !classifier_excludes_top_level_negation(&tree) {
                         assert!(
                             !evaluate_tree(&tree, &empty, &no_refs()),
                             "depth=1, op={op:?}, neg_a={neg_a}, neg_b={neg_b}",
@@ -555,7 +581,7 @@ mod tests {
                                 outer_op,
                                 vec![group(inner_op, vec![a.clone(), b.clone()]), c.clone()],
                             );
-                            if !condition_negation(&tree) {
+                            if !classifier_excludes_top_level_negation(&tree) {
                                 assert!(
                                     !evaluate_tree(&tree, &empty, &no_refs()),
                                     "depth=2, outer={outer_op:?}, inner={inner_op:?}, \

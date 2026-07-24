@@ -1,20 +1,24 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urljoin, urlparse
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import (
-    K6_CLOUD_ENDPOINTS,
-    K6CloudEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import K6_CLOUD_ENDPOINTS
 
 # Grafana Cloud k6 pins the current REST API under a single global host + version path.
 K6_CLOUD_HOST = "api.k6.io"
@@ -23,10 +27,6 @@ K6_CLOUD_BASE_URL = f"https://{K6_CLOUD_HOST}/cloud/v6"
 # $top caps at 1000 rows per page (the documented maximum).
 PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 60
-
-
-class K6CloudRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -54,134 +54,16 @@ def _format_rfc3339(value: Any) -> str:
     return str(value)
 
 
-def _build_initial_params(
-    config: K6CloudEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, str]:
-    params: dict[str, str] = {}
+def _created_after_value(value: Any) -> Optional[str]:
+    """Convert the incremental cursor into k6's `created_after` filter value.
 
-    if config.paginated:
-        params["$top"] = str(PAGE_SIZE)
-
-    if config.order_by:
-        params["$orderby"] = config.order_by
-
-    if config.time_filter_param and should_use_incremental_field and db_incremental_field_last_value is not None:
-        # `created_after` is inclusive, so the boundary row is re-fetched each sync and
-        # deduped on the `id` primary key by the merge.
-        params[config.time_filter_param] = _format_rfc3339(db_incremental_field_last_value)
-
-    return params
-
-
-@retry(
-    retry=retry_if_exception_type((K6CloudRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: Optional[dict[str, str]],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise K6CloudRetryableError(f"k6 Cloud API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"k6 Cloud API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def validate_credentials(api_token: str, stack_id: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
-    """Probe Grafana Cloud k6 to confirm the token + stack id work.
-
-    Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403
-    (token is genuine but lacks access) from a 401 (bad token) so the caller can
-    accept access gaps at source-create time but reject them for a specific schema.
+    Returns ``None`` when there is no watermark so the client drops the param entirely — a
+    full-refresh sync (or the first incremental run before a watermark exists) must send no
+    time filter, exactly as the hand-rolled source did.
     """
-    config = K6_CLOUD_ENDPOINTS.get(schema_name) if schema_name else None
-
-    if config is not None:
-        # For a specific schema, probe that endpoint so the check reflects real access.
-        params = {"$top": "1"} if config.paginated else {}
-        url = f"{K6_CLOUD_BASE_URL}{config.path}"
-        if params:
-            url = f"{url}?{urlencode(params)}"
-    else:
-        # `/auth` validates the token and stack access without touching any resource.
-        url = f"{K6_CLOUD_BASE_URL}/auth"
-
-    try:
-        with make_tracked_session() as session:
-            response = session.get(url, headers=_get_headers(api_token, stack_id), timeout=REQUEST_TIMEOUT_SECONDS)
-    except Exception:
-        return False, False
-
-    if response.status_code == 403:
-        return False, True
-
-    return response.status_code == 200, False
-
-
-def get_rows(
-    api_token: str,
-    stack_id: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[K6CloudResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = K6_CLOUD_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token, stack_id)
-
-    initial_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    # The `@nextLink` is an absolute URL that already carries the filter + `$skip` offset,
-    # so on resume (and on every page after the first) we fetch it with no extra params.
-    if resume_config is not None and resume_config.next_url:
-        # Resume state comes back from Redis, so re-pin it to the k6 origin before we send the token.
-        url: str = _require_k6_origin(resume_config.next_url)
-        params: Optional[dict[str, str]] = None
-        logger.debug(f"k6 Cloud: resuming {endpoint} from saved next link")
-    else:
-        url = f"{K6_CLOUD_BASE_URL}{config.path}"
-        params = initial_params
-
-    # One session reused across every page so urllib3 keeps the connection alive; the `with`
-    # closes it promptly even if the consumer abandons the generator early.
-    with make_tracked_session() as session:
-        while True:
-            data = _fetch_page(session, url, params, headers, logger)
-
-            # Fail fast if the payload is missing `value` — an empty table is a bug, not a valid sync.
-            items = data["value"]
-            next_url = data.get("@nextLink")
-
-            if items:
-                yield items
-                # Save state only after yielding, so a crash re-yields the last page rather
-                # than skipping it (merge dedupes on the primary key). Only persist when more
-                # pages remain — there's nothing to resume into on the final page.
-                if config.paginated and next_url:
-                    resumable_source_manager.save_state(K6CloudResumeConfig(next_url=_absolute_url(url, next_url)))
-
-            if not config.paginated or not next_url:
-                break
-
-            # Advance to the next page before the next fetch, otherwise we loop on this page.
-            url = _absolute_url(url, next_url)
-            params = None
+    if value is None:
+        return None
+    return _format_rfc3339(value)
 
 
 def _require_k6_origin(url: str) -> str:
@@ -209,28 +91,104 @@ def _absolute_url(current_url: str, next_link: str) -> str:
     return _require_k6_origin(resolved)
 
 
+class K6NextLinkPaginator(BaseNextUrlPaginator):
+    """Follow k6's `@nextLink` body field, pinned to the k6 https origin.
+
+    Mirrors the hand-rolled source's SSRF guard: any relative link is resolved against the page
+    just fetched, and every next/resume URL must be https on the k6 host before the credential-
+    bearing request is sent, so a tampered `@nextLink` (or poisoned Redis resume state) can't
+    redirect the bearer token off-origin.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        next_link = body.get("@nextLink") if isinstance(body, dict) else None
+        if next_link:
+            self._next_url = _absolute_url(response.url, next_link)
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url:
+            self._next_url = _require_k6_origin(next_url)
+            self._has_next_page = True
+
+
 def k6_cloud_source(
     api_token: str,
     stack_id: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[K6CloudResumeConfig],
-    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = K6_CLOUD_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["$top"] = str(PAGE_SIZE)
+    if config.order_by:
+        params["$orderby"] = config.order_by
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        # A 200 body without `value` means the response shape changed — fail loud instead of
+        # silently syncing 0 rows (the hand-rolled source raised KeyError here).
+        "data_selector": "value",
+        "data_selector_required": True,
+        # load_zones returns every row in one page (no $skip/$top, no @nextLink).
+        "paginator": K6NextLinkPaginator() if config.paginated else SinglePagePaginator(),
+    }
+    if config.time_filter_param is not None:
+        endpoint_config["incremental"] = {
+            "start_param": config.time_filter_param,
+            "cursor_path": "created",
+            "convert": _created_after_value,
+        }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": K6_CLOUD_BASE_URL,
+            # Auth (Bearer) goes through the framework auth config so its value is redacted from
+            # errors/logs; only the non-secret stack id + accept headers are set here.
+            "headers": {"X-Stack-Id": stack_id, "Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_token},
+        },
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            # Pinned by the paginator's set_resume_state before the token is sent.
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the `id` primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(K6CloudResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            stack_id=stack_id,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -238,3 +196,31 @@ def k6_cloud_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(api_token: str, stack_id: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
+    """Probe Grafana Cloud k6 to confirm the token + stack id work.
+
+    Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403
+    (token is genuine but lacks access) from a 401 (bad token) so the caller can
+    accept access gaps at source-create time but reject them for a specific schema.
+    """
+    config = K6_CLOUD_ENDPOINTS.get(schema_name) if schema_name else None
+
+    if config is not None:
+        # For a specific schema, probe that endpoint so the check reflects real access.
+        params = {"$top": "1"} if config.paginated else {}
+        url = f"{K6_CLOUD_BASE_URL}{config.path}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
+    else:
+        # `/auth` validates the token and stack access without touching any resource.
+        url = f"{K6_CLOUD_BASE_URL}/auth"
+
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        url,
+        headers=_get_headers(api_token, stack_id),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    return ok, status == 403
