@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Literal
 
+from django.db.models import Q
+
 from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPToolPolicy, TeamMCPGatewayConfig
 
 # Verbs that indicate a tool mutates or destroys state. Deliberately the
@@ -132,7 +134,12 @@ class PolicyContext:
             if rule.applies_to in ("everyone", audience)
         ]
 
-        policies = MCPToolPolicy.objects.for_team(team_id).filter(gateway_server=gateway_server)
+        policy_scope = Q(scope_type="team")
+        if caller.kind == "member" and caller.user_id is not None:
+            policy_scope |= Q(scope_type="member", scope_user_id=caller.user_id)
+        elif caller.kind == "agent" and caller.service_account_id is not None:
+            policy_scope |= Q(scope_type="agent", scope_service_account_id=caller.service_account_id)
+        policies = MCPToolPolicy.objects.for_team(team_id).filter(policy_scope, gateway_server=gateway_server)
         self._team_rows: dict[str, str] = {}
         self._scope_rows: dict[str, str] = {}
         for policy in policies:
