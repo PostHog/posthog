@@ -31,6 +31,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    CONFIG_LEGACY_OAUTH_CLIENT,
     MISSING_CERT_PATH,
     TLS,
     Authority,
@@ -608,21 +609,34 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            # Primary works: the fallback must not fire, even when configured.
-            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
-            # A token issued by the previous app only refreshes with the fallback pair.
-            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Primary works: the fallback must not fire, even when configured, and the grant is no
+            # longer tied to the legacy app - so the reconnect prompt must stop showing.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1, True, False),
+            # A token issued by the previous app only refreshes with the fallback pair. Flagging it
+            # is what identifies the connections that break when the legacy app is retired.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2, False, True),
             # Both credentials failing still marks the integration errored so the reconnect banner shows.
-            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2, True, True),
             # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
-            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False),
         ]
     )
     def test_refresh_falls_back_to_previous_credentials(
-        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+        self,
+        _name,
+        has_fallback,
+        responses,
+        expected_token,
+        expected_errors,
+        expected_calls,
+        initial_legacy_flag,
+        expected_legacy_flag,
     ):
         fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
-        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+        config = {"expires_in": 1000}
+        if initial_legacy_flag:
+            config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+        integration = self.create_integration(kind="bing-ads", config=config)
 
         with (
             self.settings(
@@ -641,6 +655,7 @@ class TestOauthIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert mock_post.call_count == expected_calls
         assert integration.errors == expected_errors
+        assert integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT, False) == expected_legacy_flag
         if expected_token is not None:
             assert integration.sensitive_config["access_token"] == expected_token
 
