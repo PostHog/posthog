@@ -30,6 +30,8 @@ import type {
     AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
+    AgentCancelRequestApi,
+    AgentCancelResponseApi,
     AgentFleetApprovalsListParams,
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
@@ -1705,6 +1707,39 @@ export const agentApplicationsApprovalsDecide = async (
     )
 }
 
+export const getAgentApplicationsCancelUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/cancel/`
+}
+
+/**
+ * Stop a LIVE session's in-flight run.
+ *
+ * Bridges to ingress `POST /agents/<slug>/cancel`, forwarding the caller's
+ * PAT so the ACL principal-match passes. The ingress aborts the current
+ * model call (partial assistant text is persisted) and writes a durable
+ * `cancelled` state; when the cancel interrupts an actively-running turn
+ * the runner reopens the session as `completed`, so it stays sendable —
+ * a cancel landing on an idle session terminalizes it as `cancelled`,
+ * and so does a cancel of a `queued` session no worker has claimed yet
+ * (permanently — there is no runner to reopen it).
+ * Idempotent on already-terminal sessions (ingress returns
+ * `idempotent: true` without changing state), surfaced faithfully here.
+ * The same janitor ownership pre-check as `agent_send` runs first.
+ */
+export const agentApplicationsCancel = async (
+    projectId: string,
+    id: string,
+    agentCancelRequestApi: AgentCancelRequestApi,
+    options?: RequestInit
+): Promise<AgentCancelResponseApi> => {
+    return apiMutator<AgentCancelResponseApi>(getAgentApplicationsCancelUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(agentCancelRequestApi),
+    })
+}
+
 export const getAgentApplicationsInvokeUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/agent_applications/${id}/invoke/`
 }
@@ -1955,15 +1990,18 @@ export const getAgentApplicationsSendUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Append a message to an existing LIVE session and re-queue it.
+ * Append a message to an existing LIVE session.
  *
  * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
  * so the ACL principal-match passes. A `completed` session is NOT terminal —
  * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
- * another turn; only truly-terminal states (failed / cancelled / closed) 410,
- * which passes through as a 410. A janitor ownership pre-check runs first, but
- * it's redundant defense-in-depth (ingress `/send` already app-scopes the
- * load), kept for a clean early 404.
+ * another turn; a `running` session buffers the message and drains it at its
+ * next model-call boundary. Only truly-terminal states (failed / cancelled /
+ * closed) 410, which passes through as a 410. Ingress acks an accepted send
+ * with a bare `{ok: true}`, so the `queued` in the response here is an
+ * acceptance acknowledgment, not a live state read. A janitor ownership
+ * pre-check runs first, but it's redundant defense-in-depth (ingress `/send`
+ * already app-scopes the load), kept for a clean early 404.
  */
 export const agentApplicationsSend = async (
     projectId: string,

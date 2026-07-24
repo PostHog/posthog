@@ -8285,6 +8285,28 @@ export namespace Schemas {
     }
 
     /**
+     * Body for `agent-applications-cancel` — stop a live session's in-flight run.
+     */
+    export interface AgentCancelRequest {
+      /** The session to cancel (returned by agent-applications-invoke). Must belong to this agent. */
+      session_id: string;
+    }
+
+    export interface AgentCancelResponse {
+      /** Session state as recorded by the cancel — `cancelled` when this call terminalized the session; the pre-existing terminal state on an idempotent no-op. A cancel that interrupted an actively-running turn is reopened as `completed` by the runner shortly after.
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+      /** True when the session was already terminal (failed / cancelled / closed) and the cancel changed nothing. */
+      idempotent: boolean;
+    }
+
+    /**
      * * `assistant` - assistant
      */
     export type AgentConversationAssistantMessageRoleEnum = typeof AgentConversationAssistantMessageRoleEnum[keyof typeof AgentConversationAssistantMessageRoleEnum];
@@ -8703,7 +8725,7 @@ export namespace Schemas {
     }
 
     export interface AgentSendResponse {
-      /** Session state after the message was appended — `queued` (a new turn will run).
+      /** Acknowledgment that ingress accepted the message — always `queued`. An idle (`completed`) session was re-queued for a new turn; a `running` session buffers the message and drains it at its next model-call boundary (its state stays `running`).
        *
        * * `queued` - queued
        * * `running` - running

@@ -726,3 +726,11 @@ class AgentSendRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="The user message to append. Required, non-empty.",
     )
+
+
+class AgentCancelRequestSerializer(serializers.Serializer):
+    """Body for `agent-applications-cancel` — stop a live session's in-flight run."""
+
+    session_id = serializers.UUIDField(
+        help_text="The session to cancel (returned by agent-applications-invoke). Must belong to this agent.",
+    )

@@ -19,6 +19,27 @@ tools:
     agent-applications-approvals-retrieve:
         operation: agent_applications_approvals_retrieve
         enabled: false
+    agent-applications-cancel:
+        operation: agent_applications_cancel
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Cancel a live session's in-flight run
+        description: >
+            Cancel a live session's in-flight run (from `agent-applications-invoke`) — the stop button. Aborts the
+            current model call and keeps everything already done — partial assistant text is persisted. When the cancel
+            interrupts an actively-running turn the runner reopens the session (`completed`) for further sends; a cancel
+            landing on an idle session marks it `cancelled` (terminal). A `queued` session no worker has claimed yet
+            (e.g. right after invoke) is neither actively-running nor idle: cancelling it is permanently terminal — no
+            runner exists to reopen it and its pending turn is dropped — so steer a just-invoked session with
+            `agent-applications-send` instead. Cancelling an already-terminal session is an idempotent no-op
+            (`idempotent: true` in the response). For a hard redirect, cancel the wayward turn, then poll
+            `agent-applications-listen` until the state leaves `cancelled` (the runner's reopen takes a few seconds)
+            before sending the corrective message — an immediate send lands in that window and gets a 410.
     agent-applications-create:
         operation: agent_applications_create
         enabled: true
@@ -608,9 +629,13 @@ tools:
             idempotent: false
         title: Send a message to a live session
         description: >
-            Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another
-            turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for
-            another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.
+            Append a message to an existing live session (from `agent-applications-invoke`). `session_id` must belong to
+            this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal
+            sessions (failed / cancelled / closed) fail cleanly with a 410. If the session is `running`, the message
+            buffers and is drained at the agent's next model-call boundary — use this to steer an agent that's drifting
+            off-track. The response's `state: queued` is an acknowledgment that the message was accepted, not a live
+            state read. For a hard redirect, cancel first (`agent-applications-cancel` aborts the in-flight turn), wait
+            for `agent-applications-listen` to show the session reopened, then send the corrective message.
     agent-applications-session-logs:
         operation: agent_applications_session_logs
         enabled: true

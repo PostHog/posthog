@@ -53,6 +53,14 @@ export const PLAYBOOK_TOOLS: Partial<Record<PlaybookId, readonly string[]>> = {
         'agent-applications-revisions-freeze-create',
         'agent-applications-revisions-promote-create',
     ],
+    'orchestrating-live-agents': [
+        'agent-applications-invoke',
+        'agent-applications-listen',
+        'agent-applications-send',
+        'agent-applications-cancel',
+        'agent-applications-sessions-retrieve',
+        'agent-applications-session-logs',
+    ],
     'secrets-and-integrations': [
         'agent-applications-env-keys-list',
         'agent-applications-env-keys-get',

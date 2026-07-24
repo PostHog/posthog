@@ -384,6 +384,21 @@
         },
         "feature_entitlement": "audit_logs"
     },
+    "agent-applications-cancel": {
+        "description": "Cancel a live session's in-flight run (from `agent-applications-invoke`) — the stop button. Aborts the current model call and keeps everything already done — partial assistant text is persisted. When the cancel interrupts an actively-running turn the runner reopens the session (`completed`) for further sends; a cancel landing on an idle session marks it `cancelled` (terminal). A `queued` session no worker has claimed yet (e.g. right after invoke) is neither actively-running nor idle: cancelling it is permanently terminal — no runner exists to reopen it and its pending turn is dropped — so steer a just-invoked session with `agent-applications-send` instead. Cancelling an already-terminal session is an idempotent no-op (`idempotent: true` in the response). For a hard redirect, cancel the wayward turn, then poll `agent-applications-listen` until the state leaves `cancelled` (the runner's reopen takes a few seconds) before sending the corrective message — an immediate send lands in that window and gets a 410.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Cancel a live session's in-flight run",
+        "title": "Cancel a live session's in-flight run",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-create": {
         "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",
         "category": "Agent stack",
@@ -895,7 +910,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-send": {
-        "description": "Append a message to an existing live session (from `agent-applications-invoke`) and re-queue it for another turn. `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410.",
+        "description": "Append a message to an existing live session (from `agent-applications-invoke`). `session_id` must belong to this agent. A `completed` session is still open — send re-queues it for another turn; only truly-terminal sessions (failed / cancelled / closed) fail cleanly with a 410. If the session is `running`, the message buffers and is drained at the agent's next model-call boundary — use this to steer an agent that's drifting off-track. The response's `state: queued` is an acknowledgment that the message was accepted, not a live state read. For a hard redirect, cancel first (`agent-applications-cancel` aborts the in-flight turn), wait for `agent-applications-listen` to show the session reopened, then send the corrective message.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Send a message to a live session",

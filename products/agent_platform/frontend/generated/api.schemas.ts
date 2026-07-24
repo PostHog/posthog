@@ -784,13 +784,11 @@ export interface AgentApprovalsDecideResponseApi {
 }
 
 /**
- * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+ * Body for `agent-applications-cancel` — stop a live session's in-flight run.
  */
-export interface AgentInvokeRequestApi {
-    /** The user message that starts the session. Required, non-empty. */
-    message: string
-    /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
-    external_key?: string
+export interface AgentCancelRequestApi {
+    /** The session to cancel (returned by agent-applications-invoke). Must belong to this agent. */
+    session_id: string
 }
 
 /**
@@ -811,6 +809,30 @@ export const AgentSessionStateEnumApi = {
     Cancelled: 'cancelled',
     Failed: 'failed',
 } as const
+
+export interface AgentCancelResponseApi {
+    /** Session state as recorded by the cancel — `cancelled` when this call terminalized the session; the pre-existing terminal state on an idempotent no-op. A cancel that interrupted an actively-running turn is reopened as `completed` by the runner shortly after.
+     *
+     * * `queued` - queued
+     * * `running` - running
+     * * `completed` - completed
+     * * `closed` - closed
+     * * `cancelled` - cancelled
+     * * `failed` - failed */
+    state: AgentSessionStateEnumApi
+    /** True when the session was already terminal (failed / cancelled / closed) and the cancel changed nothing. */
+    idempotent: boolean
+}
+
+/**
+ * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+ */
+export interface AgentInvokeRequestApi {
+    /** The user message that starts the session. Required, non-empty. */
+    message: string
+    /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
+    external_key?: string
+}
 
 export interface AgentInvokeResponseApi {
     /** The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen. */
@@ -887,7 +909,7 @@ export interface AgentSendRequestApi {
 }
 
 export interface AgentSendResponseApi {
-    /** Session state after the message was appended — `queued` (a new turn will run).
+    /** Acknowledgment that ingress accepted the message — always `queued`. An idle (`completed`) session was re-queued for a new turn; a `running` session buffers the message and drains it at its next model-call boundary (its state stays `running`).
      *
      * * `queued` - queued
      * * `running` - running

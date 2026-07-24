@@ -1,10 +1,11 @@
 """
 Integration tests: AgentApplicationViewSet runtime bridge actions
-(`agent_invoke` / `agent_send` / `agent_listen`) ↔ the agent-ingress client.
+(`agent_invoke` / `agent_send` / `agent_cancel` / `agent_listen`) ↔ the agent-ingress client.
 
 These actions are the LIVE-agent runtime surface behind the `agent-applications-invoke` /
-`agent-applications-send` / `agent-applications-listen` MCP tools. They talk to the ingress over
-`_ingress()` (public run/send + internal digest RPC) and check session
+`agent-applications-send` / `agent-applications-cancel` / `agent-applications-listen` MCP tools.
+They talk to the ingress over
+`_ingress()` (public run/send/cancel + internal digest RPC) and check session
 ownership against the janitor via `_janitor().get_session`. Both boundaries are
 mocked so no live ingress / janitor process is needed — the contract under test
 is Django-side: the pre-flight guards (no live revision, cross-app session), the
@@ -122,6 +123,7 @@ class TestAgentRuntimeBridge(APIBaseTest):
         [
             ("invoke", {"message": "hi"}),
             ("send", {"session_id": _SESSION_ID, "message": "hi"}),
+            ("cancel", {"session_id": _SESSION_ID}),
         ]
     )
     @patch("products.agent_platform.backend.presentation.views._ingress")
@@ -243,6 +245,69 @@ class TestAgentRuntimeBridge(APIBaseTest):
         self.assertEqual(kwargs["message"], "more")
         self.assertIn("authorization", kwargs)
 
+    # ── agent_cancel ─────────────────────────────────────────────────────────
+
+    @patch("products.agent_platform.backend.presentation.views._ingress")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_cancel_session_from_another_app_returns_404(
+        self, mock_janitor: MagicMock, mock_ingress: MagicMock
+    ) -> None:
+        # The janitor row says this session belongs to a DIFFERENT application →
+        # the ownership pre-flight raises NotFound before any ingress cancel.
+        mock_janitor.return_value.get_session.return_value = {"application_id": "some-other-app-id"}
+        res = self.client.post(f"{self.base}/cancel/", {"session_id": _SESSION_ID}, format="json")
+        self.assertEqual(res.status_code, 404, res.content)
+        mock_ingress.return_value.cancel.assert_not_called()
+
+    @patch("products.agent_platform.backend.presentation.views._ingress")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_cancel_happy_path_returns_state(self, mock_janitor: MagicMock, mock_ingress: MagicMock) -> None:
+        # Mirrors agent_send's `{state}`-only contract: the ingress `ok` field is
+        # transport noise and must NOT be forwarded to the caller.
+        mock_janitor.return_value.get_session.return_value = {"application_id": str(self.application.id)}
+        mock_ingress.return_value.cancel.return_value = {"ok": True, "idempotent": False, "state": "cancelled"}
+        res = self.client.post(f"{self.base}/cancel/", {"session_id": _SESSION_ID}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json(), {"state": "cancelled", "idempotent": False})
+        _, kwargs = mock_ingress.return_value.cancel.call_args
+        self.assertEqual(kwargs["session_id"], _SESSION_ID)
+        self.assertIn("authorization", kwargs)
+
+    @patch("products.agent_platform.backend.presentation.views._ingress")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_cancel_of_terminal_session_surfaces_idempotent_noop(
+        self, mock_janitor: MagicMock, mock_ingress: MagicMock
+    ) -> None:
+        # Ingress is idempotent on terminal states: it returns 200 with
+        # `idempotent: true` and the PRE-EXISTING terminal state. The view must
+        # surface that faithfully (not remap it to `cancelled` or an error).
+        mock_janitor.return_value.get_session.return_value = {"application_id": str(self.application.id)}
+        mock_ingress.return_value.cancel.return_value = {"ok": True, "idempotent": True, "state": "closed"}
+        res = self.client.post(f"{self.base}/cancel/", {"session_id": _SESSION_ID}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json(), {"state": "closed", "idempotent": True})
+
+    @parameterized.expand(
+        [
+            ("missing_fields", {"ok": True}),
+            ("non_dict_body", ["cancelled"]),
+        ]
+    )
+    @patch("products.agent_platform.backend.presentation.views._ingress")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_cancel_malformed_ingress_body_fails_closed_as_502(
+        self, _name: str, ingress_body: object, mock_janitor: MagicMock, mock_ingress: MagicMock
+    ) -> None:
+        # A 2xx cancel body missing `state`/`idempotent` — or not a JSON object
+        # at all — is contract drift: the view must fail closed through the
+        # upstream-error path (502), never fabricate defaults (or 500 on a
+        # non-dict) for a cancel that may not have landed.
+        mock_janitor.return_value.get_session.return_value = {"application_id": str(self.application.id)}
+        mock_ingress.return_value.cancel.return_value = ingress_body
+        res = self.client.post(f"{self.base}/cancel/", {"session_id": _SESSION_ID}, format="json")
+        self.assertEqual(res.status_code, 502, res.content)
+        self.assertEqual(res.json().get("code"), "ingress_upstream", res.content)
+
     # ── agent_listen ─────────────────────────────────────────────────────────
 
     @patch("products.agent_platform.backend.presentation.views._ingress")
@@ -283,13 +348,6 @@ class TestAgentRuntimeBridge(APIBaseTest):
         res = self.client.get(f"{self.base}/listen/")
         self.assertEqual(res.status_code, 400, res.content)
 
-    def test_listen_non_uuid_session_id_returns_400(self) -> None:
-        # A malformed session_id must be a clean 400, not a 502 from a Postgres
-        # "invalid input syntax for type uuid" bubbling up through the janitor.
-        res = self.client.get(f"{self.base}/listen/?session_id=not-a-uuid")
-        self.assertEqual(res.status_code, 400, res.content)
-        self.assertIn("uuid", res.content.decode().lower())
-
     # ── error mapping + input validation ─────────────────────────────────────
 
     @patch("products.agent_platform.backend.presentation.views._ingress")
@@ -318,12 +376,28 @@ class TestAgentRuntimeBridge(APIBaseTest):
         self.assertEqual(res.status_code, 400, res.content)
         mock_ingress.return_value.send.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("send", {"session_id": "not-a-uuid", "message": "hi"}),
+            ("cancel", {"session_id": "not-a-uuid"}),
+            ("listen", None),
+        ]
+    )
     @patch("products.agent_platform.backend.presentation.views._ingress")
-    def test_send_non_uuid_session_id_returns_400(self, mock_ingress: MagicMock) -> None:
-        # The serializer's UUIDField rejects a malformed session_id up front.
-        res = self.client.post(f"{self.base}/send/", {"session_id": "not-a-uuid", "message": "hi"}, format="json")
+    def test_non_uuid_session_id_returns_400(
+        self, action: str, payload: dict[str, str] | None, mock_ingress: MagicMock
+    ) -> None:
+        # A malformed session_id must be a clean 400 before any upstream call —
+        # the serializer's UUIDField on send/cancel, the manual UUID() check on
+        # listen — not a 502 from Postgres "invalid input syntax for type uuid"
+        # bubbling up through the janitor.
+        if payload is None:
+            res = self.client.get(f"{self.base}/{action}/?session_id=not-a-uuid")
+        else:
+            res = self.client.post(f"{self.base}/{action}/", payload, format="json")
         self.assertEqual(res.status_code, 400, res.content)
-        mock_ingress.return_value.send.assert_not_called()
+        self.assertIn("uuid", res.content.decode().lower())
+        mock_ingress.assert_not_called()
 
     def test_listen_negative_cursor_returns_400(self) -> None:
         res = self.client.get(f"{self.base}/listen/?session_id={_SESSION_ID}&cursor=-1")

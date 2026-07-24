@@ -280,7 +280,9 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
         // Swallow — the state write is the durable cancel signal.
     }
     await deps.queue.update(sessionId, { state: 'cancelled' })
-    res.json({ ok: true, state: 'cancelled' })
+    // `idempotent` is always present on a 2xx — Django's agent_cancel bridge
+    // treats a missing field as contract drift and fails closed (502).
+    res.json({ ok: true, idempotent: false, state: 'cancelled' })
 }
 
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {

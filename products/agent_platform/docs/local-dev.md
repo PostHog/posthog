@@ -232,7 +232,7 @@ When you change a serializer or viewset under `products/agent_platform/backend/`
 **always rerun `hogli build:openapi`** before testing via MCP — the MCP
 tool schemas come from the generated OpenAPI and silently drift otherwise.
 
-### Invoking a created agent: `agent-applications-invoke` / `agent-applications-send` / `agent-applications-listen`
+### Invoking a created agent: `agent-applications-invoke` / `agent-applications-send` / `agent-applications-cancel` / `agent-applications-listen`
 
 The `agent_platform` MCP surface covers both authoring (`agent-applications-*`
 and `agent-applications-revisions-*` — create / edit bundle / freeze / promote)
@@ -243,18 +243,25 @@ create, promote, and then talk to an agent without leaving MCP:
   revision; returns a `session_id`. Bridges to ingress `POST /agents/<slug>/run`,
   forwarding your PAT so the session runs as you.
 - **`agent-applications-send`** — append a message to an existing session (`POST .../send`).
+  If the session is running, the message is drained into the conversation at the
+  agent's next model-call boundary — mid-turn steering.
+- **`agent-applications-cancel`** — stop a session's in-flight run (`POST .../cancel`).
+  Aborts the current model call (partial text is persisted); an interrupted running
+  turn reopens as `completed` (asynchronously, seconds later), an idle or
+  still-unclaimed `queued` session terminalizes as `cancelled` (permanently, for the
+  queued case), and a cancel on an already-terminal session is an idempotent no-op.
 - **`agent-applications-listen`** — poll a session's progress as a single JSON digest
   (non-streaming): last assistant text, a one-line tool-activity summary, and
   state / usage. Pass the returned `next_cursor` back as `cursor` to get only
   what's new; stop when `done` is true. (An MCP tool call can't hold an SSE
   stream open, so cursor polling replaces the `/listen` SSE tail.)
 
-These wrap the ingress runtime via thin Django viewset actions — invoke/send
+These wrap the ingress runtime via thin Django viewset actions — invoke/send/cancel
 forward the caller's PAT (so the session principal is the real caller), listen
 reads a digest over an internal ingress RPC — and regenerate through the same
 `hogli build:openapi` pipeline as the rest of the surface.
-Invoke and send require a bearer PAT; session-cookie authentication is rejected
-instead of silently creating or continuing an anonymous ingress session.
+Invoke, send, and cancel require a bearer PAT; session-cookie authentication is
+rejected instead of silently creating or continuing an anonymous ingress session.
 
 For **non-live / draft** revisions, use `agent-applications-preview-proxy`
 instead. Lower-level manual alternatives remain for debugging:

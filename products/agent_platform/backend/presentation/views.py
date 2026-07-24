@@ -93,6 +93,7 @@ from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
     MAX_SKILL_REFS,
     AgentApplicationSerializer,
+    AgentCancelRequestSerializer,
     AgentInvokeRequestSerializer,
     AgentRevisionSerializer,
     AgentSendRequestSerializer,
@@ -153,11 +154,20 @@ def _require_ingress_bearer(request: Request) -> str:
     authorization = request.headers.get("Authorization")
     if isinstance(request.successful_authenticator, SessionAuthentication) or not authorization:
         raise AuthenticationFailed(
-            "Authenticate with a personal API key in the Authorization header to invoke or send messages to an agent."
+            "Authenticate with a personal API key in the Authorization header to invoke, send messages to, or cancel an agent session."
         )
     if re.fullmatch(r"Bearer\s+\S+", authorization) is None:
         raise AuthenticationFailed("The Authorization header must contain a bearer token.")
     return authorization
+
+
+def _require_safe_slug(application: AgentApplication) -> None:
+    """Defence-in-depth for the ingress bridge actions: the slug is interpolated
+    into the upstream URL path, so reject anything that isn't a strict lowercase
+    slug before building it — guards against a slug that reached the DB without
+    the model / serializer validators (e.g. a raw node-side write)."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+        raise ValidationError("Application slug contains unsafe characters")
 
 
 # Mirrors `RESOURCE_ID_REGEX` in
@@ -339,7 +349,7 @@ def _map_ingress_error(
     # Reframe so it doesn't read as "agent not found".
     if e.status_code == 404 and code == "no_chat_trigger":
         return ValidationError(
-            "This agent has no chat trigger, so it can't be invoked over run/send/listen. "
+            "This agent has no chat trigger, so it can't be invoked over run/send/cancel/listen. "
             "It only runs via its configured slack / cron / webhook surfaces."
         )
     if e.status_code == 404:
@@ -724,8 +734,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # `agent_invoke` starts a new LIVE session and `agent_send` appends a
         # turn — both drive the agent's tools and incur inference cost, so they
         # are write-class (the read-only `agent_listen` poll is below).
+        # `agent_cancel` mutates session state (aborts the in-flight run /
+        # terminalizes an idle session), so it's write-class too.
         "agent_invoke",
         "agent_send",
+        "agent_cancel",
     ]
     scope_object_read_actions = [
         "list",
@@ -959,15 +972,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # `@action`-decorated method confuses mypy about the bound-method signature.
         return self.preview_proxy(request, rest=rest, **kwargs)  # type: ignore[arg-type]
 
-    # ── Live-agent invocation (invoke / send / listen) ────────────────
+    # ── Live-agent invocation (invoke / send / cancel / listen) ───────
     # Runtime counterparts to the authoring surface: talk to a LIVE (promoted)
     # agent over the ingress runtime endpoints, so an authoring AI can iterate
-    # end-to-end without leaving MCP. invoke/send bridge to the public ingress
-    # run/send routes forwarding the caller's PAT (so the session principal is
-    # the real caller); listen bridges to an internal digest RPC. Draft/non-live
-    # invokes stay on `preview_proxy`.
+    # end-to-end without leaving MCP. invoke/send/cancel bridge to the public
+    # ingress run/send/cancel routes forwarding the caller's PAT (so the session
+    # principal is the real caller); listen bridges to an internal digest RPC.
+    # Draft/non-live invokes stay on `preview_proxy`.
     # Tool names use the `agent-applications-` prefix (agent-applications-invoke /
-    # -send / -listen) for consistency with the rest of the surface — the ~60 sibling
+    # -send / -cancel / -listen) for consistency with the rest of the surface — the ~60 sibling
     # tools on this viewset all share it (cf. `agent_applications_preview_proxy`). An
     # earlier gap doc advertised the short `agent-invoke/send/listen` form, but we chose
     # namespace consistency over that shorthand — hence the explicit `operation_id=`
@@ -1027,8 +1040,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Application not found")
         if not application.live_revision_id:
             raise ValidationError("This agent has no live revision. Freeze + promote a revision before invoking it.")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
-            raise ValidationError("Application slug contains unsafe characters")
+        _require_safe_slug(application)
 
         payload = AgentInvokeRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -1058,7 +1070,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 fields={
                     "state": drf_serializers.ChoiceField(
                         choices=_AGENT_SESSION_STATE_VALUES,
-                        help_text="Session state after the message was appended — `queued` (a new turn will run).",
+                        help_text="Acknowledgment that ingress accepted the message — always `queued`. An idle (`completed`) session was re-queued for a new turn; a `running` session buffers the message and drains it at its next model-call boundary (its state stays `running`).",
                     ),
                 },
             )
@@ -1066,21 +1078,23 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="send")
     def agent_send(self, request: Request, **kwargs) -> Response:
-        """Append a message to an existing LIVE session and re-queue it.
+        """Append a message to an existing LIVE session.
 
         Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
         so the ACL principal-match passes. A `completed` session is NOT terminal —
         it's a per-turn idle state for a multi-turn agent, so send re-queues it for
-        another turn; only truly-terminal states (failed / cancelled / closed) 410,
-        which passes through as a 410. A janitor ownership pre-check runs first, but
-        it's redundant defense-in-depth (ingress `/send` already app-scopes the
-        load), kept for a clean early 404.
+        another turn; a `running` session buffers the message and drains it at its
+        next model-call boundary. Only truly-terminal states (failed / cancelled /
+        closed) 410, which passes through as a 410. Ingress acks an accepted send
+        with a bare `{ok: true}`, so the `queued` in the response here is an
+        acceptance acknowledgment, not a live state read. A janitor ownership
+        pre-check runs first, but it's redundant defense-in-depth (ingress `/send`
+        already app-scopes the load), kept for a clean early 404.
         """
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
-            raise ValidationError("Application slug contains unsafe characters")
+        _require_safe_slug(application)
 
         payload = AgentSendRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -1097,6 +1111,72 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except IngressClientError as e:
             raise _map_ingress_error(e) from e
         return Response({"state": "queued"})
+
+    @extend_schema(
+        operation_id="agent_applications_cancel",
+        request=AgentCancelRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentCancelResponse",
+                fields={
+                    "state": drf_serializers.ChoiceField(
+                        choices=_AGENT_SESSION_STATE_VALUES,
+                        help_text="Session state as recorded by the cancel — `cancelled` when this call terminalized the session; the pre-existing terminal state on an idempotent no-op. A cancel that interrupted an actively-running turn is reopened as `completed` by the runner shortly after.",
+                    ),
+                    "idempotent": drf_serializers.BooleanField(
+                        help_text="True when the session was already terminal (failed / cancelled / closed) and the cancel changed nothing.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def agent_cancel(self, request: Request, **kwargs) -> Response:
+        """Stop a LIVE session's in-flight run.
+
+        Bridges to ingress `POST /agents/<slug>/cancel`, forwarding the caller's
+        PAT so the ACL principal-match passes. The ingress aborts the current
+        model call (partial assistant text is persisted) and writes a durable
+        `cancelled` state; when the cancel interrupts an actively-running turn
+        the runner reopens the session as `completed`, so it stays sendable —
+        a cancel landing on an idle session terminalizes it as `cancelled`,
+        and so does a cancel of a `queued` session no worker has claimed yet
+        (permanently — there is no runner to reopen it).
+        Idempotent on already-terminal sessions (ingress returns
+        `idempotent: true` without changing state), surfaced faithfully here.
+        The same janitor ownership pre-check as `agent_send` runs first.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        _require_safe_slug(application)
+
+        payload = AgentCancelRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        session_id = str(payload.validated_data["session_id"])
+        authorization = _require_ingress_bearer(request)
+        self._assert_session_in_application(session_id, application)
+        try:
+            result = _ingress().cancel(
+                application.slug,
+                session_id=session_id,
+                authorization=authorization,
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(e) from e
+        # A 2xx cancel body is always a JSON object carrying `state` +
+        # `idempotent` (ingress cancelHandler). Anything else — a non-dict body
+        # included — is contract drift: fail closed through the same
+        # upstream-error path as other malformed upstream responses rather than
+        # fabricating defaults.
+        body = result if isinstance(result, dict) else {}
+        state = body.get("state")
+        idempotent = body.get("idempotent")
+        if not isinstance(state, str) or not isinstance(idempotent, bool):
+            raise IngressUpstreamError(
+                IngressClientError(502, "ingress cancel returned a malformed body (missing state/idempotent)")
+            )
+        return Response({"state": state, "idempotent": idempotent})
 
     @extend_schema(
         operation_id="agent_applications_listen",
