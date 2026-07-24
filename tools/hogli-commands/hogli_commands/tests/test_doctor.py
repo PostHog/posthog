@@ -6,12 +6,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from click.testing import CliRunner
 from hogli_commands.doctor import (
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
     _binary_arches,
     _collect_import_targets,
     _config_procs,
+    _confirm_stack_teardown,
     _format_kv_block,
     _generated_config_path,
     _get_process_cwds,
@@ -20,9 +22,14 @@ from hogli_commands.doctor import (
     _phrocs_info,
     _phrocs_runtime_pairs,
     _phrocs_socket_path,
+    _posthog_shaped_projects,
     _probe_command_imports,
+    _sanitize_compose_name,
+    _scan_port_holders,
+    _scan_unheld_via_lsof,
     _select_flox_logs_to_remove,
     _tail,
+    doctor_ports,
 )
 
 _QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
@@ -387,3 +394,165 @@ def test_phrocs_runtime_pairs_flags_missing_config(tmp_path: Path) -> None:
     pairs = dict(_phrocs_runtime_pairs(tmp_path))
     assert "MISSING" in pairs["generated_config"]
     assert "hogli dev:generate" in pairs["generated_config"]
+
+
+def test_sanitize_compose_name_strips_shell_metacharacters() -> None:
+    # This value heads for a `docker compose -p <name> down` argv; if the
+    # sanitizer regresses, a crafted compose label becomes shell injection.
+    assert _sanitize_compose_name("posthog-evil$(touch /tmp/pwned);rm -rf /") == "posthog-eviltouchtmppwnedrm-rf"
+
+
+def _fake_docker_ps(monkeypatch: pytest.MonkeyPatch, port_scan_stdout: str = "", clickhouse_stdout: str = "") -> None:
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        if cmd[:2] == ["docker", "ps"] and "-a" not in cmd:
+            return SimpleNamespace(returncode=0, stdout=port_scan_stdout)
+        if cmd[:3] == ["docker", "ps", "-a"]:
+            return SimpleNamespace(returncode=0, stdout=clickhouse_stdout)
+        return SimpleNamespace(returncode=1, stdout="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+
+@pytest.mark.parametrize(
+    ("ports_line", "expected_port", "expected_holder"),
+    [
+        pytest.param("evilbox|otherproj|127.0.0.1:8010->8000/tcp", 8010, "otherproj", id="plain-published-port"),
+        pytest.param(
+            "evilbox|otherproj|0.0.0.0:19000-19001->19000-19001/tcp", 19000, "otherproj", id="published-range-start"
+        ),
+        pytest.param(
+            "evilbox|otherproj|0.0.0.0:19000-19001->19000-19001/tcp",
+            9000,
+            None,
+            id="range-does-not-false-match-shorter-port",
+        ),
+    ],
+)
+def test_scan_port_holders_matches_published_port_forms(
+    monkeypatch: pytest.MonkeyPatch, ports_line: str, expected_port: int, expected_holder: str | None
+) -> None:
+    # code-reviewer-testing's top concern on the bash version: a substring
+    # match between port 9000 and 19000 would misattribute a collision.
+    _fake_docker_ps(monkeypatch, port_scan_stdout=ports_line)
+    holders = {h.port: h for h in _scan_port_holders("posthog")}
+    if expected_holder is None:
+        assert holders[expected_port].container is None
+    else:
+        assert holders[expected_port].container == "evilbox"
+        assert holders[expected_port].project == expected_holder
+
+
+def test_scan_port_holders_own_project_is_not_flagged_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_docker_ps(monkeypatch, port_scan_stdout="clickhouse|posthog|127.0.0.1:8123->8123/tcp")
+    holders = {h.port: h for h in _scan_port_holders("posthog")}
+    assert holders[8123].project == "posthog"
+
+
+def test_scan_port_holders_sanitizes_malicious_project_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_docker_ps(monkeypatch, port_scan_stdout="evilbox|posthog-evil$(rm -rf /)|127.0.0.1:8010->8000/tcp")
+    holders = {h.port: h for h in _scan_port_holders("posthog")}
+    assert holders[8010].project == "posthog-evilrm-rf"
+
+
+def test_posthog_shaped_projects_filters_by_clickhouse_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    # This is the exact partial-stack gap Greptile flagged (P1) against the
+    # bash version: `docker ps -a` (all states) means a project whose
+    # clickhouse container is stopped, but another service still holds a
+    # port, is still offered for teardown — not just one whose CH is running.
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        assert "label=com.docker.compose.service=clickhouse" in cmd
+        return SimpleNamespace(returncode=0, stdout="stopped-proj\n")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    result = _posthog_shaped_projects({"stopped-proj", "unrelated-proj"})
+    assert result == {"stopped-proj"}
+
+
+def test_scan_unheld_via_lsof_disambiguates_port_and_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    lsof_output = "\n".join(
+        [
+            "COMMAND   PID   USER   FD   TYPE DEVICE SIZE/OFF NODE NAME",
+            "orbstack  111   phil   10u  IPv4 0x1     0t0      TCP  *:9000",
+            "orbstack  111   phil   11u  IPv4 0x2     0t0      TCP  *:19000",
+        ]
+    )
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        assert cmd[0] == "lsof"
+        return SimpleNamespace(returncode=0, stdout=lsof_output)
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/lsof")
+
+    holders = {h.port: h for h in _scan_unheld_via_lsof([(9000, "clickhouse-native"), (19000, "objectstorage")])}
+    assert holders[9000].process_holder == "orbstack (pid 111)"
+    assert holders[19000].process_holder == "orbstack (pid 111)"
+
+
+def test_confirm_stack_teardown_times_out_to_no(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Runs on every `hogli start`; if the timeout path regresses, a piped or
+    # abandoned terminal hangs every developer's startup indefinitely.
+    monkeypatch.setattr("hogli_commands.doctor.select.select", lambda *_a, **_k: ([], [], []))
+    assert _confirm_stack_teardown("some-stack", timeout=0.01) is False
+
+
+def test_confirm_stack_teardown_accepts_yes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hogli_commands.doctor.select.select", lambda *a, **_k: (a[0], [], []))
+    monkeypatch.setattr("hogli_commands.doctor.sys.stdin.readline", lambda: "y\n")
+    assert _confirm_stack_teardown("some-stack", timeout=0.01) is True
+
+
+def test_doctor_ports_silent_when_nothing_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/docker")
+    _fake_docker_ps(monkeypatch, port_scan_stdout="clickhouse|posthog|127.0.0.1:8123->8123/tcp")
+    result = CliRunner().invoke(doctor_ports, [])
+    assert result.exit_code == 0
+    assert result.output == ""
+
+
+def test_doctor_ports_reports_foreign_stack_noninteractively(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Proves the command wires scan -> shape-filter -> report together; each
+    # piece has its own unit test above, but not that they're called in order.
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/docker")
+    _fake_docker_ps(
+        monkeypatch,
+        port_scan_stdout="evilbox|foreign-proj|127.0.0.1:8010->8000/tcp",
+        clickhouse_stdout="foreign-proj\n",
+    )
+    # CliRunner's stdin/stdout are never a TTY, so this exercises the
+    # non-interactive (print-only, no subprocess teardown) branch.
+    result = CliRunner().invoke(doctor_ports, [])
+    assert result.exit_code == 0
+    assert "foreign-proj" in result.output
+    assert "docker compose -p foreign-proj -f docker-compose.dev.yml down --remove-orphans" in result.output
+
+
+def test_doctor_ports_tears_down_when_confirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CliRunner always simulates a non-tty stdin/stdout with no override hook,
+    # so the interactive branch is exercised by calling the command function
+    # directly instead of through Click's dispatcher.
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr("hogli_commands.doctor.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("hogli_commands.doctor.sys.stdout.isatty", lambda: True)
+
+    teardown_calls: list[list[str]] = []
+
+    def dispatch(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        if cmd[:2] == ["docker", "ps"] and "-a" not in cmd:
+            return SimpleNamespace(returncode=0, stdout="evilbox|foreign-proj|127.0.0.1:8010->8000/tcp")
+        if cmd[:3] == ["docker", "ps", "-a"]:
+            return SimpleNamespace(returncode=0, stdout="foreign-proj\n")
+        if cmd[:2] == ["docker", "compose"]:
+            teardown_calls.append(cmd)
+            return SimpleNamespace(returncode=0, stdout="")
+        return SimpleNamespace(returncode=1, stdout="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", dispatch)
+
+    # --yes skips the interactive prompt; verifies the exact teardown argv
+    # (a reordered or dropped arg here would tear down the wrong compose file).
+    assert doctor_ports.callback is not None
+    doctor_ports.callback(yes=True)
+    assert teardown_calls == [
+        ["docker", "compose", "-p", "foreign-proj", "-f", "docker-compose.dev.yml", "down", "--remove-orphans"]
+    ]

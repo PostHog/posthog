@@ -5,6 +5,7 @@ import re
 import sys
 import enum
 import time
+import select
 import shutil
 import signal
 import hashlib
@@ -1569,6 +1570,216 @@ def _format_rss(rss_kb: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# doctor:ports — pre-flight port collision check
+# ---------------------------------------------------------------------------
+
+# The always-on infra ports from docker-compose.dev.yml whose bind failure
+# aborts `docker compose up`. Update when those mappings change; optional
+# profile services are intentionally excluded.
+_PREFLIGHT_PORTS: tuple[tuple[int, str], ...] = (
+    (8010, "proxy"),
+    (2181, "zookeeper"),
+    (8123, "clickhouse-http"),
+    (9000, "clickhouse-native"),
+    (9092, "kafka"),
+    (5432, "postgres"),
+    (6379, "redis"),
+    (7233, "temporal"),
+    (19000, "objectstorage"),
+)
+
+_COMPOSE_NAME_RE = re.compile(r"[^a-zA-Z0-9_.-]")
+
+
+def _sanitize_compose_name(name: str) -> str:
+    """Strip anything outside the compose project name charset.
+
+    Docker labels are attacker/environment-controllable strings headed for
+    the terminal and a `docker compose` command line.
+    """
+    return _COMPOSE_NAME_RE.sub("", name)
+
+
+@dataclass
+class PortHolder:
+    port: int
+    name: str
+    container: str | None = None  # docker container name, if docker-held
+    project: str | None = None  # sanitized compose project name, if docker-held
+    process_holder: str | None = None  # "COMMAND (pid N)", if lsof-held
+
+
+def _scan_port_holders(project_name: str) -> list[PortHolder]:
+    """Attribute each always-on infra port to whatever holds it.
+
+    One `docker ps` covers every port; the Ports column looks like
+    "127.0.0.1:8010->8000/tcp, :::8123->8123/tcp", or for a published range
+    "0.0.0.0:19000-19001->19000-19001/tcp". Matching ":<port>-" covers both
+    the plain form (":19000->") and a range start (":19000-19001->").
+    """
+    containers_output = (
+        _run_output(["docker", "ps", "--format", '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Ports}}']) or ""
+    )
+    container_lines = containers_output.splitlines()
+
+    holders: list[PortHolder] = []
+    unheld: list[tuple[int, str]] = []
+    for port, name in _PREFLIGHT_PORTS:
+        needle = f":{port}-"
+        match = next((line for line in container_lines if needle in line), None)
+        if match is None:
+            unheld.append((port, name))
+            continue
+        parts = match.split("|", 2)
+        container = parts[0] if parts else ""
+        project = _sanitize_compose_name(parts[1]) if len(parts) > 1 else ""
+        holders.append(PortHolder(port=port, name=name, container=container, project=project))
+
+    if unheld:
+        holders.extend(_scan_unheld_via_lsof(unheld))
+    return holders
+
+
+def _scan_unheld_via_lsof(unheld: Sequence[tuple[int, str]]) -> list[PortHolder]:
+    """One lsof pass for plain-process listeners on ports with no docker holder.
+
+    Report only — killing arbitrary pids from a startup check is out of
+    bounds (`doctor:zombies` already handles orphaned PostHog processes).
+    """
+    if shutil.which("lsof") is None:
+        return [PortHolder(port=p, name=n) for p, n in unheld]
+
+    portlist = ",".join(str(port) for port, _ in unheld)
+    output = _run_output(["lsof", "-nP", f"-iTCP:{portlist}", "-sTCP:LISTEN"]) or ""
+    lines = output.splitlines()
+
+    holders: list[PortHolder] = []
+    for port, name in unheld:
+        holder = None
+        needle = f":{port}"
+        for line in lines:
+            # lsof columns: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME;
+            # match NAME (e.g. "*:5432") ending in ":<port>".
+            fields = line.split()
+            if len(fields) < 9:
+                continue
+            if fields[8].endswith(needle):
+                # Strip control bytes a process name could smuggle to the terminal.
+                command = re.sub(r"[\x00-\x1f\x7f]", "", fields[0])
+                holder = f"{command} (pid {fields[1]})"
+                break
+        holders.append(PortHolder(port=port, name=name, process_holder=holder))
+    return holders
+
+
+def _posthog_shaped_projects(candidates: set[str]) -> set[str]:
+    """Of the candidate foreign projects, keep only ones that look like a
+    PostHog dev stack: a clickhouse container in any state (a partial stack
+    may hold ports while its clickhouse is stopped). An unrelated project
+    that happens to hold postgres/redis ports gets reported, not torn down.
+    """
+    output = (
+        _run_output(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                "label=com.docker.compose.service=clickhouse",
+                "--format",
+                '{{.Label "com.docker.compose.project"}}',
+            ]
+        )
+        or ""
+    )
+    clickhouse_projects = {_sanitize_compose_name(line) for line in output.splitlines()}
+    return candidates & clickhouse_projects
+
+
+def _confirm_stack_teardown(stack: str, timeout: float = 30.0) -> bool:
+    """Prompt for teardown of a foreign compose stack, with a timeout.
+
+    Runs on every `hogli start`, so a hung or piped stdin must never block;
+    timeout, EOF, or any non-"y" answer means "leave it running".
+    """
+    click.echo(f"   Stop foreign stack '{stack}' now? [y/N] ", nl=False)
+    ready, _, _ = select.select([sys.stdin], [], [], timeout)
+    if not ready:
+        click.echo()
+        return False
+    answer = sys.stdin.readline().strip()
+    return answer.lower() == "y"
+
+
+@click.command(
+    name="doctor:ports",
+    help="Pre-flight check for host ports the dev stack needs",
+)
+@click.option(
+    "--yes", "-y", is_flag=True, help="Auto-confirm teardown of any foreign PostHog stack found holding a port"
+)
+def doctor_ports(yes: bool) -> None:
+    """Report what's holding the dev stack's host ports, and in a TTY, offer
+    to tear down a stale foreign PostHog stack. Fail-open: never blocks
+    `bin/start`, non-interactive callers only ever see suggested commands.
+    """
+    if shutil.which("docker") is None:
+        return
+
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    holders = _scan_port_holders(project_name)
+
+    foreign = [h for h in holders if h.container is not None and h.project != project_name]
+    report_lines = [
+        f"     • port {h.port} ({h.name}): container '{h.container}' from compose project '{h.project or '<none>'}'"
+        for h in foreign
+    ]
+    report_lines += [
+        f"     • port {h.port} ({h.name}): process {h.process_holder}"
+        for h in holders
+        if h.container is None and h.process_holder
+    ]
+    if not report_lines:
+        return
+
+    click.echo("⚠️  Some ports the dev stack needs are already held by something outside the")
+    click.echo(f"   '{project_name}' compose project. 'docker compose up' will abort if any")
+    click.echo("   of its containers fails to bind, and services here may be reported as 'missing':")
+    for line in report_lines:
+        click.echo(line)
+
+    foreign_candidates = {h.project for h in foreign if h.project}
+    if not foreign_candidates:
+        return
+
+    foreign_projects = _posthog_shaped_projects(foreign_candidates)
+    if not foreign_projects:
+        return
+
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if not interactive:
+        click.echo("   Tear a foreign stack down with:")
+
+    for stack in sorted(foreign_projects):
+        teardown = ["docker", "compose", "-p", stack, "-f", "docker-compose.dev.yml", "down", "--remove-orphans"]
+        teardown_str = " ".join(teardown)
+        if not interactive:
+            click.echo(f"     {teardown_str}")
+            continue
+        confirmed = yes or _confirm_stack_teardown(stack)
+        if not confirmed:
+            click.echo(f"   Leaving '{stack}' running. Stop it later with:")
+            click.echo(f"     {teardown_str}")
+            continue
+        click.echo(f"   Stopping compose project '{stack}'…")
+        result = subprocess.run(teardown, check=False)
+        if result.returncode == 0:
+            click.echo(f"   Stopped '{stack}'.")
+        else:
+            click.echo(f"   ⚠️  Could not stop '{stack}' (see docker's output above) — its ports may still be held.")
+
+
+# ---------------------------------------------------------------------------
 # doctor — unified health check
 # ---------------------------------------------------------------------------
 
@@ -1756,6 +1967,23 @@ def _check_migrations() -> CheckResult:
         )
 
 
+def _check_ports() -> CheckResult:
+    """Quick scan for a foreign stack holding a port the dev stack needs."""
+    if shutil.which("docker") is None:
+        return CheckResult(name="Port conflicts", status=CheckStatus.OK, summary="docker not installed")
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    holders = _scan_port_holders(project_name)
+    foreign = [h for h in holders if h.container is not None and h.project != project_name]
+    if foreign:
+        return CheckResult(
+            name="Port conflicts",
+            status=CheckStatus.WARNING,
+            summary=f"{len(foreign)} port(s) held by a foreign stack",
+            remediation="run `hogli doctor:ports`",
+        )
+    return CheckResult(name="Port conflicts", status=CheckStatus.OK, summary="clear")
+
+
 _STATUS_COLORS = {
     CheckStatus.OK: "green",
     CheckStatus.WARNING: "yellow",
@@ -1787,6 +2015,7 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
         lambda: _check_zombies(repo_root),
         _check_docker,
         _check_migrations,
+        _check_ports,
     ]
 
     # Each check is I/O-bound and independent, so fan them out across threads.
