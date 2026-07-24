@@ -602,6 +602,413 @@ def _runs_on_internal_pr() -> bool:
     return value.lower() in {"1", "true"}
 
 
+@pytest.fixture(autouse=True)
+def enforce_detail_object_permissions(monkeypatch, request):
+    """
+    Runtime IDOR guards.
+
+    1. Detail action permissions: every @action(detail=True) that returns
+       2xx for an authenticated user on a viewset inheriting
+       ``AccessControlViewSetMixin`` MUST have called
+       ``AccessControlPermission.has_object_permission()``.
+
+       Exceptions:
+       - Viewsets that override ``dangerously_get_permissions`` (outside of
+         ``TeamAndOrgViewSetMixin``) are assumed to handle permissions themselves.
+       - Actions that declare their own ``permission_classes`` without
+         ``AccessControlPermission`` are skipped.
+
+    2. Cross-tenant FK on write: any DRF serializer save that occurs inside
+       an API request is checked. For every foreign key on the saved
+       instance that was touched by user-provided ``validated_data``, the
+       target's ``team_id`` (if any) MUST match the saved instance's
+       ``team_id``. Catches the pattern of accepting an FK id (via
+       ``PrimaryKeyRelatedField(queryset=Model.objects.all())`` or a plain
+       ``IntegerField`` named ``*_id``) that points to another tenant.
+
+    3. Secondary-object access gating: any access-controlled object (one with
+       a ``model_to_resource`` in ``ACCESS_CONTROL_RESOURCES``) that is loaded
+       by a primary key the user supplied in the request (body or query) MUST
+       have been access-gated by one of the enforcement mechanisms before
+       the request returns 2xx — its access level was evaluated via the
+       ``UserAccessControl.get_user_access_level`` primitive (used by
+       ``check_access_level_for_object`` and by open-coded checks alike), it
+       emerged from a queryset passed through ``filter_queryset_by_access_level``,
+       or it was consulted via the legacy ``UserPermissions.dashboard()/.insight()``
+       privilege subsystem. Catches the
+       duplicate/copy-from pattern where a same-team resource the caller is
+       explicitly denied is read via a raw ``Model.objects.get(id=...)``
+       (e.g. CVE-class IDOR in dashboard ``use_dashboard`` duplication).
+
+       Not applied when: the requester is not a real user (service auth /
+       sharing token), or the loaded object was created by the requester
+       (the creator always has access).
+
+    Opt out per-test with @pytest.mark.skip_access_control_permission_check.
+    """
+    if "skip_access_control_permission_check" in request.keywords:
+        return
+
+    from django.core.exceptions import FieldDoesNotExist
+    from django.db.models import ForeignKey, Model, QuerySet
+
+    from rest_framework import serializers as drf_serializers
+    from rest_framework.views import APIView
+
+    from posthog.api.routing import TeamAndOrgViewSetMixin
+    from posthog.permissions import AccessControlPermission, is_service_auth
+    from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl, model_to_resource
+    from posthog.user_permissions import UserPermissions
+
+    access_controlled_resources = set(ACCESS_CONTROL_RESOURCES)
+
+    from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+    original_dispatch = APIView.dispatch
+    original_has_object_permission = AccessControlPermission.has_object_permission
+    original_save = drf_serializers.BaseSerializer.save
+    original_get_user_access_level = UserAccessControl.get_user_access_level
+    original_filter_qs = UserAccessControl.filter_queryset_by_access_level
+    original_clone = QuerySet._clone
+    original_fetch_all = QuerySet._fetch_all
+    _orig_from_db_func = Model.from_db.__func__
+    _GATED_ATTR = "_idor_access_gated"
+
+    # Counter so nested dispatches (request inside request via test client) still leave the check enabled
+    dispatch_depth = [0]
+    # Per-(model, fk_name) cache: True if related model has a team_id field
+    fk_target_has_team_id_cache: dict[tuple[type, str], bool] = {}
+    # AssertionErrors stashed during save() to be re-raised after dispatch unwinds
+    # (DRF's dispatch catches Exception from the view handler and converts to 500,
+    # so we cannot reliably raise from inside the handler.)
+    pending_violations: list[AssertionError] = []
+
+    # --- Third guard: secondary access-controlled object loaded by user-provided id ---
+    # Per top-level request: ids the user supplied in the request body, the set of
+    # (resource, pk) that were access-gated, and the set loaded by a user-supplied id.
+    candidate_ids: set[str] = set()
+    checked_objects: set[tuple[str, str]] = set()
+    loaded_from_input: set[tuple[str, str]] = set()
+    # (resource, pk) -> any human label seen while loading, for the error message
+    loaded_labels: dict[tuple[str, str], str] = {}
+    # (resource, pk) -> created_by_id of the loaded instance, to suppress creator-owned loads
+    loaded_created_by: dict[tuple[str, str], Any] = {}
+
+    def _key_is_reference_like(key: str) -> bool:
+        # Anti-collision (FP source 3): only treat a scalar as a candidate id when its key
+        # looks like an object reference, so a stray numeric value (limit/offset/count/year)
+        # that happens to equal an access-controlled pk is not matched. List elements and
+        # UUID values are always accepted (the dominant "list of ids" / uuid-pk patterns).
+        k = key.lower()
+        return (
+            k in ("id", "pk")
+            or k.endswith(("_id", "_ids", "_item", "_items"))
+            or k.startswith(("use_", "source_", "from_"))
+        )
+
+    def _is_uuid_like(s: str) -> bool:
+        return len(s) >= 32 and "-" in s
+
+    def _collect_ids(value: Any, out: set[str], key_is_ref: bool, depth: int = 0) -> None:
+        if depth > 6:
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                _collect_ids(v, out, _key_is_reference_like(str(k)), depth + 1)
+        elif isinstance(value, (list, tuple, set)):
+            # A list of scalars is the canonical "list of ids" shape -> accept its elements.
+            for v in value:
+                _collect_ids(v, out, True, depth + 1)
+        elif isinstance(value, bool):
+            return
+        elif isinstance(value, int):
+            if key_is_ref:
+                out.add(str(value))
+        elif isinstance(value, str):
+            s = value.strip()
+            if not s:
+                return
+            if _is_uuid_like(s):
+                out.add(s)
+            elif s.isdigit() and key_is_ref:
+                out.add(s)
+
+    def _extract_candidate_ids(http_request) -> set[str]:
+        out: set[str] = set()
+        # query params (?use_dashboard=, ?dashboard_id=, etc.)
+        try:
+            for key in http_request.GET:
+                ref = _key_is_reference_like(key)
+                for v in http_request.GET.getlist(key):
+                    _collect_ids(v, out, ref)
+        except Exception:
+            pass
+        # JSON body only — reading .body on multipart would break DRF's stream parsing
+        try:
+            content_type = http_request.META.get("CONTENT_TYPE", "") or ""
+            if content_type.startswith("application/json") and http_request.body:
+                import json
+
+                _collect_ids(json.loads(http_request.body), out, False)
+        except Exception:
+            pass
+        return out
+
+    def tracked_get_user_access_level(self, obj, explicit=False):
+        # Fundamental UserAccessControl primitive: every object-level RBAC decision routes
+        # through get_user_access_level — both the check_access_level_for_object wrapper and
+        # code that open-codes get_user_access_level + access_level_satisfied_for_resource
+        # (e.g. FeatureFlagViewSet.bulk_delete). Recording here covers all of them generically.
+        _record_gated(obj)
+        return original_get_user_access_level(self, obj, explicit=explicit)
+
+    def _record_gated(obj) -> None:
+        try:
+            resource = model_to_resource(obj)
+            pk = getattr(obj, "pk", None)
+            if resource in access_controlled_resources and pk is not None:
+                checked_objects.add((resource, str(pk)))
+        except Exception:
+            pass
+
+    def _make_tracked_perm_accessor(original_accessor):
+        # Legacy enforcement (mechanism #3): some resources are gated through the
+        # UserPermissions privilege subsystem (e.g. user_permissions.dashboard(obj)
+        # .effective_privilege_level) rather than UserAccessControl. Constructing a
+        # per-object permission wrapper means that object's access was consulted, so
+        # record it as gated. Recording is generic (_record_gated handles any
+        # access-controlled resource) — only the accessor names are subsystem-specific,
+        # and they cover its full object-level surface (it exposes no others).
+        def tracked(self, obj):
+            _record_gated(obj)
+            return original_accessor(self, obj)
+
+        return tracked
+
+    def tracked_filter_qs(self, queryset, include_all_if_admin=False):
+        result = original_filter_qs(self, queryset, include_all_if_admin=include_all_if_admin)
+        # Objects emerging from an access-filtered queryset were gated in SQL: denied rows
+        # were excluded, so a row that loads has, by construction, passed the access check.
+        try:
+            object.__setattr__(result, _GATED_ATTR, True)
+        except Exception:
+            pass
+        return result
+
+    def tracked_clone(self):
+        clone = original_clone(self)
+        if getattr(self, _GATED_ATTR, False):
+            try:
+                object.__setattr__(clone, _GATED_ATTR, True)
+            except Exception:
+                pass
+        return clone
+
+    def tracked_fetch_all(self):
+        original_fetch_all(self)
+        if dispatch_depth[0] > 0 and getattr(self, _GATED_ATTR, False):
+            for obj in self._result_cache or []:
+                if isinstance(obj, Model):
+                    _record_gated(obj)
+
+    def tracked_from_db(cls, db, field_names, values):
+        instance = _orig_from_db_func(cls, db, field_names, values)
+        if dispatch_depth[0] > 0 and candidate_ids:
+            try:
+                pk = getattr(instance, "pk", None)
+                if pk is not None and str(pk) in candidate_ids:
+                    resource = model_to_resource(instance)
+                    if resource in access_controlled_resources:
+                        key = (resource, str(pk))
+                        loaded_from_input.add(key)
+                        loaded_labels.setdefault(key, instance.__class__.__name__)
+                        # Read from __dict__ to avoid triggering a query on a deferred field.
+                        loaded_created_by.setdefault(key, instance.__dict__.get("created_by_id"))
+            except Exception:
+                pass
+        return instance
+
+    def tracked_has_object_permission(self, req, view, obj):
+        view._access_control_hop_called = True
+        return original_has_object_permission(self, req, view, obj)
+
+    def _related_model_has_team_id(model: type, fk_name: str) -> bool:
+        key = (model, fk_name)
+        cached = fk_target_has_team_id_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            model._meta.get_field("team_id")
+            result = True
+        except (FieldDoesNotExist, AttributeError):
+            result = False
+        fk_target_has_team_id_cache[key] = result
+        return result
+
+    def _check_cross_tenant_fk(instance, serializer, save_kwargs):
+        if not isinstance(instance, Model):
+            return
+        own_team_id = getattr(instance, "team_id", None)
+        if own_team_id is None:
+            return
+
+        validated_data = getattr(serializer, "validated_data", None)
+        if not isinstance(validated_data, dict):
+            return
+        touched: set[str] = {str(k) for k in validated_data.keys()} | {str(k) for k in save_kwargs.keys()}
+        if not touched:
+            return
+
+        for field in instance._meta.get_fields():
+            if not isinstance(field, ForeignKey):
+                continue
+            if field.attname not in touched and field.name not in touched:
+                continue
+            fk_id = getattr(instance, field.attname, None)
+            if fk_id is None:
+                continue
+            related_model = field.related_model
+            if related_model is None:
+                continue
+            if not _related_model_has_team_id(related_model, field.name):
+                continue
+            related_team_id = related_model.objects.filter(pk=fk_id).values_list("team_id", flat=True).first()
+            if related_team_id is None or related_team_id == own_team_id:
+                continue
+            raise AssertionError(
+                f"Cross-tenant FK IDOR detected on save: "
+                f"{instance.__class__.__name__}.{field.name} -> "
+                f"{related_model.__name__}#{fk_id} has team_id={related_team_id}, "
+                f"but {instance.__class__.__name__}#{instance.pk}.team_id={own_team_id}.\n"
+                f"\n"
+                f"A foreign key from another team was accepted on write. To fix:\n"
+                f"  - Use TeamScopedPrimaryKeyRelatedField from posthog.api.scoped_related_fields, or\n"
+                f"  - Add validate_<field>() on the serializer asserting the target belongs to the current team.\n"
+                f"\n"
+                f"To bypass this check (after review):\n"
+                f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+            )
+
+    def tracked_save(self, **kwargs):
+        instance = original_save(self, **kwargs)
+        if dispatch_depth[0] > 0:
+            try:
+                _check_cross_tenant_fk(instance, self, kwargs)
+            except AssertionError as err:
+                pending_violations.append(err)
+                raise
+        return instance
+
+    def patched_dispatch(self, http_request, *args, **kwargs):
+        self._access_control_hop_called = False
+        is_top_level = dispatch_depth[0] == 0
+        if is_top_level:
+            pending_violations.clear()
+            checked_objects.clear()
+            loaded_from_input.clear()
+            loaded_labels.clear()
+            loaded_created_by.clear()
+            candidate_ids.clear()
+            candidate_ids.update(_extract_candidate_ids(http_request))
+        dispatch_depth[0] += 1
+        try:
+            response = original_dispatch(self, http_request, *args, **kwargs)
+        finally:
+            dispatch_depth[0] -= 1
+
+        if is_top_level and pending_violations:
+            err = pending_violations[0]
+            pending_violations.clear()
+            raise err
+
+        if is_top_level:
+            drf_req = getattr(self, "request", None)
+            authed = bool(getattr(getattr(drf_req, "user", None), "is_authenticated", False))
+            # Service auth (TST/PSAK) and sharing tokens are gated by scope/membership and
+            # short-circuit has_object_permission without calling check_access_level_for_object
+            # (FP source 2) — the per-object guard does not apply to them.
+            authenticator = getattr(drf_req, "successful_authenticator", None)
+            non_user_auth = (drf_req is not None and is_service_auth(drf_req)) or "Sharing" in type(
+                authenticator
+            ).__name__
+            if authed and not non_user_auth and 200 <= response.status_code < 300:
+                unchecked = loaded_from_input - checked_objects
+                # The creator always has access to their own object, so a raw load of an
+                # object the requesting user created is not an access bypass (FP source 1).
+                user_id = getattr(getattr(drf_req, "user", None), "id", None)
+                if user_id is not None:
+                    unchecked = {key for key in unchecked if loaded_created_by.get(key) != user_id}
+                if unchecked:
+                    resource, pk = sorted(unchecked)[0]
+                    label = loaded_labels.get((resource, pk), resource)
+                    raise AssertionError(
+                        f"Secondary-object IDOR detected: {label}#{pk} (resource '{resource}') "
+                        f"was loaded by a user-supplied id during "
+                        f"{self.__class__.__name__}.{getattr(self, 'action', '?')} but its access was "
+                        f"never evaluated (no get_user_access_level call, not from an access-filtered "
+                        f"queryset, and not consulted via UserPermissions).\n"
+                        f"\n"
+                        f"An access-controlled object referenced by id in the request was read without an\n"
+                        f"object-level access check. To fix:\n"
+                        f"  - Call user_access_control.check_access_level_for_object(obj, 'viewer') before using it, or\n"
+                        f"  - Load it through a queryset filtered by filter_queryset_by_access_level.\n"
+                        f"\n"
+                        f"To bypass this check (after review):\n"
+                        f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+                    )
+
+        if not isinstance(self, AccessControlViewSetMixin):
+            return response
+
+        if any(
+            "dangerously_get_permissions" in cls.__dict__
+            for cls in type(self).__mro__
+            if cls is not TeamAndOrgViewSetMixin
+        ):
+            return response
+
+        action_name = getattr(self, "action", "") or ""
+        action_fn = getattr(self, action_name, None) if action_name else None
+        action_kwargs = getattr(action_fn, "kwargs", {}) or {}
+        if "permission_classes" in action_kwargs and AccessControlPermission not in action_kwargs["permission_classes"]:
+            return response
+
+        drf_request = getattr(self, "request", None)
+        is_auth = bool(getattr(getattr(drf_request, "user", None), "is_authenticated", False))
+        is_detail = getattr(self, "detail", False) is True
+        should_assert = is_detail and is_auth and 200 <= response.status_code < 300
+
+        if should_assert and not getattr(self, "_access_control_hop_called", False):
+            view_name = self.__class__.__name__
+            action = getattr(self, "action", "?")
+            raise AssertionError(
+                f"{view_name}.{action} returned 2xx on a detail action without "
+                f"AccessControlPermission.has_object_permission() being called.\n"
+                f"\n"
+                f"This means object-level access control is bypassed. To fix:\n"
+                f"  - Ensure the action calls self.get_object() (which triggers check_object_permissions), or\n"
+                f"  - Call self.check_object_permissions(request, obj) explicitly.\n"
+                f"\n"
+                f"To bypass this check (after review):\n"
+                f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+            )
+        return response
+
+    monkeypatch.setattr(AccessControlPermission, "has_object_permission", tracked_has_object_permission)
+    monkeypatch.setattr(APIView, "dispatch", patched_dispatch)
+    monkeypatch.setattr(drf_serializers.BaseSerializer, "save", tracked_save)
+    monkeypatch.setattr(UserAccessControl, "get_user_access_level", tracked_get_user_access_level)
+    monkeypatch.setattr(UserAccessControl, "filter_queryset_by_access_level", tracked_filter_qs)
+    # Patch the full object-level surface of the legacy privilege subsystem.
+    for _accessor_name in ("dashboard", "insight"):
+        monkeypatch.setattr(
+            UserPermissions, _accessor_name, _make_tracked_perm_accessor(getattr(UserPermissions, _accessor_name))
+        )
+    monkeypatch.setattr(QuerySet, "_clone", tracked_clone)
+    monkeypatch.setattr(QuerySet, "_fetch_all", tracked_fetch_all)
+    monkeypatch.setattr(Model, "from_db", classmethod(tracked_from_db))
+
+
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
