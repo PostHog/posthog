@@ -79,6 +79,10 @@ export const PropertyFilterTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  */
@@ -89,6 +93,10 @@ export const StringMatchOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
 } as const
@@ -140,6 +148,10 @@ export interface StringPropertyFilterApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex */
     operator?: StringMatchOperatorEnumApi

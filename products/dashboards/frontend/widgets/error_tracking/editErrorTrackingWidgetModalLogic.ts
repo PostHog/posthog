@@ -92,6 +92,7 @@ export interface editErrorTrackingWidgetModalLogicValues {
                                 filterId: string
                                 operator:
                                     | 'between'
+                                    | 'ends_with'
                                     | 'exact'
                                     | 'flag_evaluates_to'
                                     | 'gt'
@@ -111,10 +112,12 @@ export interface editErrorTrackingWidgetModalLogicValues {
                                     | 'max'
                                     | 'min'
                                     | 'not_between'
+                                    | 'not_ends_with'
                                     | 'not_icontains'
                                     | 'not_icontains_multi'
                                     | 'not_in'
                                     | 'not_regex'
+                                    | 'not_starts_with'
                                     | 'regex'
                                     | 'semver_caret'
                                     | 'semver_eq'
@@ -125,6 +128,7 @@ export interface editErrorTrackingWidgetModalLogicValues {
                                     | 'semver_neq'
                                     | 'semver_tilde'
                                     | 'semver_wildcard'
+                                    | 'starts_with'
                                 optionId: string
                                 propertyName: string
                                 value?: string | string[] | null | undefined
@@ -225,6 +229,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                               filterId: string
                               operator:
                                   | 'between'
+                                  | 'ends_with'
                                   | 'exact'
                                   | 'flag_evaluates_to'
                                   | 'gt'
@@ -244,10 +249,12 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                   | 'max'
                                   | 'min'
                                   | 'not_between'
+                                  | 'not_ends_with'
                                   | 'not_icontains'
                                   | 'not_icontains_multi'
                                   | 'not_in'
                                   | 'not_regex'
+                                  | 'not_starts_with'
                                   | 'regex'
                                   | 'semver_caret'
                                   | 'semver_eq'
@@ -258,6 +265,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                   | 'semver_neq'
                                   | 'semver_tilde'
                                   | 'semver_wildcard'
+                                  | 'starts_with'
                               optionId: string
                               propertyName: string
                               value?: string | string[] | null | undefined
@@ -314,6 +322,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                     filterId: string
                                     operator:
                                         | 'between'
+                                        | 'ends_with'
                                         | 'exact'
                                         | 'flag_evaluates_to'
                                         | 'gt'
@@ -333,10 +342,12 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                         | 'max'
                                         | 'min'
                                         | 'not_between'
+                                        | 'not_ends_with'
                                         | 'not_icontains'
                                         | 'not_icontains_multi'
                                         | 'not_in'
                                         | 'not_regex'
+                                        | 'not_starts_with'
                                         | 'regex'
                                         | 'semver_caret'
                                         | 'semver_eq'
@@ -347,6 +358,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                         | 'semver_neq'
                                         | 'semver_tilde'
                                         | 'semver_wildcard'
+                                        | 'starts_with'
                                     optionId: string
                                     propertyName: string
                                     value?: string | string[] | null | undefined
@@ -397,6 +409,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -416,10 +429,12 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -430,6 +445,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined
@@ -494,6 +510,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -513,10 +530,12 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -527,6 +546,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined

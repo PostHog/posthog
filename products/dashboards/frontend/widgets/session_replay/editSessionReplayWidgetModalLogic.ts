@@ -83,6 +83,7 @@ export interface editSessionReplayWidgetModalLogicValues {
                                 filterId: string
                                 operator:
                                     | 'between'
+                                    | 'ends_with'
                                     | 'exact'
                                     | 'flag_evaluates_to'
                                     | 'gt'
@@ -102,10 +103,12 @@ export interface editSessionReplayWidgetModalLogicValues {
                                     | 'max'
                                     | 'min'
                                     | 'not_between'
+                                    | 'not_ends_with'
                                     | 'not_icontains'
                                     | 'not_icontains_multi'
                                     | 'not_in'
                                     | 'not_regex'
+                                    | 'not_starts_with'
                                     | 'regex'
                                     | 'semver_caret'
                                     | 'semver_eq'
@@ -116,6 +119,7 @@ export interface editSessionReplayWidgetModalLogicValues {
                                     | 'semver_neq'
                                     | 'semver_tilde'
                                     | 'semver_wildcard'
+                                    | 'starts_with'
                                 optionId: string
                                 propertyName: string
                                 value?: string | string[] | null | undefined
@@ -222,6 +226,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                               filterId: string
                               operator:
                                   | 'between'
+                                  | 'ends_with'
                                   | 'exact'
                                   | 'flag_evaluates_to'
                                   | 'gt'
@@ -241,10 +246,12 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                   | 'max'
                                   | 'min'
                                   | 'not_between'
+                                  | 'not_ends_with'
                                   | 'not_icontains'
                                   | 'not_icontains_multi'
                                   | 'not_in'
                                   | 'not_regex'
+                                  | 'not_starts_with'
                                   | 'regex'
                                   | 'semver_caret'
                                   | 'semver_eq'
@@ -255,6 +262,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                   | 'semver_neq'
                                   | 'semver_tilde'
                                   | 'semver_wildcard'
+                                  | 'starts_with'
                               optionId: string
                               propertyName: string
                               value?: string | string[] | null | undefined
@@ -308,6 +316,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                     filterId: string
                                     operator:
                                         | 'between'
+                                        | 'ends_with'
                                         | 'exact'
                                         | 'flag_evaluates_to'
                                         | 'gt'
@@ -327,10 +336,12 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                         | 'max'
                                         | 'min'
                                         | 'not_between'
+                                        | 'not_ends_with'
                                         | 'not_icontains'
                                         | 'not_icontains_multi'
                                         | 'not_in'
                                         | 'not_regex'
+                                        | 'not_starts_with'
                                         | 'regex'
                                         | 'semver_caret'
                                         | 'semver_eq'
@@ -341,6 +352,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                         | 'semver_neq'
                                         | 'semver_tilde'
                                         | 'semver_wildcard'
+                                        | 'starts_with'
                                     optionId: string
                                     propertyName: string
                                     value?: string | string[] | null | undefined
@@ -391,6 +403,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -410,10 +423,12 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -424,6 +439,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined
@@ -485,6 +501,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -504,10 +521,12 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -518,6 +537,7 @@ export interface editSessionReplayWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined

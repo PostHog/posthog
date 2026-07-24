@@ -66,6 +66,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -85,10 +86,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -98,7 +101,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -123,6 +127,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -142,10 +147,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -155,7 +162,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "type": {
@@ -190,6 +198,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -209,10 +218,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -222,7 +233,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -274,6 +286,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -293,10 +306,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -306,7 +321,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {

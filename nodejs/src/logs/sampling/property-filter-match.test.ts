@@ -46,6 +46,36 @@ describe('matchPropertyFilter', () => {
         })
     })
 
+    describe('starts_with / not_starts_with', () => {
+        it('starts_with is a case-insensitive prefix match', () => {
+            expect(matchPropertyFilter(filter({ operator: 'starts_with', value: 'HEALTH' }), 'healthz/live')).toBe(true)
+            expect(matchPropertyFilter(filter({ operator: 'starts_with', value: 'live' }), 'healthz/live')).toBe(false)
+        })
+        it('not_starts_with negates starts_with', () => {
+            expect(matchPropertyFilter(filter({ operator: 'not_starts_with', value: 'live' }), 'healthz/live')).toBe(
+                true
+            )
+            expect(matchPropertyFilter(filter({ operator: 'not_starts_with', value: 'HEALTH' }), 'healthz/live')).toBe(
+                false
+            )
+        })
+    })
+
+    describe('ends_with / not_ends_with', () => {
+        it('ends_with is a case-insensitive suffix match', () => {
+            expect(matchPropertyFilter(filter({ operator: 'ends_with', value: 'LIVE' }), 'healthz/live')).toBe(true)
+            expect(matchPropertyFilter(filter({ operator: 'ends_with', value: 'health' }), 'healthz/live')).toBe(false)
+        })
+        it('not_ends_with negates ends_with', () => {
+            expect(matchPropertyFilter(filter({ operator: 'not_ends_with', value: 'health' }), 'healthz/live')).toBe(
+                true
+            )
+            expect(matchPropertyFilter(filter({ operator: 'not_ends_with', value: 'LIVE' }), 'healthz/live')).toBe(
+                false
+            )
+        })
+    })
+
     describe('regex / not_regex', () => {
         it('regex matches with dotall + ignorecase semantics (Python parity)', () => {
             expect(matchPropertyFilter(filter({ operator: 'regex', value: '^/api/' }), '/API/v1')).toBe(true)

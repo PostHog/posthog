@@ -228,6 +228,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
       Gt: 'gt',
@@ -932,6 +936,10 @@ export namespace Schemas {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      */
@@ -943,6 +951,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
     } as const;
@@ -994,6 +1006,10 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains
+       * * `starts_with` - starts_with
+       * * `not_starts_with` - not_starts_with
+       * * `ends_with` - ends_with
+       * * `not_ends_with` - not_ends_with
        * * `regex` - regex
        * * `not_regex` - not_regex */
       operator?: StringMatchOperatorEnum;
@@ -24045,6 +24061,10 @@ export namespace Schemas {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -24067,6 +24087,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
       Gt: 'gt',
@@ -25944,6 +25968,10 @@ export namespace Schemas {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -25959,6 +25987,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
       Gt: 'gt',
@@ -25994,6 +26026,10 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains
+       * * `starts_with` - starts_with
+       * * `not_starts_with` - not_starts_with
+       * * `ends_with` - ends_with
+       * * `not_ends_with` - not_ends_with
        * * `regex` - regex
        * * `not_regex` - not_regex
        * * `gt` - gt
@@ -52213,6 +52249,26 @@ export namespace Schemas {
 
     export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema;
 
+    /**
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     */
+    export type SurveyMatchTypeEnum = typeof SurveyMatchTypeEnum[keyof typeof SurveyMatchTypeEnum];
+
+
+    export const SurveyMatchTypeEnum = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+    } as const;
+
     export interface SurveyConditionEventValueSchema {
       /** Event name that triggers the survey. */
       name: string;
@@ -52241,7 +52297,7 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains */
-      urlMatchType?: StringMatchOperatorEnum;
+      urlMatchType?: SurveyMatchTypeEnum;
       events?: SurveyEventsConditionSchema;
       /** Device types that should match for this survey to be shown. */
       deviceTypes?: DeviceTypesEnum[];
@@ -52253,7 +52309,7 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains */
-      deviceTypesMatchType?: StringMatchOperatorEnum;
+      deviceTypesMatchType?: SurveyMatchTypeEnum;
       /** The variant of the feature flag linked to this survey. */
       linkedFlagVariant?: string;
     }
@@ -69879,6 +69935,10 @@ export namespace Schemas {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -69897,6 +69957,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
       Gt: 'gt',
@@ -69923,6 +69987,10 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains
+       * * `starts_with` - starts_with
+       * * `not_starts_with` - not_starts_with
+       * * `ends_with` - ends_with
+       * * `not_ends_with` - not_ends_with
        * * `regex` - regex
        * * `not_regex` - not_regex
        * * `gt` - gt
@@ -70766,6 +70834,10 @@ export namespace Schemas {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -70781,6 +70853,10 @@ export namespace Schemas {
       IsNot: 'is_not',
       Icontains: 'icontains',
       NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
       Regex: 'regex',
       NotRegex: 'not_regex',
       Gt: 'gt',
@@ -70804,6 +70880,10 @@ export namespace Schemas {
        * * `is_not` - is_not
        * * `icontains` - icontains
        * * `not_icontains` - not_icontains
+       * * `starts_with` - starts_with
+       * * `not_starts_with` - not_starts_with
+       * * `ends_with` - ends_with
+       * * `not_ends_with` - not_ends_with
        * * `regex` - regex
        * * `not_regex` - not_regex
        * * `gt` - gt

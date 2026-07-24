@@ -37,6 +37,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.exporter import export_asset
 
@@ -138,7 +139,15 @@ class SparklineRequestSerializer(serializers.Serializer):
 # manual parsing in LogsViewSet is unchanged.
 
 _LOG_PROPERTY_TYPE_CHOICES = ["log", "log_attribute", "log_resource_attribute"]
-_LOG_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
+_LOG_STRING_OPERATORS = [
+    "exact",
+    "is_not",
+    "icontains",
+    "not_icontains",
+    *STRING_PREFIX_SUFFIX_OPERATORS,
+    "regex",
+    "not_regex",
+]
 _LOG_NUMERIC_OPERATORS = ["exact", "gt", "lt"]
 _LOG_ARRAY_OPERATORS = ["exact", "is_not"]
 _LOG_DATE_OPERATORS = ["is_date_exact", "is_date_before", "is_date_after"]
