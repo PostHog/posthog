@@ -2,8 +2,8 @@ import { type ReactNode, useMemo } from 'react'
 
 import { MetricCard, type ChangeColor, type MetricChange, type Series } from '@posthog/quill-charts'
 
-import { getColorVar } from 'lib/colors'
 import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -39,7 +39,7 @@ export interface WorkflowMetricCardProps {
 
 // Collapse a multi-series response into one sparkline line (per-index sum) plus the grand total. A
 // single-metric tile has one series; the combined "messages" tile sums its email + push channels.
-function sumSeries(ts: AppMetricsTimeSeriesResponse | null): { data: number[]; total: number } {
+function sumSeries(ts: AppMetricsTimeSeriesResponse | null | undefined): { data: number[]; total: number } {
     if (!ts || ts.series.length === 0) {
         return { data: [], total: 0 }
     }
