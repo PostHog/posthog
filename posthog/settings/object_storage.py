@@ -27,6 +27,13 @@ OBJECT_STORAGE_TRANSFER_ACCELERATION = get_from_env(
     "OBJECT_STORAGE_TRANSFER_ACCELERATION", False, type_cast=str_to_bool
 )
 OBJECT_STORAGE_EXPORTS_FOLDER = os.getenv("OBJECT_STORAGE_EXPORTS_FOLDER", "exports")
+# Cap on the size of export content written into the `posthog_exportedasset.content` bytea
+# column when object storage is unavailable. libpq cannot allocate a contiguous output
+# buffer for a multi-hundred-MB single-value UPDATE, so we refuse the in-DB fallback above
+# this size and surface a clear error rather than crashing the export worker.
+EXPORTED_ASSET_MAX_DB_FALLBACK_BYTES = get_from_env(
+    "EXPORTED_ASSET_MAX_DB_FALLBACK_BYTES", 100 * 1024 * 1024, type_cast=int
+)
 OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER", "media_uploads")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
     "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"

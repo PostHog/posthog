@@ -1,3 +1,4 @@
+import os
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -30,6 +31,23 @@ EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
 TWELVE_MONTHS = timedelta(days=365)
+
+
+class ExportContentTooLargeForDatabase(Exception):
+    """Raised when export content is too large to store in the database bytea fallback.
+
+    The in-DB fallback (used when object storage is disabled or errors) writes the whole
+    payload as a single Postgres `bytea` value. libpq cannot allocate a contiguous output
+    buffer for a multi-hundred-MB UPDATE message, so we refuse oversized content instead of
+    crashing the export worker.
+    """
+
+    def __init__(self, message: str | None = None):
+        super().__init__(
+            message
+            or "This export is too large to store. Reduce the export size (fewer rows or columns, "
+            "a narrower date range) and try again."
+        )
 
 
 def get_default_access_token() -> str:
@@ -283,8 +301,19 @@ def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
 
 
 def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes) -> None:
+    _guard_db_fallback_size(len(content))
     exported_asset.content = content
     exported_asset.save(update_fields=["content"])
+
+
+def _guard_db_fallback_size(content_size: int) -> None:
+    """Refuse to write oversized content into the `content` bytea column.
+
+    A single multi-hundred-MB `bytea` UPDATE makes libpq fail to allocate its output buffer,
+    crashing the export worker with no downloadable file. Fail fast with a clear error instead.
+    """
+    if content_size > settings.EXPORTED_ASSET_MAX_DB_FALLBACK_BYTES:
+        raise ExportContentTooLargeForDatabase()
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
@@ -329,5 +358,8 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             exception=ose,
             exc_info=True,
         )
+    # Check the on-disk size before reading: a large file would blow up memory in `f.read()`
+    # and then fail the libpq buffer allocation anyway.
+    _guard_db_fallback_size(os.path.getsize(file_path))
     with open(file_path, "rb") as f:
         save_content_to_exported_asset(exported_asset, f.read())

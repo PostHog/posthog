@@ -33,6 +33,8 @@ from posthog.errors import (
 )
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 
+from products.exports.backend.models.exported_asset import ExportContentTooLargeForDatabase
+
 # =============================================================================
 # Export Failure Classification
 # =============================================================================
@@ -115,6 +117,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
+    ExportContentTooLargeForDatabase,
 )
 
 TIMEOUT_ERRORS = (
