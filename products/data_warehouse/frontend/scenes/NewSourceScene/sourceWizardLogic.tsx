@@ -46,6 +46,7 @@ import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../frontend/src/lib/utils/product-intents'
 import type { DataWarehouseTable, ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
+import { getUploadedFile } from '../../shared/components/forms/fileUploads'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -3659,6 +3660,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                         for (const { name, type } of payloadKeys) {
                             if (type === 'file-upload') {
+                                const uploadedFile = getUploadedFile(payload['payload']?.[name])
+                                if (!uploadedFile) {
+                                    continue
+                                }
+
                                 try {
                                     // Assumes we're loading a JSON file
                                     const loadedFile: string = await new Promise((resolve, reject) => {
@@ -3666,7 +3672,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.onload = (e) => resolve(e.target?.result as string)
                                         fileReader.onerror = () =>
                                             reject(fileReader.error ?? new Error(`Failed to read the "${name}" file`))
-                                        fileReader.readAsText(payload['payload'][name][0])
+                                        fileReader.readAsText(uploadedFile)
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
                                 } catch (e: any) {

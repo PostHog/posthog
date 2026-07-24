@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
 )
 
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
+    resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -262,6 +264,21 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
         }
 
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        is_valid, errors = super().validate_config(job_inputs)
+
+        integration_value = job_inputs.get("google_cloud_service_account_integration_id")
+        has_integration = integration_value not in (None, "")
+        key_file_value = job_inputs.get("key_file")
+        has_key_file = isinstance(key_file_value, dict) and len(key_file_value) > 0
+        if not has_integration and not has_key_file:
+            errors.append(
+                "At least one authentication method must be provided: "
+                "'google_cloud_service_account_integration_id' or 'key_file'."
+            )
+
+        return len(errors) == 0, errors
+
     def validate_credentials(
         self,
         config: BigQuerySourceConfig,
@@ -269,6 +286,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            auth = resolve_bigquery_auth(config, team_id)
+        except ValueError as e:
+            return False, str(e)
+
         region: str | None = None
         if (
             config.use_custom_region
@@ -279,13 +301,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             region = config.use_custom_region.region
         return validate_bigquery_credentials(
             config.dataset_id,
-            {
-                "project_id": config.key_file.project_id,
-                "private_key": config.key_file.private_key,
-                "private_key_id": config.key_file.private_key_id,
-                "client_email": config.key_file.client_email,
-                "token_uri": config.key_file.token_uri,
-            },
+            auth.project_id,
+            auth.credentials,
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
         )
@@ -305,6 +322,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
+                    SourceFieldOauthConfig(
+                        name="google_cloud_service_account_integration_id",
+                        label="Google Cloud service account",
+                        required=False,
+                        kind="google-cloud-service-account",
+                    ),
                     SourceFieldFileUploadConfig(
                         name="key_file",
                         label="Google Cloud JSON key file",
@@ -312,7 +335,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
                             format=".json",
                             keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
                         ),
-                        required=True,
+                        required=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="use_custom_region",

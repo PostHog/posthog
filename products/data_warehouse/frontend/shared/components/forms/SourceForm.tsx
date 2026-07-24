@@ -41,6 +41,7 @@ import { IntegrationAccountSelector } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
+import { shouldHideSourceField } from './sourceFieldVisibility'
 
 // Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
 const NO_OP_SET_VALUE = (): void => undefined
@@ -286,31 +287,34 @@ export const sourceFieldToElement = (
 
     if (field.type === 'oauth') {
         return (
-            <LemonField key={field.name} name={field.name} label={field.label}>
-                {({ value, onChange }) =>
-                    // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
-                    // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
-                    oauthRedirectUrl ? (
-                        <IntegrationChoice
-                            key={field.name}
-                            value={value}
-                            onChange={onChange}
-                            integration={field.kind}
-                            redirectUrl={oauthRedirectUrl}
-                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                        />
-                    ) : (
-                        <SourceIntegrationChoice
-                            key={field.name}
-                            sourceConfig={sourceConfig}
-                            value={value}
-                            onChange={onChange}
-                            integration={field.kind}
-                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                        />
-                    )
-                }
-            </LemonField>
+            <div key={field.name} id={`source-field-${field.name}`}>
+                <LemonField name={field.name} label={field.label}>
+                    {({ value, onChange }) =>
+                        // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
+                        // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
+                        oauthRedirectUrl ? (
+                            <IntegrationChoice
+                                key={field.name}
+                                value={value}
+                                onChange={onChange}
+                                integration={field.kind}
+                                redirectUrl={oauthRedirectUrl}
+                                schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            />
+                        ) : (
+                            <SourceIntegrationChoice
+                                key={field.name}
+                                sourceConfig={sourceConfig}
+                                value={value}
+                                onChange={onChange}
+                                integration={field.kind}
+                                autoSelectFirstIntegration={!isUpdateMode}
+                                schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            />
+                        )
+                    }
+                </LemonField>
+            </div>
         )
     }
 
@@ -929,6 +933,7 @@ export function SourceFormComponent({
                 ) : (
                     availableSources[sourceConfig.name].fields
                         .filter((field) => !(isDirectQuerySource && field.type === 'ssh-tunnel'))
+                        .filter((field) => !shouldHideSourceField(sourceConfig.name, field))
                         .map((field) =>
                             sourceFieldToElement(
                                 field,

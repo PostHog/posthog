@@ -240,6 +240,8 @@ class SnowflakeImplementation(
     def connect(
         self,
         config: SnowflakeSourceConfig,
+        *,
+        team_id: int | None = None,
     ) -> Iterator[snowflake.connector.SnowflakeConnection]:
         """Open a Snowflake connection for the duration of the context.
 

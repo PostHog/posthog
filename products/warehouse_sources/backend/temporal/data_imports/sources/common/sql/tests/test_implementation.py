@@ -53,7 +53,7 @@ class _FakeImplementation(SQLSourceImplementation[_FakeConfig, Any, Any]):
         self.fetch_average_row_size_calls: list[tuple[Any, ...]] = []
 
     @contextmanager
-    def connect(self, config):  # pragma: no cover — not exercised by these tests
+    def connect(self, config, *, team_id: int | None = None):  # pragma: no cover — not exercised by these tests
         yield object()
 
     def get_columns(self, conn, config, names):  # pragma: no cover

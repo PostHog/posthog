@@ -18,15 +18,24 @@ import collections
 import collections.abc
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
+
+import boto3
 import pyarrow as pa
 import structlog
 from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
 from google.api_core.retry import Retry, if_exception_type
+from google.auth import (
+    aws as google_auth_aws,
+    credentials as google_auth_credentials,
+    impersonated_credentials as google_auth_impersonated_credentials,
+)
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
@@ -38,6 +47,7 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -83,6 +93,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BigQueryAuthInfo",
     "BIGQUERY_API_VERSION_V2",
     "BIGQUERY_DATASET_NOT_FOUND_ERROR",
     "BIGQUERY_INVALID_IDENTIFIER_ERROR",
@@ -98,12 +109,14 @@ __all__ = [
     "delete_all_temp_destination_tables",
     "delete_table",
     "filter_bigquery_incremental_fields",
+    "resolve_bigquery_auth",
     "validate_bigquery_credentials",
 ]
 
 # Host used both to build the Storage Read API gRPC channel and to label the
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
+BIGQUERY_SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
 
 # The core BigQuery REST API is stable at v2 — every resource path is served under /bigquery/v2/ —
 # so both the legacy unversioned pin and the explicit v2 label resolve to the same REST endpoint.
@@ -154,7 +167,7 @@ BIGQUERY_INVALID_IDENTIFIER_ERROR = (
 # phrasing like "re-enable the sync".
 BIGQUERY_CREDENTIALS_REJECTED_ERROR = (
     "Your BigQuery service account credentials were rejected by Google. The key may have been "
-    "rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file."
+    "rotated or revoked, or the service account deleted. Please upload a new Google Cloud credentials."
 )
 
 # The private key in the uploaded JSON key file couldn't be parsed (truncated/corrupted PEM body).
@@ -324,6 +337,8 @@ def _normalize_identifier(value: str) -> str:
 
 
 def _resolve_project_id(config: BigQuerySourceConfig) -> str:
+    if config.key_file is None:
+        raise ValueError("Missing BigQuery key_file configuration")
     return _normalize_identifier(config.key_file.project_id)
 
 
@@ -353,6 +368,111 @@ def _resolve_dataset_project_id(config: BigQuerySourceConfig) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class BigQueryAuthInfo:
+    project_id: str
+    credentials: google_auth_credentials.Credentials
+
+
+class Boto3CredentialsSupplier(google_auth_aws.AwsSecurityCredentialsSupplier):
+    """Resolve AWS credentials for Google impersonated credentials using boto3."""
+
+    def __init__(self, session: boto3.Session | None = None) -> None:
+        self.session = session or boto3.Session()
+
+    def get_aws_security_credentials(
+        self, context: google_auth_aws.AwsSecurityCredentialsSupplierContext, request
+    ) -> google_auth_aws.AwsSecurityCredentials:
+        session_credentials = self.session.get_credentials()
+        if session_credentials is None:
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        credentials = session_credentials.get_frozen_credentials()
+
+        if credentials.access_key is None:
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        if credentials.secret_key is None:
+            raise RefreshError("Cannot obtain AWS credentials", retryable=False)
+
+        return google_auth_aws.AwsSecurityCredentials(credentials.access_key, credentials.secret_key, credentials.token)
+
+    def get_aws_region(self, context: google_auth_aws.AwsSecurityCredentialsSupplierContext, request) -> str:
+        region_name = self.session.region_name
+        if not region_name:
+            raise RefreshError("AWS region not populated", retryable=False)
+        return region_name
+
+
+def _get_posthog_google_cloud_credentials() -> google_auth_impersonated_credentials.Credentials:
+    sts_audience = getattr(settings, "BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD", None)
+    target_principal = getattr(settings, "BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", None)
+    if not isinstance(sts_audience, str) or not sts_audience:
+        raise ValueError("Google Cloud impersonation is not configured on this instance")
+    if not isinstance(target_principal, str) or not target_principal:
+        raise ValueError("Google Cloud impersonation is not configured on this instance")
+
+    return google_auth_impersonated_credentials.Credentials(
+        source_credentials=google_auth_aws.Credentials(
+            audience=sts_audience,
+            subject_token_type="urn:ietf:params:aws:token-type:aws4_request",
+            token_url="https://sts.googleapis.com/v1/token",
+            aws_security_credentials_supplier=Boto3CredentialsSupplier(),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        ),
+        target_principal=target_principal,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        lifetime=3600,
+    )
+
+
+def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
+    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    if integration is None:
+        raise ValueError(f"Google Cloud service account integration with id '{integration_id}' not found")
+    if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+        raise ValueError("Integration is not a Google Cloud service account integration")
+
+    gcp_integration = GoogleCloudServiceAccountIntegration(integration)
+    if gcp_integration.has_key():
+        credentials = service_account.Credentials.from_service_account_info(
+            gcp_integration.service_account_info, scopes=BIGQUERY_SCOPES
+        )
+    else:
+        credentials = google_auth_impersonated_credentials.Credentials(
+            source_credentials=_get_posthog_google_cloud_credentials(),
+            target_principal=gcp_integration.service_account_email,
+            target_scopes=BIGQUERY_SCOPES,
+            lifetime=3600,
+        )
+
+    return BigQueryAuthInfo(project_id=gcp_integration.project_id, credentials=credentials)
+
+
+def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInfo:
+    if config.key_file is None:
+        raise ValueError("Missing BigQuery key_file configuration")
+
+    project_id = config.key_file.project_id
+    private_key = config.key_file.private_key
+    private_key_id = config.key_file.private_key_id
+    client_email = config.key_file.client_email
+    token_uri = config.key_file.token_uri
+    if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
+        raise ValueError(BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR)
+    credentials = service_account.Credentials.from_service_account_info(
+        {
+            "private_key": private_key,
+            "private_key_id": private_key_id,
+            "token_uri": token_uri,
+            "client_email": client_email,
+            "project_id": project_id,
+        },
+        scopes=BIGQUERY_SCOPES,
+    )
+    return BigQueryAuthInfo(project_id=project_id, credentials=credentials)
+
+
 def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     """Project used to run INFORMATION_SCHEMA discovery queries.
 
@@ -363,28 +483,23 @@ def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     return dataset_project_id if dataset_project_id is not None else _resolve_project_id(config)
 
 
+def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int | None) -> BigQueryAuthInfo:
+    if config.google_cloud_service_account_integration_id is not None:
+        if team_id is None:
+            raise ValueError("team_id is required when using a Google Cloud service account integration")
+        return _resolve_auth_from_integration(int(config.google_cloud_service_account_integration_id), team_id)
+    return _resolve_auth_from_key_file(config)
+
+
 @contextlib.contextmanager
 def bigquery_client(
     project_id: str,
     location: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
+    credentials: google_auth_credentials.Credentials,
     api_version: str = BIGQUERY_API_VERSION_V2,
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     project_id = _normalize_identifier(project_id)
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "token_uri": token_uri,
-            "client_email": client_email,
-            "project_id": project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
-    )
     # AuthorizedSession is a `requests.Session` subclass that injects the OAuth2
     # bearer token. Mount our TrackedHTTPAdapter on it so every BigQuery REST
     # call is logged and metered alongside the other warehouse sources.
@@ -423,22 +538,8 @@ def bigquery_client(
 
 
 @contextlib.contextmanager
-def bigquery_storage_read_client(
-    project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
-):
+def bigquery_storage_read_client(credentials: google_auth_credentials.Credentials):
     """Manage a BigQuery Storage client."""
-    project_id = _normalize_identifier(project_id)
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "token_uri": token_uri,
-            "client_email": client_email,
-            "project_id": project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
-    )
-
     # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
     # interceptors, then hand it to the transport. Passing a `channel` makes the
     # transport ignore credentials, so they must already be baked into the channel
@@ -474,7 +575,7 @@ def bigquery_storage_read_client(
         transport.close()
 
 
-def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
+def _detect_dataset_region(config: BigQuerySourceConfig, auth: BigQueryAuthInfo) -> str | None:
     """Resolve the dataset's BigQuery location for schema-discovery queries.
 
     Credentials validate with a region-agnostic table listing, but a query job created
@@ -483,14 +584,7 @@ def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
     location US". `get_dataset` is region-agnostic, so read the dataset's real location and
     pin discovery to it. Returns None on any failure, leaving the original behaviour intact.
     """
-    with bigquery_client(
-        _resolve_project_id(config),
-        None,
-        config.key_file.private_key,
-        config.key_file.private_key_id,
-        config.key_file.client_email,
-        config.key_file.token_uri,
-    ) as bq:
+    with bigquery_client(auth.project_id, None, auth.credentials) as bq:
         try:
             dataset_ref = bq.dataset(_resolve_dataset_id(config), project=_resolve_query_project(config))
             return bq.get_dataset(dataset_ref).location
@@ -506,12 +600,9 @@ def delete_table(
     table_id: str,
     project_id: str,
     location: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
+    credentials: google_auth_credentials.Credentials,
 ) -> None:
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, credentials) as bq:
         bq.delete_table(table_id, not_found_ok=True)
 
 
@@ -521,13 +612,10 @@ def delete_all_temp_destination_tables(
     project_id: str,
     location: str | None,
     dataset_project_id: str | None,
-    private_key: str,
-    private_key_id: str,
-    client_email: str,
-    token_uri: str,
+    credentials: google_auth_credentials.Credentials,
     logger: None | FilteringBoundLogger,
 ) -> None:
-    with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    with bigquery_client(project_id, location, credentials) as bq:
         try:
             tables = bq.list_tables(bq.dataset(dataset_id, project=dataset_project_id or project_id))
             for table in tables:
@@ -579,7 +667,11 @@ def filter_bigquery_incremental_fields(
 
 
 def validate_bigquery_credentials(
-    dataset_id: str, key_file: dict[str, str], dataset_project_id: str | None, location: str | None
+    dataset_id: str,
+    project_id: str,
+    credentials: google_auth_credentials.Credentials,
+    dataset_project_id: str | None,
+    location: str | None,
 ) -> tuple[bool, str | None]:
     """Validate BigQuery credentials at onboarding time.
 
@@ -589,15 +681,6 @@ def validate_bigquery_credentials(
     so they're mapped to a clear message instead of surfacing a bare "invalid credentials" and are
     not reported to error tracking — only genuinely unexpected failures are captured.
     """
-    project_id = key_file.get("project_id")
-    private_key = key_file.get("private_key")
-    private_key_id = key_file.get("private_key_id")
-    client_email = key_file.get("client_email")
-    token_uri = key_file.get("token_uri")
-
-    if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
-        return False, BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
-
     # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
     # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
     project_id = _normalize_identifier(project_id)
@@ -605,32 +688,33 @@ def validate_bigquery_credentials(
     dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
     location = _normalize_identifier(location) if location else location
 
-    try:
-        with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
+    resolved_dataset_project_id = dataset_project_id or project_id
+    with bigquery_client(project_id, location, credentials) as bq:
+        try:
             bq.list_tables(
-                bq.dataset(dataset_id, project=dataset_project_id or project_id),
+                bq.dataset(dataset_id, project=resolved_dataset_project_id),
                 retry=bigquery.DEFAULT_RETRY.with_timeout(5),
             )
-        return True, None
-    except Exception as e:
-        # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the
-        # same root causes. Ordering matches `get_non_retryable_errors`: identifier/dataset before
-        # the generic access-denied so the more specific message wins.
-        message = str(e)
-        if "Unable to load PEM file" in message:
-            return False, BIGQUERY_INVALID_KEY_FILE_ERROR
-        if "invalid_grant" in message:
-            return False, BIGQUERY_CREDENTIALS_REJECTED_ERROR
-        if "Invalid project ID" in message or "Invalid dataset ID" in message:
-            return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
-        if "was not found in location" in message or "Not found: Dataset" in message:
-            return False, BIGQUERY_DATASET_NOT_FOUND_ERROR
-        if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
-            return False, BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
-        # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
-        # exception text (which can embed ids or tokens) reaches the user.
-        capture_exception(e)
-        return False, BIGQUERY_VALIDATION_GENERIC_ERROR
+            return True, None
+        except Exception as e:
+            # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the
+            # same root causes. Ordering matches `get_non_retryable_errors`: identifier/dataset before
+            # the generic access-denied so the more specific message wins.
+            message = str(e)
+            if "Unable to load PEM file" in message:
+                return False, BIGQUERY_INVALID_KEY_FILE_ERROR
+            if "invalid_grant" in message:
+                return False, BIGQUERY_CREDENTIALS_REJECTED_ERROR
+            if "Invalid project ID" in message or "Invalid dataset ID" in message:
+                return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
+            if "was not found in location" in message or "Not found: Dataset" in message:
+                return False, BIGQUERY_DATASET_NOT_FOUND_ERROR
+            if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
+                return False, BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
+            # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
+            # exception text (which can embed ids or tokens) reaches the user.
+            capture_exception(e)
+            return False, BIGQUERY_VALIDATION_GENERIC_ERROR
 
 
 def _get_partition_settings(
@@ -1095,19 +1179,21 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
+    def connect(
+        self,
+        config: BigQuerySourceConfig,
+        *,
+        team_id: int | None = None,
+        auth: BigQueryAuthInfo | None = None,
+    ) -> Iterator[bigquery.Client]:
         # Without a custom region the client is built with `location=None`, so discovery
         # query jobs default to the US multi-region and miss datasets in other regions.
         # Auto-detect the dataset's location so discovery runs where the data lives.
-        region = _resolve_region(config) or _detect_dataset_region(config)
-        with bigquery_client(
-            _resolve_project_id(config),
-            region,
-            config.key_file.private_key,
-            config.key_file.private_key_id,
-            config.key_file.client_email,
-            config.key_file.token_uri,
-        ) as bq:
+        if auth is None:
+            auth = resolve_bigquery_auth(config, team_id)
+        region = _resolve_region(config) or _detect_dataset_region(config, auth)
+
+        with bigquery_client(auth.project_id, region, auth.credentials) as bq:
             yield bq
 
     # ------------------------------------------------------------------
@@ -1304,12 +1390,9 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     def build_pipeline(self, config: BigQuerySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        if not config.key_file.private_key:
-            raise ValueError(f"Missing private key for BigQuery: '{inputs.job_id}'")
-
+        auth = resolve_bigquery_auth(config, inputs.team_id)
         region = _resolve_region(config)
         dataset_project_id = _resolve_dataset_project_id(config)
-        project_id = _resolve_project_id(config)
         destination_table_dataset_id = _resolve_dataset_id(config)
 
         if (
@@ -1327,18 +1410,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # relaxed with using a relatively long UUID as part of the prefix.
         destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
-        destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
+        destination_table = f"{auth.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
 
         delete_all_temp_destination_tables(
             dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
-            project_id=project_id,
+            project_id=auth.project_id,
             location=region,
             dataset_project_id=dataset_project_id,
-            private_key=config.key_file.private_key,
-            private_key_id=config.key_file.private_key_id,
-            client_email=config.key_file.client_email,
-            token_uri=config.key_file.token_uri,
+            credentials=auth.credentials,
             logger=inputs.logger,
         )
 
@@ -1349,18 +1429,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 region=region,
                 dataset_project_id=dataset_project_id,
                 bq_destination_table_id=destination_table,
+                auth=auth,
                 rest_api_version=_bigquery_rest_api_version(inputs.api_version),
             )
         finally:
             # Delete the destination table (if it exists) after we're done with it
             delete_table(
                 table_id=destination_table,
-                project_id=project_id,
+                project_id=auth.project_id,
                 location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
+                credentials=auth.credentials,
             )
             inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
 
@@ -1371,6 +1449,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         region: str | None,
         dataset_project_id: str | None,
         bq_destination_table_id: str,
+        auth: BigQueryAuthInfo,
         rest_api_version: str = BIGQUERY_API_VERSION_V2,
         partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     ) -> SourceResponse:
@@ -1393,12 +1472,9 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         row_filters = inputs.row_filters
         logger = inputs.logger
 
-        project_id = _resolve_project_id(config)
+        project_id = auth.project_id
         location = region
-        private_key = config.key_file.private_key
-        private_key_id = config.key_file.private_key_id
-        client_email = config.key_file.client_email
-        token_uri = config.key_file.token_uri
+        credentials = auth.credentials
 
         project_id_for_dataset = dataset_project_id or project_id
         name = NamingConvention.normalize_identifier(table_name)
@@ -1407,10 +1483,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         with bigquery_client(
             project_id=project_id,
             location=location,
-            private_key=private_key,
-            private_key_id=private_key_id,
-            client_email=client_email,
-            token_uri=token_uri,
+            credentials=credentials,
             api_version=rest_api_version,
         ) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)
@@ -1432,10 +1505,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             with bigquery_client(
                 project_id=project_id,
                 location=location,
-                private_key=private_key,
-                private_key_id=private_key_id,
-                client_email=client_email,
-                token_uri=token_uri,
+                credentials=credentials,
                 api_version=rest_api_version,
             ) as bq_client:
                 bq_table = bq_client.get_table(fully_qualified_table_name)
@@ -1520,13 +1590,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         ),
                     ),
                 )
-                with bigquery_storage_read_client(
-                    project_id=project_id,
-                    private_key=private_key,
-                    private_key_id=private_key_id,
-                    client_email=client_email,
-                    token_uri=token_uri,
-                ) as bq_storage:
+                with bigquery_storage_read_client(credentials=credentials) as bq_storage:
                     read_session = bq_storage.create_read_session(
                         parent="projects/{}".format(bq_table.project),
                         read_session=requested_session,

@@ -718,6 +718,44 @@ export const ExternalDataSourcesEnableCdcCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateBodyPrefixMax = 100
+
+export const externalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateBodyDescriptionMax = 400
+
+export const ExternalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        created_via: zod
+            .union([
+                zod.enum(['web', 'api', 'mcp']).describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
+            ),
+        client_secret: zod.string(),
+        account_id: zod.string(),
+        prefix: zod
+            .string()
+            .max(externalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateBodyPrefixMax)
+            .nullish(),
+        description: zod
+            .string()
+            .max(externalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateBodyDescriptionMax)
+            .nullish(),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
+        job_inputs: zod.unknown().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync).
  */
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod

@@ -8,7 +8,7 @@ PostHog-layer wrapper) stays a thin template over the driver.
 
 One implementation per driver, per-instance stateless: each public
 method takes the `config` it needs. `SQLSource.get_schemas` opens the
-connection once via `connect(config)` and threads the resulting
+connection once via `connect(config, team_id=...)` and threads the resulting
 connection through every query method — giving every driver the
 "single-tunnel-per-listing" behavior without each source having to
 orchestrate it themselves.
@@ -117,11 +117,12 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def connect(self, config: ConfigT) -> AbstractContextManager[ConnT]:
+    def connect(self, config: ConfigT, *, team_id: int | None = None) -> AbstractContextManager[ConnT]:
         """Open a driver connection for the duration of schema discovery.
 
         Implementations own the full lifecycle — SSH tunnel (if any),
-        TLS, auth, cursor setup — and clean it up on exit.
+        TLS, auth, cursor setup — and clean it up on exit. `team_id` is
+        available for drivers whose auth resolution depends on the team.
         """
 
     @abstractmethod

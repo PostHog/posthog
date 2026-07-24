@@ -374,7 +374,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig) -> Iterator[psycopg.Connection]:
+    def connect(
+        self,
+        config: RedshiftSourceConfig,
+        *,
+        team_id: int | None = None,
+    ) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the

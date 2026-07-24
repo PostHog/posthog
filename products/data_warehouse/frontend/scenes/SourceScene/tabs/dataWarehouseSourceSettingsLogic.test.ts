@@ -299,4 +299,57 @@ describe('sourceSettingsLogic', () => {
             logic.actions.loadJobs()
         }).toDispatchActions(['loadJobsFailure'])
     })
+
+    it('migrates BigQuery legacy auth and updates source state', async () => {
+        const legacySource = {
+            ...makeSource([makeSchema()]),
+            source_type: 'BigQuery',
+            job_inputs: {},
+        } as ExternalDataSource
+        const migratedSource = {
+            ...legacySource,
+            job_inputs: { google_cloud_service_account_integration_id: 123 },
+        } as ExternalDataSource
+
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(legacySource)
+        const migrateSpy = jest
+            .spyOn(api.externalDataSources, 'migrateGoogleServiceAccountToIntegrations')
+            .mockResolvedValue(migratedSource)
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.migrateGoogleServiceAccountAuth()
+        }).toFinishAllListeners()
+
+        expect(migrateSpy).toHaveBeenCalledWith('source-1')
+        expect(logic.values.source?.job_inputs).toEqual({ google_cloud_service_account_integration_id: 123 })
+        expect(logic.values.migratingGoogleServiceAccountAuth).toBe(false)
+    })
+
+    it('resets migrate loading state when BigQuery legacy auth migration fails', async () => {
+        const legacySource = {
+            ...makeSource([makeSchema()]),
+            source_type: 'BigQuery',
+            job_inputs: {},
+        } as ExternalDataSource
+
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(legacySource)
+        jest.spyOn(api.externalDataSources, 'migrateGoogleServiceAccountToIntegrations').mockRejectedValue(
+            new Error('boom')
+        )
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.migrateGoogleServiceAccountAuth()
+        }).toFinishAllListeners()
+
+        expect(logic.values.source?.job_inputs).toEqual({})
+        expect(logic.values.migratingGoogleServiceAccountAuth).toBe(false)
+    })
 })

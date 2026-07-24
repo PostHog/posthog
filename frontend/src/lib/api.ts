@@ -5962,6 +5962,14 @@ const api = {
         async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
+        async migrateGoogleServiceAccountToIntegrations(
+            sourceId: ExternalDataSource['id']
+        ): Promise<ExternalDataSource> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('migrate_google_service_account_to_integrations')
+                .create()
+        },
         async getWebhookInfo(sourceId: ExternalDataSource['id']): Promise<WebhookInfo> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('webhook_info').get()
         },

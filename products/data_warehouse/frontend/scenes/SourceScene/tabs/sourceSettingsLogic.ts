@@ -39,6 +39,7 @@ import {
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
+import { getUploadedFile } from '../../../shared/components/forms/fileUploads'
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -384,6 +385,7 @@ export interface sourceSettingsLogicValues {
     isSourceConfigValid: boolean
     jobs: ExternalDataJob[]
     jobsLoading: boolean
+    migratingGoogleServiceAccountAuth: boolean
     pollPauseCount: number
     refreshingSchemas: boolean
     schemaFilterOptions: {
@@ -529,6 +531,9 @@ export interface sourceSettingsLogicActions {
         source: ExternalDataSource | null
         payload?: any
     }
+    migrateGoogleServiceAccountAuth: () => {
+        value: true
+    }
     pausePolling: () => {
         value: true
     }
@@ -558,6 +563,9 @@ export interface sourceSettingsLogicActions {
     }
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
+    }
+    setMigratingGoogleServiceAccountAuth: (migrating: boolean) => {
+        migrating: boolean
     }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
@@ -716,6 +724,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             payload,
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
+        migrateGoogleServiceAccountAuth: true,
+        setMigratingGoogleServiceAccountAuth: (migrating: boolean) => ({ migrating }),
         pausePolling: true,
         resumePolling: true,
     }),
@@ -907,6 +917,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 submitSourceConfigFailure: () => false,
             },
         ],
+        migratingGoogleServiceAccountAuth: [
+            false as boolean,
+            {
+                migrateGoogleServiceAccountAuth: () => true,
+                setMigratingGoogleServiceAccountAuth: (_, { migrating }) => migrating,
+            },
+        ],
         cdcStatusError: [
             null as string | null,
             {
@@ -1064,25 +1081,26 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
 
-                const newJobInputs = {
-                    ...values.source?.job_inputs,
-                    ...sanitizedPayload,
-                }
-
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
                     for (const field of sourceFieldConfig.fields) {
-                        if (field.type === 'file-upload' && sanitizedPayload[field.name]) {
+                        if (field.type === 'file-upload') {
+                            const uploadedFile = getUploadedFile(sanitizedPayload[field.name])
+                            if (!uploadedFile) {
+                                delete sanitizedPayload[field.name]
+                                continue
+                            }
+
                             try {
                                 // Assumes we're loading a JSON file
                                 const loadedFile: string = await new Promise((resolve, reject) => {
                                     const fileReader = new FileReader()
                                     fileReader.onload = (e) => resolve(e.target?.result as string)
                                     fileReader.onerror = (e) => reject(e)
-                                    fileReader.readAsText(sanitizedPayload[field.name][0])
+                                    fileReader.readAsText(uploadedFile)
                                 })
-                                newJobInputs[field.name] = JSON.parse(loadedFile)
+                                sanitizedPayload[field.name] = JSON.parse(loadedFile)
                             } catch (e: any) {
                                 posthog.captureException(e)
                                 lemonToast.error(
@@ -1092,6 +1110,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             }
                         }
                     }
+                }
+
+                const newJobInputs = {
+                    ...values.source?.job_inputs,
+                    ...sanitizedPayload,
                 }
 
                 try {
@@ -1399,6 +1422,19 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.error(e.message || "Can't start sync at this time")
                 } finally {
                     actions.setSyncingNow(false)
+                }
+            },
+            migrateGoogleServiceAccountAuth: async () => {
+                try {
+                    const updatedSource = await api.externalDataSources.migrateGoogleServiceAccountToIntegrations(
+                        values.sourceId
+                    )
+                    actions.loadSourceSuccess(updatedSource)
+                    lemonToast.success('Migrated to a Google credential')
+                } catch (e: any) {
+                    lemonToast.error(e.message || "Can't migrate credentials at this time")
+                } finally {
+                    actions.setMigratingGoogleServiceAccountAuth(false)
                 }
             },
             reloadSchema: async ({ schema }) => {
