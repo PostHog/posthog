@@ -53,6 +53,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -177,6 +178,24 @@ class TestExperimentService(APIBaseTest):
         assert variants[0]["key"] == "control"
         assert variants[1]["key"] == "test"
         assert flag.active is False  # draft → flag inactive
+
+    def test_create_experiment_applies_default_evaluation_contexts_when_required(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = self._service().create_experiment(
+                name="Contexts Experiment",
+                feature_flag_key="contexts-flag",
+            )
+
+        context_names = set(
+            experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"production"}
 
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone

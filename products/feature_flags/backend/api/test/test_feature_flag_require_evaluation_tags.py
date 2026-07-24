@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
+from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -299,6 +301,29 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         # Evaluation tags should remain unchanged
         eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
+
+    def test_update_existing_flag_via_gated_write_under_post_request(self):
+        self.team.require_evaluation_contexts = True
+        self.team.save()
+
+        flag = FeatureFlag.objects.create(
+            key="launch-flag",
+            name="Launch Flag",
+            team=self.team,
+            created_by=self.user,
+            active=False,
+        )
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        # Mirrors launching an experiment: an existing flag is flipped active through the gated
+        # facade while carrying the launch POST request. This must not be treated as a create.
+        request = APIRequestFactory().post("/")
+        request.user = self.user
+
+        updated = update_flag(flag, {"active": True}, team=self.team, user=self.user, request=request)
+
+        self.assertTrue(updated.active)
 
     def test_create_survey_flag_without_tags_when_required(self):
         """Test that survey flags can be created without tags even when requirement is enabled"""

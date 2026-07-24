@@ -18,6 +18,7 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
@@ -1035,6 +1036,29 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert "Special Folder/Early Access" in fs_entry.path, (
             f"Expected 'Special Folder/Early Access' in {fs_entry.path}"
         )
+
+    def test_create_applies_default_evaluation_contexts_when_required(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data={
+                    "name": "Default contexts feature",
+                    "description": "A feature auto-creating its flag",
+                    "stage": "beta",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flag = FeatureFlag.objects.get(id=response.json()["feature_flag"]["id"])
+        context_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
+        assert context_names == {"production"}
 
 
 class TestPreviewList(BaseTest, QueryMatchingTest):

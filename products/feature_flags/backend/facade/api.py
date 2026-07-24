@@ -25,6 +25,7 @@ caller cannot surface a 409/change request), so ``ApprovalRequired`` is never ra
 
 from typing import Any
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
@@ -34,6 +35,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -238,6 +240,50 @@ def flag_disable_requires_approval(team: Team) -> bool:
     """Whether an enabled approval policy gates disabling a flag for this team/org."""
     policy = PolicyEngine().get_policy(action_key="feature_flag.disable", team=team, organization=team.organization)
     return policy is not None
+
+
+def get_default_evaluation_contexts(team: Team, user: Any) -> list[str]:
+    """The team's default evaluation context names, or [] when defaults don't apply.
+
+    Callers that auto-create flags (experiments, early access features, Max's flag tool)
+    include these in the flag payload so teams with ``require_evaluation_contexts`` can
+    still create flags through those paths. Mirrors the web UI, which applies defaults
+    only when the team setting AND the org-level ``default-evaluation-environments``
+    gate are both on (featureFlagLogic.ts).
+    """
+    if not team.default_evaluation_contexts_enabled:
+        return []
+
+    organization = getattr(user, "organization", None)
+    distinct_id = getattr(user, "distinct_id", None)
+    if organization is None or distinct_id is None:
+        return []
+    if not posthoganalytics.feature_enabled(
+        "default-evaluation-environments",
+        distinct_id,
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        return []
+
+    return list(
+        TeamDefaultEvaluationContext.objects.filter(team=team)
+        .select_related("evaluation_context")
+        .values_list("evaluation_context__name", flat=True)
+    )
+
+
+def apply_default_evaluation_contexts(flag_data: dict[str, Any], team: Team, user: Any) -> None:
+    """Add the team's default evaluation contexts to an auto-created flag's payload, in place.
+
+    A no-op when defaults don't apply (see ``get_default_evaluation_contexts``), so callers
+    can call this unconditionally before handing ``flag_data`` to ``create_flag``.
+    """
+    default_evaluation_contexts = get_default_evaluation_contexts(team, user)
+    if default_evaluation_contexts:
+        flag_data["evaluation_contexts"] = default_evaluation_contexts
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:

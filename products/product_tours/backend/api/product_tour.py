@@ -42,7 +42,12 @@ from posthog.utils_cors import cors_response
 
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
+from products.feature_flags.backend.facade.api import (
+    apply_default_evaluation_contexts,
+    create_flag,
+    set_flag_active,
+    update_flag,
+)
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
@@ -536,6 +541,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "active": bool(instance.start_date) and not instance.end_date and not instance.archived,
             "creation_context": "product_tours",
         }
+        apply_default_evaluation_contexts(flag_data, self.context["get_team"](), self.context["request"].user)
 
         flag = create_flag(flag_data, **self._flag_write_kwargs())
 

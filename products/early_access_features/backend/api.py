@@ -30,6 +30,7 @@ from products.feature_flags.backend.api.feature_flag import (
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
+from products.feature_flags.backend.facade.api import apply_default_evaluation_contexts
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.role import Role
@@ -453,13 +454,18 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 filters["feature_enrollment"] = True
 
+            feature_flag_data: dict[str, Any] = {
+                "key": feature_flag_key,
+                "name": f"Feature Flag for Early Access Feature {validated_data['name']}",
+                "filters": filters,
+                "creation_context": "early_access_features",
+            }
+            apply_default_evaluation_contexts(
+                feature_flag_data, self.context["get_team"](), self.context["request"].user
+            )
+
             feature_flag_serializer = FeatureFlagSerializer(
-                data={
-                    "key": feature_flag_key,
-                    "name": f"Feature Flag for Early Access Feature {validated_data['name']}",
-                    "filters": filters,
-                    "creation_context": "early_access_features",
-                },
+                data=feature_flag_data,
                 context=self.context,
             )
 
