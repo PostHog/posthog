@@ -19,6 +19,26 @@ ui_apps:
         type: detail
         view_prop: data
 tools:
+    experiment-activity:
+        operation: experiments_activity_retrieve
+        enabled: true
+        scopes:
+            - activity_log:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment change history
+        description: >
+            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment
+            and its holdouts and shared metrics: who made each change, what was changed (field-level before/after
+            values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to
+            the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for
+            pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the
+            flag itself — use feature-flags-activity-retrieve with the flag's ID for those.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-archive:
         operation: experiments_archive_create
         enabled: true
@@ -1117,26 +1137,6 @@ tools:
                 - saved_metrics
                 - conclusion
                 - conclusion_comment
-    experiment-activity:
-        operation: experiments_activity_retrieve
-        enabled: true
-        scopes:
-            - activity_log:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get experiment change history
-        description: >
-            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment
-            and its holdouts and shared metrics: who made each change, what was changed (field-level before/after
-            values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to
-            the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for
-            pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the
-            flag itself — use feature-flags-activity-retrieve with the flag's ID for those.
-        param_overrides:
-            id:
-                cast: string-int
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
