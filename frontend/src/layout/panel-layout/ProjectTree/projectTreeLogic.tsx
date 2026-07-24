@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -1192,7 +1193,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, key }) => ({
+    listeners(({ actions, values, key, props }) => ({
         setActivePanelIdentifier: () => {
             if (values.searchTerm !== '') {
                 actions.clearSearch()
@@ -1213,7 +1214,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: () => {
             actions.checkSelectedFolders()
         },
-        loadSearchResultsSuccess: () => {
+        loadSearchResultsSuccess: ({ searchResults, payload }) => {
+            // Fire once per settled search term (the 250ms breakpoint cancels intermediate keystrokes),
+            // and only for the first page so pagination doesn't double-count.
+            if (searchResults.searchTerm && (!payload || !payload.offset)) {
+                posthog.capture('project tree searched', {
+                    root: props.root ?? null,
+                    has_results: searchResults.results.length > 0,
+                })
+            }
             actions.checkSelectedFolders()
         },
         deleteSavedItem: () => {
@@ -1356,6 +1365,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         moveCheckedItems: ({ path }) => {
+            posthog.capture('project tree items moved', {
+                root: props.root ?? null,
+                count: values.checkedItemCountNumeric,
+                is_bulk: true,
+            })
             const { checkedItems } = values
             let skipInFolder: string | null = null
             for (const item of values.sortedItems) {
@@ -1493,12 +1507,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const splits = splitPath(item.path)
             if (splits.length > 0) {
                 if (value) {
+                    posthog.capture('project tree item renamed', {
+                        root: props.root ?? null,
+                        item_type: item.type ?? null,
+                    })
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]), false, key)
                     actions.setEditingItemId('')
                 }
             }
         },
+        deleteItem: ({ item }) => {
+            posthog.capture('project tree item deleted', {
+                root: props.root ?? null,
+                item_type: item.type ?? null,
+            })
+        },
         createFolder: ({ parentPath, editAfter, callback }) => {
+            posthog.capture('project tree folder created', {
+                root: props.root ?? null,
+                is_root_folder: !parentPath,
+            })
             const parentSplits = parentPath ? splitPath(parentPath) : []
             const newPath = joinPath([...parentSplits, 'Untitled folder'])
             actions.addFolder(newPath, editAfter, callback)
@@ -1507,6 +1535,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadSearchResults(searchTerm)
         },
         setSortMethod: ({ sortMethod }) => {
+            posthog.capture('project tree sort changed', {
+                root: props.root ?? null,
+                sort_method: sortMethod,
+            })
             if (values.searchTerm) {
                 actions.loadSearchResults(values.searchTerm, 0)
             }
