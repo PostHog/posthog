@@ -1,8 +1,12 @@
 import io
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.file_uploads import (
@@ -10,6 +14,8 @@ from products.warehouse_sources.backend.file_uploads import (
     excel_stored_filename,
     excel_to_parquet_bytes,
 )
+
+MODULE = "products.warehouse_sources.backend.file_uploads"
 
 
 def _xlsx_bytes(frame: pd.DataFrame) -> bytes:
@@ -61,3 +67,29 @@ class TestExcelToParquet(SimpleTestCase):
     def test_sheet_without_columns_raises_conversion_error(self) -> None:
         with self.assertRaises(ExcelConversionError):
             excel_to_parquet_bytes(_xlsx_bytes(pd.DataFrame()))
+
+    def test_rejects_archive_that_decompresses_past_the_budget(self) -> None:
+        # A zip bomb declares a huge uncompressed size; the pre-check rejects it before openpyxl runs.
+        with patch(f"{MODULE}.MAX_EXCEL_UNCOMPRESSED_BYTES", 1):
+            with self.assertRaises(ExcelConversionError):
+                excel_to_parquet_bytes(_xlsx_bytes(pd.DataFrame({"id": [1]})))
+
+    def test_rejects_too_many_columns(self) -> None:
+        with patch(f"{MODULE}.MAX_EXCEL_COLUMNS", 2):
+            with self.assertRaises(ExcelConversionError):
+                excel_to_parquet_bytes(_xlsx_bytes(pd.DataFrame({"a": [1], "b": [2], "c": [3]})))
+
+    def test_rejects_too_many_rows(self) -> None:
+        # Cell budget of 4 over 2 columns → at most 2 rows; a 3-row sheet trips the guard.
+        with patch(f"{MODULE}.MAX_EXCEL_CELLS", 4):
+            with self.assertRaises(ExcelConversionError):
+                excel_to_parquet_bytes(_xlsx_bytes(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})))
+
+    def test_all_empty_column_becomes_readable_string_not_null(self) -> None:
+        # An all-blank column (e.g. formulas with no cached values) would infer pyarrow `null`, which
+        # ClickHouse can't introspect from Parquet — it must land as a nullable string instead.
+        frame = pd.DataFrame({"id": [1, 2], "notes": [None, None]})
+
+        schema = pq.read_table(io.BytesIO(excel_to_parquet_bytes(_xlsx_bytes(frame)))).schema
+
+        assert pa.types.is_string(schema.field("notes").type)

@@ -53,6 +53,15 @@ FILE_FORMAT_TO_TABLE_FORMAT: dict[str, str] = {
 # source, where PostHog reads the customer's bucket directly instead of hosting the bytes.
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
+# Bounds on how far an uploaded .xlsx may expand during conversion. MAX_UPLOAD_SIZE_BYTES only caps
+# the *compressed* upload; an .xlsx is a ZIP, so a highly compressible workbook (or a zip bomb) can
+# expand far past it and exhaust the web worker's memory/CPU. Cap the decompressed archive up front,
+# and the materialized cell/column count while reading, failing with ExcelConversionError once a
+# budget is crossed. Generous enough for real 50 MB workbooks; anything bigger belongs on a source.
+MAX_EXCEL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024  # 1 GiB of decompressed archive members
+MAX_EXCEL_COLUMNS = 2000
+MAX_EXCEL_CELLS = 5_000_000
+
 
 def build_file_upload_s3_prefix(team_id: int, upload_id: str) -> str:
     """Folder holding one upload's object, keyed by team then upload id."""
@@ -125,10 +134,26 @@ def excel_to_parquet_bytes(data: bytes) -> bytes:
     module (and Django startup) import path.
     """
     import io  # noqa: PLC0415 — keep the heavy Excel/Parquet stack off the import path
+    import zipfile  # noqa: PLC0415
 
     import pyarrow as pa  # noqa: PLC0415
     import pyarrow.parquet as pq  # noqa: PLC0415
     from openpyxl import load_workbook  # noqa: PLC0415
+
+    # Reject a decompression bomb before openpyxl touches the archive: an .xlsx is a ZIP, and the
+    # central directory declares each member's uncompressed size without decompressing anything.
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            uncompressed_bytes = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile as error:
+        raise ExcelConversionError(
+            "Could not read the Excel file. Make sure it's a valid .xlsx or .xlsm workbook."
+        ) from error
+    if uncompressed_bytes > MAX_EXCEL_UNCOMPRESSED_BYTES:
+        raise ExcelConversionError(
+            "The Excel file is too large once decompressed. Connect the bucket it lives in as a "
+            "self-managed source instead."
+        )
 
     try:
         # read_only streams rows without holding the whole sheet in memory; data_only returns the last
@@ -147,8 +172,18 @@ def excel_to_parquet_bytes(data: bytes) -> bytes:
             raise ExcelConversionError("The first sheet has no columns. Add a header row and try again.")
 
         column_names = _dedupe_excel_headers(header)
+        if len(column_names) > MAX_EXCEL_COLUMNS:
+            raise ExcelConversionError(f"The first sheet has too many columns (max {MAX_EXCEL_COLUMNS:,}).")
+
+        # Bound the materialized cell count even if a member lied about its declared size: openpyxl
+        # streams rows lazily, so counting here caps memory/CPU before the Arrow table is built.
+        max_rows = MAX_EXCEL_CELLS // len(column_names)
         columns: list[list[object]] = [[] for _ in column_names]
-        for row in rows:
+        for row_index, row in enumerate(rows):
+            if row_index >= max_rows:
+                raise ExcelConversionError(
+                    "The Excel file has too many rows. Connect the bucket it lives in as a self-managed source instead."
+                )
             for index in range(len(column_names)):
                 columns[index].append(row[index] if index < len(row) else None)
     finally:
@@ -164,13 +199,21 @@ def excel_to_parquet_bytes(data: bytes) -> bytes:
 def _excel_column_to_arrow(values: "list[object]") -> "pa.Array":
     """Build a pyarrow array from one column's cell values, inferring the type. A column with
     incompatible mixed types (e.g. numbers and text in the same column) can't be inferred, so it
-    falls back to strings — the same shape a dataframe's object column would take."""
+    falls back to strings — the same shape a dataframe's object column would take.
+
+    An all-empty column (every cell blank, e.g. an all-formula column with no cached values) infers
+    to pyarrow's ``null`` type, which ClickHouse can't introspect from Parquet — coerce it to a
+    nullable string so the resulting table still has a readable schema."""
     import pyarrow as pa  # noqa: PLC0415 — keep pyarrow off the module import path
 
     try:
-        return pa.array(values)
+        array: pa.Array = pa.array(values)
     except (pa.ArrowInvalid, pa.ArrowTypeError):
         return pa.array([None if value is None else str(value) for value in values], type=pa.string())
+
+    if pa.types.is_null(array.type):
+        return array.cast(pa.string())
+    return array
 
 
 def hosted_upload_s3_path(url_pattern: str) -> str | None:
