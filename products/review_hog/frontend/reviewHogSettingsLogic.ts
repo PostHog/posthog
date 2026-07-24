@@ -139,6 +139,7 @@ export interface reviewHogSettingsLogicValues {
     perspectiveStatsLoading: boolean
     perspectives: ReviewPerspectiveConfigApi[] | null
     perspectivesLoading: boolean
+    pipelineDetailOpen: boolean
     recentReviews: ReviewRecentReviewApi[] | null
     recentReviewsPage: ReviewRecentReviewsPageApi | null
     recentReviewsPageLoading: boolean
@@ -168,6 +169,9 @@ export interface reviewHogSettingsLogicActions {
     }
     blockSingleActiveDeactivation: (kindLabel: string) => {
         kindLabel: string
+    }
+    closePipelineDetail: () => {
+        value: true
     }
     closeReviewDrawer: () => {
         value: true
@@ -282,6 +286,9 @@ export interface reviewHogSettingsLogicActions {
     ) => {
         validators: ReviewValidatorConfigApi[]
         payload?: any
+    }
+    openPipelineDetail: () => {
+        value: true
     }
     openReviewDetail: (review: ReviewRecentReviewApi) => {
         review: ReviewRecentReviewApi
@@ -417,6 +424,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         closeSkillDrawer: true,
         openReviewDetail: (review: ReviewRecentReviewApi) => ({ review }),
         closeReviewDrawer: true,
+        openPipelineDetail: true,
+        closePipelineDetail: true,
         setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
         toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
         setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
@@ -562,6 +571,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 openReviewDetail: () => true,
                 closeReviewDrawer: () => false,
+            },
+        ],
+        pipelineDetailOpen: [
+            false,
+            {
+                openPipelineDetail: () => true,
+                closePipelineDetail: () => false,
             },
         ],
         reviewDrawerTab: [

@@ -684,6 +684,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     urlToAction(({ actions, props, cache, values }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (searchParams.resource_type === SubscriptionResourceTypes.AiPrompt) {
+                actions.setSubscriptionValue('resource_type', SubscriptionResourceTypes.AiPrompt)
+            }
             // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
             // fresh session days later — the prefill is built here from URL + context, not kea state.
             if (

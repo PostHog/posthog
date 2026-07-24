@@ -540,6 +540,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
         members_can_invite: true,
         members_can_create_projects: true,
         members_can_use_personal_api_keys: true,
+        members_can_see_org_members: true,
         allow_publicly_shared_resources: true,
         is_ai_data_processing_approved: true,
         is_ai_training_opted_in: true,

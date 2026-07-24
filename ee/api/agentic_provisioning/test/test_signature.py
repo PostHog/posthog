@@ -1,3 +1,4 @@
+# TODO(migration): Stripe-only coverage - remove once Stripe traffic has fully moved to /api/partners/stripe/ (equivalent tests live in ee/partners/stripe/api/provisioning/test/).
 import io
 import time
 from typing import cast

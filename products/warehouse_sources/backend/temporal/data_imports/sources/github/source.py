@@ -91,8 +91,8 @@ class GithubSource(
     OAuthMixin,
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2022-11-28",)
-    default_version = "2022-11-28"
+    supported_versions = ("2022-11-28", "2026-03-10")
+    default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
 
     @property
@@ -462,7 +462,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         for name, repository in org_endpoints.items():
             owner = repository.split("/", 1)[0]
             if owner not in reason_by_owner:
-                reason_by_owner[owner] = check_org_endpoint_permission(access_token, repository, egress_identity)
+                reason_by_owner[owner] = check_org_endpoint_permission(
+                    access_token, repository, egress_identity, api_version=self.resolve_api_version(api_version)
+                )
             result[name] = reason_by_owner[owner]
         return result
 
@@ -482,7 +484,9 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             repositories = self.effective_repositories(config)
             failures: list[str] = []
             for repository in repositories[: self.MAX_VALIDATED_REPOSITORIES]:
-                is_valid, message = validate_github_credentials(access_token, repository)
+                is_valid, message = validate_github_credentials(
+                    access_token, repository, api_version=self.resolve_api_version(api_version)
+                )
                 if is_valid:
                     continue
                 # A 401 is token-level — probing further repos yields the same answer.
@@ -555,7 +559,13 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             return list(pool.map(fn, repositories))
 
     def ensure_webhooks_for_repositories(
-        self, config: GithubSourceConfig, webhook_url: str, team_id: int, repositories: list[str], secret: str
+        self,
+        config: GithubSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        repositories: list[str],
+        secret: str,
+        api_version: str | None = None,
     ) -> list[str]:
         """Idempotently create/update hooks in the given repos, pinned to the source's existing
         signing secret. Used by the repo-list reconcile for newly added repos. Returns per-repo
@@ -563,10 +573,17 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
+        pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(
             repositories,
             lambda repository: ensure_repo_webhook(
-                access_token, repository, webhook_url, events, secret=secret, egress_identity=egress_identity
+                access_token,
+                repository,
+                webhook_url,
+                events,
+                secret=secret,
+                egress_identity=egress_identity,
+                api_version=pinned_version,
             ),
         )
         return [
@@ -574,16 +591,22 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         ]
 
     def delete_webhooks_for_repositories(
-        self, config: GithubSourceConfig, webhook_url: str, team_id: int, repositories: list[str]
+        self,
+        config: GithubSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        repositories: list[str],
+        api_version: str | None = None,
     ) -> list[str]:
         """Delete this source's hook from the given repos (repo-list reconcile, removed repos).
         Returns per-repo failure messages (empty on full success)."""
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
+        pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(
             repositories,
             lambda repository: delete_repo_webhook(
-                access_token, repository, webhook_url, egress_identity=egress_identity
+                access_token, repository, webhook_url, egress_identity=egress_identity, api_version=pinned_version
             ),
         )
         return [
@@ -606,10 +629,17 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # hog function anyway, so over-subscribing is harmless while enabling a table later is free.
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         repositories = self._webhook_repositories(config)
+        pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(
             repositories,
             lambda repository: ensure_repo_webhook(
-                access_token, repository, webhook_url, events, secret=secret, egress_identity=egress_identity
+                access_token,
+                repository,
+                webhook_url,
+                events,
+                secret=secret,
+                egress_identity=egress_identity,
+                api_version=pinned_version,
             ),
         )
         any_success = any(result.success for result in results)
@@ -643,10 +673,16 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # budget as the data plane; PAT sources resolve to an empty identity (record-only).
         desired_events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
         repositories = self._webhook_repositories(config)
+        pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(
             repositories,
             lambda repository: update_repo_webhook(
-                access_token, repository, webhook_url, desired_events, egress_identity=egress_identity
+                access_token,
+                repository,
+                webhook_url,
+                desired_events,
+                egress_identity=egress_identity,
+                api_version=pinned_version,
             ),
         )
         failures = [
@@ -662,10 +698,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         access_token = self._get_access_token(config, team_id)
         egress_identity = self._egress_identity(config, team_id)
         repositories = self._webhook_repositories(config)
+        pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(
             repositories,
             lambda repository: delete_repo_webhook(
-                access_token, repository, webhook_url, egress_identity=egress_identity
+                access_token, repository, webhook_url, egress_identity=egress_identity, api_version=pinned_version
             ),
         )
         failures = [
@@ -687,10 +724,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         merged_events: set[str] = set()
         first_info: ExternalWebhookInfo | None = None
         repositories = self._webhook_repositories(config)
+        pinned_version = self.resolve_api_version(api_version)
         infos = self._map_webhook_repositories(
             repositories,
             lambda repository: get_repo_webhook_info(
-                access_token, repository, webhook_url, egress_identity=egress_identity
+                access_token, repository, webhook_url, egress_identity=egress_identity, api_version=pinned_version
             ),
         )
         for repository, info in zip(repositories, infos):
@@ -760,4 +798,5 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

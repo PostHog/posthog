@@ -1,1 +1,1 @@
-0069_remove_code_home_models
+0071_alter_origin_product_mcp_analytics

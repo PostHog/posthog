@@ -734,8 +734,7 @@
                 "events": {},
                 "filter_test_accounts": {
                     "type": "boolean"
-                },
-                "goals": {}
+                }
             },
             "type": "object"
         },
