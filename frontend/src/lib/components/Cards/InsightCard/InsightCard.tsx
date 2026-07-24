@@ -48,8 +48,6 @@ import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
-const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
-
 export function shouldRenderInsightCardViz({
     isStorybook,
     placement,
@@ -273,7 +271,11 @@ function InsightCardInternal(
      * See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      */
     const shouldRenderViz = shouldRenderInsightCardViz({
-        isStorybook: IS_STORYBOOK,
+        // Evaluated per render, not at module scope: this module can be evaluated during Storybook's
+        // preview boot (chunk-graph dependent), before the test runner patches the user agent and
+        // before `__STORYBOOK_PREVIEW__` exists — a frozen `false` here made below-the-fold cards
+        // render without their viz in visual regression snapshots.
+        isStorybook: inStorybook() || inStorybookTestRunner(),
         placement,
         inView,
         isPageVisible,
