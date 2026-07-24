@@ -8,9 +8,10 @@ from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
 from posthog.hogql.errors import (
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor, clone_expr
 
 
 class TestVisitor(BaseTest):
@@ -249,3 +250,15 @@ class TestVisitor(BaseTest):
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+
+    def test_deeply_nested_clone_raises_query_error_not_recursion_error(self):
+        # clone_expr walks the AST recursively and does not pass through resolve_types, so its depth
+        # guard is exercised independently. A pathologically deep tree must raise a clean QueryError
+        # rather than overflowing the Python stack with a RecursionError.
+        node: ast.Expr = ast.Constant(value=1)
+        for _ in range(200):
+            node = ast.Not(expr=node)
+
+        with self.assertRaises(QueryError) as context:
+            clone_expr(node)
+        self.assertIn("too deeply nested", str(context.exception))
