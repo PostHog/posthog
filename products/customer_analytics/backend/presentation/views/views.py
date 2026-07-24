@@ -38,7 +38,6 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.logic import event_stream_destination
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
@@ -1473,9 +1472,7 @@ class EventStreamViewSet(
                     slack_channel_name=data.slack_channel_name,
                     user=user,
                 )
-                event_stream_destination.sync_event_stream_destination_by_id(
-                    team=self.team, stream_id=str(stream.id), user=user
-                )
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
         except api.EventStreamValidationError as e:
             raise ValidationError(str(e))
         except api.EventStreamConflictError as e:
@@ -1498,9 +1495,7 @@ class EventStreamViewSet(
                 )
                 if stream is None:
                     return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-                event_stream_destination.sync_event_stream_destination_by_id(
-                    team=self.team, stream_id=str(stream.id), user=user
-                )
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
         except api.EventStreamValidationError as e:
             raise ValidationError(str(e))
         return Response(EventStreamSerializer(instance=stream).data)
@@ -1545,10 +1540,10 @@ class EventStreamViewSet(
     @action(methods=["POST"], detail=True, throttle_classes=[EventStreamTestMessageThrottle])
     def send_test_message(self, request: Request, *args, **kwargs) -> Response:
         try:
-            channel_id = event_stream_destination.send_test_slack_message(
+            channel_id = api.send_test_slack_message(
                 team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
             )
-        except event_stream_destination.EventStreamTestMessageError as e:
+        except contracts.EventStreamTestMessageError as e:
             raise ValidationError(str(e))
         if channel_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1570,9 +1565,7 @@ class EventStreamViewSet(
                 )
                 if stream is None:
                     return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-                event_stream_destination.sync_event_stream_destination_by_id(
-                    team=self.team, stream_id=str(stream.id), user=user
-                )
+                api.sync_event_stream_destination_by_id(team=self.team, stream_id=str(stream.id), user=user)
         except api.Account_DoesNotExist:
             raise ValidationError({"account_id": "Account not found for this team."})
         return Response(EventStreamSerializer(instance=stream).data)

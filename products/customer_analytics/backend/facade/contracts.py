@@ -26,6 +26,10 @@ class InvalidCustomPropertyOptions(ValueError):
     """Raised when a select property's options fail validation; the viewset maps it to a 400."""
 
 
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""

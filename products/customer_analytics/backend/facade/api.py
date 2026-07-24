@@ -56,7 +56,9 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
 )
 from products.customer_analytics.backend.logic.event_stream_destination import (
     archive_event_stream_destination,
+    send_test_slack_message as send_test_slack_message,
     sync_event_stream_destination,
+    sync_event_stream_destination_by_id as sync_event_stream_destination_by_id,
 )
 from products.customer_analytics.backend.logic.person_property_projection import (
     person_properties_flag_enabled as person_properties_flag_enabled,

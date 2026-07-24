@@ -17,16 +17,13 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
+from products.customer_analytics.backend.facade.contracts import EventStreamTestMessageError
 from products.customer_analytics.backend.models import EventStream, TeamCustomerAnalyticsConfig
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
 logger = structlog.get_logger(__name__)
-
-
-class EventStreamTestMessageError(Exception):
-    """The test message could not be sent — unconfigured stream or a Slack API failure."""
 
 
 _SLACK_TEMPLATE = "template-slack"
