@@ -228,6 +228,23 @@ class Dismissal(BaseModel):
     )
 
 
+class Feedback(BaseModel):
+    """Content schema for a `feedback` artefact: a reader's thumbs verdict on a report.
+
+    Unlike a dismissal it carries no state change — the report stays where it is; entries stack
+    over time. Attribution (who left it) lives on the artefact row (`created_by`), not in content.
+    """
+
+    sentiment: Literal["positive", "negative"] = Field(
+        description="Whether the reader found the report helpful (positive) or not (negative)."
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="Optional free-form note on what was useful or off. Capped at 4000 characters.",
+    )
+
+
 class VideoSegment(RootModel[dict[str, Any] | list[Any]]):
     """Content schema for a `video_segment` artefact.
 
@@ -524,14 +541,14 @@ class CodeReview(BaseModel):
 
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
-# `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
+# `Dismissal` / `Feedback` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
 LogArtefactContent = (
     CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
 )
-ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
+ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | Feedback | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
 # Django-free; a test asserts the key set matches the model enum exactly.
@@ -544,6 +561,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "dismissal": Dismissal,
+    "feedback": Feedback,
     "code_reference": CodeReference,
     "commit": Commit,
     "task_run": TaskRunArtefact,

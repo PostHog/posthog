@@ -91,6 +91,10 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** Sentiment (positive/negative) from the latest feedback artefact, when a reader left feedback. */
+    feedback_sentiment?: string | null
+    /** Free-form note from the latest feedback artefact. */
+    feedback_note?: string | null
     /** The report's PR refund, when one exists (one refund per report, ever). */
     refund?: SignalReportRefundApi | null
     /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */

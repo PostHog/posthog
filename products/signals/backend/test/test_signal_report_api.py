@@ -1161,6 +1161,64 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
+    # --- feedback ---
+
+    def _feedback_artefact(
+        self,
+        report: SignalReport,
+        *,
+        sentiment: str,
+        note: str = "",
+        created_at=None,
+        task_id: str | None = None,
+    ) -> SignalReportArtefact:
+        # Mirrors the write path's attribution: a human row carries created_by, a
+        # task-attributed row carries task_id only.
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.FEEDBACK,
+            content=json.dumps({"sentiment": sentiment, "note": note}),
+            created_by=None if task_id else self.user,
+            task_id=task_id,
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        return art
+
+    def test_list_surfaces_latest_feedback_and_null_without_it(self):
+        with_feedback = self._create_report()
+        without_feedback = self._create_report()
+        self._feedback_artefact(with_feedback, sentiment="positive", created_at=timezone.now() - timedelta(days=1))
+        self._feedback_artefact(with_feedback, sentiment="negative", note="stop suggesting this")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        rows = {r["id"]: r for r in response.json()["results"]}
+        assert rows[str(with_feedback.id)]["feedback_sentiment"] == "negative"
+        assert rows[str(with_feedback.id)]["feedback_note"] == "stop suggesting this"
+        assert rows[str(without_feedback.id)]["feedback_sentiment"] is None
+        assert rows[str(without_feedback.id)]["feedback_note"] is None
+
+    def test_list_ignores_non_human_feedback_artefacts(self):
+        # A task-attributed feedback row (agent-authored) must never surface as the report's
+        # feedback — scouts read these fields as a human reader's verdict.
+        report = self._create_report()
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        self._feedback_artefact(report, sentiment="positive", created_at=timezone.now() - timedelta(days=1))
+        self._feedback_artefact(report, sentiment="negative", note="agent verdict", task_id=str(task.id))
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["feedback_sentiment"] == "positive"
+        assert row["feedback_note"] is None
+
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of

@@ -847,6 +847,33 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.NOTE).count() == 3
         )
 
+    def test_post_feedback_artefacts_stack(self):
+        report = self._create_report()
+        for sentiment in ("negative", "positive"):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps(
+                    {"artefact_type": "feedback", "content": {"sentiment": sentiment, "note": "this is intentional"}}
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["type"] == "feedback"
+
+        assert (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.FEEDBACK).count()
+            == 2
+        )
+
+    def test_post_feedback_invalid_sentiment_returns_400(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "feedback", "content": {"sentiment": "meh"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("safety_judgment", {"choice": True}),
@@ -1228,6 +1255,19 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert str(artefact.task_id) == str(task.id)
         assert artefact.created_by_id is None
         assert response.json()["task_id"] == str(task.id)
+
+    def test_post_feedback_with_task_header_returns_400(self):
+        report = self._create_report()
+        task = self._create_task()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "feedback", "content": {"sentiment": "negative"}}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "human verdict" in response.json()["error"]
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_post_with_foreign_team_task_header_returns_400(self):
         report = self._create_report()
