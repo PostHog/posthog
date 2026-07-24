@@ -456,6 +456,37 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
+            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
+            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
+            (
+                "pinned_model_clamps_unsupported_stored_effort",
+                "claude",
+                "@cf/zai-org/glm-5.2",
+                "low",
+                "@cf/zai-org/glm-5.2",
+                None,
+            ),
+        ]
+    )
+    def test_fire_resolves_model_and_reasoning_effort(
+        self, _name, runtime_adapter, model, reasoning_effort, expected_model, expected_effort
+    ):
+        loop = self.create_loop(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        self.assertEqual(task_run.state["model"], expected_model)
+        self.assertEqual(task_run.state["reasoning_effort"], expected_effort)
+
+    @parameterized.expand(
+        [
             ("default_behaviors_are_report_only", {}, {}, False, "read_only"),
             ("report_only_loop_disables_create_pr", {"create_prs": False}, {}, False, "read_only"),
             ("create_prs_opt_in_enables_pr", {"create_prs": True}, {}, True, "read_only"),

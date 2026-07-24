@@ -280,6 +280,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                   }
                                         }
                                         withIcon
+                                        withCopyEmailButton
                                         withComposeTicketButton
                                     />
                                     <IdentityBadge verified={ticket.identity_verified} />

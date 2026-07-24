@@ -150,6 +150,40 @@ const EMBED_STUB_HTML =
     '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
 
 export default {
+    // Overrides the runner's default prepare: identical navigation, plus a UA patch that must
+    // run BEFORE any page script. The runner itself only appends "StorybookTestRunner" to the
+    // user agent via addScriptTag AFTER the iframe's load event — app modules that evaluate
+    // during preview boot (chunk-graph dependent) read the unpatched UA, so a module-scope
+    // `inStorybookTestRunner()` caches `false` for the whole session. That intermittently
+    // disabled storybook-only rendering paths (e.g. InsightCard viz below the fold) and flipped
+    // visual regression snapshots. An init script re-runs before every document's first script,
+    // making the marker visible from the very first module evaluation.
+    async prepare({ page, browserContext, testRunnerConfig }) {
+        await page.addInitScript(() => {
+            const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
+            Object.defineProperty(navigator, 'userAgent', {
+                get: () => patchedUserAgent,
+                configurable: true,
+            })
+        })
+
+        // The rest replicates @storybook/test-runner's defaultPrepare (not exported).
+        const targetURL = process.env.TARGET_URL
+        const iframeURL = new URL('iframe.html', targetURL).toString()
+        if (testRunnerConfig?.getHttpHeaders) {
+            const headers = await testRunnerConfig.getHttpHeaders(iframeURL)
+            await browserContext.setExtraHTTPHeaders(headers)
+        }
+        await page.goto(iframeURL, { waitUntil: 'load' }).catch((err) => {
+            if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
+                throw new Error(
+                    `Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${err.message}`
+                )
+            }
+            throw err
+        })
+    },
+
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })

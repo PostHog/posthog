@@ -14,11 +14,13 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -268,6 +270,8 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         dateFrom,
         dateTo,
         ticketsLoading,
+        totalCount,
+        hasActiveFilters,
     } = useValues(logic)
     const {
         setSearchQuery,
@@ -298,6 +302,23 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     size="small"
                     className="min-w-64"
                 />
+                <Tooltip
+                    title={
+                        hasActiveFilters || searchQuery
+                            ? 'Tickets matching the current filters, search, and view — not the total across all tickets'
+                            : 'Tickets in the current view'
+                    }
+                >
+                    {/* Count of tickets matching the current query, shown next to the search/filter
+                        controls so it reads as the filtered count rather than an all-time total.
+                        Hidden until the first load resolves; dims on subsequent background refreshes. */}
+                    <span
+                        className={clsx('text-secondary text-sm whitespace-nowrap', ticketsLoading && 'opacity-50')}
+                        aria-live="polite"
+                    >
+                        {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
+                    </span>
+                </Tooltip>
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}

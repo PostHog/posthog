@@ -27,7 +27,10 @@ from products.tasks.backend.loop_service import pause_loop_schedules, signal_loo
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.constants import LOOP_RUN_IDLE_TIMEOUT_SECONDS, LOOP_RUN_STALE_SECONDS
-from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
+from products.tasks.backend.temporal.process_task.utils import (
+    get_default_model_for_runtime_adapter,
+    get_supported_reasoning_efforts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -529,15 +532,21 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "repositories": loop.repositories,
         "context_target": context_target,
     }
+    # A loop with no pinned model deliberately stays unset on the row; the
+    # default is resolved per fire so it can improve over time. A stored effort
+    # the resolved model doesn't support (a default change can shrink the
+    # supported set under existing loops) falls back to auto rather than
+    # launching a run the runtime would reject.
+    effective_model = loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter)
+    supported_efforts = {e.value for e in get_supported_reasoning_efforts(loop.runtime_adapter, effective_model)}
+    reasoning_effort = loop.reasoning_effort if loop.reasoning_effort in supported_efforts else None
     extra_state: dict[str, Any] = {
         "loop_id": str(loop.id),
         "loop_trigger_id": str(trigger.id) if trigger is not None else None,
         "trigger_context": trigger_context,
         "runtime_adapter": loop.runtime_adapter,
-        # A loop with no pinned model deliberately stays unset on the row; the
-        # default is resolved per fire so it can improve over time.
-        "model": loop.model or get_default_model_for_runtime_adapter(loop.runtime_adapter),
-        "reasoning_effort": loop.reasoning_effort,
+        "model": effective_model,
+        "reasoning_effort": reasoning_effort,
         "config_snapshot": config_snapshot,
     }
     # Carries the loop's sandbox secrets/network policy into the run the same way a

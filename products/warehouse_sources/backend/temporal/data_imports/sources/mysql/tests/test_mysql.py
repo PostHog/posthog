@@ -926,6 +926,9 @@ class TestIsTransientConnectDrop:
             "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
             # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
             "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+            # A raw socket close (TCP RST/FIN) mid-handshake, with unread bytes still buffered.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "(Closed before TLS handshake with data in recv buffer. (_ssl.c:1032))",
         ],
     )
     def test_matches_ssl_peer_close_on_connect(self, message):

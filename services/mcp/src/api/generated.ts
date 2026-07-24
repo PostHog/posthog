@@ -2277,6 +2277,15 @@ export namespace Schemas {
       readonly item_id: string;
       detail?: Detail;
       readonly created_at: string;
+      /** Whether the activity was performed by the system rather than a user. */
+      readonly is_system: boolean;
+      /** Whether the acting user was being impersonated by PostHog staff. */
+      readonly was_impersonated: boolean;
+      /**
+         * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+         * @nullable
+         */
+      readonly client: string | null;
     }
 
     /**
@@ -26497,6 +26506,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -27198,6 +27213,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -48060,6 +48081,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id?: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -71761,6 +71788,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
@@ -71851,6 +71879,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
@@ -71927,6 +71956,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
@@ -72005,6 +72035,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
@@ -74740,6 +74771,19 @@ export namespace Schemas {
       Running: 'running',
       Stopped: 'stopped',
     } as const;
+
+    export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
