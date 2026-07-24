@@ -2,13 +2,6 @@ import type { ReactNode } from 'react'
 
 import { IconAI, IconEllipsis, IconGraph, IconLetter, IconPause, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -164,122 +157,117 @@ export function SubscriptionListItem({
     const destination = subscriptionDestination(subscription)
 
     return (
-        <div className="relative">
-            <LemonButton type="secondary" onClick={onClick} data-attr="subscription-list-item" fullWidth>
-                <div className="flex-auto p-2 pr-10 min-w-0">
-                    <div className="flex flex-col gap-1 min-w-0">
-                        <div className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <div className={`font-medium truncate ${enabled ? 'text-link' : 'text-muted'}`}>
-                                    {subscription.title}
-                                </div>
-                                {!enabled && (
-                                    <LemonTag type="danger" size="small">
-                                        Disabled
-                                    </LemonTag>
-                                )}
-                            </div>
-                            <div
-                                className="flex items-center gap-1 text-xs text-secondary shrink-0"
-                                title={destination.title}
-                            >
-                                {subscription.target_type === 'email' && <IconLetter />}
-                                {subscription.target_type === 'slack' && <IconSlack />}
-                                <span className="max-w-40 truncate">{destination.label}</span>
-                            </div>
-                        </div>
-                        {aiPrompt ? (
-                            <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
-                                <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
-                            </Tooltip>
-                        ) : null}
-                        {subscription.resource_type === SubscriptionResourceTypes.Insight &&
-                        subscription.resource_name ? (
-                            <div className="flex items-center gap-1 text-xs text-secondary">
-                                <IconGraph />
-                                <span>
-                                    Insight: <span className="font-medium">{subscription.resource_name}</span>
-                                </span>
-                            </div>
-                        ) : null}
-                        <div className="text-xs text-secondary">
-                            {capitalizeFirstLetter(subscription.summary)}
-                            {selectedInsightsCount
-                                ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
-                                : null}
-                        </div>
-                        <div className="flex items-center justify-between gap-3 min-h-5 whitespace-nowrap">
-                            {enabled && subscription.next_delivery_date && (
-                                <div className="text-xs text-secondary shrink-0">
-                                    Next delivery:{' '}
-                                    <TZLabel
-                                        time={subscription.next_delivery_date}
-                                        formatDate="ddd, MMM D"
-                                        formatTime="HH:mm"
-                                        timestampStyle="absolute"
-                                    />
-                                </div>
+        <LemonButton
+            type="secondary"
+            onClick={onClick}
+            data-attr="subscription-list-item"
+            fullWidth
+            sideAction={{
+                icon: sideActionBusy ? <Spinner /> : <IconEllipsis />,
+                disabled: sideActionBusy,
+                dropdown: {
+                    overlay: (
+                        <>
+                            {onToggleEnabled && (
+                                <LemonButton
+                                    icon={enabled ? <IconPause /> : <IconPlay />}
+                                    onClick={() => onToggleEnabled(!enabled)}
+                                    data-attr="subscription-list-item-toggle-enabled"
+                                    fullWidth
+                                    disabled={isToggling}
+                                >
+                                    {enabled ? 'Disable subscription' : 'Enable subscription'}
+                                </LemonButton>
                             )}
-                            {subscription.created_by ? (
-                                <div className="flex items-center gap-1 text-xs text-tertiary ml-auto opacity-60 min-w-0 overflow-hidden">
-                                    <span>Created by</span>
-                                    <ProfilePicture user={subscription.created_by} size="xs" showName />
-                                </div>
-                            ) : null}
+                            {onDeliver && enabled && (
+                                <LemonButton
+                                    icon={<IconPlay />}
+                                    onClick={onDeliver}
+                                    data-attr="subscription-list-item-manual-deliver"
+                                    fullWidth
+                                    disabled={isDelivering}
+                                >
+                                    Test delivery
+                                </LemonButton>
+                            )}
+                            {onDelete && (
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    onClick={onDelete}
+                                    data-attr="subscription-list-item-delete"
+                                    status="danger"
+                                    fullWidth
+                                >
+                                    Delete subscription
+                                </LemonButton>
+                            )}
+                        </>
+                    ),
+                },
+            }}
+        >
+            <div className="flex-auto p-2 min-w-0">
+                <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className={`font-medium truncate ${enabled ? 'text-link' : 'text-muted'}`}>
+                                {subscription.title}
+                            </div>
+                            {!enabled && (
+                                <LemonTag type="danger" size="small">
+                                    Disabled
+                                </LemonTag>
+                            )}
+                        </div>
+                        <div
+                            className="flex items-center gap-1 text-xs text-secondary shrink-0"
+                            title={destination.title}
+                        >
+                            {subscription.target_type === 'email' && <IconLetter />}
+                            {subscription.target_type === 'slack' && <IconSlack />}
+                            <span className="max-w-40 truncate">{destination.label}</span>
                         </div>
                     </div>
+                    {aiPrompt ? (
+                        <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
+                            <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
+                        </Tooltip>
+                    ) : null}
+                    {subscription.resource_type === SubscriptionResourceTypes.Insight && subscription.resource_name ? (
+                        <div className="flex items-center gap-1 text-xs text-secondary">
+                            <IconGraph />
+                            <span>
+                                Insight: <span className="font-medium">{subscription.resource_name}</span>
+                            </span>
+                        </div>
+                    ) : null}
+                    <div className="text-xs text-secondary">
+                        {capitalizeFirstLetter(subscription.summary)}
+                        {selectedInsightsCount
+                            ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
+                            : null}
+                    </div>
+                    <div className="flex items-center justify-between gap-3 min-h-5 whitespace-nowrap">
+                        {enabled && subscription.next_delivery_date && (
+                            <div className="text-xs text-secondary shrink-0">
+                                Next delivery:{' '}
+                                <TZLabel
+                                    time={subscription.next_delivery_date}
+                                    formatDate="ddd, MMM D"
+                                    formatTime="HH:mm"
+                                    timestampStyle="absolute"
+                                />
+                            </div>
+                        )}
+                        {subscription.created_by ? (
+                            <div className="flex items-center gap-1 text-xs text-tertiary ml-auto opacity-60 min-w-0 overflow-hidden">
+                                <span>Created by</span>
+                                <ProfilePicture user={subscription.created_by} size="xs" showName />
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
-            </LemonButton>
-            <DropdownMenu>
-                <DropdownMenuTrigger
-                    render={
-                        <LemonButton
-                            icon={sideActionBusy ? <Spinner /> : <IconEllipsis />}
-                            size="xsmall"
-                            type="tertiary"
-                            disabled={sideActionBusy}
-                            tooltip="Subscription actions"
-                            className="absolute top-2 right-2 z-10"
-                        />
-                    }
-                />
-                <DropdownMenuContent align="end" className="min-w-48">
-                    {onToggleEnabled && (
-                        <DropdownMenuItem
-                            onClick={() => onToggleEnabled(!enabled)}
-                            disabled={isToggling}
-                            data-attr="subscription-list-item-toggle-enabled"
-                        >
-                            {enabled ? <IconPause /> : <IconPlay />}
-                            {enabled ? 'Disable subscription' : 'Enable subscription'}
-                        </DropdownMenuItem>
-                    )}
-                    {onDeliver && enabled && (
-                        <DropdownMenuItem
-                            onClick={onDeliver}
-                            disabled={isDelivering}
-                            data-attr="subscription-list-item-manual-deliver"
-                        >
-                            <IconPlay />
-                            Test delivery
-                        </DropdownMenuItem>
-                    )}
-                    {onDelete && (
-                        <>
-                            {(onToggleEnabled || (onDeliver && enabled)) && <DropdownMenuSeparator />}
-                            <DropdownMenuItem
-                                onClick={onDelete}
-                                variant="destructive"
-                                className="text-danger"
-                                data-attr="subscription-list-item-delete"
-                            >
-                                <IconTrash />
-                                Delete subscription
-                            </DropdownMenuItem>
-                        </>
-                    )}
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
+            </div>
+        </LemonButton>
     )
 }
