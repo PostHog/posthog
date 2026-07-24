@@ -80,6 +80,7 @@
         }
     ],
     "ignorePatterns": [
+        "products/desktop",
         "venv",
         "env",
         ".venv",

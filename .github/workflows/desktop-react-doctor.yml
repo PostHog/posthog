@@ -1,0 +1,124 @@
+name: Desktop React Doctor
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        # Workflow-level paths only work because react-doctor is not a required
+        # check. If it ever becomes required, move the skip into a gate job like
+        # test.yml, or path-skipped PRs will wait on it forever.
+        paths:
+            - 'products/desktop/**/*.ts'
+            - 'products/desktop/**/*.tsx'
+            - 'products/desktop/**/*.jsx'
+            - '.github/workflows/desktop-react-doctor.yml'
+            - '.github/scripts/products/desktop/react-doctor-comment.mjs'
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: desktop-react-doctor-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    react-doctor:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - id: scan
+              name: Run react-doctor on changed files
+              shell: bash
+              env:
+                  NO_COLOR: '1'
+                  REACT_DOCTOR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  # -e omitted: exit codes are captured and inspected explicitly.
+                  set -uo pipefail
+                  CHANGED="${RUNNER_TEMP}/react-doctor-changed-files.txt"
+                  if ! git diff --name-only --diff-filter=ACMR "${REACT_DOCTOR_BASE_SHA}...${HEAD_SHA}" > "${CHANGED}.all"; then
+                    echo "Could not diff ${REACT_DOCTOR_BASE_SHA}...${HEAD_SHA}; failing rather than skipping the scan." >&2
+                    echo "exit-code=1" >> "$GITHUB_OUTPUT"
+                    exit 1
+                  fi
+                  # Only scan desktop files: a mixed PR's frontend/ changes are not this
+                  # tool's domain in the monorepo.
+                  grep '^products/desktop/' "${CHANGED}.all" > "$CHANGED" || true
+                  if [ ! -s "$CHANGED" ]; then
+                    echo "No changed files; nothing for react-doctor to scan."
+                    echo "exit-code=0" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  REPORT="${RUNNER_TEMP}/react-doctor-report.json"
+                  status=0
+                  npx --yes react-doctor@0.5.4 . --blocking error --changed-files-from "$CHANGED" --json --json-compact --no-telemetry > "$REPORT" || status=$?
+                  echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+                  echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+                  if [ "$status" -ne 0 ]; then
+                    echo "react-doctor exited with status ${status}; report follows." >&2
+                    cat "$REPORT" >&2 || true
+                  fi
+
+            - name: Upsert sticky PR comment
+              if: ${{ always() && steps.scan.outputs.report != '' }}
+              continue-on-error: true
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_SERVER_URL: ${{ github.server_url }}
+                  REACT_DOCTOR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPORT: ${{ steps.scan.outputs.report }}
+              run: |
+                  set -uo pipefail
+                  BODY="${RUNNER_TEMP}/react-doctor-comment.md"
+                  node "${GITHUB_WORKSPACE}/.github/scripts/products/desktop/react-doctor-comment.mjs" "$REPORT" "$BODY"
+                  cat "$BODY" >> "$GITHUB_STEP_SUMMARY"
+                  jq -Rs '{body: .}' "$BODY" > "${RUNNER_TEMP}/react-doctor-payload.json"
+                  marker="<!-- desktop-react-doctor:summary -->"
+                  existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+                    --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n1 || true)
+                  if [ -n "$existing" ]; then
+                    gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input "${RUNNER_TEMP}/react-doctor-payload.json" >/dev/null
+                  else
+                    gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input "${RUNNER_TEMP}/react-doctor-payload.json" >/dev/null
+                  fi
+
+            - name: Enforce blocking findings
+              if: ${{ always() }}
+              shell: bash
+              env:
+                  STATUS: ${{ steps.scan.outputs.exit-code }}
+                  REPORT: ${{ steps.scan.outputs.report }}
+              run: |
+                  # -e omitted: exit codes are captured and inspected explicitly.
+                  set -uo pipefail
+                  if [ "${STATUS:-1}" = "0" ]; then
+                    exit 0
+                  fi
+                  if [ -n "${REPORT:-}" ]; then
+                    if ! jq -e . "$REPORT" >/dev/null 2>&1; then
+                      echo "::warning title=React Doctor::Scanner exited ${STATUS:-1} without a valid JSON report; not blocking the PR on a scanner failure."
+                      exit 0
+                    fi
+                    if jq -e '.ok == false' "$REPORT" >/dev/null 2>&1; then
+                      # Strip newlines so the message cannot end the ::warning command early.
+                      message=$(jq -r '.error.message // "unknown error"' "$REPORT" | tr -d '\n')
+                      echo "::warning title=React Doctor::Scanner crashed (${message}); not blocking the PR on a scanner failure."
+                      exit 0
+                    fi
+                  fi
+                  exit "${STATUS:-1}"

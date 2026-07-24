@@ -86,6 +86,9 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'playwright/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
@@ -120,6 +123,9 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'playwright/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json

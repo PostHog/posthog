@@ -1,0 +1,110 @@
+name: Desktop Quality
+
+on:
+    pull_request:
+    push:
+        branches: [master]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-quality.yml'
+    # Required so `Desktop Quality Pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already ran in
+    # full on the PR) and the aggregator treats skipped as success.
+    merge_group:
+
+concurrency:
+    group: desktop-quality-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name != 'merge_group'
+        permissions:
+            pull-requests: read
+        outputs:
+            # On master pushes the filter step is skipped and everything runs.
+            code: ${{ steps.filter.outputs.code || 'true' }}
+            workflow: ${{ steps.filter.outputs.workflow || 'true' }}
+        steps:
+            - name: Detect relevant changes
+              id: filter
+              if: github.event_name == 'pull_request'
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              with:
+                  predicate-quantifier: every
+                  filters: |
+                      # Biome lints tracked JSON in .vscode/.claude, so only workflow
+                      # YAML and prose are ignored.
+                      code:
+                        - "products/desktop/**"
+                        - "!products/desktop/**/*.md"
+                        - "!products/desktop/docs/**"
+                        - "!products/desktop/.husky/**"
+                        - "!products/desktop/LICENSE"
+                        - "!products/desktop/.gitignore"
+                        - "!products/desktop/.env.example"
+                      workflow:
+                        - ".github/workflows/desktop-quality.yml"
+
+    quality:
+        needs: changes
+        # Fail closed: if change detection itself failed, run instead of skipping.
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup Biome
+              uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # v2.7.1
+              with:
+                  # Keep in sync with @biomejs/biome in products/desktop/package.json; without a
+                  # pin the action resolves a version at the repo root, which rejects
+                  # this config.
+                  version: 2.2.4
+
+            - name: Run Biome
+              run: biome ci .
+
+            - name: Setup Node
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Check host boundaries (apps/code must stay a thin Electron host)
+              run: node scripts/check-host-boundaries.mjs
+
+    # Collation job for the required status check; must be registered as the
+    # required check instead of the individual jobs.
+    desktop-quality-pass:
+        needs: [changes, quality]
+        name: Desktop Quality Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+                    echo "Merge queue entry: the suite already ran on the PR."
+                    exit 0
+                  fi
+                  for result in "${{ needs.quality.result }}"; do
+                    if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+                      echo "A required desktop job did not succeed: $result"
+                      exit 1
+                    fi
+                  done
+                  echo "All desktop jobs passed or were skipped."

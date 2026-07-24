@@ -1,0 +1,152 @@
+name: Desktop Warm Caches
+
+# GitHub only shares caches saved on the default branch with other branches,
+# and the desktop PR workflows are restore-only. This job seeds every cache
+# they restore. Saves are allowed here because the triggers are
+# default-branch-scoped (push to master + manual dispatch).
+
+on:
+    push:
+        branches: [master]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-warm-caches.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: desktop-warm-caches-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    linux:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Cache pnpm store
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            # No restore-keys: a fresh save per commit keeps the cache from growing
+            # forever, at the cost of a cold build on every master push.
+            - name: Cache turbo artifacts
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: products/desktop/.turbo/cache
+                  key: desktop-turbo-${{ github.sha }}
+
+            # Same key as desktop-storybook.yml's visual-regression job.
+            - name: Cache Playwright browsers
+              id: playwright-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-chromium-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              env:
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Seed turbo cache (build + typecheck)
+              run: |
+                  pnpm run build:deps
+                  pnpm run typecheck
+
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              working-directory: products/desktop/apps/code
+              run: pnpm exec playwright install chromium
+
+    macos:
+        runs-on: macos-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Cache pnpm store
+              id: pnpm-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            # Same keys as desktop-test.yml's integration-test job.
+            - name: Cache Electron binary
+              id: electron-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/Library/Caches/electron
+                  key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            - name: Cache Playwright browsers
+              id: playwright-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/Library/Caches/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+
+            # macOS minutes are 10x; do nothing when every cache is already warm.
+            - name: Install dependencies
+              if: >-
+                  steps.pnpm-cache.outputs.cache-hit != 'true' ||
+                  steps.electron-cache.outputs.cache-hit != 'true' ||
+                  steps.playwright-cache.outputs.cache-hit != 'true'
+              # Electron's own postinstall fills ~/Library/Caches/electron; the sqlite
+              # rebuild only touches node_modules, which is not cached, so skip it.
+              run: pnpm install --frozen-lockfile
+              env:
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              run: pnpm --filter code exec playwright install chromium

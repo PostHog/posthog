@@ -1,0 +1,162 @@
+name: Desktop Tag Release
+
+on:
+    schedule:
+        - cron: '0 1,17 * * *'
+    workflow_dispatch:
+        inputs:
+            quiet_retries:
+                type: number
+                default: 0
+    pull_request:
+        types: [closed]
+        branches:
+            - master
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-tag.yml'
+
+concurrency:
+    group: desktop-tag
+    cancel-in-progress: false
+
+jobs:
+    tag:
+        if: >-
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch' ||
+            (github.event.pull_request.merged == true &&
+             contains(github.event.pull_request.labels.*.name, 'Create release'))
+        permissions:
+            contents: write
+            actions: write
+            pull-requests: write
+            issues: write
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Check labeler is a member of team-posthog-code
+              id: labeler
+              if: github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  COMMENT_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  TEAM_SLUG: team-posthog-code
+              run: |
+                  skip() {
+                    echo "$1 Skipping auto-release; the next scheduled release will pick this up."
+                    echo "authorized=false" >> "$GITHUB_OUTPUT"
+                    GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
+                      --body "$1 Auto-release is limited to members of the team-posthog-code GitHub team, so this will ship with the next scheduled release instead." || true
+                  }
+
+                  LABELER=$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate \
+                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "create release") | "\(.id) \(.actor.login)"' \
+                    | sort -n | tail -1 | cut -d" " -f2)
+
+                  if [ -z "$LABELER" ]; then
+                    skip "Could not determine who added the 'Create release' label."
+                    exit 0
+                  fi
+
+                  if ! MEMBERS=$(gh api "orgs/${REPOSITORY%%/*}/teams/${TEAM_SLUG}/members" --paginate --jq '.[].login'); then
+                    skip "Could not verify ${TEAM_SLUG} membership (GitHub API error)."
+                    exit 0
+                  fi
+
+                  if echo "$MEMBERS" | grep -qixF "$LABELER"; then
+                    echo "'Create release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
+                    echo "authorized=true" >> "$GITHUB_OUTPUT"
+                  else
+                    skip "'Create release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
+                  fi
+
+            - name: Check quiet period
+              id: quiet
+              if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.quiet_retries != '0')
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  QUIET_RETRIES: ${{ github.event.inputs.quiet_retries || 0 }}
+              run: |
+                  RETRIES="${QUIET_RETRIES}"
+                  MAX_RETRIES=5
+                  # Scoped to products/desktop/: monorepo master always has commits landing, so an
+                  # unscoped check would never see a quiet period.
+                  LAST_COMMIT_EPOCH=$(git log -1 --format=%ct HEAD -- products/desktop/)
+                  NOW_EPOCH=$(date +%s)
+                  AGE_MINUTES=$(( (NOW_EPOCH - LAST_COMMIT_EPOCH) / 60 ))
+
+                  if [ "$AGE_MINUTES" -ge 15 ]; then
+                    echo "Last desktop commit to master was ${AGE_MINUTES}m ago. Quiet period met."
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  if [ "$RETRIES" -ge "$MAX_RETRIES" ]; then
+                    echo "Retried ${MAX_RETRIES} times and commits are still landing. Proceeding anyway."
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  NEXT=$((RETRIES + 1))
+                  WAIT_SECONDS=$(( (15 - AGE_MINUTES) * 60 ))
+                  echo "Last desktop commit was ${AGE_MINUTES}m ago (< 15m). Sleeping ${WAIT_SECONDS}s before retry ${NEXT}/${MAX_RETRIES}..."
+                  sleep "$WAIT_SECONDS"
+                  gh workflow run desktop-tag.yml -f quiet_retries="$NEXT"
+                  echo "proceed=false" >> "$GITHUB_OUTPUT"
+
+            - name: Compute version and create tag
+              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
+
+                  if [ -z "$LATEST_TAG" ]; then
+                    echo "No version tag found. Create one with: git tag desktop-v0.15 && git push origin desktop-v0.15"
+                    exit 1
+                  fi
+
+                  VERSION_PART=${LATEST_TAG#desktop-v}
+                  MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
+                  MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
+
+                  # Scoped to products/desktop/: an unscoped count would include every PostHog
+                  # commit and inflate patch numbers meaninglessly.
+                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- products/desktop/)
+
+                  if [ "$PATCH" -eq 0 ]; then
+                    echo "No desktop commits since $LATEST_TAG. Nothing to release."
+                    exit 0
+                  fi
+
+                  TAG="desktop-v${MAJOR}.${MINOR}.${PATCH}"
+
+                  if git rev-parse "$TAG" >/dev/null 2>&1; then
+                    echo "Tag $TAG already exists. Nothing new to release."
+                    exit 0
+                  fi
+
+                  echo "Creating tag: $TAG (from base tag $LATEST_TAG + $PATCH commits)"
+
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git config user.name "github-actions[bot]"
+                  git tag -a "$TAG" -m "Release $TAG"
+                  git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"

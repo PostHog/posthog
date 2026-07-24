@@ -15,6 +15,9 @@ packages:
     - nodejs
     - nodejs/src/scripts
     - products/*
+    # products/desktop is a nested standalone workspace (own lockfile, catalog,
+    # overrides, Node version); the root install must not absorb it.
+    - '!products/desktop'
     - products/agent_platform/services/*
     - products/agent_platform/packages/*
     - docs/onboarding

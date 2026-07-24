@@ -1,0 +1,129 @@
+name: Desktop Typecheck
+
+on:
+    pull_request:
+    push:
+        branches: [master]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-typecheck.yml'
+    # Required so `Desktop Typecheck Pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already ran in
+    # full on the PR) and the aggregator treats skipped as success.
+    merge_group:
+
+concurrency:
+    group: desktop-typecheck-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name != 'merge_group'
+        permissions:
+            pull-requests: read
+        outputs:
+            # On master pushes the filter step is skipped and everything runs.
+            code: ${{ steps.filter.outputs.code || 'true' }}
+            workflow: ${{ steps.filter.outputs.workflow || 'true' }}
+        steps:
+            - name: Detect relevant changes
+              id: filter
+              if: github.event_name == 'pull_request'
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              with:
+                  predicate-quantifier: every
+                  filters: |
+                      # Wider excludes than desktop-quality.yml, which keeps .vscode and
+                      # .claude in scope because Biome lints them.
+                      code:
+                        - "products/desktop/**"
+                        - "!products/desktop/**/*.md"
+                        - "!products/desktop/docs/**"
+                        - "!products/desktop/.vscode/**"
+                        - "!products/desktop/.claude/**"
+                        - "!products/desktop/.husky/**"
+                        - "!products/desktop/LICENSE"
+                        - "!products/desktop/.gitignore"
+                        - "!products/desktop/.env.example"
+                      workflow:
+                        - ".github/workflows/desktop-typecheck.yml"
+
+    typecheck:
+        needs: changes
+        # Fail closed: if change detection itself failed, run instead of skipping.
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Explicit restore/save instead of setup-node's `cache: pnpm`: that
+            # auto-saves on every run (PRs included, ungatable), which the workflow
+            # lint forbids. Saves are gated to master pushes below.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            # Only dependency builds are cached, the typecheck itself always runs.
+            - name: Restore turbo cache
+              uses: ./.github/actions/desktop-restore-turbo-cache
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              env:
+                  # The packaged app is never launched, so the Electron-ABI rebuild is unused.
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Run type check
+              run: pnpm run typecheck
+
+    # Collation job for the required status check; must be registered as the
+    # required check instead of the individual jobs.
+    desktop-typecheck-pass:
+        needs: [changes, typecheck]
+        name: Desktop Typecheck Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+                    echo "Merge queue entry: the suite already ran on the PR."
+                    exit 0
+                  fi
+                  for result in "${{ needs.typecheck.result }}"; do
+                    if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+                      echo "A required desktop job did not succeed: $result"
+                      exit 1
+                    fi
+                  done
+                  echo "All desktop jobs passed or were skipped."
