@@ -508,6 +508,106 @@ describe.each([
     )
 
     testWithTeamIngester(
+        'per-event person property snapshots for a consecutive $identify run',
+        {},
+        async ({ ingester, infra, team, kafkaProducer, token }) => {
+            // Documents the fold's one intentional behavior delta: in a folded
+            // run, every source person's properties land on the target when
+            // the run's first event executes, so the first $identify's emitted
+            // snapshot already carries the later sources' properties. The
+            // sequential path lands them event by event. Final person state is
+            // identical either way.
+            const userId = `user-${new UUIDT().toString()}`
+            const anonA = `anon-a-${userId}`
+            const anonB = `anon-b-${userId}`
+            const timestamp = DateTime.now().toMillis()
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages(
+                    [
+                        new EventBuilder(team, anonA)
+                            .withEvent('seed a')
+                            .withProperties({ $set: { from_a: true } })
+                            .withTimestamp(timestamp)
+                            .build(),
+                        new EventBuilder(team, anonB)
+                            .withEvent('seed b')
+                            .withProperties({ $set: { from_b: true } })
+                            .withTimestamp(timestamp)
+                            .build(),
+                    ],
+                    token
+                )
+            )
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages(
+                    [
+                        new EventBuilder(team, userId)
+                            .withEvent('$identify')
+                            .withProperties({ $anon_distinct_id: anonA, $set: { i1: true } })
+                            .withTimestamp(timestamp + 10)
+                            .build(),
+                        new EventBuilder(team, userId)
+                            .withEvent('$identify')
+                            .withProperties({ $anon_distinct_id: anonB, $set: { i2: true } })
+                            .withTimestamp(timestamp + 20)
+                            .build(),
+                        new EventBuilder(team, userId)
+                            .withEvent('after event')
+                            .withTimestamp(timestamp + 30)
+                            .build(),
+                    ],
+                    token
+                )
+            )
+            await waitForKafkaMessages(kafkaProducer)
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(clickhouse, team.id)
+                expect(events.length).toBe(5)
+            })
+
+            const events = await fetchEvents(clickhouse, team.id)
+            const identify1 = events.find(
+                (event) => event.event === '$identify' && event.properties.$anon_distinct_id === anonA
+            )!
+            const identify2 = events.find(
+                (event) => event.event === '$identify' && event.properties.$anon_distinct_id === anonB
+            )!
+            const after = events.find((event) => event.event === 'after event')!
+
+            // The first identify always has its own source's properties and
+            // $set, and never a later event's $set.
+            expect(identify1.person_properties).toEqual(expect.objectContaining({ from_a: true, i1: true }))
+            expect(identify1.person_properties).not.toHaveProperty('i2')
+            if (pipelineConfig.PERSON_MERGE_FOLD_ENABLED) {
+                // Folded: B's person properties landed with the fold, before
+                // identify1's row was emitted.
+                expect(identify1.person_properties).toEqual(expect.objectContaining({ from_b: true }))
+            } else {
+                // Sequential: B's person merges only at identify2.
+                expect(identify1.person_properties).not.toHaveProperty('from_b')
+            }
+
+            // From the second identify onward the arms are indistinguishable.
+            expect(identify2.person_properties).toEqual(
+                expect.objectContaining({ from_a: true, from_b: true, i1: true, i2: true })
+            )
+            expect(after.person_properties).toEqual(
+                expect.objectContaining({ from_a: true, from_b: true, i1: true, i2: true })
+            )
+
+            const persons = await fetchPostgresPersons(infra.postgres, team.id)
+            expect(persons).toHaveLength(1)
+            expect(persons[0].is_identified).toBe(true)
+            expect(persons[0].properties).toEqual(
+                expect.objectContaining({ from_a: true, from_b: true, i1: true, i2: true })
+            )
+        }
+    )
+
+    testWithTeamIngester(
         '$identify and $set events force person property updates even for filtered properties',
         {},
         async ({ ingester, infra, team, token }) => {
