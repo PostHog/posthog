@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { ConcurrentlyGroupingChunkPipeline } from './concurrently-grouping-chunk-pipeline'
+import { ConcurrentlyGroupingChunkPipeline, passThroughGroupChunk } from './concurrently-grouping-chunk-pipeline'
 import { createContext, createNewChunkPipeline, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { dlq, drop, ok } from './results'
@@ -59,7 +59,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             )
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             expect(pipeline).toBeInstanceOf(ConcurrentlyGroupingChunkPipeline)
         })
@@ -73,7 +78,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             const spy = jest.spyOn(previousPipeline, 'feed')
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
             const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
 
             pipeline.feed(testBatch)
@@ -89,7 +99,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             )
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const result = await pipeline.next()
             expect(result).toBeNull()
@@ -104,7 +119,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const testBatch = [createOkContext({ value: 'test', group: 'A' }, context1)]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             await expect(pipeline.next()).rejects.toThrow('Processor error')
         })
@@ -124,7 +144,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -153,7 +178,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             ]
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const resultsPromise = (async () => {
                 let result = await pipeline.next()
@@ -194,7 +224,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const testBatch = events.map((e) => createOkContext(e, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             // Collect results and track per-group ordering
             const groupResults = new Map<string, number[]>()
@@ -253,7 +288,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             }
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -290,7 +330,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             testBatch.push(createOkContext({ index: index++, group: 'slow' }, context1))
             previousPipeline.feed(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             // Consume results until we have all normal groups
             const results: PipelineResultWithContext<any, any>[] = []
@@ -361,6 +406,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
                 processor,
+                passThroughGroupChunk,
                 previousPipeline,
                 maxConcurrency
             )
@@ -403,6 +449,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const pipeline = new ConcurrentlyGroupingChunkPipeline(
                 (input) => input.group,
                 processor,
+                passThroughGroupChunk,
                 previousPipeline,
                 2
             )
@@ -466,7 +513,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             const testBatch = [createContext(dropResult, context1), createContext(dlqResult, context2)]
             const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -495,7 +547,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             ]
             const previousPipeline = createMockPipeline<{ value: string; group: string }>(testBatch)
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
@@ -542,14 +599,26 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             expect(results.every((r) => r.result.type === 0 && (r.result as any).value.processed)).toBe(true)
         })
 
-        it('should thread the prescan through the builder', async () => {
-            const scans: string[][] = []
+        it('should compose chained group chunk steps in order', async () => {
             const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
                 .concurrentlyPerGroup(
                     (input) => input.group,
                     (group) =>
                         group
-                            .prescan((items) => scans.push(items.map((item) => item.value.value)))
+                            .pipeChunk((values: { value: string; group: string }[]) =>
+                                Promise.resolve(
+                                    values.map((value) =>
+                                        value.value === 'a1'
+                                            ? drop<{ value: string; group: string; first: boolean }>(
+                                                  'dropped by first step'
+                                              )
+                                            : ok({ ...value, first: true })
+                                    )
+                                )
+                            )
+                            .pipeChunk((values: { value: string; group: string; first: boolean }[]) =>
+                                Promise.resolve(values.map((value) => ok({ ...value, second: true })))
+                            )
                             .sequentially((builder) => builder.pipe((input) => Promise.resolve(ok(input))))
                 )
                 .build()
@@ -557,16 +626,20 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             pipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
                 createOkContext({ value: 'a2', group: 'A' }, context2),
-                createOkContext({ value: 'b1', group: 'B' }, context3),
             ])
 
+            const results: PipelineResultWithContext<any, any>[] = []
             let result = await pipeline.next()
             while (result !== null) {
+                results.push(...result)
                 result = await pipeline.next()
             }
 
-            expect(scans).toContainEqual(['a1', 'a2'])
-            expect(scans).toContainEqual(['b1'])
+            expect(results).toHaveLength(2)
+            const dropped = results.find((r) => r.context.message === message1)!
+            const processed = results.find((r) => r.context.message === message2)!
+            expect(dropped.result.type).toBe(2) // DROP
+            expect(processed.result).toMatchObject({ value: { value: 'a2', first: true, second: true } })
         })
 
         it('should chain with gather to collect all results', async () => {
@@ -605,7 +678,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             // Feed first batch with items for group A
             previousPipeline.feed([
@@ -671,7 +749,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             // Feed one element each for groups A and B (B is slow)
             previousPipeline.feed([
@@ -881,7 +964,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
             const nextPromise = pipeline.next()
@@ -904,7 +992,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
 
@@ -944,7 +1037,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             previousPipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -977,7 +1075,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 return ok({ ...input, processed: true })
             })
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             previousPipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
@@ -1013,7 +1116,12 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             )
             const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
             previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             await expect(pipeline.next()).rejects.toThrow('processor boom')
             await expect(pipeline.next()).rejects.toThrow('processor boom')
@@ -1027,33 +1135,39 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
                 feed: jest.fn(),
                 next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
             }
-            const pipeline = new ConcurrentlyGroupingChunkPipeline((input) => input.group, processor, previousPipeline)
+            const pipeline = new ConcurrentlyGroupingChunkPipeline(
+                (input: { value: string; group: string }) => input.group,
+                processor,
+                passThroughGroupChunk,
+                previousPipeline
+            )
 
             await expect(pipeline.next()).rejects.toThrow('source boom')
             await expect(pipeline.next()).rejects.toThrow('source boom')
         })
     })
 
-    describe('prescan', () => {
-        it("runs once per group chunk with that group's items in order", async () => {
+    describe('group chunk step', () => {
+        it("runs once per group chunk with that group's values in order", async () => {
             const scans: string[][] = []
-            const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
-                Promise.resolve(ok(input))
-            )
-            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            previousPipeline.feed([
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group
+                            .pipeChunk((values: { value: string; group: string }[]) => {
+                                scans.push(values.map((value) => value.value))
+                                return Promise.resolve(values.map((value) => ok(value)))
+                            })
+                            .sequentially((builder) => builder.pipe((input) => Promise.resolve(ok(input))))
+                )
+                .build()
+
+            pipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
                 createOkContext({ value: 'b1', group: 'B' }, context2),
                 createOkContext({ value: 'a2', group: 'A' }, context3),
             ])
-
-            const pipeline = new ConcurrentlyGroupingChunkPipeline(
-                (input) => input.group,
-                processor,
-                previousPipeline,
-                undefined,
-                (items) => scans.push(items.map((item) => item.value.value))
-            )
 
             let result = await pipeline.next()
             while (result !== null) {
@@ -1065,33 +1179,29 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             expect(scans).toContainEqual(['b1'])
         })
 
-        it('makes value mutations visible to the processor', async () => {
+        it('makes returned values visible to the processor', async () => {
             const seenTags: (string | undefined)[] = []
-            const processor = createNewPipeline<{ value: string; group: string; groupTag?: string }>().pipe((input) => {
-                seenTags.push(input.groupTag)
-                return Promise.resolve(ok(input))
-            })
-            const previousPipeline = createNewChunkPipeline<{
-                value: string
-                group: string
-                groupTag?: string
-            }>().build()
-            previousPipeline.feed([
+            const pipeline = createNewChunkPipeline<{ value: string; group: string; groupTag?: string }>()
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group
+                            .pipeChunk((values: { value: string; group: string; groupTag?: string }[]) =>
+                                Promise.resolve(values.map((value) => ok({ ...value, groupTag: `A:${values.length}` })))
+                            )
+                            .sequentially((builder) =>
+                                builder.pipe((input) => {
+                                    seenTags.push(input.groupTag)
+                                    return Promise.resolve(ok(input))
+                                })
+                            )
+                )
+                .build()
+
+            pipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
                 createOkContext({ value: 'a2', group: 'A' }, context2),
             ])
-
-            const pipeline = new ConcurrentlyGroupingChunkPipeline(
-                (input) => input.group,
-                processor,
-                previousPipeline,
-                undefined,
-                (items) => {
-                    for (const item of items) {
-                        item.value.groupTag = `A:${items.length}`
-                    }
-                }
-            )
 
             let result = await pipeline.next()
             while (result !== null) {
@@ -1101,22 +1211,70 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             expect(seenTags).toEqual(['A:2', 'A:2'])
         })
 
-        it('scans chunks queued while the group was active separately', async () => {
-            const scans: string[][] = []
-            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 50))
-                return ok(input)
-            })
-            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            const pipeline = new ConcurrentlyGroupingChunkPipeline(
-                (input) => input.group,
-                processor,
-                previousPipeline,
-                undefined,
-                (items) => scans.push(items.map((item) => item.value.value))
-            )
+        it('passes step-failed values through without invoking the processor', async () => {
+            const processed: string[] = []
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group
+                            .pipeChunk((values: { value: string; group: string }[]) =>
+                                Promise.resolve(
+                                    values.map((value) =>
+                                        value.value === 'a1'
+                                            ? dlq<{ value: string; group: string }>('rejected by group step')
+                                            : ok(value)
+                                    )
+                                )
+                            )
+                            .sequentially((builder) =>
+                                builder.pipe((input) => {
+                                    processed.push(input.value)
+                                    return Promise.resolve(ok(input))
+                                })
+                            )
+                )
+                .build()
 
-            previousPipeline.feed([
+            pipeline.feed([
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'a2', group: 'A' }, context2),
+            ])
+
+            const results: PipelineResultWithContext<any, any>[] = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                results.push(...result)
+                result = await pipeline.next()
+            }
+
+            expect(processed).toEqual(['a2'])
+            expect(results).toHaveLength(2)
+            const dlqd = results.find((r) => r.context.message === message1)!
+            expect(dlqd.result.type).toBe(1) // DLQ
+        })
+
+        it('applies the step to chunks queued while the group was active separately', async () => {
+            const scans: string[][] = []
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group
+                            .pipeChunk((values: { value: string; group: string }[]) => {
+                                scans.push(values.map((value) => value.value))
+                                return Promise.resolve(values.map((value) => ok(value)))
+                            })
+                            .sequentially((builder) =>
+                                builder.pipe(async (input) => {
+                                    await new Promise((resolve) => setTimeout(resolve, 50))
+                                    return ok(input)
+                                })
+                            )
+                )
+                .build()
+
+            pipeline.feed([
                 createOkContext({ value: 'a1', group: 'A' }, context1),
                 createOkContext({ value: 'a2', group: 'A' }, context2),
             ])
@@ -1126,7 +1284,7 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             expect(scans).toEqual([['a1', 'a2']])
 
             // a3 arrives while the group is mid-chunk: it must not join the
-            // in-flight scan, and gets its own when its chunk starts.
+            // in-flight step application, and gets its own when its chunk starts.
             pipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
             await jest.advanceTimersByTimeAsync(100)
             await nextPromise
@@ -1138,25 +1296,23 @@ describe('ConcurrentlyGroupingChunkPipeline', () => {
             expect(scans).toEqual([['a1', 'a2'], ['a3']])
         })
 
-        it('poisons the pipeline when the prescan throws', async () => {
-            const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
-                Promise.resolve(ok(input))
-            )
-            const previousPipeline = createNewChunkPipeline<{ value: string; group: string }>().build()
-            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+        it('poisons the pipeline when the step throws', async () => {
+            const pipeline = createNewChunkPipeline<{ value: string; group: string }>()
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (group) =>
+                        group
+                            .pipeChunk((): Promise<never> => {
+                                throw new Error('group step boom')
+                            })
+                            .sequentially((builder) => builder.pipe((input) => Promise.resolve(ok(input))))
+                )
+                .build()
 
-            const pipeline = new ConcurrentlyGroupingChunkPipeline(
-                (input) => input.group,
-                processor,
-                previousPipeline,
-                undefined,
-                () => {
-                    throw new Error('prescan boom')
-                }
-            )
+            pipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
 
-            await expect(pipeline.next()).rejects.toThrow('prescan boom')
-            await expect(pipeline.next()).rejects.toThrow('prescan boom')
+            await expect(pipeline.next()).rejects.toThrow('group step boom')
+            await expect(pipeline.next()).rejects.toThrow('group step boom')
         })
     })
 })

@@ -2,22 +2,28 @@ import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { InterleavingChunkPipeline, PullOutcome } from './interleaving-chunk-pipeline'
-import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
 
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
 
 /**
- * Synchronous scan over a group's queued chunk, run before the items are
- * processed sequentially. Receives the OK items in processing order and may
- * attach group-scoped state by mutating item values (the same convention
- * beforeBatch steps use to attach batch-scoped stores). Runs once per started
- * group chunk (items queued while a group is active get their own scan when
- * their chunk starts). A thrown error poisons the pipeline, same as a
- * processor error.
+ * Transforms a group's queued chunk before its items are processed
+ * sequentially. Built by GroupProcessingBuilder from the chained pipeChunk
+ * steps; {@link passThroughGroupChunk} when none are configured. A synchronous
+ * return is honored without awaiting, so the pass-through adds no microtask.
  */
-export type GroupPrescanFunction<T, C> = (items: { value: T; context: PipelineContext<C> }[]) => void
+export type GroupChunkPreparation<TIn, TOut, C, RStep extends string> = <RPrev extends string>(
+    items: PipelineResultWithContext<TIn, C, RPrev>[]
+) => PipelineResultWithContext<TOut, C, RPrev | RStep>[] | Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]>
+
+/** The no-op group chunk preparation: hand the queued chunk straight to sequential processing. */
+export function passThroughGroupChunk<T, C, RPrev extends string>(
+    items: PipelineResultWithContext<T, C, RPrev>[]
+): PipelineResultWithContext<T, C, RPrev>[] {
+    return items
+}
 
 /**
  * A chunk pipeline that groups inputs by a key and processes each group concurrently.
@@ -44,6 +50,7 @@ export type GroupPrescanFunction<T, C> = (items: { value: T; context: PipelineCo
 export class ConcurrentlyGroupingChunkPipeline<
     TInput,
     TIntermediate,
+    TMid,
     TOutput,
     TKey,
     CInput,
@@ -79,10 +86,15 @@ export class ConcurrentlyGroupingChunkPipeline<
 
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
-        private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
+        private processor: Pipeline<TMid, TOutput, COutput, RStep>,
+        // Applied to each group's queued chunk before its items are processed
+        // sequentially, with the same semantics as an outer pipeChunk (one
+        // result per OK value, non-OK results pass through). Runs once per
+        // started group chunk: items queued while a group is active form a new
+        // chunk with its own preparation.
+        private prepareGroupChunk: GroupChunkPreparation<TIntermediate, TMid, COutput, RStep>,
         private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
-        maxConcurrency?: number,
-        private prescan?: GroupPrescanFunction<TIntermediate, COutput>
+        maxConcurrency?: number
     ) {
         this.limit = maxConcurrency !== undefined ? pLimit(maxConcurrency) : null
         this.inner = new InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
@@ -203,18 +215,14 @@ export class ConcurrentlyGroupingChunkPipeline<
     private async processGroupSequentially(
         items: PipelineResultWithContext<TIntermediate, COutput, RPrev | RStep>[]
     ): Promise<PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[]> {
-        if (this.prescan) {
-            const okItems = items.flatMap((item) =>
-                isOkResult(item.result) ? [{ value: item.result.value, context: item.context }] : []
-            )
-            if (okItems.length > 0) {
-                this.prescan(okItems)
-            }
-        }
+        // Honor a synchronous preparation without awaiting: the pass-through
+        // must not add a microtask between the queue snapshot and the loop.
+        const prepared = this.prepareGroupChunk(items)
+        const steppedItems = Array.isArray(prepared) ? prepared : await prepared
 
         const results: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[] = []
 
-        for (const item of items) {
+        for (const item of steppedItems) {
             if (isOkResult(item.result)) {
                 const result = await this.processor.process({
                     result: item.result,
