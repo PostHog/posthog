@@ -145,13 +145,10 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            # for security reasons, external builds (forks) don't use the shared WebDAV cache
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -201,13 +198,10 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            # for security reasons, external builds (forks) don't use the shared WebDAV cache
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -239,7 +233,9 @@ jobs:
         name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 30 # We know tests don't take this long
+        # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
+        # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
+        timeout-minutes: 45
         strategy:
             fail-fast: false
             matrix:
@@ -308,13 +304,10 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            # for security reasons, external builds (forks) don't use the shared WebDAV cache
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies
@@ -575,13 +568,10 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            # for security reasons, external builds (forks) don't use the shared WebDAV cache
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
-              if: env.RUNS_ON_INTERNAL_PR == 'true'
               uses: ./.github/actions/setup-sccache
 
             - name: Cache Rust dependencies

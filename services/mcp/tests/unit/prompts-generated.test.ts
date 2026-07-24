@@ -44,6 +44,15 @@ describe('Generated llma-prompt-* tools', () => {
         expect(() => tool.schema.parse({ name: 'checkout_prompt', prompt: { text: 'v2' } })).toThrow()
     })
 
+    it('requires base_version on the prompt-update schema (PATCH optionality stripped)', () => {
+        const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-update')
+
+        // The backend serializer requires base_version for optimistic concurrency, but the
+        // PATCH endpoint marks it optional in OpenAPI — the schema must re-require it so the
+        // agent can't silently omit it and hit a backend 400.
+        expect(() => tool.schema.parse({ prompt_name: 'checkout_prompt', prompt: { text: 'v2' } })).toThrow()
+    })
+
     it('wires prompt-list to GET and preserves paginated output shape', async () => {
         const paginated = {
             count: 1,

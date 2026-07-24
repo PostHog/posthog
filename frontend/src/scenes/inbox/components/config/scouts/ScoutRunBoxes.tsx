@@ -15,7 +15,7 @@ import {
 
 // Quiet is the common, healthy baseline so it recedes to muted; saturated color
 // only means something happened – blue emission payoff, red/amber trouble. Blue
-// (not the orange brand primary) keeps this in step with the desktop Code app.
+// (not the orange brand primary) keeps this in step with the PostHog Desktop app.
 const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
     emitted: 'bg-brand-blue',
     // A report-channel run produced output too — same payoff blue as an emitting run.

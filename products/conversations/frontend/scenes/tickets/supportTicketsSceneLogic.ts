@@ -74,7 +74,8 @@ function orderByToSorting(orderBy: string): Sorting {
 }
 
 function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
-    return entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`
+    // 'unassigned' and 'me' are string tokens; concrete entries encode as type:id.
+    return typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`
 }
 
 // kea-router hands back arrays for multi-value params, but a hand-typed single
@@ -91,8 +92,8 @@ function toStringArray(value: unknown): string[] {
 
 function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
     const entries = toStringArray(value).map((token): AssigneeFilterEntry | null => {
-        if (token === 'unassigned') {
-            return 'unassigned'
+        if (token === 'unassigned' || token === 'me') {
+            return token
         }
         const separator = token.indexOf(':')
         const type = token.slice(0, separator)
@@ -696,9 +697,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.sla = values.slaFilter
             }
             if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries
-                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
-                    .join(',')
+                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
             }
             if (values.tagsFilter.length > 0) {
                 params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
