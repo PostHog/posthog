@@ -36329,10 +36329,6 @@ export namespace Schemas {
       path: string;
       /** @maxLength 100 */
       content_type?: string;
-      /** Number of lines in the file content. */
-      line_count: number;
-      /** Number of characters in the file content. */
-      char_count: number;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -36383,9 +36379,7 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
-      /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
-      readonly owners: readonly UserBasic[];
-      /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
@@ -36694,65 +36688,6 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
-    }
-
-    export interface LLMSkillSearchError {
-      /** Explanation of why the skill search could not complete. */
-      detail: string;
-    }
-
-    /**
-     * * `name` - name
-     * * `description` - description
-     * * `body` - body
-     * * `file_path` - file_path
-     * * `file_content` - file_content
-     */
-    export type MatchedFieldEnum = typeof MatchedFieldEnum[keyof typeof MatchedFieldEnum];
-
-
-    export const MatchedFieldEnum = {
-      Name: 'name',
-      Description: 'description',
-      Body: 'body',
-      FilePath: 'file_path',
-      FileContent: 'file_content',
-    } as const;
-
-    export interface LLMSkillSearchMatch {
-      /** Skill field that matched the search query.
-       *
-       * * `name` - name
-       * * `description` - description
-       * * `body` - body
-       * * `file_path` - file_path
-       * * `file_content` - file_content */
-      matched_field: MatchedFieldEnum;
-      /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
-      path?: string;
-      /**
-         * One-based line containing the match when the result came from a body or bundled file.
-         * @minimum 1
-         */
-      line?: number;
-      /** Short excerpt showing why this skill matched. */
-      excerpt: string;
-    }
-
-    export interface LLMSkillSearchResult {
-      /** Unique skill name. */
-      name: string;
-      /** What this skill does and when to use it. */
-      description: string;
-      /** Up to two locations that matched the search query, ordered by field relevance. */
-      matches: LLMSkillSearchMatch[];
-    }
-
-    export interface LLMSkillSearchResponse {
-      /** Number of matching skills returned, capped at 10. */
-      count: number;
-      /** Matching ordinary skills in relevance order. */
-      results: LLMSkillSearchResult[];
     }
 
     export interface LLMTaggerConfig {
@@ -77263,15 +77198,6 @@ export namespace Schemas {
      * Exact skill version UUID to resolve.
      */
     version_id?: string;
-    };
-
-    export type LlmSkillsSearchRetrieveParams = {
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query: string;
     };
 
     export type LogsAlertsListParams = {
