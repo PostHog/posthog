@@ -129,6 +129,7 @@ class RemoteConfig(UUIDTModel):
         base_config = {
             "endpoint": "/s/",
             "consoleLogRecordingEnabled": capture_console_logs,
+            # Required by posthog-js <= 1.115.0 to select recorder-v2.js; >= 1.115.1 always uses v2 and no longer reads it.
             "recorderVersion": "v2",
             "minimumDurationMilliseconds": minimum_duration,
             "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
@@ -206,7 +207,7 @@ class RemoteConfig(UUIDTModel):
         }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
-    def build_config(self, bypass_recordings_quota_cache: bool = False):
+    def build_config(self, bypass_recordings_quota_cache: bool = False) -> dict[str, Any]:
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
@@ -222,7 +223,6 @@ class RemoteConfig(UUIDTModel):
 
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
-            "token": team.api_token,
             "supportedCompression": ["gzip", "gzip-js"],
             "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
             "captureDeadClicks": bool(team.capture_dead_clicks),
@@ -305,15 +305,8 @@ class RemoteConfig(UUIDTModel):
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:
-            surveys_response = get_surveys_response(team)
-            surveys = surveys_response["surveys"]
-            if len(surveys) > 0:
-                config["surveys"] = surveys_response["surveys"]
-
-                if surveys_response["survey_config"]:
-                    config["survey_config"] = surveys_response["survey_config"]
-            else:
-                config["surveys"] = False
+            surveys = get_surveys_response(team)["surveys"]
+            config["surveys"] = surveys if len(surveys) > 0 else False
         else:
             config["surveys"] = False
 
@@ -329,7 +322,9 @@ class RemoteConfig(UUIDTModel):
         else:
             config["productTours"] = False
 
-        config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+        # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
+        # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.
+        config["defaultIdentifiedOnly"] = True
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []
@@ -344,7 +339,9 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
-        # MARK: Snippet versioning — store requested version, resolved at request time
+        # MARK: Snippet versioning: store requested version, resolved at request time
+        # Keep this internal metadata while snippet version pinning is enabled. posthog-js <= 1.369.1 read only
+        # the sibling `resolved` field; >= 1.369.2 reads neither field.
         if settings.POSTHOG_JS_S3_BUCKET:
             snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
             config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}

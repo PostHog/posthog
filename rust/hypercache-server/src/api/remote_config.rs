@@ -330,7 +330,7 @@ mod tests {
 
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed["heatmaps"], json!(true));
-        assert_eq!(parsed["token"], json!(token));
+        assert!(parsed.get("token").is_none());
     }
 
     #[tokio::test]

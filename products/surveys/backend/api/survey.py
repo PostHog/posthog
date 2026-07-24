@@ -3275,12 +3275,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
 
 
-class SurveyConfigSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Team
-        fields = ["survey_config"]
-
-
 class SurveyAPIActionSerializer(serializers.ModelSerializer):
     steps = ActionStepJSONSerializer(many=True, required=False)
 
@@ -3359,7 +3353,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
-    base_language = serializers.CharField(read_only=True)
     questions = serializers.SerializerMethodField(method_name="get_questions")
     translations = serializers.SerializerMethodField(method_name="get_translations")
 
@@ -3386,14 +3379,29 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
-            "base_language",
             "translations",
         ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(allow_null=True))
-    def get_conditions(self, survey: Survey):
-        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+    def get_conditions(self, survey: Survey) -> dict[str, Any] | None:
+        conditions = get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+        if not isinstance(conditions, dict):
+            return conditions
+
+        action_conditions = conditions.get("actions")
+        if not isinstance(action_conditions, dict) or not isinstance(action_conditions.get("values"), list):
+            return conditions
+
+        public_conditions = dict(conditions)
+        public_conditions["actions"] = {
+            "values": [
+                {field: action[field] for field in ("id", "name", "steps") if field in action}
+                for action in action_conditions["values"]
+                if isinstance(action, dict)
+            ]
+        }
+        return public_conditions
 
     @extend_schema_field(
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
@@ -3405,7 +3413,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
     def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:
-        """Return questions with question-level translation keys filtered to what the SDK can match."""
+        """Return only question fields used by SDKs, with translation keys normalized."""
         questions = survey.questions
         if not isinstance(questions, list):
             return questions
@@ -3417,16 +3425,15 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if not isinstance(question, dict):
                 cleaned.append(question)
                 continue
-            inline_translations = question.get("translations")
-            if not isinstance(inline_translations, dict):
-                cleaned.append(question)
-                continue
-            filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
             next_question = dict(question)
-            if filtered:
-                next_question["translations"] = filtered
-            else:
-                next_question.pop("translations", None)
+            next_question.pop("isNpsQuestion", None)
+            inline_translations = question.get("translations")
+            if isinstance(inline_translations, dict):
+                filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
+                if filtered:
+                    next_question["translations"] = filtered
+                else:
+                    next_question.pop("translations", None)
             cleaned.append(next_question)
         return cleaned
 
@@ -3453,7 +3460,7 @@ def get_surveys_count(team: Team) -> int:
     )
 
 
-def get_surveys_response(team: Team):
+def get_surveys_response(team: Team) -> dict[str, Any]:
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
         .filter(team__project_id=team.project_id)
@@ -3463,14 +3470,7 @@ def get_surveys_response(team: Team):
         many=True,
     ).data
 
-    serialized_survey_config: dict[str, Any] = {}
-    if team.survey_config is not None:
-        serialized_survey_config = SurveyConfigSerializer(team).data
-
-    return {
-        "surveys": surveys,
-        "survey_config": serialized_survey_config.get("survey_config", None),
-    }
+    return {"surveys": surveys}
 
 
 def _survey_page_site_url() -> str:

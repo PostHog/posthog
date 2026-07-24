@@ -32,7 +32,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
-from products.surveys.backend.api.survey import nh3_clean_with_allow_list
+from products.surveys.backend.api.survey import (
+    SurveyAPISerializer,
+    get_survey_api_translations,
+    nh3_clean_with_allow_list,
+)
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
 from ee.models.rbac.access_control import AccessControl
@@ -453,10 +457,7 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
 
-    def test_sdk_payload_strips_invalid_question_translation_keys(self) -> None:
-        """Question-level translation keys are stripped from the SDK payload, just like survey-level ones."""
-        from products.surveys.backend.api.survey import SurveyAPISerializer
-
+    def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Q-level legacy",
@@ -467,6 +468,7 @@ class TestSurvey(APIBaseTest):
                     "id": "q1",
                     "type": "open",
                     "question": "How are you?",
+                    "isNpsQuestion": True,
                     "translations": {
                         "es": {"question": "¿Cómo estás?"},
                         "default": {"question": "Should be dropped"},
@@ -478,6 +480,8 @@ class TestSurvey(APIBaseTest):
         )
 
         payload = SurveyAPISerializer(survey).data
+        assert "base_language" not in payload
+        assert "isNpsQuestion" not in payload["questions"][0]
         q_translations = payload["questions"][0]["translations"]
         assert "es" in q_translations
         assert "en-us" in q_translations
@@ -485,9 +489,6 @@ class TestSurvey(APIBaseTest):
         assert "english" not in q_translations
 
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
-        """get_survey_api_translations drops keys the SDK matcher cannot resolve."""
-        from products.surveys.backend.api.survey import get_survey_api_translations
-
         result = get_survey_api_translations(
             {
                 "es": {"name": "Hola"},
@@ -4531,6 +4532,34 @@ class TestSurveyWithActions(APIBaseTest):
         assert response_data["conditions"]["actions"]["values"][0]["name"] == "person subscribed"
         assert response_data["conditions"]["actions"]["values"][0]["steps"][0]["properties"] == [
             {"key": "plan", "value": "pro", "operator": "exact"}
+        ]
+
+    def test_sdk_payload_strips_embedded_action_metadata(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Legacy action survey",
+            type="popover",
+            conditions={
+                "actions": {
+                    "values": [
+                        {
+                            "id": 123,
+                            "name": "person subscribed",
+                            "steps": [{"event": "$pageview"}],
+                            "created_by": {"email": "private@example.com"},
+                            "team_id": self.team.id,
+                            "slack_message_format": "internal",
+                        }
+                    ]
+                }
+            },
+            questions=[{"type": "open", "question": "What's a survey?"}],
+        )
+
+        payload = SurveyAPISerializer(survey).data
+
+        assert payload["conditions"]["actions"]["values"] == [
+            {"id": 123, "name": "person subscribed", "steps": [{"event": "$pageview"}]}
         ]
 
     def test_can_set_associated_actions(self):
