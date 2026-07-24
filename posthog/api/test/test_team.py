@@ -2976,10 +2976,31 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "test_account_filters")
-        self.assertIn("Must provide an array of valid property filters.", response.json()["detail"])
+        detail = response.json()["detail"]
+        # Clean, positional copy — never the raw pydantic union dump.
+        self.assertIn("Test account filter 1 is incomplete or invalid", detail)
+        self.assertNotIn("validation error", detail)
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_validate_test_account_filters_reports_each_invalid_position(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {
+                "test_account_filters": [
+                    {"key": "email", "type": "person", "operator": "exact", "value": "posthog.com"},
+                    {"key": "id", "type": "cohort", "operator": "in", "value": "not-a-cohort-id"},
+                    {"key": "email", "type": "not_a_type", "operator": "exact", "value": "x"},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        # 1-based positions of the two bad rows, and no raw pydantic union dump.
+        self.assertIn("Test account filters 2, 3 are incomplete or invalid", detail)
+        self.assertNotIn("validation error", detail)
 
     def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
         response = self.client.patch(

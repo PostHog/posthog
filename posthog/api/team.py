@@ -704,9 +704,38 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     try:
         test_account_filters_adapter.validate_python(value)
     except PydanticValidationError as error:
-        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+        raise exceptions.ValidationError(_format_test_account_filters_error(value, error)) from error
 
     return cast(list[dict[str, object]], value)
+
+
+def _format_test_account_filters_error(value: object, error: PydanticValidationError) -> str:
+    """Build plain-language copy for a test-account-filter validation failure.
+
+    AnyPropertyFilter is a 22-member union, so a single malformed row makes pydantic
+    report dozens of internal branch errors. Surfacing that verbatim floods the
+    settings UI with implementation detail, so we collapse it to the 1-based
+    positions of the rows that failed.
+    """
+    if not isinstance(value, list):
+        return "Test account filters must be a list of property filters."
+
+    invalid_positions = sorted(
+        {loc[0] + 1 for err in error.errors() if (loc := err["loc"]) and isinstance(loc[0], int)}
+    )
+    if not invalid_positions:
+        return "One or more test account filters are incomplete or invalid. Please review them and try again."
+
+    positions = ", ".join(str(pos) for pos in invalid_positions)
+    if len(invalid_positions) == 1:
+        return (
+            f"Test account filter {positions} is incomplete or invalid. "
+            "Finish setting it up, including choosing a value, before saving."
+        )
+    return (
+        f"Test account filters {positions} are incomplete or invalid. "
+        "Finish setting them up, including choosing a value, before saving."
+    )
 
 
 _default_theme_id_cache: int | None = None

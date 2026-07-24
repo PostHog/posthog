@@ -14,7 +14,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicType, type TeamType } from '~/types'
+import {
+    AnyPropertyFilter,
+    type CohortType,
+    PropertyFilterType,
+    PropertyOperator,
+    type TeamPublicType,
+    type TeamType,
+} from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 
@@ -75,8 +82,13 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
-        updateCurrentTeam({ test_account_filters: filters })
-        reportTestAccountFiltersUpdated(filters)
+        // A cohort row with no cohort picked yet has no valid integer value; the backend
+        // requires one, so don't persist those half-built rows (they'd block the save).
+        const savableFilters = filters.filter(
+            (filter) => filter.type !== PropertyFilterType.Cohort || Number.isInteger(filter.value)
+        )
+        updateCurrentTeam({ test_account_filters: savableFilters })
+        reportTestAccountFiltersUpdated(savableFilters)
     }
 
     return (
