@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconX } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -39,13 +39,17 @@ export function WizardSyncDebugPanel(): JSX.Element | null {
     return <WizardSyncDebugPanelContent />
 }
 
+// Deliberately module-level so a dismissal survives remounts, but not a page refresh
+let dismissedThisPageLoad = false
+
 function WizardSyncDebugPanelContent(): JSX.Element | null {
     const { entries, sources } = useValues(wizardSyncDebugLogic)
     const { clearSyncDebugLog } = useActions(wizardSyncDebugLogic)
     const [collapsed, setCollapsed] = useState(false)
+    const [dismissed, setDismissed] = useState(dismissedThisPageLoad)
 
     const sourceList = Object.values(sources)
-    if (sourceList.length === 0) {
+    if (sourceList.length === 0 || dismissed) {
         return null
     }
 
@@ -65,6 +69,16 @@ function WizardSyncDebugPanelContent(): JSX.Element | null {
                 <LemonButton size="xsmall" onClick={clearSyncDebugLog}>
                     Clear
                 </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX />}
+                    tooltip="Dismiss until page refresh"
+                    aria-label="Dismiss wizard sync debug panel"
+                    onClick={() => {
+                        dismissedThisPageLoad = true
+                        setDismissed(true)
+                    }}
+                />
             </div>
             {!collapsed && (
                 <>

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     IconApps,
@@ -24,7 +24,15 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonTag,
+    Spinner,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
@@ -33,6 +41,7 @@ import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -73,8 +82,8 @@ import {
     InstallationProgressView,
     useLocalWizardRunActive,
 } from 'scenes/onboarding/shared/wizard-sync/InstallationProgressView'
+import { WizardCloudRunBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCloudRunBlock'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
-import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -1507,6 +1516,55 @@ function QuickstartHeroAnswerCard(): JSX.Element | null {
     )
 }
 
+// Lean quickstart version of the wizard install switcher: same flows and rules as
+// onboarding's WizardInstallOptions (cloud run blocks the local tab; a failed run falls
+// back to the command), without the framework badges or illustration.
+function QuickstartInstallSwitcher(): JSX.Element {
+    const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const [mode, setMode] = useState<'cloud' | 'local'>('cloud')
+
+    const offerCloud = cloudRunEnabled && isCloudOrDev
+    const localBlocked = !!activeCloudRun
+    const effectiveMode = localBlocked ? 'cloud' : mode
+    const runItYourself = (): void => {
+        clearActiveCloudRun()
+        setMode('local')
+    }
+    const cloudBlock = <WizardCloudRunBlock hideHog onRetryLocally={runItYourself} />
+    const localBlock = <WizardCommandBlock hideHog />
+
+    if (!offerCloud) {
+        return activeCloudRun ? cloudBlock : localBlock
+    }
+    return (
+        <div className="flex flex-col gap-3 items-start">
+            <LemonSegmentedButton
+                size="small"
+                value={effectiveMode}
+                onChange={(value) => {
+                    if (value !== effectiveMode) {
+                        captureQuickstartAction('install_mode_selected', undefined, { mode: value })
+                    }
+                    setMode(value)
+                }}
+                options={[
+                    { value: 'cloud', label: 'Open a pull request', 'data-attr': 'quickstart-wizard-mode-cloud' },
+                    {
+                        value: 'local',
+                        label: 'Run it yourself',
+                        disabledReason: localBlocked ? 'A cloud run is in progress.' : undefined,
+                        'data-attr': 'quickstart-wizard-mode-local',
+                    },
+                ]}
+            />
+            <div className="w-full">{effectiveMode === 'cloud' ? cloudBlock : localBlock}</div>
+        </div>
+    )
+}
+
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
 // methods live inline, in priority order: cloud wizard, local wizard (both inside
 // WizardInstallOptions, which renders an active cloud run in place), then manual per-tool
@@ -1531,10 +1589,7 @@ function QuickstartFocusedInstall(): JSX.Element {
             {isLocalRunActive && !activeCloudRun ? (
                 <InstallationProgressView mode="local" />
             ) : (
-                <WizardInstallOptions
-                    localBlock={<WizardCommandBlock hideHog />}
-                    onModeSelected={(mode) => captureQuickstartAction('install_mode_selected', undefined, { mode })}
-                />
+                <QuickstartInstallSwitcher />
             )}
 
             {!wizardBusy && (
