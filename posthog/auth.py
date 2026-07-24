@@ -326,8 +326,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
-            # requests as system actions.
-            activity_storage.set_user(personal_api_key_object.user)
+            # requests as system actions. Only write when the middleware owns cleanup: outside a
+            # request cycle (e.g. authenticate() called directly) the thread-local would leak.
+            if activity_storage.is_request_scoped():
+                activity_storage.set_user(personal_api_key_object.user)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -873,12 +875,15 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
                 # ActivityLoggingMiddleware only captures session-authenticated users (it runs
                 # before DRF auth), so signal-driven activity logging would otherwise record
-                # bearer-token requests as system actions.
-                activity_storage.set_user(access_token.user)
-                # Tokens minted during staff impersonation must keep the impersonation
-                # marker in the audit trail.
-                if access_token.impersonated_by_id is not None:
-                    activity_storage.set_was_impersonated(True)
+                # bearer-token requests as system actions. Only write when the middleware owns
+                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+                # thread-local would leak.
+                if activity_storage.is_request_scoped():
+                    activity_storage.set_user(access_token.user)
+                    # Tokens minted during staff impersonation must keep the impersonation
+                    # marker in the audit trail.
+                    if access_token.impersonated_by_id is not None:
+                        activity_storage.set_was_impersonated(True)
 
                 return access_token.user, None
 
