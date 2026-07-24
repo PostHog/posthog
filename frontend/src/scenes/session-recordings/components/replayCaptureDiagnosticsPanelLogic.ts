@@ -2,6 +2,7 @@ import { MakeLogicType, defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { isNetworkError } from 'lib/api-error'
 
 export interface ReplayCaptureDiagnosticsPanelLogicProps {
     sessionId: string
@@ -54,7 +55,16 @@ export const replayCaptureDiagnosticsPanelLogic = kea<replayCaptureDiagnosticsPa
     lazyLoaders(({ props }) => ({
         sessionEventProperties: {
             loadSessionEventProperties: async (_, breakpoint): Promise<Record<string, any> | null> => {
-                const result = await api.recordings.getCaptureDiagnostics(props.sessionId)
+                let result
+                try {
+                    result = await api.recordings.getCaptureDiagnostics(props.sessionId)
+                } catch (e) {
+                    // Transient network blips shouldn't surface as exceptions; genuine API errors still do.
+                    if (isNetworkError(e)) {
+                        return null
+                    }
+                    throw e
+                }
                 breakpoint()
                 return result.properties ?? null
             },

@@ -55,3 +55,18 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+/**
+ * A failed `fetch` (connection drop, tab navigation mid-request, ad blocker, offline) throws a
+ * `TypeError` whose message varies by browser — Chrome/Edge: "Failed to fetch", Firefox:
+ * "NetworkError when attempting to fetch resource.", Safari: "Load failed". `handleFetch` wraps that
+ * into an `ApiError` with no status. These transient connectivity blips are outside our control and
+ * are noise in error tracking rather than real defects; genuine API errors carry a status and are
+ * excluded here so they keep flowing through.
+ */
+export function isNetworkError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+        return error.status === undefined
+    }
+    return error instanceof Error && /failed to fetch|network\s*error|load failed/i.test(error.message)
+}
