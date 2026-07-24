@@ -45,6 +45,8 @@ export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
 
+export const llmSkillsCreateBodyOwnersMax = 25
+
 export const llmSkillsCreateBodyFilesItemPathMax = 500
 
 export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
@@ -76,6 +78,13 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        owners: zod
+            .array(zod.string())
+            .max(llmSkillsCreateBodyOwnersMax)
+            .optional()
+            .describe(
+                "User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners."
+            ),
         files: zod
             .array(
                 zod.object({
@@ -96,7 +105,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
     })
-    .describe('Create serializer — accepts bundled files as write-only input on POST.')
+    .describe('Create serializer — accepts bundled files and owners as write-only input on POST.')
 
 /**
  * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
@@ -181,6 +190,8 @@ export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 
 export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
 
+export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
+
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -261,11 +272,20 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Per-file find\/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
         ),
+    owners: zod
+        .array(zod.string())
+        .max(llmSkillsNamePartialUpdateBodyOwnersMax)
+        .optional()
+        .describe(
+            "Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership."
+        ),
     base_version: zod
         .number()
         .min(1)
         .optional()
-        .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+        .describe(
+            'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
+        ),
 })
 
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')

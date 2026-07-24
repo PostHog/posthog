@@ -10,9 +10,11 @@ import {
     IconEye,
     IconFlask,
     IconHome,
+    IconList,
     IconLive,
     IconListTree,
     IconLlmAnalytics,
+    IconMCP,
     IconLlmPromptManagement,
     IconMessage,
     IconNotebook,
@@ -78,6 +80,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconBug />
         case 'logs':
             return <IconLive />
+        case 'mcp_analytics':
+            return <IconMCP />
         case 'metrics':
             return <IconPulse />
         case 'notebook':
@@ -96,6 +100,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconShare />
         case 'survey':
             return <IconMessage />
+        case 'tagger':
+            return <IconList />
         case 'task':
             return <IconBug />
         case 'web_analytics':

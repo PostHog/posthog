@@ -289,8 +289,11 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack, SeaweedFS
+              # seaweedfs backs the blob-store integration tests; the profile-scoped
+              # stack launch above never starts it (it sits in the replay/agents
+              # profiles), so start it explicitly here — no profiles overlay in play.
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
