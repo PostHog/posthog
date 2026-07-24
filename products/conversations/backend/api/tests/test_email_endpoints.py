@@ -1490,6 +1490,61 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert comment.item_context["from_email"] is True
         assert comment.item_context["author_type"] == "customer"
 
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_authenticated_org_member_opening_ticket_is_customer(self, _mock_sig: MagicMock):
+        # An org member who emails support to open a ticket is the requester, i.e. the
+        # customer — not a team reply. Stamping them as "support" would emit
+        # $conversation_message_sent for their own message and let a "team reply"
+        # workflow echo it straight back to them.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"{self.user.first_name} <{self.user.email}>",
+                "Message-Id": "<member-new@posthog.com>",
+                "subject": "How do I do X?",
+                "stripped-text": "How do I do X?",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_authenticated_org_member_replying_to_own_ticket_is_customer(self, _mock_sig: MagicMock):
+        # An org member replying to a ticket they themselves opened stays the customer.
+        # Only an org member replying to a ticket they do NOT own is a team reply.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"{self.user.first_name} <{self.user.email}>",
+                "Message-Id": "<own-init@posthog.com>",
+                "subject": "My own question",
+                "stripped-text": "First message",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"{self.user.first_name} <{self.user.email}>",
+                "Message-Id": "<own-reply@posthog.com>",
+                "In-Reply-To": "<own-init@posthog.com>",
+                "stripped-text": "Following up on my own question",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
+        assert comments.count() == 2
+        for comment in comments:
+            assert isinstance(comment.item_context, dict)
+            assert comment.item_context["author_type"] == "customer"
+            assert comment.created_by is None
+
     @parameterized.expand(
         [
             # (name, extra_post_fields, expected_identity_verified)

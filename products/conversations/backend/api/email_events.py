@@ -387,11 +387,21 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = content[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")[:500]
 
-    # 7b. Detect team member sender — only trust From when DKIM passes
-    # AND the envelope-sender domain aligns with the From domain.
+    # 7b. Detect team member sender. We only trust the From header when SPF passes
+    # AND the envelope-sender domain aligns with the From domain. Beyond that, the
+    # ticket requester is always the customer — even when they are also an org member
+    # (e.g. an employee emailing their own support inbox). Only an authenticated org
+    # member replying to a ticket they do NOT own counts as a team reply. Otherwise we
+    # would emit $conversation_message_sent for the customer's own message, which lets
+    # a "team reply" workflow echo it back to them.
     sender_authenticated = _sender_authenticated(request, sender_email)
-    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
-    is_team_member = posthog_user is not None
+    org_member = _resolve_team_member(sender_email, team) if sender_authenticated else None
+    if org_member is not None and existing_ticket is not None:
+        requester_email = (existing_ticket.email_from or existing_ticket.distinct_id or "").lower()
+        is_team_member = sender_email.lower() != requester_email
+    else:
+        is_team_member = False
+    posthog_user = org_member if is_team_member else None
 
     # 8. Create ticket/comment/mapping in a transaction
     # Attachments are extracted inside the transaction so UploadedMedia rows roll back

@@ -181,6 +181,9 @@ registerTriggerType({
         type: 'event',
         filters: {
             events: [{ id: '$conversation_message_sent', type: 'events', name: 'Ticket message sent' }],
+            // Match the trigger's stated intent — only teammate replies, never a customer message
+            // that reached this event name. Keeps a "team reply" workflow from echoing the customer.
+            properties: [{ key: 'author_type', value: ['team'], operator: 'exact', type: 'event' }],
         },
     }),
     ConfigComponent: StepTriggerConfigurationSupportFilters,
