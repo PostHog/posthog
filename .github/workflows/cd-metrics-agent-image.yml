@@ -1,0 +1,155 @@
+#
+# Build, test and publish the PostHog metrics agent image and Helm chart
+# (products/metrics/agent) - a customer-deployable Prometheus scrape agent.
+#
+# Unlike most CD workflows this image is pulled by customers, not deployed to
+# PostHog's clusters: it pushes to Docker Hub + GHCR and publishes the chart
+# as an OCI artifact, with no charts-repo deploy dispatch.
+#
+name: Metrics Agent Image CD
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/metrics/agent/**'
+            - '.github/workflows/cd-metrics-agent-image.yml'
+    # paths mirror the push trigger; the build-metrics-agent-image label
+    # forces a build on PRs touching these paths.
+    pull_request:
+        types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'products/metrics/agent/**'
+            - '.github/workflows/cd-metrics-agent-image.yml'
+    # Manual rebuilds of master only: the build job hands the Docker Hub token
+    # to the checked-out docker-meta action, so it must never run branch code.
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    test:
+        name: Agent render, helm and integration tests
+        # No secrets needed, so this also runs on fork PRs.
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            contents: read
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Config render golden tests
+              run: products/metrics/agent/tests/render/run.sh
+
+            - name: Helm chart tests
+              run: products/metrics/agent/tests/helm/run.sh
+
+            - name: Integration smoke test (exemplars survive scrape -> OTLP)
+              run: products/metrics/agent/tests/integration/run.sh
+
+    build:
+        name: Build and push container image
+        needs: test
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (
+                github.event_name == 'push' ||
+                (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+                contains(github.event.pull_request.labels.*.name, 'build-metrics-agent-image')
+            )
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: metrics-agent
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  # PR validation builds never push to Docker Hub, so they never
+                  # see the token: it reaches the checked-out action only for
+                  # master code (push, or dispatch restricted to master above).
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN || '' }}
+                  # Docker Hub is the primary customer-facing registry for this image.
+                  push-to-dockerhub: 'true'
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  # Nothing internal deploys this image, so no ECR.
+                  push-to-ecr: 'false'
+
+            - name: Read release tag from the chart appVersion
+              id: release-tag
+              # The chart's default image tag is its appVersion, so every
+              # master build also publishes under that tag; bumping appVersion
+              # is how a new agent version is released to chart users.
+              env:
+                  PUSH_GHCR: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+              run: |
+                  APP_VERSION=$(awk '/^appVersion:/{print $2}' products/metrics/agent/chart/posthog-metrics-agent/Chart.yaml)
+                  {
+                    echo "tags<<EOF"
+                    echo "posthog/metrics-agent:$APP_VERSION"
+                    if [ "$PUSH_GHCR" = "true" ]; then
+                      echo "ghcr.io/posthog/metrics-agent:$APP_VERSION"
+                    fi
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Build and push container image
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+              with:
+                  context: products/metrics/agent
+                  push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
+                  tags: |
+                      ${{ steps.docker-meta.outputs.tags }}
+                      ${{ steps.release-tag.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+
+    publish-chart:
+        name: Publish Helm chart to GHCR
+        needs: build
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Package and push chart
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  CHART=products/metrics/agent/chart/posthog-metrics-agent
+                  VERSION=$(awk '/^version:/{print $2}' "$CHART/Chart.yaml")
+                  echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+                  # Chart versions are immutable: re-runs of the same version are a no-op.
+                  if helm show chart "oci://ghcr.io/posthog/charts/posthog-metrics-agent" --version "$VERSION" >/dev/null 2>&1; then
+                      echo "chart version $VERSION already published, skipping"
+                      exit 0
+                  fi
+                  helm package "$CHART"
+                  helm push "posthog-metrics-agent-$VERSION.tgz" oci://ghcr.io/posthog/charts
