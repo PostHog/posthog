@@ -414,5 +414,11 @@ class ConversationRedisStream:
                 await self._write_status(StatusPayload(status="complete"))
 
         except Exception as e:
-            await self._write_status(StatusPayload(status="error", error=str(e)))
-            raise StreamError("Failed to write to stream")
+            # Best-effort error status back to the client. If Redis is itself the
+            # problem this write will fail too, so guard it so the secondary error
+            # can't mask the original one.
+            try:
+                await self._write_status(StatusPayload(status="error", error=str(e)))
+            except Exception:
+                logger.exception("Failed to write error status to stream", stream_key=self._stream_key)
+            raise StreamError("Failed to write to stream") from e
