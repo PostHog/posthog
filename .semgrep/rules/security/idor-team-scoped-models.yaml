@@ -198,6 +198,7 @@ rules:
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
+                              |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |MarketingAnalyticsGoalMapping
@@ -256,11 +257,13 @@ rules:
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
+                              |SignalScoutNote
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -509,6 +512,7 @@ rules:
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
+                        |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |MarketingAnalyticsGoalMapping
@@ -566,11 +570,13 @@ rules:
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
+                        |SignalScoutNote
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

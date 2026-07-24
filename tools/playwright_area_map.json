@@ -10,7 +10,26 @@
         "A target ending in `/` is a directory prefix (all specs beneath it); otherwise it's an exact file.",
         "Every spec must be reachable by some target OR listed in `full_suite_only` — the test enforces",
         "this, so adding a spec forces a conscious choice: map it, or accept it only runs in full suites",
-        "(and when directly edited)."
+        "(and when directly edited).",
+        "`ignore` lists paths that provably CANNOT affect the app under test (docs, agent instructions,",
+        "lint rules, workflows for other suites): they contribute nothing to selection instead of forcing",
+        "a full run. `force_full` outranks `ignore`, no ignore pattern may match a spec (test-enforced),",
+        "and an all-ignored diff still runs the full suite (category `all_ignored`) until telemetry",
+        "justifies a skip mode. Only add entries that cannot reach the app bundle, the backend, or the",
+        "e2e stack config.",
+        "`scenes_smoke_only` lists scenes with NO direct e2e coverage — no spec navigates to them, so",
+        "the full suite wouldn't exercise them either. Changes there run `smoke_subset` (app boots,",
+        "auth works) instead of everything. A scene must not appear in both `scenes` and",
+        "`scenes_smoke_only` (test-enforced); when a scene gains a real spec, move it to `scenes`."
+    ],
+    "ignore": [
+        "*.md",
+        "**/*.md",
+        "docs/**",
+        ".agents/**",
+        ".semgrep/**",
+        ".github/workflows/**",
+        "common/storybook/**"
     ],
     "force_full": [
         "playwright/utils/**",
@@ -44,6 +63,17 @@
         ".github/clickhouse-versions.json",
         "bin/**"
     ],
+    "smoke_subset": ["playwright/e2e/auth.spec.ts"],
+    "scenes_smoke_only": [
+        "billing",
+        "groups",
+        "heatmaps",
+        "hog-functions",
+        "inbox",
+        "integrations",
+        "max",
+        "web-analytics"
+    ],
     "products": {
         "posthog_ai": ["products/posthog_ai/frontend/e2e/"],
         "replay": ["products/replay/frontend/e2e/"],
@@ -55,6 +85,8 @@
         "sessions": ["products/replay/frontend/e2e/"],
         "experiments": ["playwright/e2e/experiments/"],
         "cohorts": ["playwright/e2e/product-analytics/cohorts.spec.ts"],
+        "trends": ["playwright/e2e/product-analytics/"],
+        "data-warehouse": ["playwright/e2e/sql-editor*.spec.ts"],
         "dashboard": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
             "playwright/e2e/shared-dashboard-styling.spec.ts",
@@ -80,10 +112,18 @@
         "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
         "data-management": ["playwright/e2e/event-definitions.spec.ts", "playwright/e2e/annotations.spec.ts"],
         "annotations": ["playwright/e2e/annotations.spec.ts"],
-        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"]
+        "toolbar-launch": ["playwright/e2e/toolbar.spec.ts"],
+        "settings": ["playwright/e2e/before-onboarding.spec.ts"],
+        "feature-flags": ["products/surveys/frontend/e2e/quickcreate.spec.ts"]
     },
     "explicit": {
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
+        "products/dashboards/frontend/**": [
+            "playwright/e2e/product-analytics/dashboards.spec.ts",
+            "playwright/e2e/shared-dashboard-styling.spec.ts",
+            "playwright/e2e/shared-dashboard-unauthenticated.spec.ts"
+        ],
+        "products/session_replay/frontend/**": ["products/replay/frontend/e2e/"],
         "products/experiments/frontend/**": ["playwright/e2e/experiments/"],
         "products/persons/frontend/**": ["playwright/e2e/persons/persons.spec.ts"],
         "products/cohorts/frontend/**": ["playwright/e2e/product-analytics/cohorts.spec.ts"],

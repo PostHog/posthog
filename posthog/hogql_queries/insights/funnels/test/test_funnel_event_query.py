@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 import regex
 import sqlparse
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -93,9 +94,10 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         timestamp_field: str,
         extra_columns: dict[str, dict[str, str | bool]] | None = None,
         timestamp_column: dict[str, str | bool] | None = None,
+        id_column: dict[str, str | bool] | None = None,
     ) -> None:
         columns: dict[str, dict[str, str | bool]] = {
-            id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            id_field: id_column or {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             distinct_id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             timestamp_field: timestamp_column
             or {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')", "valid": True},
@@ -364,6 +366,39 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("argMin(some_id, e.ts) AS uuid", sql)
         self.assertIn("GROUP BY some_user_id", sql)
 
+    @parameterized.expand(
+        [
+            ("nullable_uuid_keeps_null_guard", "Nullable(UUID)", True),
+            ("non_nullable_uuid_skips_null_guard", "UUID", False),
+        ]
+    )
+    def test_dwh_uuid_id_field_null_guard(self, _name: str, clickhouse_type: str, nullable: bool) -> None:
+        self._create_data_warehouse_table(
+            name="payments_uuid",
+            id_field="uuid_id",
+            distinct_id_field="user_id",
+            timestamp_field="created_at",
+            id_column={"hogql": "UUIDDatabaseField", "clickhouse": clickhouse_type, "valid": True},
+        )
+        dwh_node = FunnelsDataWarehouseNode(
+            id="payments_uuid",
+            table_name="payments_uuid",
+            id_field="uuid_id",
+            aggregation_target_field="user_id",
+            timestamp_field="created_at",
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context, extra_event_fields_and_properties=["uuid"]).to_query())
+
+        if nullable:
+            # a null id must fail loudly instead of flowing into the funnel silently
+            self.assertIn("throwIf(isNull(e.uuid_id)", sql)
+        else:
+            self.assertIn("e.uuid_id AS uuid", sql)
+            self.assertNotIn("throwIf", sql)
+
     @freeze_time("2025-11-12")
     def test_dwh_first_time_for_user_two_different_tables(self):
         query = FunnelsQuery(
@@ -556,6 +591,19 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         select = format_query(funnel_event_query)
         self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
+
+    @freeze_time("2025-11-12")
+    def test_group_node_and_operator_is_rejected(self):
+        # AND groups aren't supported yet — must fail validation, not raise UnboundLocalError (500).
+        group = GroupNode(
+            operator=FilterLogicalOperator.AND_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+        )
+        query = FunnelsQuery(series=[group, EventsNode(event="$checkout")])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        with self.assertRaises(ValidationError):
+            FunnelEventQuery(context=context).to_query()
 
     @parameterized.expand(
         [

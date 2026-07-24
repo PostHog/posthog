@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_datetime
 import httpx
 import requests
 import tiktoken
+import structlog
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
@@ -48,6 +49,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 )
 from products.signals.backend.facade.api import emit_signal
 
+logger = structlog.get_logger(__name__)
+
 EMBEDDING_MODEL = "text-embedding-3-large-3072"
 EMBEDDING_RENDERING = "type_message_and_stack"
 EMBEDDING_MAX_TOKENS = 7000
@@ -65,6 +68,11 @@ ERROR_TRACKING_EVENT_PROPERTIES_READ_DURATION = Histogram(
     "error_tracking_event_properties_read_duration_seconds",
     "Duration of Error Tracking event property reads by storage source",
     labelnames=("source",),
+)
+ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
+    "error_tracking_issue_created_embedding_unavailable_total",
+    "Issue-created embedding attempts that failed because the embedding service was unavailable",
+    labelnames=("reason",),
 )
 
 
@@ -251,12 +259,21 @@ def _fetch_event_properties(team: Team, inputs: IssueCreatedWorkflowInputs) -> d
     return _fetch_event_properties_from_clickhouse(team, inputs)
 
 
-@activity.defn
-@posthoganalytics.scoped()
-@close_db_connections
-def generate_issue_created_embedding_activity(
-    inputs: IssueCreatedWorkflowInputs,
-) -> IssueEmbeddingPreparationResult:
+def _embedding_unavailable_error(inputs: IssueCreatedWorkflowInputs, reason: str, message: str) -> ApplicationError:
+    # A short embedding-service outage is expected and already tolerated — the workflow retries then
+    # fails open. Log and count it here so the outage is still observable, but leave capture to the
+    # caller, which does not surface this as an error-tracking issue.
+    ERROR_TRACKING_EMBEDDING_UNAVAILABLE.labels(reason=reason).inc()
+    logger.warning(
+        "error_tracking_issue_created_embedding_unavailable",
+        team_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        reason=reason,
+    )
+    return ApplicationError(message, type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE)
+
+
+def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
     try:
         team = Team.objects.get(id=inputs.team_id)
     except Team.DoesNotExist:
@@ -284,14 +301,10 @@ def generate_issue_created_embedding_activity(
                 type="EmbeddingRequestRejected",
                 non_retryable=True,
             ) from error
-        raise ApplicationError(
-            "Embedding service is unavailable",
-            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
-        ) from error
+        raise _embedding_unavailable_error(inputs, "transport", "Embedding service is unavailable") from error
     except (KeyError, TypeError) as error:
-        raise ApplicationError(
-            "Embedding service returned an invalid response",
-            type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+        raise _embedding_unavailable_error(
+            inputs, "invalid_response", "Embedding service returned an invalid response"
         ) from error
     return IssueEmbeddingPreparationResult(
         team_exists=True,
@@ -308,6 +321,27 @@ def generate_issue_created_embedding_activity(
             content=content,
         ),
     )
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def generate_issue_created_embedding_activity(
+    inputs: IssueCreatedWorkflowInputs,
+) -> IssueEmbeddingPreparationResult:
+    # capture_exceptions=False, then capture genuine failures explicitly below: a brief embedding-service
+    # outage is expected and already tolerated (the workflow retries then fails open, tracked by the
+    # error_tracking_issue_created_embedding_fail_open metric), so auto-capturing every retry turned a
+    # short blip into a burst of noisy error-tracking issues. Real bugs are still surfaced.
+    try:
+        return _prepare_issue_created_embedding(inputs)
+    except ApplicationError as error:
+        if error.type != EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE:
+            posthoganalytics.capture_exception(error)
+        raise
+    except Exception as error:
+        posthoganalytics.capture_exception(error)
+        raise
 
 
 @activity.defn
