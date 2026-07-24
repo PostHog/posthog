@@ -238,7 +238,7 @@ function MetricCardInner({
 
     return (
         <div
-            className={`flex flex-col w-full${clickable ? ' cursor-pointer transition-colors hover:border-primary' : ''} ${className ?? ''}`}
+            className={`flex flex-col w-full${clickable ? ' cursor-pointer transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50' : ''} ${className ?? ''}`}
             data-attr={dataAttr}
             {...interactiveProps}
         >
