@@ -67,15 +67,16 @@ _BANNER_CSS = """
 .banner.bottom-bar { left: 0; right: 0; bottom: 0; max-width: none; border-radius: 0; display: flex; align-items: center; gap: 16px; }
 .banner.bottom-bar .content { flex: 1 1 auto; }
 .banner.bottom-bar .art, .banner.bottom-bar .description { margin-bottom: 0; }
-.banner.bottom-bar .powered { margin-top: 0; }
+.banner.bottom-bar .powered { margin-top: 6px; }
 .art { margin-bottom: 8px; }
 .art svg { display: block; }
 .title { font-weight: 600; font-size: 16px; margin: 0 0 4px; }
 .description { margin: 0 0 12px; }
-.actions { display: flex; gap: 8px; flex-shrink: 0; }
+.trailing { flex-shrink: 0; }
+.actions { display: flex; gap: 8px; }
 .actions button { cursor: pointer; border: none; border-radius: 6px; padding: 8px 14px; font: inherit; font-weight: 600; }
 .actions .decline { background: transparent; border: 1px solid rgba(0, 0, 0, 0.2); }
-.powered { margin-top: 10px; font-size: 11px; opacity: 0.65; flex-shrink: 0; }
+.powered { margin-top: 10px; font-size: 11px; opacity: 0.65; }
 .powered a { color: inherit; }
 """
 
@@ -172,6 +173,11 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
             if (host.parentNode) { host.parentNode.removeChild(host); }
         }
 
+        // Buttons and the powered-by notice share a wrapper so the notice always sits
+        // underneath the buttons, including in the bottom-bar row layout
+        var trailing = document.createElement('div');
+        trailing.className = 'trailing';
+
         var actions = document.createElement('div');
         actions.className = 'actions';
 
@@ -193,7 +199,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         decline.addEventListener('click', function () { choose('declined'); });
         actions.appendChild(decline);
 
-        banner.appendChild(actions);
+        trailing.appendChild(actions);
 
         if (!cfg.whiteLabel) {
             var powered = document.createElement('div');
@@ -204,8 +210,10 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
             poweredLink.rel = 'noopener';
             poweredLink.textContent = 'Powered by PostHog';
             powered.appendChild(poweredLink);
-            banner.appendChild(powered);
+            trailing.appendChild(powered);
         }
+
+        banner.appendChild(trailing);
 
         root.appendChild(banner);
         document.body.appendChild(host);

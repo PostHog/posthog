@@ -29,27 +29,31 @@ export function CookieBannerPreview({ appearance }: { appearance: Required<Cooki
                 <p className="font-semibold text-base m-0 mb-1">{appearance.title}</p>
                 <p className={isBar ? 'm-0' : 'm-0 mb-3'}>{appearance.description}</p>
             </div>
-            <div className="flex gap-2 shrink-0">
-                <button
-                    type="button"
-                    className="rounded border-0 px-3.5 py-2 font-semibold cursor-pointer"
-                    style={{ backgroundColor: appearance.buttonColor, color: appearance.buttonTextColor }}
-                >
-                    {appearance.acceptButtonText}
-                </button>
-                <button
-                    type="button"
-                    className="rounded bg-transparent border px-3.5 py-2 font-semibold cursor-pointer"
-                    style={{ color: appearance.textColor, borderColor: appearance.textColor }}
-                >
-                    {appearance.declineButtonText}
-                </button>
-            </div>
-            {!appearance.whiteLabel && (
-                <div className={`text-[11px] opacity-65 shrink-0 ${isBar ? '' : 'mt-2.5'}`}>
-                    <span className="underline">Powered by PostHog</span>
+            {/* Buttons and the powered-by notice share a wrapper so the notice always sits
+                underneath the buttons, including in the bottom-bar row layout */}
+            <div className="shrink-0">
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        className="rounded border-0 px-3.5 py-2 font-semibold cursor-pointer"
+                        style={{ backgroundColor: appearance.buttonColor, color: appearance.buttonTextColor }}
+                    >
+                        {appearance.acceptButtonText}
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded bg-transparent border px-3.5 py-2 font-semibold cursor-pointer"
+                        style={{ color: appearance.textColor, borderColor: appearance.textColor }}
+                    >
+                        {appearance.declineButtonText}
+                    </button>
                 </div>
-            )}
+                {!appearance.whiteLabel && (
+                    <div className={`text-[11px] opacity-65 ${isBar ? 'mt-1.5' : 'mt-2.5'}`}>
+                        <span className="underline">Powered by PostHog</span>
+                    </div>
+                )}
+            </div>
         </div>
     )
 
