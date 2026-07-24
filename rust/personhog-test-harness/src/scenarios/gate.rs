@@ -136,6 +136,12 @@ pub async fn run(args: GateArgs) -> Result<()> {
     {
         bail!("--create-via-identity with --external-router-url needs --external-identity-url");
     }
+    // The identity service writes the real posthog_person table (its distinct
+    // id FKs require it); a stack targeting another table would recover
+    // created persons from a table they were never written to.
+    if args.create_via_identity && args.pg_target_table != "posthog_person" {
+        bail!("--create-via-identity requires --pg-target-table posthog_person");
+    }
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
         && args.routers < 3
     {
