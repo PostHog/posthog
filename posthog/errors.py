@@ -116,7 +116,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        return ClickHouseQueryMemoryLimitExceeded()
+        memory_error = ClickHouseQueryMemoryLimitExceeded()
+        # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
+        # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
+        # "(for user)", or a future rewording - counts as transient cluster pressure.
+        memory_error.is_per_query_limit = "(for query)" in err.message or "Query memory limit exceeded" in err.message
+        return memory_error
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
