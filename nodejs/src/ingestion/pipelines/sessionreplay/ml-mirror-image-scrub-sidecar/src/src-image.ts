@@ -6,13 +6,18 @@ import { LIMIT_INPUT_PIXELS } from './blur.ts'
 import { numFromEnv } from './env.ts'
 
 // Every frame is downscaled (aspect preserved) to this pixel-AREA budget inside the decode,
-// unconditionally. Two reasons: (1) memory — compose holds a few full-frame buffers, and bytes are
-// proportional to area, so the budget bounds the per-image working set (~8 MB/frame at 1600^2 vs
-// ~150 MB at the 50 MP decode limit); (2) fidelity honesty — text detection runs under the same
-// area budget (DET_CAP^2), so storing pixels above it would preserve exactly the detail the
-// detectors never certified as clean. An area budget rather than a long-side cap so tall pages
-// (skyscraper screenshots, infographics) keep legible native resolution instead of being squashed.
-export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1600 * 1600, 96 * 96, LIMIT_INPUT_PIXELS)
+// unconditionally. Three reasons: (1) memory, because compose holds a few full-frame buffers and
+// bytes are proportional to area, so the budget bounds the per-image working set; (2) fidelity
+// honesty, because text detection runs under its own area budget, so storing pixels above it would
+// preserve exactly the detail the detectors never certified as clean; (3) cost, because decode,
+// compose and encode are all linear in area and DBNet's input side scales with sqrt(area), which
+// makes this the one dial that reduces most of the pipeline at once.
+//
+// Lowering it below 1 MP buys less than it looks: adaptiveDetLimit floors at 736, which
+// sqrt(1 MP) * DET_FACTOR reaches exactly, so text detection costs the same at any smaller budget
+// while the stored frame keeps getting less legible to the model that reads it. An area budget
+// rather than a long-side cap so tall pages keep legible native resolution instead of being squashed.
+export const SCRUB_MAX_PIXELS = numFromEnv('SCRUB_MAX_PIXELS', 1000 * 1000, 96 * 96, LIMIT_INPUT_PIXELS)
 
 export interface Src {
     data: Buffer
