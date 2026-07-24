@@ -15,11 +15,11 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
-    enforce_login_with_verified_domain: zod
+    enforce_verified_domains: zod
         .boolean()
         .nullish()
         .describe(
-            'When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.'
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
         ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
@@ -67,11 +67,11 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
-    enforce_login_with_verified_domain: zod
+    enforce_verified_domains: zod
         .boolean()
         .nullish()
         .describe(
-            'When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.'
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
         ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod
@@ -119,11 +119,11 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
-    enforce_login_with_verified_domain: zod
+    enforce_verified_domains: zod
         .boolean()
         .nullish()
         .describe(
-            'When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.'
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
         ),
     members_can_invite: zod.boolean().nullish(),
     members_can_create_projects: zod

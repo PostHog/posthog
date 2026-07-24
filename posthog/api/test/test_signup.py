@@ -1208,7 +1208,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
     def _org_enforcing_verified_domain(self) -> Organization:
-        org = Organization.objects.create(name="Enforced org", enforce_login_with_verified_domain=True)
+        org = Organization.objects.create(name="Enforced org", enforce_verified_domains=True)
         OrganizationDomain.objects.create(
             domain="hogflix.posthog.com",
             verified_at=timezone.now(),
@@ -2707,7 +2707,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_signup_with_domain_enforcement_blocks_unverified_domain_invite(self):
         # A pre-existing invite to an outside domain must not be acceptable with a password once the
         # org requires a verified email domain — otherwise it's a bypass of the boundary.
-        organization = Organization.objects.create(name="Test Org", enforce_login_with_verified_domain=True)
+        organization = Organization.objects.create(name="Test Org", enforce_verified_domains=True)
         OrganizationDomain.objects.create(domain="hogflix.com", organization=organization, verified_at=timezone.now())
         invite = OrganizationInvite.objects.create(target_email="outsider@gmail.com", organization=organization)
 
