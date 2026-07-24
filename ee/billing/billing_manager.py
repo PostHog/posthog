@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -21,17 +20,12 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
-
-BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
-BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
-BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 
 
 class BillingAPIErrorCodes(Enum):
@@ -141,19 +135,6 @@ def build_billing_token(
     )
 
     return encoded_jwt
-
-
-def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
-    secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
-    if not secret:
-        raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
-
-    timestamp = int(time.time())
-    digest = compute_signature(secret, timestamp, body)
-    return {
-        BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
-        BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
-    }
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
@@ -842,7 +823,6 @@ class BillingManager:
         ).encode("utf-8")
         headers = {
             **self.get_auth_headers(organization),
-            **build_billing_provider_webhook_signature_headers(body),
             "Content-Type": "application/json",
         }
 
