@@ -6451,6 +6451,15 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
      * once per person via first_time_for_user) rather than every conversion. Defaults to false.
      */
     counts_as_customer?: boolean
+    /**
+     * Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a
+     * count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC.
+     * The amount itself comes from math_property, and its currency from
+     * math_property_revenue_currency, the same shape Revenue analytics uses for revenue events.
+     * Independent of counts_as_customer: a purchase is usually both, a trial signup neither.
+     * Defaults to false.
+     */
+    counts_as_revenue?: boolean
 }
 
 export enum AttributionMode {
