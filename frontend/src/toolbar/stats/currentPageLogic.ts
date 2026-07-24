@@ -129,6 +129,11 @@ export const currentPageLogic = kea<currentPageLogicType>([
         }
         cache.disposables.add(
             makeNavigateWrapper((): void => {
+                // A stale history patch can outlive this logic (see patch.ts). Bail before touching
+                // `values`, which throws "Can not find path ... in the store" once we're unmounted.
+                if (!currentPageLogic.isMounted()) {
+                    return
+                }
                 if (window.location.href !== values.href) {
                     actions.setHref(withoutPostHogInit(window.location.href))
                     if (values.autoWildcardEnabled) {

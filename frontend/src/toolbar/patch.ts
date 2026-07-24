@@ -19,6 +19,16 @@ export function patch(
         }
 
         const original = source[name] as () => unknown
+
+        // Idempotent: if this exact patch is already installed, don't stack a second copy.
+        // Otherwise re-installing would capture our own wrapper as the "original" and make
+        // teardown resurrect a stale wrapper.
+        if ((original as any)?.[patchKey]) {
+            return () => {
+                //
+            }
+        }
+
         const wrapped = replacement(original)
 
         // Make sure it's a function first, as we need to attach an empty prototype for `defineProperties` to work
@@ -37,7 +47,12 @@ export function patch(
         source[name] = wrapped
 
         return () => {
-            source[name] = original
+            // Chain-aware teardown: only restore if our wrapper is still the installed method.
+            // If another patch has since wrapped this method, blindly restoring `original` would
+            // drop that patch and resurrect a wrapper bound to an already-unmounted logic.
+            if (source[name] === wrapped) {
+                source[name] = original
+            }
         }
     } catch {
         toolbarLogger.warn('patch', 'Failed to patch object property', { name, patchKey })
