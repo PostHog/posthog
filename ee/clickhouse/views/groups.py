@@ -545,7 +545,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             and not notebooks.group_has_notebook(group.id)
         ):
             try:
-                self._create_notebook_for_group(group=group)
+                self._create_notebook_for_group(group=group, user=cast(User, request.user))
             except IntegrityError as e:
                 logger.exception(
                     "Group notebook creation failed",
@@ -870,7 +870,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             send_feature_flag_events=False,
         )
 
-    def _create_notebook_for_group(self, group: Group):
+    def _create_notebook_for_group(self, group: Group, user: User):
         group_name = group.group_properties.get("name", "")
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
         notebook_content = [
@@ -887,7 +887,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
-        notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
+        notebooks.create_group_notebook(
+            self.team.id,
+            group.id,
+            title=notebook_title,
+            content=notebook_content,
+            created_by_id=user.id,
+            last_modified_by_id=user.id,
+        )
 
 
 _DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")

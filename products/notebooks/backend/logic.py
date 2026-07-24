@@ -156,12 +156,22 @@ def group_has_notebook(group_id: int) -> bool:
     return ResourceNotebook.objects.filter(group=group_id).exists()
 
 
-def create_group_notebook(team_id: int, group_id: int, *, title: str | None, content: Any) -> Notebook:
+def create_group_notebook(
+    team_id: int,
+    group_id: int,
+    *,
+    title: str | None,
+    content: Any,
+    created_by_id: int | None = None,
+    last_modified_by_id: int | None = None,
+) -> Notebook:
     with transaction.atomic():
         notebook = Notebook.objects.create(
             team_id=team_id,
             title=title,
             content=content,
+            created_by_id=created_by_id,
+            last_modified_by_id=last_modified_by_id,
             visibility=Notebook.Visibility.INTERNAL,
         )
         ResourceNotebook.objects.create(notebook=notebook, group=group_id)

@@ -244,8 +244,12 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
 
-        # Test default notebook content structure
+        # The requesting user must own the notebook so it resolves to editor access and stays editable
         notebook = relationship.notebook
+        self.assertEqual(notebook.created_by, self.user)
+        self.assertEqual(notebook.last_modified_by, self.user)
+
+        # Test default notebook content structure
         self.assertIsNotNone(notebook.content)
         self.assertEqual(notebook.content[0]["type"], "heading")
         self.assertEqual(notebook.content[0]["attrs"]["level"], 1)
