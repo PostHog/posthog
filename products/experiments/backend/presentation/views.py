@@ -111,6 +111,7 @@ LIST_DEFERRED_FIELDS = (
     "filters",
     "primary_metrics_ordered_uuids",
     "secondary_metrics_ordered_uuids",
+    "links",
 )
 
 # The viewset's `list` method shadows the builtin `list` in the class namespace, so a

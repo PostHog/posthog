@@ -64,6 +64,8 @@ class CreateExperimentInput:
     conclusion_comment: str | None = None
     # GitHub repo (`org/repo`) targeted by the flag-cleanup PR on experiment end
     repository: str | None = None
+    # External links ({url, title} dicts) giving context on the experiment
+    links: list[dict[str, str]] | None = None
 
     # Advanced configuration
     holdout_id: int | None = None  # We'll pass ID, facade will load the model

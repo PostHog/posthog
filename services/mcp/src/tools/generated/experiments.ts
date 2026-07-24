@@ -201,6 +201,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     conclusion: true,
     conclusion_comment: true,
     repository: true,
+    links: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
     only_count_matured_users: true,
@@ -316,6 +317,7 @@ const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ projec
             conclusion: true,
             conclusion_comment: true,
             repository: true,
+            links: true,
             primary_metrics_ordered_uuids: true,
             secondary_metrics_ordered_uuids: true,
             only_count_matured_users: true,
@@ -1034,6 +1036,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             if (params.conclusion_comment !== undefined) {
                 body['conclusion_comment'] = params.conclusion_comment
             }
+            if (params.links !== undefined) {
+                body['links'] = params.links
+            }
             if (params.update_feature_flag_params !== undefined) {
                 body['update_feature_flag_params'] = params.update_feature_flag_params
             }
@@ -1060,6 +1065,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 'saved_metrics',
                 'conclusion',
                 'conclusion_comment',
+                'links',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },

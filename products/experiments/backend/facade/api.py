@@ -81,6 +81,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         conclusion=input_dto.conclusion,
         conclusion_comment=input_dto.conclusion_comment,
         repository=input_dto.repository,
+        links=input_dto.links,
         serializer_context=input_dto.serializer_context,
         allow_unknown_events=input_dto.allow_unknown_events,
     )

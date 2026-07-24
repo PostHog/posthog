@@ -843,6 +843,10 @@ export const experimentsCreateBodyConclusionCommentMax = 4000
 
 export const experimentsCreateBodyRepositoryMax = 255
 
+export const experimentsCreateBodyLinksItemUrlMax = 2048
+
+export const experimentsCreateBodyLinksItemTitleMax = 400
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -4328,6 +4332,26 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .url()
+                            .max(experimentsCreateBodyLinksItemUrlMax)
+                            .describe('Link URL, e.g. a pull request, design doc, or dashboard.'),
+                        title: zod
+                            .string()
+                            .max(experimentsCreateBodyLinksItemTitleMax)
+                            .optional()
+                            .describe('Short label for the link. Omit to display the URL itself.'),
+                    })
+                    .describe('A single external link attached to an experiment.')
+            )
+            .nullish()
+            .describe(
+                'External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.'
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4466,6 +4490,10 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const experimentsPartialUpdateBodyRepositoryMax = 255
+
+export const experimentsPartialUpdateBodyLinksItemUrlMax = 2048
+
+export const experimentsPartialUpdateBodyLinksItemTitleMax = 400
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -7958,6 +7986,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .url()
+                            .max(experimentsPartialUpdateBodyLinksItemUrlMax)
+                            .describe('Link URL, e.g. a pull request, design doc, or dashboard.'),
+                        title: zod
+                            .string()
+                            .max(experimentsPartialUpdateBodyLinksItemTitleMax)
+                            .optional()
+                            .describe('Short label for the link. Omit to display the URL itself.'),
+                    })
+                    .describe('A single external link attached to an experiment.')
+            )
+            .nullish()
+            .describe(
+                'External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.'
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -8170,6 +8218,10 @@ export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
 export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
 
 export const experimentsDuplicateCreateBodyRepositoryMax = 255
+
+export const experimentsDuplicateCreateBodyLinksItemUrlMax = 2048
+
+export const experimentsDuplicateCreateBodyLinksItemTitleMax = 400
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -11559,6 +11611,26 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .url()
+                            .max(experimentsDuplicateCreateBodyLinksItemUrlMax)
+                            .describe('Link URL, e.g. a pull request, design doc, or dashboard.'),
+                        title: zod
+                            .string()
+                            .max(experimentsDuplicateCreateBodyLinksItemTitleMax)
+                            .optional()
+                            .describe('Short label for the link. Omit to display the URL itself.'),
+                    })
+                    .describe('A single external link attached to an experiment.')
+            )
+            .nullish()
+            .describe(
+                'External links attached to the experiment (pull requests, design docs, dashboards) for context. Writing replaces the whole list; at most 20 links.'
             ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),

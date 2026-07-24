@@ -689,6 +689,40 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    def test_experiment_links_crud(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Experiment with links",
+                "feature_flag_key": "experiment-links",
+                "links": [{"url": "https://github.com/PostHog/posthog/pull/1", "title": "Implementation PR"}],
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+        self.assertEqual(
+            create_response.json()["links"],
+            [{"url": "https://github.com/PostHog/posthog/pull/1", "title": "Implementation PR"}],
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"links": [{"url": "https://posthog.com/docs"}]},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.json()["links"], [{"url": "https://posthog.com/docs"}])
+
+        invalid_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"links": [{"url": "not a url"}]},
+            format="json",
+        )
+        self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
+        get_response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(get_response.json()["links"], [{"url": "https://posthog.com/docs"}])
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_creating_experiment_reports_user_action(self, mock_report_user_action, _mock_on_commit):
