@@ -52,7 +52,7 @@ Keep that boundary least-privilege:
 
 - The GitHub App installation behind the integration should grant only `Contents: Read & Write` and `Pull requests: Read & Write`, on as few repos as possible. Never widen it for this loop.
 - Leave `connectors.posthog_mcp_scopes` at its `read_only` default and attach no MCP Store installations; the sweep needs neither.
-- Don't set a custom `sandbox_environment` with extra egress; the default GitHub-only allowlist is what the sweep needs.
+- Set `AUTORESOLVE_BOT_LOGIN` in the run environment to the Loop App's `<slug>[bot]` login. The marker helper trusts and updates only comments authored by that login, so a third party can't plant a marker to skip a PR; without it the helper fails closed (never trusts existing state). This is the one required env var; a `sandbox_environment` carrying just this value is the minimal setup. Don't add extra egress; the default GitHub-only allowlist is what the sweep needs.
 - The sandbox's git guard (signed commits only, no raw `git push`) and GitHub's protected-branch rules are load-bearing; treat any run that reports friction with them as a bug in the run, not a reason to loosen them.
 - Regeneration isolation and untrusted-input handling are defined once, in SKILL.md and its `scripts/`; don't restate or weaken them here. If the tasks platform ships first-class nested credentialless sandboxes, adopt them.
 - If the tasks platform ships an enforced "push to existing branches, never create PRs" behavior flag, adopt it here and drop the reliance on `create_prs: true` plus instructions.

@@ -55,6 +55,8 @@ One sticky comment per PR, upserted (update the existing comment if present, els
 Skip any PR whose latest marker matches the current `(headRefOid, master OID)` pair.
 This format is shared with the CI-based implementation proposed in PR #73036, so never assume this loop is the marker's only writer.
 
+Marker state is only trusted from our own App: a commenter could otherwise plant a marker to fake "already attempted" and get a PR skipped.
+The helper filters to comments authored by `AUTORESOLVE_BOT_LOGIN` (the Loop App's `<slug>[bot]` login), which must be set in the run environment; it fails closed without it.
 All marker reads and writes go through the helper (run from your sweep-start snapshot), never through direct comment reads:
 
 - `autoresolve-marker.sh get <owner/repo> <pr>` prints the last validated `<head>:<master>` tuple, or nothing.
