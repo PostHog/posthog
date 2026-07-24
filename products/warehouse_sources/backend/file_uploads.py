@@ -11,8 +11,12 @@ recurring sync — the same shape as a linked S3/GCS bucket, just hosted by us.
 """
 
 import os
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # Top-level bucket folder for user-uploaded files.
 FILE_UPLOADS_FOLDER = "file_uploads"
@@ -94,33 +98,76 @@ def excel_stored_filename(original_filename: str) -> str:
     return f"{stem}.parquet"
 
 
+def _dedupe_excel_headers(header: tuple) -> list[str]:
+    """Turn a header row into unique, non-empty column names. Blank cells become ``column_N`` (1-based
+    position) and repeated names get a ``_2``/``_3`` suffix, so the Parquet schema has valid, distinct
+    columns for ClickHouse."""
+    names: list[str] = []
+    seen: dict[str, int] = {}
+    for index, value in enumerate(header):
+        name = str(value).strip() if value is not None and str(value).strip() else f"column_{index + 1}"
+        count = seen.get(name, 0)
+        seen[name] = count + 1
+        names.append(name if count == 0 else f"{name}_{count + 1}")
+    return names
+
+
 def excel_to_parquet_bytes(data: bytes) -> bytes:
     """Convert an ``.xlsx``/``.xlsm`` workbook's first sheet to Parquet bytes.
 
-    ClickHouse can't read Excel, so a self-managed table can't point at the workbook directly. We
-    read the first sheet into a dataframe and re-encode it as Parquet, which ClickHouse reads
-    natively and which preserves column types better than a CSV round-trip. Only the first sheet is
-    converted — a workbook maps to one table, matching the one-file-one-table upload contract.
+    ClickHouse can't read Excel, so a self-managed table can't point at the workbook directly. We read
+    the first sheet with openpyxl and re-encode it as Parquet via pyarrow — both already ship in the
+    image (openpyxl powers the xlsx *export* path) and neither pulls in pandas. Cell values keep their
+    native types (numbers, dates), so the Parquet schema is richer than a CSV round-trip. Only the
+    first sheet is converted — a workbook maps to one table, matching the one-file-one-table contract.
 
-    pandas/openpyxl/pyarrow are heavy and only needed on this path, so they're imported lazily to
-    keep them off the module (and Django startup) import path.
+    openpyxl/pyarrow are only needed on this path, so they're imported lazily to keep them off the
+    module (and Django startup) import path.
     """
     import io  # noqa: PLC0415 — keep the heavy Excel/Parquet stack off the import path
 
-    import pandas as pd  # noqa: PLC0415
+    import pyarrow as pa  # noqa: PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    from openpyxl import load_workbook  # noqa: PLC0415
 
     try:
-        # engine pinned to openpyxl: it reads .xlsx/.xlsm only, so a mis-typed .xls (which needs the
-        # separate xlrd engine we don't ship) fails here with a clear error rather than silently.
-        frame = pd.read_excel(io.BytesIO(data), sheet_name=0, engine="openpyxl")
+        # read_only streams rows without holding the whole sheet in memory; data_only returns the last
+        # computed value of a formula cell rather than the formula text. openpyxl reads .xlsx/.xlsm
+        # only, so a mis-typed .xls (which needs the xlrd engine we don't ship) fails here clearly.
+        workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as error:
         raise ExcelConversionError(
             "Could not read the Excel file. Make sure it's a valid .xlsx or .xlsm workbook."
         ) from error
 
-    if frame.shape[1] == 0:
-        raise ExcelConversionError("The first sheet has no columns. Add a header row and try again.")
+    try:
+        rows = workbook.worksheets[0].iter_rows(values_only=True)
+        header = next(rows, None)
+        if not header or not any(cell is not None and str(cell).strip() for cell in header):
+            raise ExcelConversionError("The first sheet has no columns. Add a header row and try again.")
+
+        column_names = _dedupe_excel_headers(header)
+        columns: list[list[object]] = [[] for _ in column_names]
+        for row in rows:
+            for index in range(len(column_names)):
+                columns[index].append(row[index] if index < len(row) else None)
+    finally:
+        workbook.close()
+
+    table = pa.table({name: _excel_column_to_arrow(values) for name, values in zip(column_names, columns)})
 
     buffer = io.BytesIO()
-    frame.to_parquet(buffer, engine="pyarrow", index=False)
+    pq.write_table(table, buffer)
     return buffer.getvalue()
+
+
+def _excel_column_to_arrow(values: "list[object]") -> "pa.Array":
+    """Build a pyarrow array from one column's cell values, inferring the type. A column with
+    incompatible mixed types (e.g. numbers and text in the same column) can't be inferred, so it
+    falls back to strings — the same shape a dataframe's object column would take."""
+    import pyarrow as pa  # noqa: PLC0415 — keep pyarrow off the module import path
+
+    try:
+        return pa.array(values)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        return pa.array([None if value is None else str(value) for value in values], type=pa.string())
