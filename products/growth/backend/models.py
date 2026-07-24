@@ -273,6 +273,10 @@ class EnrichmentLabelResult(UUIDModel):
     model = models.CharField(max_length=128)
     # {"ai_pilled": true|false|"unknown", "confidence": float, "reasoning": str}
     output = models.JSONField(default=dict)
+    # The rendered classifier inputs (extracted payload fields + signup domain) at compute
+    # time: the domain derives from current org membership and drifts as members leave, so
+    # this is the only durable record of what was actually sent to the LLM.
+    inputs = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

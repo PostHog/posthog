@@ -54,6 +54,7 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
 
         # Missing data must never come back as a confident false verdict.
         assert result["test_label"] == UNKNOWN
+        assert result["inputs"] == {"signup_domain": "example.com", "fields": {}}
         client.chat.completions.create.assert_not_called()
 
 
@@ -109,12 +110,39 @@ class TestEnrichmentLabelBatch(BaseTest):
         output = EnrichmentLabelResult.objects.get(label_name="test_label").output
         assert output["test_label"] is True
         assert "ai_pilled" not in output
+        assert "inputs" not in output
         assert output["meta"] == {
             "response_model": "gpt-5-mini-2026-07-01",
             "system_fingerprint": "fp_abc",
             "prompt_tokens": 900,
             "completion_tokens": 40,
         }
+
+    def test_batch_run_stores_the_rendered_inputs_snapshot(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.inputs == {"signup_domain": "posthog.com", "fields": {"name": "Acme"}}
+        assert "inputs" not in result.output
+
+    def test_batch_run_snapshots_an_empty_unknown_verdict(self):
+        self._config()
+        self._fetch(payload={})
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.output["test_label"] == UNKNOWN
+        assert result.inputs == {"signup_domain": "posthog.com", "fields": {}}
+        assert "inputs" not in result.output
+        client.chat.completions.create.assert_not_called()
 
     def test_rerun_is_idempotent_and_makes_no_further_llm_calls(self):
         self._config()

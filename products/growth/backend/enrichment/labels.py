@@ -126,7 +126,12 @@ def classify_payload(
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
     if not payload or payload.get("companyFound") is False:
-        return {config.name: UNKNOWN, "confidence": 0.0, "reasoning": "missing or empty archived payload"}
+        return {
+            config.name: UNKNOWN,
+            "confidence": 0.0,
+            "reasoning": "missing or empty archived payload",
+            "inputs": {"signup_domain": signup_domain, "fields": {}},
+        }
 
     inputs = extract_input_fields(payload, config.input_fields)
     messages = build_messages(config, inputs, signup_domain)
@@ -135,6 +140,7 @@ def classify_payload(
         config.name: verdict.verdict,
         "confidence": verdict.confidence,
         "reasoning": verdict.reasoning,
+        "inputs": {"signup_domain": signup_domain, "fields": inputs},
     }
     if meta:
         output["meta"] = meta
