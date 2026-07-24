@@ -101,8 +101,9 @@ export const BoundedEmbed: Story = {
 
 /**
  * Streaming — a timer appends items and grows the height of the last message; the viewport stays pinned to the
- * bottom. This exercises the height-only-growth stick path, the case `anchorTo: 'end'` does not cover. Timers
- * are non-deterministic, so this story is skipped in the visual-regression run.
+ * bottom (`turnActive` simulates the agent working, which is what gates append-following). This exercises the
+ * height-only-growth stick path, the case `anchorTo: 'end'` does not cover. Timers are non-deterministic, so
+ * this story is skipped in the visual-regression run.
  */
 export const Streaming: Story = {
     tags: ['test-skip'],
@@ -143,6 +144,7 @@ export const Streaming: Story = {
                         </VirtualizedThread.Row>
                     }
                     stickToBottom
+                    turnActive
                 >
                     {(item) => (
                         <VirtualizedThread.Row>
