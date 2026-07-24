@@ -492,7 +492,7 @@ class SessionRecordingSourcesSerializer(serializers.Serializer):
 class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
-    player_metadata = serializers.JSONField(required=False)
+    player_metadata = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
@@ -1085,7 +1085,7 @@ class SessionRecordingViewSet(
         serializer.is_valid(raise_exception=True)
 
         current_url = request.headers.get("Referer")
-        player_metadata = serializer.validated_data.get("player_metadata", {})
+        player_metadata = serializer.validated_data.get("player_metadata") or {}
 
         event_properties = {
             "cleaned_replay_path": clean_referer_url(current_url),

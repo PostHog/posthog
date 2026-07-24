@@ -735,6 +735,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(mock_capture.call_args_list) == 1
         assert mock_capture.call_args_list[0][1]["event"] == "recording analyzed"
 
+    @patch("posthoganalytics.capture")
+    def test_update_session_recording_viewed_with_null_player_metadata(self, mock_capture: MagicMock):
+        # The player can fire markViewed before recording metadata has loaded, sending
+        # player_metadata=null. That must be accepted (not rejected as "may not be null")
+        # and must not crash the reporting path that reads keys off player_metadata.
+        session_id = "test_update_viewed_null_metadata"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            {"viewed": True, "player_metadata": None},
+        )
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["success"] is True
+        assert mock_capture.call_args_list[0][1]["event"] == "recording viewed"
+
     def test_update_session_recording_invalid_data(self):
         session_id = "test_update_invalid_data"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
