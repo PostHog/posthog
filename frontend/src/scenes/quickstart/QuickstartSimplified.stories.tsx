@@ -28,6 +28,7 @@ const meta: Meta = {
         featureFlags: {
             [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test2',
             [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC]: 'test',
+            [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test',
         },
     },
     decorators: [CacheBuster],

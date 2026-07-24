@@ -66,8 +66,15 @@ import { SessionReplaySDKInstructions } from 'scenes/onboarding/legacy/sdks/sess
 import { SurveysSDKInstructions } from 'scenes/onboarding/legacy/sdks/surveys/SurveysSDKInstructions'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/legacy/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { currentTaskLabel } from 'scenes/onboarding/shared/wizard-sync/helpers'
 import { InstallationProgress } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
+import {
+    InstallationProgressView,
+    useLocalWizardRunActive,
+} from 'scenes/onboarding/shared/wizard-sync/InstallationProgressView'
+import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
+import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -1500,64 +1507,63 @@ function QuickstartHeroAnswerCard(): JSX.Element | null {
     )
 }
 
-// Pre-ingestion view for the test2 arm: one job — get the first event in. Wizard progress
-// takes over as the hero when a run is active; otherwise the wizard CTA leads with the
-// per-product setup path (tailored SDK instructions) as the alternative. No product cards:
-// pre-install, card content goes untouched while setup entries carry all the traffic.
+// Pre-ingestion view for the test2 arm: one job, get the first event in. All install
+// methods live inline, in priority order: cloud wizard, local wizard (both inside
+// WizardInstallOptions, which renders an active cloud run in place), then manual per-tool
+// setup via the existing modal. No detour back to onboarding.
 function QuickstartFocusedInstall(): JSX.Element {
     const { featuredProducts } = useValues(quickstartLogic)
     const { openToolSetupModal } = useActions(quickstartLogic)
+    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const isLocalRunActive = useLocalWizardRunActive()
+    const wizardBusy = !!activeCloudRun || isLocalRunActive
 
     return (
-        <section className="max-w-2xl">
-            <QuickstartWizardProgress
-                fallback={
-                    <div className="flex flex-col gap-4">
-                        <SectionHeader
-                            title="Get your first event in"
-                            subtitle="Nothing else in PostHog works until your product sends an event. The wizard installs the SDK and instruments key events for you."
-                        />
-                        <div>
-                            <QuickstartInstallationLink />
-                        </div>
-                        <div>
-                            <SubsectionHeader title="Or set up a specific tool by hand" />
-                            <div className="flex flex-wrap gap-2">
-                                {featuredProducts.map((product) => (
-                                    <LemonButton
-                                        key={product.key}
-                                        type="secondary"
-                                        size="small"
-                                        icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
-                                        onClick={() => {
-                                            captureQuickstartAction('set_up_product', product.key, {
-                                                source: 'focused_install',
-                                            })
-                                            openToolSetupModal(product.key)
-                                        }}
-                                        data-attr={`quickstart-focused-setup-${product.key}`}
-                                    >
-                                        {product.name}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                        <p className="text-secondary text-sm mb-0">
-                            Your tools light up here as soon as your data arrives.
-                        </p>
+        <section className="max-w-xl flex flex-col gap-6">
+            <div>
+                <h2 className="text-lg font-semibold mb-1">Get your first event in</h2>
+                <p className="text-secondary mb-0">
+                    PostHog runs on your product's events. The wizard gets them flowing in a couple of minutes and
+                    instruments key events for you.
+                </p>
+            </div>
+
+            {isLocalRunActive && !activeCloudRun ? (
+                <InstallationProgressView mode="local" />
+            ) : (
+                <WizardInstallOptions
+                    localBlock={<WizardCommandBlock hideHog />}
+                    onModeSelected={(mode) => captureQuickstartAction('install_mode_selected', undefined, { mode })}
+                />
+            )}
+
+            {!wizardBusy && (
+                <div>
+                    <SubsectionHeader title="Or install manually for a specific tool" />
+                    <div className="flex flex-wrap gap-2">
+                        {featuredProducts.map((product) => (
+                            <LemonButton
+                                key={product.key}
+                                type="secondary"
+                                size="small"
+                                icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
+                                onClick={() => {
+                                    captureQuickstartAction('set_up_product', product.key, {
+                                        source: 'focused_install',
+                                    })
+                                    openToolSetupModal(product.key)
+                                }}
+                                data-attr={`quickstart-focused-setup-${product.key}`}
+                            >
+                                {product.name}
+                            </LemonButton>
+                        ))}
                     </div>
-                }
-            >
-                {(progress) => (
-                    <div className="flex flex-col gap-4">
-                        <SectionHeader
-                            title="Installation in progress"
-                            subtitle="Waiting for your first event. Most projects see one within a few minutes of running the app with the SDK installed."
-                        />
-                        <QuickstartInstallationProgress progress={progress} />
-                    </div>
-                )}
-            </QuickstartWizardProgress>
+                    <p className="text-secondary text-sm mb-0 mt-3">
+                        Your tools light up here as soon as your data arrives.
+                    </p>
+                </div>
+            )}
         </section>
     )
 }
