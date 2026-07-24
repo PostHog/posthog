@@ -709,6 +709,40 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
         })
 
+        it('applies filters from the URL hash on top of the opened insight so view-mode filter edits can be saved', async () => {
+            // The insight scene's Edit button carries unsaved view-mode filter edits via
+            // urls.sqlEditor({ insightShortId, filters }) — they must land in sourceQuery
+            // (not the saved insight's filters) with the tab still bound to the insight,
+            // so Update insight is enabled and persists them.
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const filters: HogQLFilters = { dateRange: { date_from: '-30d', date_to: null } }
+            router.actions.push(urls.sqlEditor({ insightShortId: MOCK_INSIGHT_SHORT_ID, filters }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                    sourceQuery: partial({
+                        source: partial({
+                            query: (MOCK_INSIGHT_QUERY.source as HogQLQuery).query,
+                            filters: partial({ dateRange: partial({ date_from: '-30d' }) }),
+                        }),
+                    }),
+                })
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
+        })
+
         it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
