@@ -25,9 +25,12 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    HogQLQueryModifiers,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -52,6 +55,32 @@ MAX_METRIC_EVENT_TIMESTAMPS = 50
 MAX_SCANNED_METRICS = 50
 
 MetricSourceNode = EventsNode | ActionsNode
+
+
+@dataclass(frozen=True)
+class SharedHogQLDatabase:
+    """A HogQL virtual database built once per request and shared across that request's
+    scans, bundled with the modifiers it was built with.
+
+    Sharing the database is sound only while every scan treats it as read-only — the
+    session-context scans run against it concurrently from a thread pool. HogQL mutates a
+    database at query time in exactly two cases: `system.information_schema` queries register
+    hidden external tables on it (`_rows_select` in
+    posthog/hogql/database/schema/information_schema.py), and direct-connection queries make
+    the executor rebuild it. Scans sharing one must therefore stick to plain table reads;
+    everything here reads only `events`. The modifiers travel with the database because the
+    schema depends on them (person-on-events mode changes the events table's person fields):
+    every query against the shared database must execute with these modifiers, never its own.
+    """
+
+    database: Database
+    modifiers: HogQLQueryModifiers
+
+    def fresh_context(self, team: Team, user: User) -> HogQLContext:
+        """A per-query context carrying the shared database, so `execute_hogql_query` reuses
+        it instead of building its own. Contexts accumulate per-query state during printing
+        and must never be shared between queries — the database can be."""
+        return HogQLContext(team_id=team.pk, user=user, database=self.database)
 
 
 @dataclass(frozen=True)
@@ -173,6 +202,7 @@ def scan_session_for_metric_events(
     session_id: str,
     window_start: datetime,
     window_end: datetime,
+    shared_hogql: SharedHogQLDatabase | None = None,
 ) -> list[MetricHit]:
     """The metrics with >=1 matching event in the session, sorted by first occurrence.
 
@@ -189,6 +219,11 @@ def scan_session_for_metric_events(
     source dedupe only narrows the query, it must not let a metric-heavy experiment emit an
     unbounded hit list by piling metrics onto one source. `user` threads through to HogQL for
     property-level access control — metric source nodes can carry property filters.
+
+    `shared_hogql` optionally carries a prebuilt virtual database (session_context builds
+    one shared across all its scans) — constructing it dominates query wall time on teams with
+    a large warehouse schema, so callers that already hold one should pass it in, along with
+    the modifiers it was built with.
     """
     names_by_uuid: dict[str, str] = {}
     # Metric uuids grouped by identical source nodes: identical sources compile to identical
@@ -285,7 +320,13 @@ def scan_session_for_metric_events(
             ]
         ),
     )
-    response = execute_hogql_query(query, team=team, user=user)
+    # execute_hogql_query treats a passed context as fully caller-owned, so only build one when
+    # there is a shared database to carry; otherwise let the executor construct its default.
+    extra_kwargs: dict[str, HogQLContext | HogQLQueryModifiers] = {}
+    if shared_hogql is not None:
+        extra_kwargs["context"] = shared_hogql.fresh_context(team, user)
+        extra_kwargs["modifiers"] = shared_hogql.modifiers
+    response = execute_hogql_query(query, team=team, user=user, **extra_kwargs)
 
     # Aggregation without GROUP BY always yields exactly one row; a metric with no matching
     # events shows count 0 there (and an epoch minIf), so the count guards the timestamps.
