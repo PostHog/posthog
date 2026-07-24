@@ -29,7 +29,7 @@ from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 
 logger = structlog.get_logger(__name__)
 
@@ -328,6 +328,31 @@ def _send_via_smtp(
                 connection.close()
             except Exception as err:
                 logger.warning("email_connection_close_failed", error=str(err))
+
+
+class EmailDeliveryError(Exception):
+    """A synchronous send returned without recording a delivery.
+
+    `_send_via_smtp`/`_send_via_http` swallow permanent provider failures (5xx bounces,
+    rejected recipients, auth errors) so the Celery task doesn't retry-storm the relay —
+    on those paths `MessagingRecord.sent_at` is never written. Callers that must know the
+    outcome (subscription delivery) raise this instead of recording a phantom success.
+    """
+
+
+def was_email_delivered(campaign_key: str, email: str) -> bool:
+    """Whether a send for this campaign+recipient actually completed.
+
+    `sent_at` is only stamped after the provider accepts the message, so its absence
+    (a swallowed permanent failure, or a transient failure that exhausted retries) means
+    the recipient got nothing. A prior successful attempt keeps `sent_at` set, so this
+    stays true across idempotent re-sends.
+    """
+    # Match on the hash set (primary salt + rotation fallbacks) rather than `raw_email=`: the
+    # manager's `raw_email` remap is invisible to django-stubs and mypy can't resolve it.
+    return MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=get_email_hashes(email), sent_at__isnull=False
+    ).exists()
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never

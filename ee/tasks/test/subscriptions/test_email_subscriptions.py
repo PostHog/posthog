@@ -1,8 +1,12 @@
+import smtplib
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.email import EmailDeliveryError
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -159,3 +163,43 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
         assert str(self.subscription.pk) in mocked_email_messages[0].campaign_key
         assert str(subscription_b.pk) in mocked_email_messages[1].campaign_key
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
+    """Exercises the real EmailMessage + locmem backend so `_send_via_smtp`'s swallow of a
+    permanent failure is reflected in `MessagingRecord.sent_at` — unlike the mocked class above."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, short_id="detect", name="Detection insight")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+
+    def test_raises_when_permanent_smtp_failure_is_swallowed(self) -> None:
+        # A permanent 5xx bounce is swallowed by `_send_via_smtp` (to avoid retry-storming the
+        # relay) and writes no `sent_at`. A synchronous subscription send must then raise so
+        # `deliver_email` records a failure and emits `subscription_delivery_failed` — not a
+        # phantom success.
+        with patch(
+            "django.core.mail.backends.locmem.EmailBackend.send_messages",
+            side_effect=smtplib.SMTPRecipientsRefused({"bounce@posthog.com": (550, b"no such user")}),
+        ):
+            with self.assertRaises(EmailDeliveryError):
+                send_email_subscription_report("bounce@posthog.com", self.subscription, [self.asset], send_async=False)
+
+    def test_does_not_raise_when_delivery_recorded(self) -> None:
+        # The accepted-send path stamps `sent_at`, so the guard must stay quiet — otherwise it
+        # would fail every successful subscription delivery.
+        send_email_subscription_report("ok@posthog.com", self.subscription, [self.asset], send_async=False)
+
+        assert MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("ok@posthog.com"), sent_at__isnull=False
+        ).exists()
