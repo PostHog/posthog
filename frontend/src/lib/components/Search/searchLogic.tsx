@@ -691,6 +691,7 @@ export const searchLogic = kea<searchLogicType>([
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
+                    searchKeywords: product.searchKeywords,
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {
