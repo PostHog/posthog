@@ -1,6 +1,36 @@
-from typing import Literal
+import re
+import json
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Sonnet 5 (adaptive thinking) sometimes serializes a nested list argument as a single
+# string with its internal text-tool-call syntax leaking in, e.g. a stray
+# `<parameter name="hypothesis">` wrapping a JSON array. Strip the tag so the embedded
+# JSON can be recovered instead of failing validation and collapsing to 'inconclusive'.
+_LEAKED_PARAM_TAG_RE = re.compile(r"</?\s*parameter\b[^>]*>", re.IGNORECASE)
+
+
+def _recover_stringified_list(value: Any) -> Any:
+    """Coerce a list field the model emitted as a string back into a list.
+
+    Returns the value unchanged when it isn't a string, so a well-formed list passes
+    through untouched. When recovery fails, the original value is returned so pydantic
+    raises its normal validation error rather than this masking the problem.
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = _LEAKED_PARAM_TAG_RE.sub("", value).strip()
+    if not cleaned:
+        return []
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start != -1 and end > start:
+        try:
+            return json.loads(cleaned[start : end + 1])
+        except (ValueError, TypeError):
+            pass
+    return value
 
 
 class InvestigationHypothesis(BaseModel):
@@ -35,3 +65,8 @@ class InvestigationReport(BaseModel):
         description="Suggested next actions for the on-call engineer or product owner.",
     )
     tool_calls_used: int = Field(default=0, description="Number of tool calls the agent made, for audit.")
+
+    @field_validator("hypotheses", "recommendations", mode="before")
+    @classmethod
+    def _recover_leaked_list(cls, value: Any) -> Any:
+        return _recover_stringified_list(value)

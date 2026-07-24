@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.temporal.ai.anomaly_investigation.runner import (
     FINAL_REPORT_TOOL_NAME,
     _build_callbacks,
@@ -35,6 +37,64 @@ def test_report_from_tool_calls_accepts_structured_final_report() -> None:
     assert report.summary == "The spike is within normal low-volume variance."
     assert report.hypotheses[0].title == "Low-volume noise"
     assert report.recommendations == ["Aggregate to daily buckets."]
+
+
+@parameterized.expand(
+    [
+        # Sonnet 5 leaks its text-tool-call syntax and stringifies the whole list — the exact
+        # shape seen in production traces that collapsed to "Agent returned no final message".
+        (
+            "hypotheses_leaked_tag_string",
+            '\n<parameter name="hypothesis">[{"title": "Real step-change", "rationale": "Sustained climb.", "evidence": ["Rose 10 -> 60/hr"]}]',
+            ["Aggregate to daily buckets."],
+        ),
+        # Plain JSON array in a string, no leaked tag.
+        (
+            "hypotheses_plain_json_string",
+            '[{"title": "Bot spike", "rationale": "Traffic surge.", "evidence": []}]',
+            ["Filter bots."],
+        ),
+    ]
+)
+def test_report_from_tool_calls_recovers_stringified_hypotheses(
+    _name: str, hypotheses: str, recommendations: list[str]
+) -> None:
+    report = _report_from_tool_calls(
+        [
+            {
+                "name": FINAL_REPORT_TOOL_NAME,
+                "args": {
+                    "verdict": "true_positive",
+                    "summary": "A genuine sustained shift.",
+                    "hypotheses": hypotheses,
+                    "recommendations": recommendations,
+                },
+            }
+        ]
+    )
+
+    assert report is not None
+    assert report.hypotheses[0].title in ("Real step-change", "Bot spike")
+    assert report.recommendations == recommendations
+
+
+def test_report_from_tool_calls_recovers_stringified_recommendations() -> None:
+    report = _report_from_tool_calls(
+        [
+            {
+                "name": FINAL_REPORT_TOOL_NAME,
+                "args": {
+                    "verdict": "inconclusive",
+                    "summary": "Unclear.",
+                    "hypotheses": [],
+                    "recommendations": '<parameter name="recommendation">["Check the dashboard.", "Ask the owning team."]',
+                },
+            }
+        ]
+    )
+
+    assert report is not None
+    assert report.recommendations == ["Check the dashboard.", "Ask the owning team."]
 
 
 def test_report_from_tool_calls_ignores_invalid_structured_final_report() -> None:
