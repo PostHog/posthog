@@ -61,6 +61,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
             "401 Client Error": "BuildBetter authentication failed. Please check your API key.",
             "403 Client Error": "BuildBetter access forbidden. Please check your API key permissions.",
             "Authentication hook unauthorized this request": "BuildBetter authentication failed. Please check your API key.",
+            "webhook authentication request failed": "BuildBetter authentication failed. Please check your API key.",
         }
 
     def get_schemas(
