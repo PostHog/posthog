@@ -656,17 +656,36 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     listeners(({ actions, values }) => {
-        // If the required table for a signal source is not yet syncing on the existing DW source,
-        // enable it. Multi-repo sources qualify schema names (`owner/repo.endpoint`): match by suffix.
-        async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
+        // Cached list is null for a beat after mount (loadSources is debounced), so a toggle click
+        // can beat it and misread it as "no source connected", opening the connect form and
+        // duplicating a source. Fetch once as a fallback; on failure return empty so the caller
+        // opens the connect form rather than hanging.
+        async function currentWarehouseSources(): Promise<ExternalDataSource[]> {
+            if (values.dataWarehouseSources !== null) {
+                return values.dataWarehouseSources.results
+            }
+            try {
+                return (await api.externalDataSources.list()).results
+            } catch {
+                return []
+            }
+        }
+
+        // Enable any required table not yet syncing on the connected source. Multi-repo sources
+        // qualify schema names (`owner/repo.endpoint`): match by suffix.
+        async function ensureRequiredTableSyncing(
+            sources: ExternalDataSource[],
+            dwSourceType: string,
+            tableName: string
+        ): Promise<void> {
             const matchesTable = (schema: ExternalDataSourceSchema): boolean =>
                 schema.name === tableName || schema.name.endsWith(`.${tableName}`)
-            const schemas = values.dataWarehouseSources?.results
-                ?.filter((source: ExternalDataSource) => source.source_type === dwSourceType)
+            const schemas = sources
+                .filter((source: ExternalDataSource) => source.source_type === dwSourceType)
                 .flatMap((source: ExternalDataSource) => source.schemas ?? [])
                 .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
             await Promise.all(
-                (schemas ?? []).map((schema: ExternalDataSourceSchema) =>
+                schemas.map((schema: ExternalDataSourceSchema) =>
                     api.externalDataSchemas.update(schema.id, { should_sync: true })
                 )
             )
@@ -686,17 +705,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const sourceConfig = getWarehouseSourceConfig(values, source)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
-                    const hasSource =
-                        values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === dwSourceType
-                        ) ?? false
+                    const sources = await currentWarehouseSources()
+                    const hasSource = sources.some((s: ExternalDataSource) => s.source_type === dwSourceType)
                     if (!hasSource) {
                         actions.openDataSourceSetup(source)
                         return
                     }
                     try {
                         for (const table of requiredTables) {
-                            await ensureRequiredTableSyncing(dwSourceType, table)
+                            await ensureRequiredTableSyncing(sources, dwSourceType, table)
                         }
                     } catch (error: any) {
                         const fallback =
@@ -819,10 +836,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The setup wizard just connected GitHub with the CI tables preselected, so both
                 // checks below would race the still-refreshing sources list — skip them.
                 if (desiredEnabled && !viaSetupWizard) {
-                    const hasGithubSource =
-                        values.dataWarehouseSources?.results?.some(
-                            (s: ExternalDataSource) => s.source_type === 'Github'
-                        ) ?? false
+                    const sources = await currentWarehouseSources()
+                    const hasGithubSource = sources.some((s: ExternalDataSource) => s.source_type === 'Github')
                     if (!hasGithubSource) {
                         actions.toggleCiSignalsComplete()
                         actions.openDataSourceSetup('engineering_analytics')
@@ -831,7 +846,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     try {
                         const ciSetup = WAREHOUSE_SOURCE_SETUP.engineering_analytics
                         for (const tableName of ciSetup.requiredTables) {
-                            await ensureRequiredTableSyncing(ciSetup.dwSourceType, tableName)
+                            await ensureRequiredTableSyncing(sources, ciSetup.dwSourceType, tableName)
                         }
                     } catch (error: any) {
                         actions.toggleCiSignalsComplete()
