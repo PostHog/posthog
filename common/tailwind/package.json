@@ -6,7 +6,7 @@
     },
     "dependencies": {
         "@tailwindcss/container-queries": "0.1.1",
-        "tailwindcss": "4.3.0",
+        "tailwindcss": "4.3.2",
         "tailwindcss-scroll-mask": "^0.0.3"
     }
 }
