@@ -345,3 +345,87 @@ describe('memory: janitor + runner share one bucket', () => {
         expect(text).toContain('new description after patch')
     })
 })
+
+describe('memory: shared memory spaces', () => {
+    let c: Cluster
+
+    beforeEach(async () => {
+        c = await buildCluster()
+    })
+
+    afterEach(async () => {
+        await c.teardown()
+    })
+
+    afterAll(async () => {
+        await closeSharedPool()
+    })
+
+    // Pull the memory-read tool_result text out of a completed session.
+    function readToolResult(conversation: { role: string; content?: unknown; isError?: boolean }[]): {
+        text: string
+        isError: boolean
+    } {
+        const tr = conversation.find((m) => m.role === 'toolResult') as
+            | { role: 'toolResult'; content: Array<{ type: string; text?: string }>; isError?: boolean }
+            | undefined
+        const text = tr?.content?.find((b) => b.type === 'text')?.text ?? ''
+        return { text, isError: !!tr?.isError }
+    }
+
+    it('a reader granted a shared space reads what a writer put there; an ungranted space is denied', async () => {
+        // Writer A is granted read_write on the shared space and writes into it.
+        c.setScript([
+            fauxCallTool('@posthog/memory-write', {
+                path: 'onboarding.md',
+                description: 'shared runbook',
+                content: 'SENTINEL-SHARED-SPACE-42',
+                space: 'team-runbooks',
+            }),
+            fauxText('stored'),
+        ])
+        await c.deployAgent({
+            slug: 'writer-a',
+            spec: {
+                tools: [{ kind: 'native', id: '@posthog/memory-write' }],
+                memory_spaces: [{ space: 'team-runbooks', access: 'read_write' }],
+            },
+        })
+        const runA = await request(c.ingress).post('/agents/writer-a/run').send({ message: 'remember' })
+        expect(runA.status).toBe(200)
+        await c.drain()
+
+        // Reader B (same team) is granted read on the same space.
+        await c.deployAgent({
+            slug: 'reader-b',
+            spec: {
+                tools: [{ kind: 'native', id: '@posthog/memory-read' }],
+                memory_spaces: [{ space: 'team-runbooks', access: 'read' }],
+            },
+        })
+        c.setScript([
+            fauxCallTool('@posthog/memory-read', { path: 'onboarding.md', space: 'team-runbooks' }),
+            fauxText('read it'),
+        ])
+        const runAllow = await request(c.ingress).post('/agents/reader-b/run').send({ message: 'read shared' })
+        expect(runAllow.status).toBe(200)
+        await c.drain()
+        const allow = readToolResult((await c.queue.get(runAllow.body.session_id))!.conversation)
+        // Granted space → the read resolves the writer's file content.
+        expect(allow.isError).toBe(false)
+        expect(allow.text).toContain('SENTINEL-SHARED-SPACE-42')
+
+        // Same reader, a space it was NOT granted → access_denied (grants come off
+        // the frozen spec; there is no team-wide scan of other agents).
+        c.setScript([
+            fauxCallTool('@posthog/memory-read', { path: 'onboarding.md', space: 'not-granted' }),
+            fauxText('tried'),
+        ])
+        const runDeny = await request(c.ingress).post('/agents/reader-b/run').send({ message: 'read ungranted' })
+        expect(runDeny.status).toBe(200)
+        await c.drain()
+        const deny = readToolResult((await c.queue.get(runDeny.body.session_id))!.conversation)
+        expect(deny.text).toContain('access_denied')
+        expect(deny.text).not.toContain('SENTINEL-SHARED-SPACE-42')
+    })
+})

@@ -2,11 +2,15 @@
  * MemoryStore — the cross-process surface for agent memory files.
  *
  * Files are markdown with YAML frontmatter (see format.ts), keyed at
- *   agent_memory/team/<team_id>/agent/<application_slug>/<path>.md
+ *   agent_memory/team/<team_id>/agent/<application_id>/<path>.md   (private)
+ *   agent_memory/team/<team_id>/space/<slug>/<path>.md             (shared space)
  *
- * The store enforces the team/app prefix on every read and write — callers
- * pass `{ teamId, applicationId }` and a relative `<path>.md` and never
- * see the bucket prefix directly.
+ * The store enforces the team + owner prefix on every read and write — callers
+ * pass `{ teamId, applicationId, space? }` and a relative `<path>.md` and never
+ * see the bucket prefix directly. `space` redirects storage to a team-local
+ * shared space (owned by the space, not any one agent); omit it for the agent's
+ * own private memory. `teamId` is always the session's team — never derived from
+ * a tool arg — so cross-team access is impossible by construction.
  *
  * Two impls:
  *   - InMemoryMemoryStore — Map-backed. Used by tests + dev when no bucket
@@ -18,7 +22,15 @@ import { MemoryFrontmatter } from './format'
 
 export interface MemoryScope {
     teamId: number
+    /** The calling agent — the private space key used when `space` is unset. */
     applicationId: string
+    /**
+     * Optional shared memory space slug. When set, storage keys under the team's
+     * `space/<slug>/` prefix instead of the agent's own `agent/<applicationId>/`
+     * prefix, so the data is owned by the space rather than any single agent.
+     * Team-local; validated by `validateMemorySpaceSlug`.
+     */
+    space?: string
 }
 
 /** Metadata-only view, used by list + search ranking without paying for a full GET. */
@@ -78,14 +90,39 @@ export function validateMemoryPath(path: string): string {
  * Compose the full bucket key. Exported so the S3 impl can use it and tests
  * can assert against the wire format.
  */
+const SPACE_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+
+/**
+ * Validate a shared memory space slug. Lowercase ascii/digits/`_`/`-`, first
+ * char alphanumeric, no slashes or dots — so a space can never traverse out of
+ * its `space/<slug>/` prefix. Returns the slug unchanged or throws.
+ */
+export function validateMemorySpaceSlug(slug: string): string {
+    if (!SPACE_SLUG_RE.test(slug)) {
+        throw new Error(
+            `invalid memory space "${slug}" — must match ${SPACE_SLUG_RE} (lowercase a-z 0-9 _ -, no slashes)`
+        )
+    }
+    return slug
+}
+
+/**
+ * The owner path segment for a scope: `space/<slug>` for a shared space,
+ * `agent/<applicationId>` for the agent's own private memory (unchanged from the
+ * pre-spaces layout, so existing objects keep resolving without a migration).
+ */
+export function memoryOwnerSegment(scope: MemoryScope): string {
+    return scope.space !== undefined ? `space/${validateMemorySpaceSlug(scope.space)}` : `agent/${scope.applicationId}`
+}
+
 export function keyFor(scope: MemoryScope, path: string, bucketPrefix: string): string {
     const trimmedPrefix = bucketPrefix.replace(/^\/+|\/+$/g, '')
-    return `${trimmedPrefix}/team/${scope.teamId}/agent/${scope.applicationId}/${path}`
+    return `${trimmedPrefix}/team/${scope.teamId}/${memoryOwnerSegment(scope)}/${path}`
 }
 
 export function prefixFor(scope: MemoryScope, bucketPrefix: string, subPrefix?: string): string {
     const trimmedPrefix = bucketPrefix.replace(/^\/+|\/+$/g, '')
-    const base = `${trimmedPrefix}/team/${scope.teamId}/agent/${scope.applicationId}/`
+    const base = `${trimmedPrefix}/team/${scope.teamId}/${memoryOwnerSegment(scope)}/`
     if (!subPrefix) {
         return base
     }

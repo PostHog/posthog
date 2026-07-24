@@ -596,6 +596,15 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        // Shared memory space grants, straight off the frozen spec — no DB lookup
+        // and no enumerating other agents. The memory/table tools resolve their
+        // optional `space` arg against this map.
+        memorySpaceGrants: new Map(
+            deps.rev.spec.memory_spaces.map((g): [string, { access: 'read' | 'read_write' }] => [
+                g.space,
+                { access: g.access },
+            ])
+        ),
         webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {

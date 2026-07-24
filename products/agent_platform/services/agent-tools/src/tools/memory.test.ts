@@ -117,6 +117,114 @@ describe('memory tools (real S3 / SeaweedFS)', () => {
         })
     })
 
+    describe('shared memory space access', () => {
+        const SPACE = 'team-runbooks'
+        const grantCtx = (
+            applicationId: string,
+            grants: [string, { access: 'read' | 'read_write' }][],
+            teamId = 42
+        ): ToolContext => ({
+            ...makeCtx(store),
+            teamId,
+            applicationId,
+            memorySpaceGrants: new Map(grants),
+        })
+
+        it('a read_write grantee writes to the space; a read grantee (different agent) reads it back', async () => {
+            const write = (await memoryWriteV1.run(
+                { path: 'onboarding.md', description: 'shared', content: 'SHARED-BODY', space: SPACE },
+                grantCtx('writer', [[SPACE, { access: 'read_write' }]])
+            )) as Envelope
+            expect(write.ok).toBe(true)
+
+            const read = (await memoryReadV1.run(
+                { path: 'onboarding.md', space: SPACE },
+                grantCtx('reader', [[SPACE, { access: 'read' }]])
+            )) as Envelope
+            expect(read.ok).toBe(true)
+            expect(read.data?.content).toBe('SHARED-BODY')
+        })
+
+        it('denies a read of an ungranted space even though the file exists', async () => {
+            await memoryWriteV1.run(
+                { path: 'onboarding.md', description: 'shared', content: 'SHARED-BODY', space: SPACE },
+                grantCtx('writer', [[SPACE, { access: 'read_write' }]])
+            )
+            const read = (await memoryReadV1.run(
+                { path: 'onboarding.md', space: SPACE },
+                grantCtx('reader', [])
+            )) as Envelope
+            expect(read.ok).toBe(false)
+            expect(read.error).toMatch(/access_denied/)
+        })
+
+        it('denies a write to a space granted only read (read_write required)', async () => {
+            const write = (await memoryWriteV1.run(
+                { path: 'onboarding.md', description: 'shared', content: 'x', space: SPACE },
+                grantCtx('reader', [[SPACE, { access: 'read' }]])
+            )) as Envelope
+            expect(write.ok).toBe(false)
+            expect(write.error).toMatch(/access_denied/)
+        })
+
+        it('a space file is separate from the agent private memory (no space arg → not found)', async () => {
+            await memoryWriteV1.run(
+                { path: 'onboarding.md', description: 'shared', content: 'SHARED-BODY', space: SPACE },
+                grantCtx('writer', [[SPACE, { access: 'read_write' }]])
+            )
+            const read = (await memoryReadV1.run({ path: 'onboarding.md' }, makeCtx(store))) as Envelope
+            expect(read.ok).toBe(false)
+            expect(read.error).toMatch(/not_found/)
+        })
+
+        it('a space is team-scoped — the same slug in another team is a different store', async () => {
+            await memoryWriteV1.run(
+                { path: 'onboarding.md', description: 'shared', content: 'TEAM-42-ONLY', space: SPACE },
+                grantCtx('writer', [[SPACE, { access: 'read_write' }]], 42)
+            )
+            // Same space slug + same path but a DIFFERENT team → no leak. teamId is
+            // taken from the session, never a tool arg; keyFor namespaces by team.
+            const read = (await memoryReadV1.run(
+                { path: 'onboarding.md', space: SPACE },
+                grantCtx('reader', [[SPACE, { access: 'read' }]], 7)
+            )) as Envelope
+            expect(read.ok).toBe(false)
+            expect(read.error).toMatch(/not_found/)
+        })
+
+        it('search is scoped to the space — never surfaces private files, and private search never surfaces space files', async () => {
+            const ctx = grantCtx('agent', [[SPACE, { access: 'read_write' }]])
+            await memoryWriteV1.run(
+                { path: 'private-doc.md', description: 'incident notes', content: 'incident PRIVATE-MARKER' },
+                ctx
+            )
+            await memoryWriteV1.run(
+                { path: 'space-doc.md', description: 'incident notes', content: 'incident SPACE-MARKER', space: SPACE },
+                ctx
+            )
+
+            const inSpace = (await memorySearchV1.run({ cue: 'incident', space: SPACE }, ctx)) as Envelope
+            const spacePaths = (inSpace.data as { results: { path: string }[] }).results.map((r) => r.path)
+            expect(spacePaths).toContain('space-doc.md')
+            expect(spacePaths).not.toContain('private-doc.md')
+
+            const inPrivate = (await memorySearchV1.run({ cue: 'incident' }, ctx)) as Envelope
+            const privatePaths = (inPrivate.data as { results: { path: string }[] }).results.map((r) => r.path)
+            expect(privatePaths).toContain('private-doc.md')
+            expect(privatePaths).not.toContain('space-doc.md')
+        })
+
+        it('list is scoped to the space', async () => {
+            const ctx = grantCtx('agent', [[SPACE, { access: 'read_write' }]])
+            await memoryWriteV1.run({ path: 'private-doc.md', description: 'p', content: 'x' }, ctx)
+            await memoryWriteV1.run({ path: 'space-doc.md', description: 's', content: 'y', space: SPACE }, ctx)
+
+            const listed = (await memoryListV1.run({ space: SPACE }, ctx)) as Envelope
+            const paths = (listed.data as { entries: { path: string }[] }).entries.map((e) => e.path)
+            expect(paths).toEqual(['space-doc.md'])
+        })
+    })
+
     describe('memoryUpdateV1', () => {
         it('overwrites and preserves createdAt', async () => {
             const ctx = makeCtx(store)
