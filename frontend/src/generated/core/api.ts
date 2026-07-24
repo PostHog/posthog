@@ -856,7 +856,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl = (org
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsRetrieve = async (
     organizationId: string,
@@ -877,7 +878,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organ
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreate = async (
     organizationId: string,
@@ -901,7 +903,8 @@ export const getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl = (orga
 }
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsDestroy = async (
     organizationId: string,
