@@ -135,15 +135,12 @@ export interface MaxThreadLogicProps {
 }
 
 function showTicketIneligibleToast(): void {
-    lemonToast.warning(
-        'Support tickets require a paid plan or an active trial. For billing questions, use the help panel. Otherwise, ask the community.',
-        {
-            button: {
-                label: 'Ask the community',
-                action: () => window.open('https://posthog.com/questions', '_blank'),
-            },
-        }
-    )
+    lemonToast.warning('Support tickets require a paid plan or an active trial. You can ask the community instead.', {
+        button: {
+            label: 'Ask the community',
+            action: () => window.open('https://posthog.com/questions', '_blank'),
+        },
+    })
 }
 
 async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<boolean> {
