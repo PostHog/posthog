@@ -102,6 +102,7 @@ the row lists both.
 | brex                             | HTTP                        | requests                                                        | ✅                          |
 | browser_use                      | HTTP                        | requests                                                        | ✅                          |
 | browserbase                      | HTTP                        | requests                                                        | ✅                          |
+| bugherd                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bugsnag                          | HTTP                        | requests                                                        | ✅                          |
 | buildbetter                      | HTTP                        | requests                                                        | ✅                          |
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
@@ -795,7 +796,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - browse_ai
 - buffer
-- bugherd
 - buildium
 - buttondown
 - buy_me_a_coffee
