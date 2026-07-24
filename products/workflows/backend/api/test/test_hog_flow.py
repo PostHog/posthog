@@ -2713,6 +2713,21 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert scheduled.status_code == 201, scheduled.json()
 
+        # A draft's trigger can still be edited after previewing, so a schedule staged on a draft
+        # could fire on a broadened audience once enabled - programmatic scheduling requires active.
+        draft_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        draft_create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", draft_flow)
+        assert draft_create.status_code == 201, draft_create.json()
+        draft_schedule = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{draft_create.json()['id']}/schedules",
+            {**schedule_body, "confirm_token": token},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert draft_schedule.status_code == 400, draft_schedule.json()
+        assert "active" in draft_schedule.json()["detail"].lower()
+
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
         hog_flow, _ = self._create_hog_flow_with_action(

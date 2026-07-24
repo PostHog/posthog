@@ -2894,6 +2894,15 @@ class HogFlowViewSet(
             # sidestep the batch_jobs token gate by scheduling the send instead. Same rules: the
             # web builder keeps its own confirm UI and stays token-free.
             if get_event_source(request) != EventSource.WEB:
+                # A draft's trigger can still be edited after the audience was sized, so a schedule
+                # staged on a draft could fire on a broadened audience once enabled. Same rule the
+                # MCP tool enforces, applied at the API boundary.
+                if hog_flow.status != HogFlow.State.ACTIVE:
+                    raise exceptions.ValidationError(
+                        "Workflow must be active before scheduling - a draft's audience can still be "
+                        "edited after previewing. Enable it with workflows-enable, then preview and "
+                        "schedule."
+                    )
                 self._require_audience_confirm_token(request, hog_flow)
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
