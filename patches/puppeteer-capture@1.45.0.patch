@@ -1,0 +1,13 @@
+diff --git a/lib/PuppeteerCaptureViaHeadlessExperimental.js b/lib/PuppeteerCaptureViaHeadlessExperimental.js
+index ff811e322fb4fd73b26265844145cc19e3b02f2c..1da510e8a158ffa92510941640b056301e102b7e 100644
+--- a/lib/PuppeteerCaptureViaHeadlessExperimental.js
++++ b/lib/PuppeteerCaptureViaHeadlessExperimental.js
+@@ -181,7 +181,7 @@ class PuppeteerCaptureViaHeadlessExperimental extends PuppeteerCaptureBase_1.Pup
+     static validateBrowserArgs(browser) {
+         var _a, _b;
+         const spawnfile = (_a = browser.process()) === null || _a === void 0 ? void 0 : _a.spawnfile;
+-        if (spawnfile === null || spawnfile === undefined || !spawnfile.includes('chrome-headless-shell')) {
++        if (spawnfile === null || spawnfile === undefined || !(spawnfile.includes('chrome-headless-shell') || spawnfile.includes('chromium-headless-shell'))) {
+             throw new NotChromeHeadlessShell_1.NotChromeHeadlessShell(spawnfile !== null && spawnfile !== void 0 ? spawnfile : 'unknown');
+         }
+         const spawnargs = (_b = browser.process()) === null || _b === void 0 ? void 0 : _b.spawnargs;
