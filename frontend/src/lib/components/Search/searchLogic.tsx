@@ -785,11 +785,12 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev, s.user],
+            (s) => [s.featureFlags, s.isDev, s.user, (_, props: SearchLogicProps) => props.logicKey],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isDev: boolean | undefined,
-                user: null | import('~/types').UserType
+                user: null | import('~/types').UserType,
+                logicKey: string
             ): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
@@ -836,25 +837,28 @@ export const searchLogic = kea<searchLogicType>([
                     }
                 })
 
-                // Blank SQL query in a new browser tab. Can't use the href pipeline above, which
-                // always navigates in-place — a new tab needs onSelect + newInternalTab. Inherits
-                // the active warehouse connection when triggered from within the SQL editor.
-                items.push({
-                    id: 'new-sql-query-tab',
-                    name: 'New SQL query',
-                    displayName: 'New SQL query',
-                    category: 'create',
-                    productCategory: null,
-                    itemType: 'insight/hog',
-                    searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
-                    record: { type: 'insight', iconType: 'insight/hog' },
-                    onSelect: () => {
-                        const onSqlEditor =
-                            removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
-                        const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
-                        newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
-                    },
-                })
+                // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
+                // triggered from within the SQL editor). Scoped to the command palette: it relies on
+                // onSelect + newInternalTab, and only the 'command' Search surface honors onSelect —
+                // the new-tab scene and AI-first homepage are href-only and would render a dead item.
+                if (logicKey === 'command') {
+                    items.push({
+                        id: 'new-sql-query-tab',
+                        name: 'New SQL query',
+                        displayName: 'New SQL query',
+                        category: 'create',
+                        productCategory: null,
+                        itemType: 'insight/hog',
+                        searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
+                        record: { type: 'insight', iconType: 'insight/hog' },
+                        onSelect: () => {
+                            const onSqlEditor =
+                                removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
+                            const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
+                            newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
+                        },
+                    })
+                }
 
                 return items
             },
