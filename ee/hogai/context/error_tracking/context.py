@@ -1,10 +1,11 @@
 import json
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from posthog.schema import DateRange, ErrorTrackingOrderBy, ErrorTrackingQuery
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.facade import (
@@ -27,10 +28,12 @@ class ErrorTrackingIssueContext:
     def __init__(
         self,
         team: Team,
+        user: User,
         issue_id: str,
         issue_name: str | None = None,
     ):
         self._team = team
+        self._user = user
         self._issue_id = issue_id
         self._issue_name = issue_name
 
@@ -49,16 +52,36 @@ class ErrorTrackingIssueContext:
         """Fetch the issue from the error tracking facade using async."""
         return await database_sync_to_async(self._get_issue_sync)()
 
-    async def aget_first_event(self) -> dict | None:
-        """Fetch the first event for the issue to get stack trace data."""
-        return await database_sync_to_async(self._get_first_event_sync)()
+    async def aget_first_event(self, first_seen: datetime | None = None) -> dict | None:
+        """Fetch a representative early event for the issue to get stack trace data."""
+        return await database_sync_to_async(self._get_first_event_sync)(first_seen)
 
-    def _get_first_event_sync(self) -> dict | None:
-        """Synchronous implementation of get_first_event."""
+    def _get_first_event_sync(self, first_seen: datetime | None = None) -> dict | None:
+        """Fetch an early event for the issue (for stack-trace context, not a precise audit).
+
+        Fetching the event reads its full properties blob, so scan a narrow ±1h window
+        around first_seen instead of all time. This returns the earliest event *within the
+        window*; if first_seen is import/ingestion-skewed away from the event timestamps an
+        even-earlier event could sit outside it, but any event this close to first_seen is an
+        equally good stack trace for the assistant. Only when the window is empty do we fall
+        back to the full history so a stack trace is still surfaced.
+        """
+        if first_seen is not None:
+            event = self._query_first_event(
+                DateRange(
+                    date_from=(first_seen - timedelta(hours=1)).isoformat(),
+                    date_to=(first_seen + timedelta(hours=1)).isoformat(),
+                )
+            )
+            if event is not None:
+                return event
+        return self._query_first_event(DateRange(date_from="all"))
+
+    def _query_first_event(self, date_range: DateRange) -> dict | None:
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=self._issue_id,
-            dateRange=DateRange(date_from="all"),
+            dateRange=date_range,
             orderBy=ErrorTrackingOrderBy.FIRST_SEEN,
             limit=1,
             volumeResolution=1,
@@ -67,7 +90,7 @@ class ErrorTrackingIssueContext:
             withLastEvent=False,
         )
 
-        runner = get_query_runner(query, self._team)
+        runner = get_query_runner(query, self._team, user=self._user)
         result = runner.calculate()
 
         if result.results and len(result.results) > 0:
@@ -147,7 +170,7 @@ class ErrorTrackingIssueContext:
 
         issue_name = self._issue_name or issue.name or f"Issue {self._issue_id}"
 
-        first_event = await self.aget_first_event()
+        first_event = await self.aget_first_event(issue.first_seen)
         if first_event is None:
             return f"No events found for issue '{issue_name}'. Cannot provide stack trace data."
 

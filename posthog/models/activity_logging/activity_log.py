@@ -57,6 +57,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -79,7 +80,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPromptLabel",
     "LLMTrace",
+    "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
@@ -89,7 +92,13 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "InstanceSetting",
+    "SignalReport",
     "SignalScoutConfig",
+    "StreamlitApp",
+    "Metric",
+    "TableCertification",
+    "Billing",
+    "Loop",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -192,6 +201,19 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_team_scp_act_crtd",
                 condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
             ),
+            # Advanced activity logs default list ordering. The org- and team-scoped list
+            # endpoints order by -created_at with no scope filter, so the scope-led indexes
+            # above can't serve the sort, and the org indexes above are partial on a detail
+            # predicate the list query never carries. These full indexes let the LIMITed
+            # ordered scan walk created_at directly instead of sorting the whole partition.
+            models.Index(
+                fields=["organization_id", "-created_at"],
+                name="idx_alog_org_created_at",
+            ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="idx_alog_team_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -251,9 +273,18 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "ExternalDataSource": [
         "job_inputs",
     ],
+    "HogFlow": [
+        # Full content snapshot including action inputs (auth headers, API keys) — record that a
+        # draft was staged/published/discarded, never its contents.
+        "draft",
+    ],
     "OrganizationDomain": [
-        "scim_bearer_token",
+        "_scim_bearer_token",
         "verification_challenge",
+        "_saml_x509_cert",
+    ],
+    "IdentityProviderConfig": [
+        "scim_bearer_token",
         "saml_x509_cert",
     ],
     "User": [
@@ -279,6 +310,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
         "default_experiment_stats_method": "default experiment stats method",
+        "is_ai_data_processing_approved": "third-party AI services",
     },
     "BatchExport": {
         "paused": "enabled",
@@ -296,11 +328,16 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
         "sso_enforcement": "SSO enforcement",
+        "_saml_entity_id": "SAML entity ID",
+        "_saml_acs_url": "SAML ACS URL",
+        "_saml_x509_cert": "SAML X.509 certificate",
+        "_scim_enabled": "SCIM provisioning",
+        "verified_at": "domain verification",
+    },
+    "IdentityProviderConfig": {
         "saml_entity_id": "SAML entity ID",
         "saml_acs_url": "SAML ACS URL",
         "saml_x509_cert": "SAML X.509 certificate",
-        "scim_enabled": "SCIM provisioning",
-        "verified_at": "domain verification",
     },
 }
 
@@ -320,6 +357,12 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_checked_at",
         "consecutive_failures",
         "state",
+    ],
+    "Loop": [
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
     ],
     "PersonalAPIKey": [
         "last_used_at",
@@ -381,19 +424,62 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
+        # and wallet balance out of the org-scoped activity log endpoints.
+        "scope": "AIGatewayCredit",
+        "activities": ["credit_added"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "HogFlow": [
+        # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
+        # writes — bookkeeping, not a user edit, so keep it out of change diffs.
+        "action_redirects",
+    ],
+    "Metric": [
+        # Derived/throttled fields, not user-meaningful change diffs.
+        "last_run_at",
+        "source_insight_query_hash",
+        "referenced_table_names",
+    ],
+    "Loop": [
+        # FK relations are not JSON-serializable for the change detail (same reason
+        # FeatureFlag/Subscription exclude theirs).
+        "team",
+        "sandbox_environment",
+        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
+        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
+        "triggers",
+        "fires",
+        # Run bookkeeping, not user-meaningful config.
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
+    ],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
     ],
+    "IdentityProviderConfig": [
+        "organization",
+        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        "domains",
+    ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # FK to a connected Slack integration. The generic field-diff captures the related object,
+        # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
+        # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
+        "integration",
     ],
     "Cohort": [
         "version",
@@ -420,6 +506,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Experiment": [
         "feature_flag",
+        "feature_flag_auto_archived",
         "exposure_cohort",
         "holdout",
         "saved_metrics",
@@ -469,7 +556,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
-        "caching_states",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
@@ -535,7 +621,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "setup_section_2_completed",
         "plugins_access_level",
         "is_hipaa",
-        "is_ai_data_processing_approved",
         "never_drop_data",
     ],
     "BatchExport": [
@@ -634,6 +719,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "connection_id",
         "destination_id",
         "are_tables_created",
+        # Reverse relation to a fail-closed model: reading through it in `changes_between` raises
+        # TeamScopeError when a source is saved outside request scope, and it isn't source-config intent.
+        "custom_oauth2_integrations",
     ],
     "ExternalDataSchema": [
         "status",

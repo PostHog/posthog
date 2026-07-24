@@ -1,6 +1,9 @@
 import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
-import type { TicketAssignee } from './components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
+import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
+
+export type { AssigneeFilterEntry }
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
@@ -15,22 +18,87 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
-export type TicketPriority = 'low' | 'medium' | 'high'
+export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
+/** Legacy single-value shape, still present in old saved views and persisted filter state. */
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
+function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
+    if (value === 'unassigned') {
+        return true
+    }
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const candidate = value as { type?: unknown; id?: unknown }
+    return (
+        (candidate.type === 'user' || candidate.type === 'role') &&
+        (typeof candidate.id === 'string' || typeof candidate.id === 'number')
+    )
+}
+
+export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
+    if (Array.isArray(value)) {
+        return value.filter(isAssigneeFilterEntry).slice(0, MAX_ASSIGNEE_FILTER_ENTRIES)
+    }
+    return isAssigneeFilterEntry(value) ? [value] : []
+}
+
 export type TicketTagsMatch = 'any' | 'all'
+
+export type AITriageStatus = 'in_progress' | 'done'
+export type AITriageResult =
+    | 'persisted'
+    | 'escalated_with_best'
+    | 'escalated_no_reply'
+    | 'skipped_unactionable'
+    | 'blocked_unsafe'
+    | 'blocked_unsafe_reply'
+
+export interface AITriage {
+    schema_version?: number
+    status?: AITriageStatus
+    result?: AITriageResult
+    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'unactionable'
+    needs_diagnostics?: boolean
+    diagnostics_allowed?: boolean
+    confidence?: number
+    attempts?: number
+    started_at?: string
+    finished_at?: string
+    workflow_id?: string
+    run_id?: string
+    ai_trace_id?: string
+    missing?: string[]
+}
+
+export type AiReplyFeedbackRating = 'good' | 'bad'
+
+export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
+
+export interface KnowledgeGapSuggestion {
+    id: string
+    ticket_id: string
+    topic: string
+    normalized_topic: string
+    ticket_type: string
+    outcome: string
+    status: GapSuggestionStatus
+    resolved_source_id: string | null
+    created_at: string
+}
 
 export interface TicketViewFilters {
     status?: TicketStatus[]
     priority?: TicketPriority[]
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
-    assignee?: AssigneeFilterValue
+    aiTriageResult?: AITriageFilterValue[]
+    assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
     tagsExclude?: string[]
@@ -47,6 +115,7 @@ export interface SavedTicketView {
     filters: TicketViewFilters
     created_at: string
     created_by: { id: number; first_name?: string; email?: string } | null
+    is_favorited: boolean
 }
 
 export interface UserBasic {
@@ -78,6 +147,7 @@ export interface Ticket {
     channel_source: TicketChannel
     channel_detail?: TicketChannelDetail | null
     anonymous_traits: Record<string, any>
+    identity_verified: boolean | null
     ai_resolved: boolean
     escalation_reason?: string
     created_at: string
@@ -104,8 +174,12 @@ export interface Ticket {
     cc_participants?: string[]
     github_repo?: string | null
     github_issue_number?: number | null
+    zendesk_ticket_id?: number | null
+    organization_id?: string | null
+    organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
+    ai_triage?: AITriage
 }
 
 export interface ConversationTicket {
@@ -154,6 +228,9 @@ export interface ChatMessage {
     createdAt: string
     isPrivate?: boolean
     emailDeliveryStatus?: EmailDeliveryStatus
+    /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
+     * is rendered with external image auto-loading disabled. */
+    fromZendesk?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -186,6 +263,7 @@ export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+    { value: 'critical', label: 'Critical' },
 ]
 
 // Multiselect-compatible options for LemonInputSelect
@@ -193,6 +271,7 @@ export const priorityMultiselectOptions: { key: TicketPriority; label: string }[
     { key: 'low', label: 'Low' },
     { key: 'medium', label: 'Medium' },
     { key: 'high', label: 'High' },
+    { key: 'critical', label: 'Critical' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [
@@ -210,3 +289,52 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
     { value: 'at-risk', label: 'At risk' },
     { value: 'breached', label: 'Breached' },
 ]
+
+export const aiTriageResultLabel: Record<AITriageResult, string> = {
+    persisted: 'Resolved',
+    escalated_with_best: 'Escalated with draft',
+    escalated_no_reply: 'Escalated, no draft',
+    skipped_unactionable: 'Skipped',
+    blocked_unsafe: 'Blocked unsafe ticket',
+    blocked_unsafe_reply: 'Blocked unsafe reply',
+}
+
+export const aiTriageProcessingLabel = 'Processing'
+
+export type AITriageFilterValue = AITriageResult | 'in_progress'
+
+export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
+    { key: 'in_progress', label: aiTriageProcessingLabel },
+    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][]).map(([key, label]) => ({ key, label })),
+]
+
+export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
+
+export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
+    switch (result) {
+        case 'persisted':
+            return 'success'
+        case 'escalated_with_best':
+        case 'escalated_no_reply':
+            return 'warning'
+        case 'blocked_unsafe':
+        case 'blocked_unsafe_reply':
+            return 'danger'
+        case 'skipped_unactionable':
+            return 'default'
+    }
+}
+
+export const aiTriageTicketTypeLabel: Record<string, string> = {
+    how_to: 'How-to',
+    diagnostic: 'Diagnostic',
+    account_billing: 'Account/Billing',
+    unactionable: 'Unactionable',
+}
+
+export const aiTriageTicketTypeDescription: Record<string, string> = {
+    how_to: 'Customer needs guidance on how to use a feature or accomplish a task',
+    diagnostic: 'Customer is experiencing a bug or issue that requires investigation',
+    account_billing: 'Related to account settings, billing, or subscription management',
+    unactionable: 'Ticket cannot be resolved by AI (e.g. feedback, spam, or out of scope)',
+}

@@ -1,10 +1,12 @@
 use crate::api::errors::FlagError;
+use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId};
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FlagFilters, Holdout};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
+use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
@@ -212,12 +214,23 @@ pub struct FlagsResponse {
     pub request_id: Uuid,
     /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
     pub evaluated_at: i64,
+    /// Set to `true` when the team is gated into slim `$feature_flag_called` events
+    /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
+    /// that see no field at all fall back to full events, same as legacy teams.
+    /// Only reaches the wire on this v2 shape: `LegacyFlagsResponse`, `DecideV1Response`,
+    /// and `DecideV2Response` intentionally never carry it over. SDKs old enough to hit
+    /// those response shapes predate this field and have no code path that reads it, so
+    /// there's nothing gained by sending it to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal_flag_called_events: Option<bool>,
 
     /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
 
+/// Legacy `/flags` response shape. This and the two decide response shapes below never
+/// carry `minimal_flag_called_events`: see the field's doc on `FlagsResponse` for why.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFlagsResponse {
@@ -342,6 +355,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at: chrono::Utc::now().timestamp_millis(),
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -361,6 +375,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at,
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -381,6 +396,18 @@ pub struct PropertyAnalysis {
     pub matched: bool,
     pub explanation: String,
 }
+
+/// `ConditionAnalysis::index` for the early-access enrollment entry, which has no position among
+/// the zero-based release conditions. Negative so consumers can label it instead of "Condition #N".
+/// Mirrored independently in `FeatureFlagTestingTab.tsx` and `FeatureFlagTestingView.tsx`: update
+/// both if this value ever changes.
+pub const SUPER_CONDITION_INDEX: i32 = -1;
+
+/// `ConditionAnalysis::index` for the holdout entry, which (like enrollment) has no position among
+/// the zero-based release conditions. Distinct from `SUPER_CONDITION_INDEX` so a flag with both an
+/// enrollment super condition and a holdout keeps two separate synthetic rows. Mirrored independently
+/// in `FeatureFlagTestingTab.tsx` and `FeatureFlagTestingView.tsx`: update all three if it changes.
+pub const HOLDOUT_CONDITION_INDEX: i32 = -2;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ConditionAnalysis {
@@ -439,6 +466,10 @@ pub struct FlagDetailsMetadata {
     pub version: i32,
     pub description: Option<String>,
     pub payload: Option<Value>,
+    /// True if the flag has at least one non-deleted linked experiment. SDKs use this to
+    /// decide whether to keep all $feature_flag_called event properties or send a minimal event.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -456,7 +487,9 @@ pub trait FromFeatureAndMatch {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -464,7 +497,8 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false, None, None)
+        // Timezone is only consulted for detailed analysis, which is off here.
+        Self::create_with_analysis(flag, flag_match, false, None, None, None, Tz::UTC)
     }
 
     fn create_with_analysis(
@@ -472,7 +506,9 @@ impl FromFeatureAndMatch for FlagDetails {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -489,13 +525,16 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+                has_experiment: flag.has_experiment,
             },
             conditions: if detailed_analysis {
                 Some(Self::build_condition_analysis(
                     flag,
                     flag_match,
                     property_values,
+                    group_property_values,
                     flag_evaluation_results,
+                    team_timezone,
                 ))
             } else {
                 None
@@ -519,6 +558,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: None,
+                has_experiment: flag.has_experiment,
             },
             conditions: None,
         }
@@ -557,7 +597,9 @@ impl FlagDetails {
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
+        group_property_values: Option<&HashMap<GroupTypeIndex, HashMap<String, Value>>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -566,17 +608,22 @@ impl FlagDetails {
             let mut property_analyses = Vec::new();
             let mut condition_matched = false;
 
-            // Determine if this condition matched based on overall flag result and condition index
-            // Only mark as matched if the flag itself matched AND this is the matching condition
-            if flag_match.matches {
-                if let Some(condition_index) = flag_match.condition_index {
-                    condition_matched = index == condition_index;
-                } else if matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch) {
-                    // Fallback: assume first condition matched if we have a condition match but no index
-                    condition_matched = index == 0;
-                }
+            // Effective aggregation for this condition: the per-condition group type
+            // when set, otherwise the flag-level one. Used to resolve legacy group
+            // filters that don't carry their own `group_type_index`. Mirrors the
+            // aggregation the real matching path uses (flag_matching.rs), so an
+            // explicit person aggregation (`Some(None)`) does not fall back to the
+            // flag-level group index here.
+            let effective_aggregation = group.effective_aggregation(flag.get_group_type_index());
+
+            // Only a real ConditionMatch wins a release condition. Enrollment wins report
+            // condition_index Some(0) and holdout wins report None, but neither is a ConditionMatch,
+            // so gating on the reason keeps both from being attributed to a release condition here.
+            if flag_match.matches
+                && matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch)
+            {
+                condition_matched = index == flag_match.condition_index.unwrap_or(0);
             }
-            // If flag_match.matches is false, condition_matched remains false for all conditions
 
             // Analyze properties within this group
             if let Some(properties) = &group.properties {
@@ -588,6 +635,9 @@ impl FlagDetails {
 
                     let type_str = match property.prop_type {
                         crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::PersonMetadata => {
+                            "person_metadata"
+                        }
                         crate::properties::property_models::PropertyType::Group => "group",
                         crate::properties::property_models::PropertyType::Cohort => "cohort",
                         crate::properties::property_models::PropertyType::Flag => "flag",
@@ -652,9 +702,24 @@ impl FlagDetails {
                         _ => (operator_str.as_str(), "does not match"),
                     };
 
-                    let (property_matched, actual_value) = if let Some(props) = property_values {
+                    // Route each filter to the correct property namespace. Group-typed
+                    // filters (e.g. a group `name` or `$group_key`) must be resolved
+                    // against the named group's properties, not the person's — otherwise
+                    // a matching group condition reports `matched: false` with the
+                    // person's value (or null) as `actual_value`. Mirrors the routing in
+                    // `PropertyContext::resolve_for_filter` used during actual matching.
+                    let resolved_props = match property.prop_type {
+                        crate::properties::property_models::PropertyType::Group => {
+                            let gti = property.group_type_index.or(effective_aggregation);
+                            gti.and_then(|idx| group_property_values.and_then(|m| m.get(&idx)))
+                        }
+                        _ => property_values,
+                    };
+
+                    let (property_matched, actual_value) = if let Some(props) = resolved_props {
                         let actual = props.get(&property.key).cloned();
-                        let matched = match_property(property, props, false).unwrap_or(false);
+                        let matched =
+                            match_property(property, props, false, team_timezone).unwrap_or(false);
                         (matched, actual)
                     } else {
                         // No properties available, fall back to condition-level match
@@ -738,23 +803,26 @@ impl FlagDetails {
                 is_zero_rollout && all_properties_matched
             };
 
+            // 1-based to match the frontend's Condition #N headers.
             let explanation = if this_condition_rollout_excluded {
                 format!(
                     "Condition {} matched properties but was excluded by {}% rollout",
-                    index, rollout_percentage
+                    index + 1,
+                    rollout_percentage
                 )
             } else if all_properties_matched && condition_matched {
                 format!(
                     "Condition {} matched and passed {}% rollout",
-                    index, rollout_percentage
+                    index + 1,
+                    rollout_percentage
                 )
             } else if all_properties_matched && !condition_matched {
                 format!(
                     "Condition {} matched properties but was not evaluated due to an earlier condition matching",
-                    index
+                    index + 1
                 )
             } else {
-                format!("Condition {} did not match properties", index)
+                format!("Condition {} did not match properties", index + 1)
             };
 
             let analysis = ConditionAnalysis {
@@ -771,7 +839,120 @@ impl FlagDetails {
             analyses.push(analysis);
         }
 
-        analyses
+        // Surface synthetic entries the matcher evaluates before the release conditions above but
+        // which the loop can't see, in the matcher's enrollment-then-holdout evaluation order.
+        let mut synthetic = Vec::new();
+
+        if flag.filters.feature_enrollment == Some(true) {
+            synthetic.push(Self::build_enrollment_condition_analysis(
+                flag,
+                flag_match,
+                property_values,
+            ));
+        }
+
+        // Holdout is only shown when the flag actually resolved through it — the "excluded from
+        // holdout" case isn't distinguishable here without threading the holdout hash result down
+        // from the matcher.
+        if matches!(
+            flag_match.reason,
+            FeatureFlagMatchReason::HoldoutConditionValue
+        ) {
+            if let Some(holdout) = &flag.filters.holdout {
+                synthetic.push(Self::build_holdout_condition_analysis(holdout, flag_match));
+            }
+        }
+
+        if synthetic.is_empty() {
+            return analyses;
+        }
+
+        synthetic.extend(analyses);
+        synthetic
+    }
+
+    /// Synthetic [`ConditionAnalysis`] for the holdout, surfaced only when the matcher resolved the
+    /// flag through it (reason `HoldoutConditionValue`). The holdout has no person properties — it's
+    /// a hash rollout keyed on the flag's aggregation — so the entry carries no property rows and
+    /// explains the exclusion percentage in prose instead.
+    fn build_holdout_condition_analysis(
+        holdout: &Holdout,
+        flag_match: &FeatureFlagMatch,
+    ) -> ConditionAnalysis {
+        let exclusion_percentage = holdout.exclusion_percentage_clamped();
+
+        ConditionAnalysis {
+            index: HOLDOUT_CONDITION_INDEX,
+            properties: vec![],
+            rollout_percentage: 100.0,
+            variant: flag_match.variant.clone(),
+            matched: true,
+            properties_matched: true,
+            rollout_excluded: false,
+            explanation: format!(
+                "In the holdout group ({exclusion_percentage}% of users are held out). This overrides all release conditions and holds the flag at its holdout value"
+            ),
+        }
+    }
+
+    /// Synthetic [`ConditionAnalysis`] for the early-access enrollment super condition.
+    fn build_enrollment_condition_analysis(
+        flag: &FeatureFlag,
+        flag_match: &FeatureFlagMatch,
+        property_values: Option<&HashMap<String, Value>>,
+    ) -> ConditionAnalysis {
+        let enrollment_key = FlagFilters::enrollment_key(&flag.key);
+
+        // Mirrors the matcher's opted-in check; absent means enrollment doesn't apply.
+        let actual_value = property_values.and_then(|props| props.get(&enrollment_key).cloned());
+        let enrolled = actual_value.as_ref().is_some_and(FlagFilters::is_enrolled);
+
+        // Winner only when the matcher actually resolved the flag through enrollment.
+        let matched = enrolled
+            && flag_match.matches
+            && matches!(
+                flag_match.reason,
+                FeatureFlagMatchReason::SuperConditionValue
+            );
+
+        let (property_matched, property_explanation, explanation) = if enrolled {
+            (
+                true,
+                format!("Property '{enrollment_key}' is true (opted in)"),
+                "Enrolled in the early access feature. This overrides all release conditions and enables the flag".to_string(),
+            )
+        } else if actual_value.is_some() {
+            (
+                false,
+                format!("Property '{enrollment_key}' is set but not true (opted out)"),
+                "Opted out of the early access feature. This overrides all release conditions and disables the flag".to_string(),
+            )
+        } else {
+            (
+                false,
+                format!("Property '{enrollment_key}' is not set (not enrolled)"),
+                "Not enrolled in the early access feature. The release conditions below are evaluated normally".to_string(),
+            )
+        };
+
+        ConditionAnalysis {
+            index: SUPER_CONDITION_INDEX,
+            properties: vec![PropertyAnalysis {
+                key: enrollment_key,
+                operator: "exact".to_string(),
+                value: Value::Bool(true),
+                r#type: "person".to_string(),
+                actual_value,
+                matched: property_matched,
+                explanation: property_explanation,
+            }],
+            rollout_percentage: 100.0,
+            variant: None,
+            matched,
+            properties_matched: enrolled,
+            rollout_excluded: false,
+            explanation,
+        }
     }
 }
 
@@ -898,6 +1079,9 @@ where
 mod tests {
     use super::*;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
+    use crate::flags::flag_match_reason::FeatureFlagMatchReason::{
+        ConditionMatch, SuperConditionValue,
+    };
     use crate::flags::flag_matching::FeatureFlagMatch;
     use chrono::Utc;
     use rstest::rstest;
@@ -1037,6 +1221,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(json!({"key": "value"})),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1060,6 +1245,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: None,
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1083,6 +1269,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(Value::Null),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1138,6 +1325,21 @@ mod tests {
         assert!(obj.contains_key("errorsWhileComputingFlags"));
         assert!(obj.contains_key("flags"));
         assert!(obj.contains_key("requestId"));
+    }
+
+    #[test]
+    fn test_minimal_flag_called_events_round_trips_through_serde() {
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+
+        let json = serde_json::to_value(&response).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("minimalFlagCalledEvents"),
+            "absence must mean full events — SDKs treat a missing key the same as an old cache entry"
+        );
+
+        response.minimal_flag_called_events = Some(true);
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json.get("minimalFlagCalledEvents"), Some(&json!(true)));
     }
 
     #[test]
@@ -1234,8 +1436,14 @@ mod tests {
         property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
 
         // Build condition analysis
-        let analysis =
-            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values), None);
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
 
         // Verify we have analysis for both conditions
         assert_eq!(analysis.len(), 2);
@@ -1266,6 +1474,170 @@ mod tests {
             !analysis[1].rollout_excluded,
             "Condition 1 should not be rollout_excluded"
         );
+    }
+
+    #[test]
+    fn test_condition_analysis_resolves_group_filters_against_group_properties() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // A group-aggregated flag whose only condition targets a group property.
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "org-flag",
+                "key": "org-flag",
+                "active": true,
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "name",
+                                    "value": "Mjolnir - Test Org",
+                                    "operator": "exact",
+                                    "type": "group",
+                                    "group_type_index": 0
+                                },
+                                {
+                                    "key": "$group_key",
+                                    "value": "org_123",
+                                    "operator": "exact",
+                                    "type": "group"
+                                    // No explicit group_type_index: a legacy filter that must fall
+                                    // back to the flag-level aggregation_group_type_index above.
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(0),
+            payload: None,
+        };
+
+        // The person happens to carry a conflicting `name`; it must not leak into the
+        // group-typed condition analysis.
+        let mut person_props = HashMap::new();
+        person_props.insert("name".to_string(), json!("Hans Grønskag Hammer"));
+
+        // Group properties keyed by group type index, with `$group_key` injected the way
+        // request handling does for the `groups` param.
+        let mut group_props_for_index = HashMap::new();
+        group_props_for_index.insert("name".to_string(), json!("Mjolnir - Test Org"));
+        group_props_for_index.insert("$group_key".to_string(), json!("org_123"));
+        let group_props: HashMap<GroupTypeIndex, HashMap<String, Value>> =
+            HashMap::from([(0, group_props_for_index)]);
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&person_props),
+            Some(&group_props),
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        let props = &analysis[0].properties;
+        assert_eq!(props.len(), 2);
+
+        // Group `name` resolves against the group, not the person.
+        assert_eq!(props[0].key, "name");
+        assert!(props[0].matched, "group name should match");
+        assert_eq!(props[0].actual_value, Some(json!("Mjolnir - Test Org")));
+
+        // `$group_key` resolves from the injected group override rather than reporting null.
+        assert_eq!(props[1].key, "$group_key");
+        assert!(props[1].matched, "$group_key should match");
+        assert_eq!(props[1].actual_value, Some(json!("org_123")));
+    }
+
+    #[test]
+    fn test_condition_analysis_respects_explicit_person_aggregation_over_flag_level_group() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // Flag-level group aggregation, but this condition explicitly overrides to person
+        // aggregation (JSON `null`). A legacy group-typed filter with no `group_type_index`
+        // must resolve against the (empty) person-aggregation namespace, not fall back to
+        // the flag-level group index. Mirrors `FlagPropertyGroup::effective_aggregation`'s
+        // `Some(None)` case, which the real matching path already honors.
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "org-flag",
+                "key": "org-flag",
+                "active": true,
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "aggregation_group_type_index": null,
+                            "properties": [
+                                {
+                                    "key": "name",
+                                    "value": "Mjolnir - Test Org",
+                                    "operator": "exact",
+                                    "type": "group"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // The flag did not match, so a filter that incorrectly falls back to the
+        // flag-level group index and finds a real match there would flip `matched`
+        // to true and leak the group's value as `actual_value` — the exact bug this
+        // fix closes.
+        let flag_match = FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+        };
+
+        // Group 0's properties do carry a matching `name`, but the condition's explicit
+        // person aggregation must prevent the filter from ever consulting them.
+        let mut group_props_for_index = HashMap::new();
+        group_props_for_index.insert("name".to_string(), json!("Mjolnir - Test Org"));
+        let group_props: HashMap<GroupTypeIndex, HashMap<String, Value>> =
+            HashMap::from([(0, group_props_for_index)]);
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            None,
+            Some(&group_props),
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        let props = &analysis[0].properties;
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].key, "name");
+        assert!(
+            !props[0].matched,
+            "must fall back to the condition's own (unmatched) outcome, not the flag-level group's properties"
+        );
+        assert_eq!(props[0].actual_value, None);
     }
 
     #[test]
@@ -1315,7 +1687,9 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1346,7 +1720,9 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1378,7 +1754,9 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
+            None,
             None, // empty — dependency flag 42 absent
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1387,5 +1765,303 @@ mod tests {
             "Absent dependency flag must report matched=false, not error"
         );
         assert_eq!(analysis[0].properties[0].actual_value, None);
+    }
+
+    #[rstest]
+    #[case::opted_in(Some("true"), SuperConditionValue, true, true, true, "Enrolled", false)]
+    #[case::opted_out(
+        Some("false"),
+        SuperConditionValue,
+        false,
+        false,
+        false,
+        "Opted out",
+        false
+    )]
+    #[case::not_enrolled(None, ConditionMatch, true, false, false, "Not enrolled", true)]
+    fn test_condition_analysis_surfaces_early_access_enrollment(
+        #[case] enrollment_value: Option<&str>,
+        #[case] reason: FeatureFlagMatchReason,
+        #[case] flag_matches: bool,
+        #[case] expected_enrollment_matched: bool,
+        #[case] expected_enrollment_properties_matched: bool,
+        #[case] expected_explanation_fragment: &str,
+        #[case] expected_release_condition_matched: bool,
+    ) {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "beta-feature", "key": "beta-feature", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "groups": [{
+                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                    "rollout_percentage": 100
+                }]
+            }
+        }))
+        .unwrap();
+
+        // is_scoped="false" makes the release condition match, so opted-in/out exercise enrollment
+        // overriding an otherwise-matching release condition.
+        let enrollment_key = "$feature_enrollment/beta-feature";
+        let mut property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+        if let Some(v) = enrollment_value {
+            property_values.insert(enrollment_key.to_string(), json!(v));
+        }
+
+        let flag_match = FeatureFlagMatch {
+            matches: flag_matches,
+            variant: None,
+            reason,
+            condition_index: Some(0),
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        // Enrollment is surfaced as the first entry (omitted entirely before the fix).
+        assert_eq!(analysis.len(), 2);
+        let enrollment = &analysis[0];
+        assert_eq!(enrollment.index, SUPER_CONDITION_INDEX);
+        assert_eq!(enrollment.matched, expected_enrollment_matched);
+        assert_eq!(
+            enrollment.properties_matched,
+            expected_enrollment_properties_matched
+        );
+        assert!(enrollment
+            .explanation
+            .contains(expected_explanation_fragment));
+        assert_eq!(
+            enrollment.properties[0].actual_value,
+            enrollment_value.map(|v| json!(v))
+        );
+
+        // The release condition wins only when the flag matched through it, never hijacked by the
+        // super condition's condition_index Some(0). is_scoped="false" is always in
+        // property_values, so the release condition's own properties always match, pinning the
+        // premise that enrollment overrides an otherwise-matching condition.
+        assert_eq!(analysis[1].index, 0);
+        assert!(analysis[1].properties_matched);
+        assert_eq!(analysis[1].matched, expected_release_condition_matched);
+        assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
+    }
+
+    /// Shared fixture for the two holdout-surfacing tests below: a flag with a holdout and a
+    /// release condition that would otherwise match on its own.
+    fn held_flag_with_release_condition() -> (
+        crate::flags::flag_models::FeatureFlag,
+        HashMap<String, Value>,
+    ) {
+        use crate::flags::flag_models::FeatureFlag;
+
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "held-flag", "key": "held-flag", "active": true,
+            "filters": {
+                "holdout": { "id": 42, "exclusion_percentage": 10.0 },
+                "groups": [{
+                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                    "rollout_percentage": 100
+                }]
+            }
+        }))
+        .unwrap();
+
+        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        (flag, property_values)
+    }
+
+    #[test]
+    fn test_condition_analysis_surfaces_holdout_winner() {
+        // When the matcher resolves through the holdout, the holdout entry must be surfaced as
+        // the winner and the release condition must not be attributed the win.
+        let (flag, property_values) = held_flag_with_release_condition();
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: Some("holdout-42".to_string()),
+            reason: FeatureFlagMatchReason::HoldoutConditionValue,
+            condition_index: None,
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        // Holdout is surfaced as the first entry (omitted entirely before the fix).
+        assert_eq!(analysis.len(), 2);
+        let holdout = &analysis[0];
+        assert_eq!(holdout.index, HOLDOUT_CONDITION_INDEX);
+        assert!(holdout.matched);
+        assert!(holdout.properties_matched);
+        assert!(!holdout.rollout_excluded);
+        assert!(holdout.properties.is_empty());
+        assert_eq!(holdout.variant, Some("holdout-42".to_string()));
+        assert!(holdout.explanation.contains("holdout"));
+        assert!(holdout.explanation.contains("10%"));
+
+        // The release condition matches its properties but the holdout, not it, is the winner.
+        assert_eq!(analysis[1].index, 0);
+        assert!(analysis[1].properties_matched);
+        assert!(!analysis[1].matched);
+        assert_eq!(analysis.iter().filter(|c| c.matched).count(), 1);
+    }
+
+    #[test]
+    fn test_condition_analysis_omits_holdout_entry_when_flag_did_not_resolve_via_holdout() {
+        // The person was excluded from the holdout and matched a release condition instead.
+        // Without the holdout hash threaded down we can't describe the exclusion, so no holdout
+        // entry is surfaced (only the winning release condition).
+        let (flag, property_values) = held_flag_with_release_condition();
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(0),
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert_eq!(analysis[0].index, 0);
+        assert!(analysis[0].matched);
+    }
+
+    #[test]
+    fn test_condition_analysis_orders_enrollment_before_holdout_when_both_configured() {
+        // A flag with both an enrollment super condition and a holdout: when the person isn't
+        // enrolled and the matcher resolves via the holdout, both synthetic entries must be
+        // surfaced together, in the matcher's enrollment-then-holdout order.
+        use crate::flags::flag_models::FeatureFlag;
+
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "held-flag", "key": "held-flag", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "holdout": { "id": 42, "exclusion_percentage": 10.0 },
+                "groups": [{
+                    "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                    "rollout_percentage": 100
+                }]
+            }
+        }))
+        .unwrap();
+
+        // No enrollment property set, so the person isn't enrolled and the matcher falls
+        // through to the holdout.
+        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: Some("holdout-42".to_string()),
+            reason: FeatureFlagMatchReason::HoldoutConditionValue,
+            condition_index: None,
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        assert_eq!(analysis.len(), 3);
+        assert_eq!(analysis[0].index, SUPER_CONDITION_INDEX);
+        assert!(!analysis[0].matched);
+        assert_eq!(analysis[1].index, HOLDOUT_CONDITION_INDEX);
+        assert!(analysis[1].matched);
+        assert_eq!(analysis[2].index, 0);
+        assert!(!analysis[2].matched);
+        assert_eq!(analysis.iter().filter(|c| c.matched).count(), 1);
+    }
+
+    #[test]
+    fn test_condition_analysis_attributes_winner_to_non_zero_release_condition() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // Two release groups, plus enrollment enabled, so this also exercises the interaction
+        // between the prepended enrollment entry and attribution to a non-zero condition_index:
+        // the enrollment entry must stay first while group 1 still wins.
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "name": "beta-feature", "key": "beta-feature", "active": true,
+            "filters": {
+                "feature_enrollment": true,
+                "groups": [
+                    {
+                        "properties": [{ "key": "is_scoped", "value": ["true"], "operator": "exact", "type": "person" }],
+                        "rollout_percentage": 100
+                    },
+                    {
+                        "properties": [{ "key": "is_scoped", "value": ["false"], "operator": "exact", "type": "person" }],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+
+        // is_scoped="false" fails group 0's ["true"] requirement and satisfies group 1's, so the
+        // matcher resolves through group 1, not group 0.
+        let property_values = HashMap::from([("is_scoped".to_string(), json!("false"))]);
+
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: ConditionMatch,
+            condition_index: Some(1),
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            None,
+            chrono_tz::Tz::UTC,
+        );
+
+        // Enrollment entry, then both release conditions in order, with only group 1 as the winner.
+        assert_eq!(analysis.len(), 3);
+        assert_eq!(analysis[0].index, SUPER_CONDITION_INDEX);
+        assert!(!analysis[0].matched);
+
+        assert_eq!(analysis[1].index, 0);
+        assert!(!analysis[1].properties_matched);
+        assert!(!analysis[1].matched);
+
+        assert_eq!(analysis[2].index, 1);
+        assert!(analysis[2].properties_matched);
+        assert!(analysis[2].matched);
+
+        assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
     }
 }

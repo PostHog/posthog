@@ -16,24 +16,36 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
+    HogFlowPublishRequestApi,
+    HogFlowPublishResponseApi,
+    HogFlowRevisionApi,
+    HogFlowRevisionRestoreRequestApi,
     HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsAssetContentRetrieveParams,
+    HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsRevisionsListParams,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
+    MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
+    PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    TeamEmailReputationResponseApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -316,6 +328,66 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getHogFlowsAssetsRetrieveUrl = (projectId: string, id: string, params?: HogFlowsAssetsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/`
+}
+
+export const hogFlowsAssetsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsAssetsRetrieveParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getHogFlowsAssetsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsAssetContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/assets/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/assets/content/`
+}
+
+export const hogFlowsAssetContentRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsAssetContentRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getHogFlowsAssetContentRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsBatchJobsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
@@ -346,6 +418,21 @@ export const hogFlowsBatchJobsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
+    })
+}
+
+export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
+}
+
+export const hogFlowsDiscardDraftCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsDiscardDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -528,6 +615,116 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     })
 }
 
+export const getHogFlowsPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/publish/`
+}
+
+export const hogFlowsPublishCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowPublishRequestApi?: HogFlowPublishRequestApi,
+    options?: RequestInit
+): Promise<HogFlowPublishResponseApi> => {
+    return apiMutator<HogFlowPublishResponseApi>(getHogFlowsPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowPublishRequestApi),
+    })
+}
+
+export const getHogFlowsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog flow from their stored payloads.
+ *
+ * Same shape and semantics as the hog function rerun endpoint —
+ * proxies through to the CDP worker, which reads matching rows from
+ * ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+ * onto cyclotron with `is_retry=1`.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_flow:write`.
+ */
+export const hogFlowsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFlowsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
+export const getHogFlowsRevisionsListUrl = (projectId: string, id: string, params?: HogFlowsRevisionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/revisions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/revisions/`
+}
+
+export const hogFlowsRevisionsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsRevisionsListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowRevisionBasicListApi> => {
+    return apiMutator<PaginatedHogFlowRevisionBasicListApi>(getHogFlowsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsRevisionsRetrieveUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/`
+}
+
+export const hogFlowsRevisionsRetrieve = async (
+    projectId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<HogFlowRevisionApi> => {
+    return apiMutator<HogFlowRevisionApi>(getHogFlowsRevisionsRetrieveUrl(projectId, id, version), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsRevisionsRestoreCreateUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/revisions/${version}/restore/`
+}
+
+export const hogFlowsRevisionsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    version: number,
+    hogFlowRevisionRestoreRequestApi?: HogFlowRevisionRestoreRequestApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsRevisionsRestoreCreateUrl(projectId, id, version), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowRevisionRestoreRequestApi),
+    })
+}
+
 export const getHogFlowsSchedulesListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
@@ -643,6 +840,25 @@ export const hogFlowsMetricsGlobalRetrieve = async (
     })
 }
 
+export const getHogFlowsReputationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/reputation/`
+}
+
+/**
+ * Email deliverability reputation for this project: the latest project-wide snapshot and the
+ * latest recent snapshot per workflow (worst first, capped). Written daily by the Node
+ * evaluator; everything is null/empty until the first run.
+ */
+export const hogFlowsReputationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeamEmailReputationResponseApi> => {
+    return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
@@ -657,6 +873,29 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
+}
+
+/**
+ * Internal endpoint for the Node-side batch resolver to write the terminal
+ * status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+ * terminal status, returns 200 without re-writing — the resolver retries
+ * this call via cyclotron retry semantics, so safe repeats are required.
+ *
+ * Accepts: { status: "completed" | "failed" }
+ */
+export const internalHogFlowsBatchJobsStatusUpdate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsStatusUpdateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'PUT',
     })
 }
 

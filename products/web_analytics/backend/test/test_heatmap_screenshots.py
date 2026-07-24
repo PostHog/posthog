@@ -35,6 +35,140 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(saved.target_widths, [768, 1024])
         mock_task.assert_called_once_with(saved.id)
 
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_defaults_consent_blocking_off(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertFalse(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertFalse(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_create_persists_consent_blocking_when_enabled(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "block_consent_modals": True},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.data["block_consent_modals"])
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_prewarm_starts_single_width_render_hidden_from_list(self, mock_delay):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(resp.status_code, 201)
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertTrue(saved.is_prewarm)
+        self.assertEqual(saved.status, SavedHeatmap.Status.PROCESSING)
+        self.assertEqual(saved.target_widths, [1024])
+        mock_delay.assert_called_once_with(saved.id)
+
+        # Speculative rows must never surface in the user's saved-heatmap list.
+        listed = self.client.get(f"/api/environments/{self.team.id}/saved/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data["count"], 0)
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    def test_prewarm_is_idempotent_within_window(self, mock_delay):
+        first = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.data["id"], first.data["id"])
+        mock_delay.assert_called_once()
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, is_prewarm=True).count(), 1)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_create_promotes_matching_prewarm_and_keeps_snapshots(self, mock_task):
+        prewarm_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(prewarm_resp.status_code, 201)
+        prewarm_id = prewarm_resp.data["id"]
+        prewarm = SavedHeatmap.objects.get(id=prewarm_id)
+        # Simulate the preview render having completed while the user finished the wizard.
+        HeatmapSnapshot.objects.create(heatmap=prewarm, width=1024, content=b"preview")
+        SavedHeatmap.objects.filter(id=prewarm_id).update(status=SavedHeatmap.Status.COMPLETED)
+
+        create_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "name": "My heatmap", "widths": [768, 1024]},
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        # Promoted in place — the same row, not a fresh insert.
+        self.assertEqual(create_resp.data["id"], prewarm_id)
+
+        prewarm.refresh_from_db()
+        self.assertFalse(prewarm.is_prewarm)
+        self.assertEqual(prewarm.name, "My heatmap")
+        self.assertEqual(prewarm.target_widths, [768, 1024])
+        # The preview snapshot survives promotion (unlike regenerate, which clears snapshots).
+        self.assertTrue(HeatmapSnapshot.objects.filter(heatmap=prewarm, width=1024, content=b"preview").exists())
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, is_prewarm=False).count(), 1)
+        # One render enqueued for the prewarm, one for the promoted create (which skips the done width).
+        self.assertEqual(mock_task.delay.call_count, 2)
+        mock_task.delay.assert_called_with(prewarm.id)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_create_reuses_in_flight_prewarm_without_a_second_render(self, mock_task):
+        prewarm_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/prewarm/",
+            {"url": "https://example.com"},
+        )
+        self.assertEqual(prewarm_resp.status_code, 201)
+        prewarm_id = prewarm_resp.data["id"]
+        # Prewarm render still in flight: status stays 'processing', no snapshot yet.
+
+        create_resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/",
+            {"url": "https://example.com", "name": "My heatmap"},
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        # Promoted the in-flight row, not a fresh insert.
+        self.assertEqual(create_resp.data["id"], prewarm_id)
+
+        prewarm = SavedHeatmap.objects.get(id=prewarm_id)
+        self.assertFalse(prewarm.is_prewarm)
+        self.assertEqual(prewarm.name, "My heatmap")
+        # Only the prewarm's own render was enqueued — create must not start a second, racing render.
+        mock_task.delay.assert_called_once_with(prewarm.id)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    def test_partial_update_consent_toggle_triggers_regenerate(self, mock_task):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+            type=SavedHeatmap.Type.SCREENSHOT,
+            block_consent_modals=False,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"old")
+
+        r = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"block_consent_modals": True},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["block_consent_modals"])
+        self.assertEqual(r.data["status"], "processing")
+        mock_task.delay.assert_called_once_with(saved.id)
+        self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
+
     def test_content_returns_202_until_snapshot_exists(self):
         saved = SavedHeatmap.objects.create(team=self.team, url="https://example.com", created_by=self.user)
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")

@@ -9,6 +9,7 @@ import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Ingesti
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import {
     ReplayPlatform,
@@ -314,6 +315,7 @@ function MobileEventTriggers(): JSX.Element {
                     <Since
                         ios={{ version: '3.48.0' }}
                         android={{ version: '3.40.1' }}
+                        reactNative={{ version: '4.52.0' }}
                         flutter={{ version: '5.25.0' }}
                     />
                 </LemonLabel>
@@ -324,7 +326,7 @@ function MobileEventTriggers(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Event triggers are shared across Web, iOS, Android, and Flutter.{' '}
+                Event triggers are shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -345,6 +347,7 @@ function MobileMinimumDuration(): JSX.Element {
                     <Since
                         ios={{ version: '3.53.0' }}
                         android={{ version: '3.44.0' }}
+                        reactNative={{ version: '4.52.0' }}
                         flutter={{ version: '5.24.3' }}
                     />
                 </LemonLabel>
@@ -355,7 +358,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
+                Minimum duration is shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -503,24 +506,28 @@ function LegacyRecordingConditions(): JSX.Element {
 }
 
 function SdkCompatibilityBanner(): JSX.Element {
-    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk } = useValues(replayTriggersLogic)
+    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk, outdatedWebTraffic } = useValues(replayTriggersLogic)
 
     if (shouldMinimizeLegacyConditions) {
         return (
             <LemonBanner type="success">
-                All your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups apply to
-                every session. The legacy recording conditions below are kept only as a fallback for older SDKs.
+                Your recent web SDK traffic is effectively all on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups
+                apply to essentially every session. The legacy recording conditions below are kept only as a fallback
+                for older SDKs.
             </LemonBanner>
         )
     }
 
     if (hasOutdatedWebSdk) {
+        const pct = outdatedWebTraffic.share < 0.01 ? '<1' : Math.round(outdatedWebTraffic.share * 100).toString()
         return (
-            <LemonBanner type="warning">
-                <strong>Some of your web traffic is on an older posthog-js</strong> (before v
-                {TRIGGER_GROUPS_MIN_SDK_VERSION}), which uses the legacy recording conditions below. Upgrade posthog-js
-                to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ so trigger groups apply to every session. Until then, both
-                configurations are sent for backward compatibility.
+            <LemonBanner type="info">
+                About <strong>{pct}%</strong> of recent web traffic (
+                {humanFriendlyNumber(outdatedWebTraffic.outdatedCount)}{' '}
+                {pluralize(outdatedWebTraffic.outdatedCount, 'event', 'events', false)}) is on a posthog-js before v
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}. Those sessions still record using the legacy recording conditions
+                below — upgrade to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ for full trigger-group coverage. Both
+                configurations are sent meanwhile, so nothing is lost.
             </LemonBanner>
         )
     }

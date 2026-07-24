@@ -11,6 +11,9 @@ from products.growth.dags.github_sdk_versions import (
     fetch_flutter_sdk_data,
     fetch_go_sdk_data,
     fetch_ios_sdk_data,
+    fetch_java_sdk_data,
+    fetch_java_server_sdk_data,
+    fetch_kmp_sdk_data,
     fetch_node_sdk_data,
     fetch_php_sdk_data,
     fetch_python_sdk_data,
@@ -88,7 +91,7 @@ class TestFetchSdkDataBase:
 
 
 class TestFetchWebSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_web_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -102,7 +105,7 @@ class TestFetchWebSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["1.298.1"] == "2025-11-26T13:26:47Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_web_sdk_data_request_failure(self, mock_get):
         response = MagicMock()
         response.ok = False
@@ -116,7 +119,7 @@ class TestFetchWebSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchPythonSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_python_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_python_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -132,7 +135,7 @@ class TestFetchPythonSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchNodeSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_node_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -151,7 +154,7 @@ class TestFetchNodeSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_react_native_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_js_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -170,7 +173,7 @@ class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchFlutterSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_flutter_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_flutter_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -188,8 +191,32 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
         assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
+class TestFetchKmpSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetch_kmp_sdk_data_success(self, mock_get: MagicMock) -> None:
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {
+                    "tag_name": "v0.0.1",
+                    "created_at": "2026-07-14T18:03:29Z",
+                    "draft": False,
+                    "prerelease": False,
+                }
+            ],
+        )
+
+        result = fetch_kmp_sdk_data()
+
+        assert result == {
+            "latestVersion": "0.0.1",
+            "releaseDates": {"0.0.1": "2026-07-14T18:03:29Z"},
+        }
+        assert "/repos/PostHog/posthog-kmp/releases" in mock_get.call_args_list[0].args[1]
+
+
 class TestFetchIosSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_ios_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_ios_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -205,7 +232,7 @@ class TestFetchIosSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchAndroidSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_android_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_android_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -220,8 +247,51 @@ class TestFetchAndroidSdkData(TestFetchSdkDataBase):
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
+class TestFetchJavaSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetches_releases_from_archived_java_repo(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {
+                    "tag_name": "1.2.0",
+                    "created_at": "2025-01-29T20:23:43Z",
+                    "draft": False,
+                    "prerelease": False,
+                },
+                {
+                    "tag_name": "1.1.0",
+                    "created_at": "2023-03-17T15:33:22Z",
+                    "draft": False,
+                    "prerelease": False,
+                },
+            ],
+        )
+
+        result = fetch_java_sdk_data()
+
+        assert result["latestVersion"] == "1.2.0"
+        assert result["releaseDates"]["1.1.0"] == "2023-03-17T15:33:22Z"
+        assert "/repos/PostHog/posthog-java/releases" in mock_get.call_args_list[0].args[1]
+
+
+class TestFetchJavaServerSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetches_only_server_releases_from_android_monorepo(self, mock_get):
+        releases_data = self.load_releases("posthog_android_releases.json")
+        self.setup_ok_json_mock(mock_get, releases_data)
+
+        result = fetch_java_server_sdk_data()
+
+        assert result["latestVersion"] == "2.0.1"
+        assert result["releaseDates"] == {
+            "2.0.1": "2025-11-25T17:55:17Z",
+            "2.0.0": "2025-11-06T20:11:49Z",
+        }
+
+
 class TestFetchGoSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_go_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_go_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -237,7 +307,7 @@ class TestFetchGoSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchPhpSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_php_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_php_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -253,7 +323,7 @@ class TestFetchPhpSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchRubySdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_ruby_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_ruby_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -269,7 +339,7 @@ class TestFetchRubySdkData(TestFetchSdkDataBase):
 
 
 class TestFetchElixirSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_elixir_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_elixir_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -285,7 +355,7 @@ class TestFetchElixirSdkData(TestFetchSdkDataBase):
 
 
 class TestFetchDotnetSdkData(TestFetchSdkDataBase):
-    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_dotnet_sdk_data_success(self, mock_get):
         releases_data = self.load_releases("posthog_dotnet_releases.json")
         self.setup_ok_json_mock(mock_get, releases_data)
@@ -321,7 +391,7 @@ class TestSupportsUnprefixedReleaseTags(TestFetchSdkDataBase):
     def test_supports_unprefixed_release_tags(
         self, fetch_fn, latest_tag, previous_tag, previous_version, latest_created_at, previous_created_at
     ):
-        with patch("products.growth.dags.github_sdk_versions.requests.get") as mock_get:
+        with patch("posthog.egress.transport.transport.requests.request") as mock_get:
             self.setup_ok_json_mock(
                 mock_get,
                 [

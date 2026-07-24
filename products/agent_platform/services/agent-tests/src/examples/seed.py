@@ -10,7 +10,13 @@ deploy pipeline for each selected one against a target PostHog project:
 
 Idempotent: a bundle whose live revision already matches (per-file sha256 AND
 spec) is a no-op; a drifted bundle branches a new draft and re-promotes,
-leaving the previously-live revision archived.
+leaving the previously-live revision archived. Bundles that receive
+platform-injected content at freeze (kernel skills) never match the on-disk
+manifest, so they get a second, post-freeze check: if the new frozen
+bundle_sha256 AND the frozen spec both equal the live revision's, the
+revision is identical — the draft is archived and promote is skipped, so
+repeated seeds don't churn revisions. (Both checks are needed: the sha only
+covers bundle files, while the spec lives on the revision row.)
 
 Usage:
     # Seed every discovered bundle into the default local project:
@@ -46,6 +52,8 @@ Env vars:
     AUTH_MODE      Override every bundle's auth modes (e.g. `public`, `pat`)
     MCP_URL        Rewrite every mcps[].url across all bundles (local-dev)
     MCP_URL_<id>   Rewrite only the mcps entry whose id matches; wins over MCP_URL
+                   (PostHog MCPs — auth.provider=posthog — otherwise default to
+                   the MCP host for POSTHOG_API's region: local / us / eu.)
 
 Exit codes:
     0  every selected bundle deployed / re-promoted / no-op
@@ -55,14 +63,18 @@ Exit codes:
 
 from __future__ import annotations
 
+import io
 import os
+import re
 import sys
 import json
 import hashlib
+import zipfile
 import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent
 API = os.environ.get("POSTHOG_API", "http://localhost:8010").rstrip("/")
@@ -93,12 +105,28 @@ METADATA: dict[str, dict[str, str]] = {
 # auth modes. Mirrors the declarative/intrinsic split in `spec.ts`.
 DECLARATIVE_TRIGGERS: set[str] = {"webhook", "chat", "mcp"}
 
-# Secret keys each trigger type requires before promote — mirrors
-# TRIGGER_REQUIRED_SECRETS in products/agent_platform/backend/spec_schema.py.
-# Used only by the optional SEED_DUMMY_SECRETS placeholder path below.
-TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = {
-    "slack": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"],
-}
+
+def _load_trigger_required_secrets() -> dict[str, list[str]]:
+    """Required secret keys per trigger type, read from the checked-in
+    generated artifact (`trigger_required_secrets.generated.json`, emitted
+    from `services/agent-shared/src/spec/trigger-secrets.ts`) rather than
+    hand-copied — the same registry `backend/logic/spec_schema.py`'s promote
+    gate reads via `backend/logic/generated.py`. Only `required: true`
+    entries block promote, matching that gate's filter. Used only by the
+    optional SEED_DUMMY_SECRETS placeholder path below."""
+    backend_logic_dir = next(
+        (p / "backend" / "logic" for p in EXAMPLES_ROOT.parents if (p / "backend" / "logic").is_dir()),
+        None,
+    )
+    if backend_logic_dir is None:
+        raise RuntimeError("couldn't locate products/agent_platform/backend/logic from seed.py's path")
+    artifact = backend_logic_dir / "trigger_required_secrets.generated.json"
+    raw: dict[str, list[dict[str, object]]] = json.loads(artifact.read_text(encoding="utf-8"))
+    return {
+        trigger_type: [str(r["key"]) for r in requirements if r.get("required")]
+        for trigger_type, requirements in raw.items()
+    }
+
 
 # Opt-in: set obviously-fake placeholder values for any secret an agent requires
 # (declared `spec.secrets[]` + per-trigger required keys) that isn't already
@@ -106,6 +134,7 @@ TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = {
 # won't actually function — Slack signature checks etc. will fail — but they go
 # live + visible in the console. Never overwrites an existing value.
 SEED_DUMMY_SECRETS = os.environ.get("SEED_DUMMY_SECRETS") == "1"
+TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = _load_trigger_required_secrets() if SEED_DUMMY_SECRETS else {}
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +152,41 @@ def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
         headers={
             "Authorization": f"Bearer {PAT}",
             "Content-Type": "application/json",
+        },
+    )
+    try:
+        # Example seed script — API base is a trusted dev/CI env var, not user input.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req) as r:
+            payload = r.read().decode() or "{}"
+            return r.status, json.loads(payload)
+    except urllib.error.HTTPError as e:
+        response_body = e.read().decode() if e.fp else ""
+        try:
+            return e.code, json.loads(response_body)
+        except json.JSONDecodeError:
+            return e.code, {"raw": response_body}
+
+
+def _req_multipart(path: str, filename: str, content: bytes, content_type: str) -> tuple[int, dict]:
+    """POST a single-file multipart/form-data body (form field `file`). The skill
+    store's `import` endpoint takes a zip this way; urllib has no multipart helper
+    so we frame the body by hand with a fixed boundary."""
+    boundary = "----seedpyboundary7MA4YWxkTrZu0gW"
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode()
+    body = head + content + f"\r\n--{boundary}--\r\n".encode()
+    url = f"{API}/api/projects/{PROJECT_ID}{path}"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {PAT}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
         },
     )
     try:
@@ -231,17 +295,38 @@ def load_v0_spec(spec_file: Path) -> dict:
             # Intrinsic-auth triggers (slack / cron) carry no auth modes.
             t.pop("auth", None)
 
-    # MCP URL overrides — let a local seed point at localhost:8787/mcp without
-    # editing the canonical bundle. `MCP_URL` rewrites every entry; per-id
-    # `MCP_URL_<id>` rewrites only that entry and wins over the bare form.
+    # MCP URL resolution. A PostHog MCP (one authed by the `posthog` identity
+    # provider) tracks the seed target's region by default — localhost when
+    # seeding locally, the us/eu cloud MCP when seeding to those hosts — so the
+    # canonical bundle ships the localhost URL and still works in every env.
+    # Explicit overrides win: `MCP_URL` rewrites every entry, per-id
+    # `MCP_URL_<id>` rewrites only that entry and beats the bare form.
     bare_override = os.environ.get("MCP_URL")
+    region_mcp_url = posthog_mcp_url_for_target(API)
     for m in spec.get("mcps", []):
         per_id = os.environ.get(f"MCP_URL_{m.get('id', '')}")
-        override = per_id or bare_override
-        if override:
-            m["url"] = override
+        if per_id:
+            m["url"] = per_id
+        elif bare_override:
+            m["url"] = bare_override
+        elif isinstance(m.get("auth"), dict) and m["auth"].get("provider") == "posthog":
+            m["url"] = region_mcp_url
 
     return spec
+
+
+def posthog_mcp_url_for_target(api_base: str) -> str:
+    """The PostHog MCP URL matching the seed target: local → the local MCP, the
+    us/eu cloud hosts → their region MCP, anything else → the region-agnostic
+    host. Default for `posthog`-authed MCP entries; explicit MCP_URL wins."""
+    host = (urlparse(api_base).hostname or "").lower()
+    if host in ("localhost", "127.0.0.1") or host.endswith(".localhost"):
+        return "http://localhost:8787/mcp"
+    if "eu.posthog.com" in host:
+        return "https://mcp.eu.posthog.com/mcp"
+    if "us.posthog.com" in host or "app.posthog.com" in host:
+        return "https://mcp.us.posthog.com/mcp"
+    return "https://mcp.posthog.com/mcp"
 
 
 def load_bundle_files(bundle_root: Path) -> dict[str, str]:
@@ -305,20 +390,142 @@ def required_secret_keys(spec: dict) -> list[str]:
     return keys
 
 
-def ensure_dummy_secrets(slug: str, app_id: str, spec: dict) -> None:
-    """Set placeholder values for any required secret not already set. Uses the
-    per-key env endpoint so real values (if present) are never overwritten."""
+def ensure_dummy_secrets(slug: str, app_id: str, rev_id: str, spec: dict) -> None:
+    """Set placeholder values for any required secret not already set. `encrypted_env`
+    lives on the revision, so this targets the per-revision env endpoint and must
+    run after the draft exists and before promote (the promote gate reads it).
+    Never overwrites a real value (the GET `is_set` check)."""
+    base = f"/agent_applications/{app_id}/revisions/{rev_id}/env_keys"
     set_keys: list[str] = []
     for key in required_secret_keys(spec):
-        status, payload = _req("GET", f"/agent_applications/{app_id}/env_keys/{key}/")
+        status, payload = _req("GET", f"{base}/{key}/")
         if status == 200 and payload.get("is_set"):
             continue
-        status, payload = _req("PUT", f"/agent_applications/{app_id}/env_keys/{key}/", {"value": f"placeholder-{key}"})
+        status, payload = _req("PUT", f"{base}/{key}/", {"value": f"placeholder-{key}"})
         if status != 200:
             raise SeedError(f"failed to set placeholder secret {key}: {status} {payload}")
         set_keys.append(key)
     if set_keys:
         log(slug, f"set placeholder secrets: {', '.join(set_keys)}")
+
+
+# ---------------------------------------------------------------------------
+# Store skills
+#
+# The skill store is canonical: a frozen revision pulls each skill from the
+# `llm_skills` store via `skill_refs`, and freeze REFUSES inline skills that
+# aren't backed by a store reference. So before freeze we mirror every bundle
+# skill into the store (idempotent, by name) and set the draft's `skill_refs`.
+# The store name and the bundle folder id (the ref `alias`) are both the spec
+# skill id — example skill ids are unique across bundles.
+# ---------------------------------------------------------------------------
+
+
+_FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
+
+
+def skill_md_for_store(skill_id: str, description: str, body: str) -> str:
+    """The SKILL.md text to import, guaranteed to carry a `name` (the store
+    requires it). Three cases across the example bundles:
+      - no frontmatter (starts at a heading) → synthesise the whole block;
+      - frontmatter with a `description` but no `name` → inject `name`;
+      - frontmatter with both → use verbatim.
+    Synthesised values come from the spec (skill id + ref description) and are
+    JSON-encoded — valid YAML double-quoted scalars — so colons / em-dashes in
+    descriptions can't break the block."""
+    match = _FRONTMATTER_RE.match(body)
+    if match is None:
+        return f"---\nname: {json.dumps(skill_id)}\ndescription: {json.dumps(description)}\n---\n\n{body}"
+    if re.search(r"(?m)^name:[ \t]*\S", match.group(0)):
+        return body
+    # Frontmatter present but unnamed — inject `name` right after the opening `---`.
+    return body.replace("---\n", f"---\nname: {json.dumps(skill_id)}\n", 1)
+
+
+def build_skill_zip(skill_id: str, skill_md: str, companions: dict[str, str]) -> bytes:
+    """A spec-compliant skill zip: `<id>/SKILL.md` plus any companion files under
+    the same folder. `parse_skill_zip` finds the single SKILL.md and collects its
+    siblings."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{skill_id}/SKILL.md", skill_md)
+        for rel_path, content in companions.items():
+            archive.writestr(f"{skill_id}/{rel_path}", content)
+    return buf.getvalue()
+
+
+def _post_frontmatter_body(body: str) -> str:
+    """The body the store keeps (frontmatter stripped), for drift comparison."""
+    match = _FRONTMATTER_RE.match(body)
+    return (body[match.end() :] if match else body).strip()
+
+
+def ensure_store_skill(slug: str, skill_id: str, description: str, body: str, companions: dict[str, str]) -> str:
+    """Find-or-create the bundle skill in the `llm_skills` store, publishing a new
+    version when its body/description has drifted — freeze pulls the store copy, so
+    a stale store skill would ship instead of the bundle's. Returns the store name."""
+    want_body = _post_frontmatter_body(body)
+    want_desc = (description or "").strip()
+    status, existing = _req("GET", f"/llm_skills/name/{skill_id}/")
+    if status == 200:
+        if (existing.get("body") or "").strip() == want_body and (
+            existing.get("description") or ""
+        ).strip() == want_desc:
+            return skill_id
+        ver = existing.get("version")
+        status, payload = _req(
+            "PATCH",
+            f"/llm_skills/name/{skill_id}/",
+            {"base_version": ver, "body": want_body, "description": want_desc},
+        )
+        if status not in (200, 201):
+            raise SeedError(f"skill update failed for '{skill_id}': {status} {payload}")
+        log(slug, f"updated store skill '{skill_id}' (v{ver} → v{payload.get('version', '?')})")
+        return skill_id
+    skill_md = skill_md_for_store(skill_id, description, body)
+    zip_bytes = build_skill_zip(skill_id, skill_md, companions)
+    status, payload = _req_multipart("/llm_skills/import/", f"{skill_id}.zip", zip_bytes, "application/zip")
+    if status in (200, 201):
+        return str(payload.get("name") or skill_id)
+    # A name conflict means a concurrent/prior run already created it — reuse.
+    if status == 400 and "already exists" in json.dumps(payload):
+        return skill_id
+    raise SeedError(f"skill import failed for '{skill_id}': {status} {payload}")
+
+
+def set_skill_refs(slug: str, app_id: str, rev_id: str, refs: list[dict]) -> None:
+    """Full-replace the draft's store-skill references (resolved + materialised at
+    freeze). No-op when the bundle has no skills."""
+    if not refs:
+        return
+    log(slug, f"setting {len(refs)} skill ref(s): {', '.join(r['alias'] for r in refs)}")
+    status, payload = _req("PUT", f"/agent_applications/{app_id}/revisions/{rev_id}/skill_refs/", {"skill_refs": refs})
+    if status != 200:
+        raise SeedError(f"set skill_refs failed for {slug}: {status} {payload}")
+
+
+def seed_store_skills(slug: str, app_id: str, rev_id: str, spec: dict, bundle_root: Path) -> None:
+    """Mirror every bundle skill into the store and pin the draft's `skill_refs`,
+    so freeze can resolve them. `from_template` is the store name; `alias` is the
+    bundle folder id — both the spec skill id here."""
+    refs: list[dict] = []
+    for skill_ref in spec.get("skills", []) or []:
+        skill_id = skill_ref.get("id")
+        if not skill_id:
+            continue
+        rel = skill_ref.get("path", f"skills/{skill_id}.md")
+        skill_md_path = bundle_root / rel
+        body = skill_md_path.read_text() if skill_md_path.is_file() else ""
+        # Companions: every sibling file in the skill's folder except SKILL.md.
+        companions: dict[str, str] = {}
+        skill_dir = skill_md_path.parent
+        if skill_dir.is_dir() and skill_dir != bundle_root:
+            for f in sorted(skill_dir.rglob("*")):
+                if f.is_file() and f != skill_md_path:
+                    companions[f.relative_to(skill_dir).as_posix()] = f.read_text()
+        store_name = ensure_store_skill(slug, skill_id, skill_ref.get("description", ""), body, companions)
+        refs.append({"from_template": store_name, "alias": skill_id})
+    set_skill_refs(slug, app_id, rev_id, refs)
 
 
 # ---------------------------------------------------------------------------
@@ -427,20 +634,41 @@ def promote(slug: str, app_id: str, rev_id: str) -> None:
         raise SeedError(f"promote failed for {slug}: {status} {payload}")
 
 
-def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None]:
-    """Returns (live_revision_id, {path: sha256}, spec) or (None, None, None)."""
+def archive(slug: str, app_id: str, rev_id: str) -> None:
+    """Archive a duplicate ready revision. Cosmetic cleanup — a failure here
+    leaves a stray ready revision but the live deployment is already correct,
+    so log instead of failing the run."""
+    if DRY_RUN:
+        return
+    status, payload = _req("POST", f"/agent_applications/{app_id}/revisions/{rev_id}/archive/")
+    if status != 200:
+        log(slug, f"WARNING: failed to archive duplicate revision {rev_id}: {status} {payload}")
+
+
+def get_live(app_id: str) -> tuple[str | None, dict[str, str] | None, dict | None, str | None]:
+    """Returns (live_revision_id, {path: sha256}, spec, bundle_sha256) or Nones."""
     status, payload = _req("GET", f"/agent_applications/{app_id}/")
     if status != 200:
-        return None, None, None
+        return None, None, None, None
     rev_id = payload.get("live_revision")
     if not rev_id:
-        return None, None, None
+        return None, None, None, None
     status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
     spec = rev.get("spec") if status == 200 else None
+    live_sha = rev.get("bundle_sha256") if status == 200 else None
     status, manifest = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/manifest/")
     if status != 200:
-        return rev_id, None, spec
-    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec
+        return rev_id, None, spec, live_sha
+    return rev_id, {f["path"]: f["sha256"] for f in manifest.get("files", [])}, spec, live_sha
+
+
+def get_frozen_spec(app_id: str, rev_id: str) -> dict | None:
+    """The revision's spec as stamped at freeze (defaults filled, skills[]/tools[]
+    derived) — the same normalized shape `get_live` reads off the live revision,
+    so the two compare apples-to-apples. None when the read fails."""
+    status, rev = _req("GET", f"/agent_applications/{app_id}/revisions/{rev_id}/")
+    spec = rev.get("spec") if status == 200 else None
+    return spec if isinstance(spec, dict) else None
 
 
 def seed_bundle(bundle_root: Path) -> None:
@@ -453,13 +681,11 @@ def seed_bundle(bundle_root: Path) -> None:
     log(slug, f"target bundle: {len(files)} files")
 
     app_id = find_or_create_application(slug)
-    if SEED_DUMMY_SECRETS and not DRY_RUN:
-        ensure_dummy_secrets(slug, app_id, spec)
     if DRY_RUN:
         log(slug, "would deploy: draft -> bundle -> spec -> validate -> freeze -> promote")
         return
 
-    live_rev, live_manifest, live_spec = get_live(app_id)
+    live_rev, live_manifest, live_spec, live_sha = get_live(app_id)
     log(slug, f"current live: rev={live_rev}")
 
     if live_rev and live_manifest == target_manifest and live_spec == spec:
@@ -473,9 +699,27 @@ def seed_bundle(bundle_root: Path) -> None:
     rev_id = create_draft(slug, app_id, parent=live_rev, spec=spec)
     push_bundle(slug, app_id, rev_id, files, spec)
     patch_spec(slug, app_id, rev_id, spec)
+    # Mirror bundle skills into the store + pin skill_refs BEFORE freeze — the
+    # freeze gate refuses inline skills that lack a store reference.
+    seed_store_skills(slug, app_id, rev_id, spec, bundle_root)
+    if SEED_DUMMY_SECRETS:
+        ensure_dummy_secrets(slug, app_id, rev_id, spec)
     validate(slug, app_id, rev_id)
     new_sha = freeze(slug, app_id, rev_id)
     log(slug, f"frozen sha={new_sha[:12]}...")
+    # The frozen sha hashes the materialized bundle FILES (author files +
+    # freeze-injected kernel skills) — the spec (trigger auth, tool approvals,
+    # limits) lives on the revision row, not in the bundle, so a spec-only
+    # change freezes to the same sha and must still promote. Skip promote only
+    # when the bundle sha AND the frozen spec both match the live revision:
+    # then the "drift" above was only platform-injected content the on-disk
+    # bundle can't carry, and promoting would churn an identical revision.
+    if live_sha and new_sha == live_sha:
+        if get_frozen_spec(app_id, rev_id) == live_spec:
+            log(slug, "frozen artifact identical to live — archiving duplicate, skipping promote")
+            archive(slug, app_id, rev_id)
+            return
+        log(slug, "bundle identical but frozen spec changed — promoting")
     promote(slug, app_id, rev_id)
     log(slug, f"DONE: live at {rev_id}")
 

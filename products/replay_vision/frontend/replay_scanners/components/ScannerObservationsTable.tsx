@@ -1,15 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { DateMappingOption } from '~/types'
+
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -17,6 +23,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { OBSERVATION_TRIGGER_TAG } from '../types'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -26,10 +33,10 @@ const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'pending', label: 'Pending' },
 ]
 
-const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string }[] = [
-    { value: 'on_demand', label: 'On demand' },
-    { value: 'schedule', label: 'Schedule' },
-]
+const TRIGGERED_BY_OPTIONS = Object.entries(OBSERVATION_TRIGGER_TAG).map(([value, { label }]) => ({
+    value: value as ObservationTriggeredByValue,
+    label,
+}))
 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
@@ -37,27 +44,21 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
+// Empty values on "All time" clear the range, matching the unfiltered default.
+const OBSERVATION_DATE_OPTIONS: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
+    { key: 'All time', values: [] },
+    { key: 'Last 24 hours', values: ['-24h'] },
+    { key: 'Last 3 days', values: ['-3d'] },
+    { key: 'Last 7 days', values: ['-7d'] },
+    { key: 'Last 30 days', values: ['-30d'] },
+    { key: 'Last 90 days', values: ['-90d'] },
+]
+
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
 
-function Metric({
-    label,
-    value,
-    valueClass,
-}: {
-    label: string
-    value: number | string
-    valueClass?: string
-}): JSX.Element {
-    return (
-        <div className="text-center">
-            <div className={`font-semibold text-lg ${valueClass ?? ''}`}>{value}</div>
-            <div className="text-muted">{label}</div>
-        </div>
-    )
-}
-
-function versionTag(
+export function versionTag(
     obsVersion: number | null | undefined,
     currentVersion: number | null | undefined
 ): { type: LemonTagType; label: string; tooltip: string } | null {
@@ -88,21 +89,28 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
+        observationSubjectFilter,
+        observationDateFrom,
+        observationDateTo,
         hasActiveObservationFilters,
+        observationDetailLinkParams,
         availableTags,
         observationStats,
         scanner,
         triggeringOnDemandObservation,
-        refreshing,
+        retryingObservationIds,
     } = useValues(logic)
     const {
         refreshObservations,
+        retryObservation,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
+        setObservationSubjectFilter,
+        setObservationDateRange,
         clearObservationFilters,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
@@ -115,7 +123,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             width: 300,
             render: (_, obs) => (
                 <Link
-                    to={urls.replayVisionObservation(obs.id)}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
                     className="font-mono text-xs text-primary truncate block"
                 >
                     {obs.session_id}
@@ -123,15 +131,46 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
+            title: 'Person',
+            key: 'recording_subject',
+            sorter: true,
+            render: (_, obs) =>
+                obs.recording_subject_email ? (
+                    <Tooltip title={obs.distinct_id ?? undefined}>
+                        <span className="truncate block max-w-[16rem]">{obs.recording_subject_email}</span>
+                    </Tooltip>
+                ) : obs.distinct_id ? (
+                    <span className="font-mono text-xs text-muted truncate block max-w-[16rem]">{obs.distinct_id}</span>
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
+        },
+        {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
+            render: (_, obs) => (
+                <div className="flex items-center gap-1">
+                    <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
+                    {obs.status === 'failed' && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => retryObservation(obs.id)}
+                            loading={retryingObservationIds.includes(obs.id)}
+                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+                            tooltip="Retry scan"
+                            data-attr="vision-observation-retry"
+                        />
+                    )}
+                </div>
+            ),
         },
         {
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)} className="block">
                     <div className="min-w-[18rem] max-w-xl">
                         <ObservationResultSummary observation={obs} />
                     </div>
@@ -161,8 +200,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Triggered by',
             key: 'triggered_by',
             render: (_, obs) => (
-                <LemonTag type={obs.triggered_by === 'on_demand' ? 'highlight' : 'default'}>
-                    {obs.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'}
+                <LemonTag type={OBSERVATION_TRIGGER_TAG[obs.triggered_by].type}>
+                    {OBSERVATION_TRIGGER_TAG[obs.triggered_by].label}
                 </LemonTag>
             ),
         },
@@ -180,12 +219,12 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 <LemonButton
                     size="small"
                     type="secondary"
-                    icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
+                    icon={<IconEye />}
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
                     className="whitespace-nowrap"
-                    data-attr="vision-observation-view-recording"
+                    data-attr="vision-observation-view-details"
                 >
-                    View recording
+                    View details
                 </LemonButton>
             ),
         },
@@ -195,10 +234,32 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         <div className="space-y-2">
             <div className="flex items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
+                <span className="text-muted text-sm whitespace-nowrap">
+                    {observationStats.total.toLocaleString()} total ·{' '}
+                    <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
+                        {observationStats.failed.toLocaleString()} failed
+                    </span>{' '}
+                    · {observationStats.inFlight.toLocaleString()} in flight
+                </span>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
+                                <LemonInput
+                                    type="search"
+                                    size="small"
+                                    placeholder="Person email"
+                                    value={observationSubjectFilter}
+                                    onChange={setObservationSubjectFilter}
+                                    className="w-56"
+                                />
+                                <DateFilter
+                                    size="small"
+                                    dateFrom={observationDateFrom}
+                                    dateTo={observationDateTo}
+                                    dateOptions={OBSERVATION_DATE_OPTIONS}
+                                    onChange={(dateFrom, dateTo) => setObservationDateRange(dateFrom, dateTo)}
+                                />
                                 <FilterPill<ObservationStatusValue>
                                     label="Status"
                                     options={STATUS_OPTIONS}
@@ -225,13 +286,17 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
+                                        searchable
                                     />
                                 )}
-                                {hasActiveObservationFilters && (
-                                    <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    onClick={() => clearObservationFilters()}
+                                    disabledReason={hasActiveObservationFilters ? undefined : 'No active filters'}
+                                >
+                                    Clear filters
+                                </LemonButton>
                             </>
                         )}
                         <Tooltip
@@ -246,42 +311,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 type="secondary"
                                 icon={<IconRefresh />}
                                 onClick={() => refreshObservations()}
-                                loading={refreshing}
+                                loading={observationsLoading}
                                 data-attr="vision-observations-refresh"
                             >
                                 Refresh
                             </LemonButton>
                         </Tooltip>
                     </div>
-                    {observationStats.total > 0 && (
-                        <div className="flex gap-4 text-sm">
-                            <Metric label="Total" value={observationStats.total} />
-                            {observationStats.successRate !== null && (
-                                <Metric
-                                    label="Success rate"
-                                    value={`${observationStats.successRate}%`}
-                                    valueClass="text-success"
-                                />
-                            )}
-                            {observationStats.failed > 0 && (
-                                <Metric label="Failed" value={observationStats.failed} valueClass="text-danger" />
-                            )}
-                            {observationStats.ineligible > 0 && (
-                                <Metric label="Ineligible" value={observationStats.ineligible} />
-                            )}
-                            {observationStats.inFlight > 0 && (
-                                <Metric label="In flight" value={observationStats.inFlight} />
-                            )}
-                        </div>
-                    )}
                 </div>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={
-                    refreshing || triggeringOnDemandObservation || (observationsLoading && observations.length === 0)
-                }
+                loading={triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
@@ -294,13 +336,28 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 sorting={observationsSort}
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
+                // The URL scheme can't express "no sort", so a third header click would snap back with duplicate fetches.
+                noSortingCancellation
                 nouns={['observation', 'observations']}
                 emptyState={
-                    <div className="p-6 text-center text-muted">
-                        {hasActiveObservationFilters
-                            ? 'No observations match your filters.'
-                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
-                    </div>
+                    hasActiveObservationFilters ? (
+                        <div className="p-6 text-center text-muted">No observations match your filters.</div>
+                    ) : (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                            <div className="text-muted">
+                                No observations yet. They'll appear here once the scanner fires on its schedule — or
+                                scan a recording right now.
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlay />}
+                                to={`${urls.replayVision(scannerId)}?tab=on-demand`}
+                                data-attr="vision-observations-empty-scan-now"
+                            >
+                                Scan a recording now
+                            </LemonButton>
+                        </div>
+                    )
                 }
             />
         </div>

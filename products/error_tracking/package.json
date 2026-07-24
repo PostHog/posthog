@@ -1,9 +1,11 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -19,8 +21,7 @@
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
-        "@posthog/icons": "*",
-        "@storybook/addon-actions": "catalog:",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
@@ -31,7 +32,7 @@
         "clsx": "*",
         "cva": "1.0.0-beta.3",
         "d3": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
         "react-dom": "*",

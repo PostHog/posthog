@@ -87,6 +87,38 @@ describe('useTaxonomicGroupsContext', () => {
         expect(result.current).toBe(first)
     })
 
+    it.each([
+        {
+            description: 'promotes the taxonomy-default primary property for $pageview',
+            eventNames: ['$pageview'],
+            expectedPromoted: ['$pathname'],
+            expectedSuggestedOptions: ['$pathname'],
+        },
+        {
+            description: 'promotes the taxonomy-default primary property for $mcp_tool_call',
+            eventNames: ['$mcp_tool_call'],
+            expectedPromoted: ['$mcp_tool_name'],
+            // The Suggested tab also seeds MCP_TOOL_CALL_SUGGESTED_PROPERTIES
+            // ($mcp_is_error) after the promoted primary property.
+            expectedSuggestedOptions: ['$mcp_tool_name', '$mcp_is_error'],
+        },
+        {
+            description: 'promotes nothing when no event is in context',
+            eventNames: [] as string[],
+            expectedPromoted: [],
+            expectedSuggestedOptions: [],
+        },
+    ])('$description', ({ eventNames, expectedPromoted, expectedSuggestedOptions }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames }), { wrapper })
+        expect(result.current.promotedPropertiesForContextEvents).toEqual(expectedPromoted)
+        const suggestedGroup = buildTaxonomicGroups(result.current).find(
+            (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+        )
+        expect(suggestedGroup?.options).toEqual(
+            expectedSuggestedOptions.map((name) => ({ name, group: TaxonomicFilterGroupType.EventProperties }))
+        )
+    })
+
     it('feeds buildTaxonomicGroups end-to-end and produces a non-empty groups array', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), {
             wrapper,
@@ -100,5 +132,37 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.Cohorts)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.HogQLExpression)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
+    })
+
+    it.each([
+        {
+            description: 'an active flag is selectable',
+            flag: { id: 1, key: 'my-flag', name: 'My flag', active: true },
+            expectedDisabled: false,
+            expectedName: 'my-flag',
+        },
+        {
+            description: 'an explicitly inactive flag is disabled',
+            flag: { id: 1, key: 'my-flag', name: 'My flag', active: false },
+            expectedDisabled: true,
+            expectedName: 'my-flag (disabled)',
+        },
+        {
+            // Recents/pinned entries are persisted stripped to { name, id }, so they carry no
+            // `active` field; a missing `active` must not read as disabled or recently-used
+            // flags can no longer be picked as flag-dependency match criteria in this (rebuild)
+            // group definition either. See the same guard in taxonomicFilterLogic.test.ts.
+            description: 'a recently-used flag missing the active field stays selectable',
+            flag: { name: '732889', id: 732889 },
+            expectedDisabled: false,
+            expectedName: '732889',
+        },
+    ])('Feature Flags group getIsDisabled/getName: $description', ({ flag, expectedDisabled, expectedName }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+        const groups = buildTaxonomicGroups(result.current)
+        const flagGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.FeatureFlags)
+        expect(flagGroup?.getIsDisabled).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+        expect(flagGroup?.getIsDisabled?.(flag as any)).toBe(expectedDisabled)
+        expect(flagGroup?.getName?.(flag as any)).toBe(expectedName)
     })
 })

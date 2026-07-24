@@ -15,7 +15,7 @@ export const AnnotationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -32,7 +32,7 @@ export const AnnotationsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -52,10 +52,10 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
     creation_type: zod
         .enum(['USR', 'GIT'])
-        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .describe('\* `USR` - user\n\* `GIT` - GitHub')
         .optional()
         .describe(
-            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
@@ -66,17 +66,23 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
         .describe(
-            '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         ),
     emoji: zod
         .string()
         .max(annotationsCreateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**
@@ -87,7 +93,7 @@ export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -99,7 +105,7 @@ export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -119,10 +125,10 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
     creation_type: zod
         .enum(['USR', 'GIT'])
-        .describe('* `USR` - user\n* `GIT` - GitHub')
+        .describe('\* `USR` - user\n\* `GIT` - GitHub')
         .optional()
         .describe(
-            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub'
+            'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
     dashboard_item: zod.number().nullish(),
     dashboard_id: zod.number().nullish(),
@@ -133,17 +139,23 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['dashboard_item', 'dashboard', 'project', 'organization', 'recording'])
         .describe(
-            '* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            '\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         )
         .optional()
         .describe(
-            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
+            'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n\* `dashboard_item` - insight\n\* `dashboard` - dashboard\n\* `project` - project\n\* `organization` - organization\n\* `recording` - recording'
         ),
     emoji: zod
         .string()
         .max(annotationsPartialUpdateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**
@@ -154,6 +166,6 @@ export const AnnotationsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

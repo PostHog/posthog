@@ -207,6 +207,25 @@ describe('the property definitions model', () => {
                 })
         })
 
+        it('marks unfetchable definition types as missing without wedging the queue', async () => {
+            // account_custom_property has no definitions endpoint; a stale key for it (e.g. from
+            // a saved view for a deleted definition) must not block other types from resolving.
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyDefinitions(
+                    ['11111111-2222-3333-4444-555555555555'],
+                    PropertyDefinitionType.AccountCustomProperty
+                )
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({
+                        'account_custom_property/11111111-2222-3333-4444-555555555555': PropertyDefinitionState.Missing,
+                        'event/a string': partial({ name: 'a string' }),
+                    }),
+                })
+        })
+
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
@@ -242,6 +261,12 @@ describe('the property definitions model', () => {
                         'event_metadata/timestamp': partial({
                             name: 'timestamp',
                         }),
+                        'person_metadata/created_at': {
+                            id: 'created_at',
+                            name: 'created_at',
+                            property_type: 'DateTime',
+                            type: 'person_metadata',
+                        },
                         'resource/assignee': partial({ name: 'assignee' }),
                         'resource/first_seen': partial({ name: 'first_seen' }),
                     },

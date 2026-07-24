@@ -1,17 +1,21 @@
 import re
+import time
 import shlex
 import builtins
 from typing import Any, cast
+from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -44,6 +48,7 @@ from posthog.api.file_system.folder_instructions_service import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -54,16 +59,23 @@ from posthog.models.file_system.file_system import (
     surface_q,
 )
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
+from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
+
+from products.tasks.backend.facade import api as tasks_facade
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
+# Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
+# them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
+RECENTS_SEARCH_SCAN_LIMIT = 200
 
-class FileSystemSerializer(serializers.ModelSerializer):
+
+class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
@@ -79,6 +91,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "shortcut",
             "created_at",
             "last_viewed_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -86,6 +99,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "created_at",
             "team_id",
             "last_viewed_at",
+            "user_access_level",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -217,6 +231,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "log_view",
         "undo_delete",
         "set_context_generation",
+        "publish_canvas",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -411,21 +426,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param)
-            elif order_by_param == "-last_viewed_at" and self.request.user.is_authenticated:
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
-            elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
             else:
+                # `last_viewed_at` ordering (Recents, with or without a search term) is served
+                # view-log-first in `_list_recents`, so it never reaches this queryset path.
                 queryset = queryset.order_by("-created_at")
         elif self.action == "list":
             if depth_param is not None:
@@ -443,23 +446,94 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def list(self, request, *args, **kwargs):
+        order_by_param = request.query_params.get("order_by")
+        # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
+        # search term — one query function, no join, no COUNT(*).
+        if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
+            return self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+
         response = super().list(request, *args, **kwargs)
-        results = response.data.get("results", [])
-        user_ids = set()
-
-        # Collect user IDs from the "created_by" meta field
-        for item in results:
-            created_by = item.get("meta", {}).get("created_by")
-            if created_by and isinstance(created_by, int):
-                user_ids.add(created_by)
-
-        if user_ids:
-            users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
-            response.data["users"] = UserBasicSerializer(users_qs, many=True).data
-        else:
-            response.data["users"] = []
-
+        response.data["users"] = self._created_by_users(response.data.get("results", []))
         return response
+
+    def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
+        # Collect user IDs from the "created_by" meta field so the client can render avatars
+        # without a second round-trip.
+        user_ids = {
+            created_by
+            for item in results
+            if isinstance((created_by := item.get("meta", {}).get("created_by")), int) and created_by
+        }
+        if not user_ids:
+            return []
+        users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
+        return cast(builtins.list[dict[str, Any]], UserBasicSerializer(users_qs, many=True).data)
+
+    def _list_recents(self, request: Request, *, descending: bool) -> Response:
+        """Serve the Recents widget view-log-first (see `get_recent_file_system_items`).
+
+        Avoids both the un-indexable sort on a joined column and the pagination `COUNT(*)` — the
+        widget only ever needs the first page, so we return the rows directly. A `search` term just
+        filters the hydration: we scan a wider window of recent views and let the text filter trim
+        it, so search-within-Recents shares the exact same query path.
+
+        Only the params the Recents callers actually send are honoured here: `limit`, `not_type`,
+        `search` (+ `search_name_only`). The other list filters (`parent`, `type`, `depth`, `ref`,
+        `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
+        pairs them with `last_viewed_at` ordering. Add handling here if a caller ever needs to.
+        """
+        try:
+            limit = int(request.query_params.get("limit", FileSystemsLimitOffsetPagination.default_limit))
+        except (TypeError, ValueError):
+            limit = FileSystemsLimitOffsetPagination.default_limit
+        limit = max(1, min(limit, 1000))
+
+        not_type_param = request.query_params.get("not_type")
+        exclude_types = [not_type_param] if not_type_param else None
+        search_param = request.query_params.get("search")
+
+        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
+        if self.user_access_control:
+            base_queryset = self.user_access_control.filter_and_annotate_file_system_queryset(base_queryset)
+        if search_param:
+            base_queryset = self._apply_search_to_queryset(
+                base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
+            )
+
+        items = get_recent_file_system_items(
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            surface=self.file_system_surface,
+            # When searching, the text filter does the narrowing, so scan a wider recency window.
+            limit=RECENTS_SEARCH_SCAN_LIMIT if search_param else limit,
+            exclude_types=exclude_types,
+            file_system_queryset=base_queryset,
+            descending=descending,
+        )
+        # Ordering is handled at the view-log query level, so a search scan that widened the window
+        # is the only reason to re-slice here — `descending` already picked the right end.
+        items = items[:limit]
+
+        results = self.get_serializer(items, many=True).data
+        return Response(
+            {
+                "count": len(results),
+                "next": None,
+                "previous": None,
+                "results": results,
+                "users": self._created_by_users(results),
+            }
+        )
+
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        """Whether a registered-type row with no ref may be deleted as a bare row.
+
+        On the web surface every registered row references a real object, so a
+        ref-less row is a data-integrity error we refuse to delete. Surfaces where
+        registered types can legitimately be ref-less (desktop canvases store their
+        source in `meta`, not a backing Dashboard) override this to allow it.
+        """
+        return False
 
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
@@ -501,7 +575,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref:
+            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -539,6 +613,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
+            if self._allow_delete_without_ref(entry):
+                entry.delete()
+                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path
@@ -805,18 +882,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         validated = serializer.validated_data
 
-        queryset = FileSystemViewLog.objects.filter(
-            surface_q(self.file_system_surface), team=self.team, user=request.user
+        queryset = recent_view_logs(
+            team_id=self.team.id,
+            user_id=request.user.id,
+            surface=self.file_system_surface,
+            type=validated.get("type") or None,
+            limit=validated.get("limit"),
         )
-        log_type = validated.get("type")
-        if log_type:
-            queryset = queryset.filter(type=log_type)
-
-        queryset = queryset.order_by("-viewed_at")
-
-        limit = validated.get("limit")
-        if limit is not None:
-            queryset = queryset[:limit]
 
         return Response(FileSystemViewLogSerializer(queryset, many=True).data)
 
@@ -957,6 +1029,50 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 item.save()
 
 
+class CanvasPublishSerializer(serializers.Serializer):
+    """Payload for publishing a freeform canvas's React source via the agent."""
+
+    code = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The complete single-file React source for the canvas.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Optional new display name for the canvas (rewrites the leaf segment of its path).",
+    )
+    expected_current_version_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        help_text=(
+            "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on "
+            "(null when it read a canvas with no versions yet). When provided and the canvas has since "
+            "moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 "
+            "version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+        ),
+    )
+
+
+class CanvasPublishConflictSerializer(serializers.Serializer):
+    """409 body for a guarded canvas publish based on a stale version."""
+
+    detail = serializers.CharField(help_text="Human-readable description of the conflict and how to recover.")
+    code = serializers.CharField(help_text='Always "version_conflict".')
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The canvas's live currentVersionId at rejection time (null when the canvas has no versions).",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 class DesktopFileSystemViewSet(FileSystemViewSet):
     """
@@ -967,6 +1083,14 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     """
 
     file_system_surface = "desktop"
+
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
+        # not a backing Dashboard, so they legitimately have no ref. Delete the bare
+        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
+        # only — any other registered type with no ref is still a data-integrity
+        # error we refuse to delete, even on the desktop surface.
+        return entry.type == "dashboard"
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         super().perform_create(serializer)
@@ -999,6 +1123,185 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return instance
+
+    def _get_dashboard_or_400(self) -> FileSystem | Response:
+        instance = self.get_object()
+        if instance.type != "dashboard":
+            return Response(
+                {"detail": "Canvas code can only be published to dashboards."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return instance
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_partial_update",
+        request=CanvasPublishSerializer,
+        responses={
+            200: FileSystemSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
+            ),
+        },
+    )
+    @action(methods=["PATCH"], detail=True, url_path="canvas")
+    def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new version of a freeform canvas's React source.
+
+        Merges into the dashboard row's `meta` (never replaces it), so existing
+        keys like `channelId`/`templateId` survive. Appends a full-file version
+        snapshot and points `currentVersionId` at it — the server-side mirror of
+        the app's dashboardsService.saveFreeform, including the linear-discard of
+        any redo tail left behind by an undo. When the publisher passes
+        `expected_current_version_id`, a publish based on a stale version is
+        rejected with 409 `version_conflict` instead of overwriting the newer head.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        code = payload.validated_data["code"]
+        prompt = payload.validated_data.get("prompt")
+        name = payload.validated_data.get("name")
+        has_expected_version = "expected_current_version_id" in payload.validated_data
+        expected_version_id = payload.validated_data.get("expected_current_version_id")
+
+        now_ms = int(time.time() * 1000)
+        version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
+        if prompt:
+            version["prompt"] = prompt
+
+        # Lock the row for the read-modify-write so concurrent publishes can't clobber
+        # each other's appended version (each would otherwise build `versions` from the
+        # same stale snapshot and the second write would drop the first).
+        with transaction.atomic():
+            dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
+            meta = dict(dashboard.meta or {})
+            current_version_id = meta.get("currentVersionId")
+
+            if has_expected_version and current_version_id != expected_version_id:
+                return Response(
+                    {
+                        "detail": "The canvas changed since it was read (a concurrent publish or an undo). "
+                        "Re-fetch the canvas, re-apply the edits to the fresh source, and publish again.",
+                        "code": "version_conflict",
+                        "current_version_id": current_version_id,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            # Snapshot the live author context onto the version (reverting restores it).
+            existing_context = meta.get("context")
+            if isinstance(existing_context, str):
+                version["context"] = existing_context
+            versions = list(meta.get("versions") or [])
+            first_publish = not versions and not meta.get("code")
+            # Linear-discard: a publish always becomes the new head, so a redo tail past
+            # the live pointer (left by an undo) is dropped rather than kept as
+            # unreachable history — mirroring the client's undo/redo semantics.
+            if current_version_id:
+                pointer = next(
+                    (
+                        index
+                        for index, existing in enumerate(versions)
+                        if isinstance(existing, dict) and existing.get("id") == current_version_id
+                    ),
+                    None,
+                )
+                if pointer is not None:
+                    versions = versions[: pointer + 1]
+            versions.append(version)
+
+            meta.update(
+                {
+                    "kind": "freeform",
+                    "code": code,
+                    "versions": versions,
+                    "currentVersionId": version["id"],
+                    "updatedAt": now_ms,
+                }
+            )
+            dashboard.meta = meta
+
+            update_fields = ["meta"]
+            if name:
+                # The canvas's display name is the leaf segment of its path; rename in place.
+                segments = split_path(dashboard.path)
+                segments[-1] = name
+                dashboard.path = join_path(segments)
+                dashboard.depth = len(segments)
+                update_fields += ["path", "depth"]
+
+            dashboard.save(update_fields=update_fields)
+
+        if first_publish:
+            self._announce_canvas_created(request, dashboard)
+
+        return Response(self.get_serializer(dashboard).data)
+
+    def _announce_canvas_created(self, request: Request, dashboard: FileSystem) -> None:
+        """Announce a canvas's first publish in the generating task's thread.
+
+        The task sandbox stamps every MCP call with an X-PostHog-Task-Id header, so
+        a publish is attributable to the task that made it. The header alone is
+        forgeable, so two checks bind the announcement to a real sandbox run: the
+        request must carry an OAuth token minted under a sandbox app (those tokens
+        are only created server-side), and the facade only accepts a task created
+        by the requesting user (the sandbox authenticates with the task creator's
+        credentials). No header (a human or app save) means no announcement.
+        """
+        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+        try:
+            task_id = UUID(raw_task_id)
+        except ValueError:
+            return
+        if not self._is_sandbox_authenticated(request):
+            return
+        user = request.user if isinstance(request.user, User) else None
+        segments = split_path(dashboard.path)
+        tasks_facade.post_canvas_created_thread_update(
+            task_id,
+            self.team_id,
+            acting_user_id=user.id if user else None,
+            canvas_name=segments[-1] if segments else "Canvas",
+            canvas_url=self._canvas_share_url(dashboard),
+        )
+
+    @staticmethod
+    def _is_sandbox_authenticated(request: Request) -> bool:
+        """True when the request bears an OAuth token minted under a sandbox app —
+        the credential a task sandbox (via the MCP server) calls this API with."""
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        application = authenticator.access_token.application
+        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+    def _canvas_share_url(self, dashboard: FileSystem) -> str | None:
+        """The web interstitial link that deep-links into the desktop app's canvas view:
+        `/code/canvas/<channel folder id>/<dashboard id>`. The channel id is stamped on
+        the row's meta by the desktop app at create time; fall back to the parent folder
+        row for rows that predate the stamp.
+        """
+        channel_id = (dashboard.meta or {}).get("channelId")
+        if not channel_id:
+            parent_path = join_path(split_path(dashboard.path)[:-1])
+            folder = (
+                FileSystem.objects.filter(
+                    surface_q(self.file_system_surface),
+                    team_id=dashboard.team_id,
+                    type="folder",
+                    path=parent_path,
+                ).first()
+                if parent_path
+                else None
+            )
+            channel_id = str(folder.id) if folder else None
+        if not channel_id:
+            return None
+        return f"{settings.SITE_URL}/code/canvas/{channel_id}/{dashboard.id}"
 
     @extend_schema(responses={200: FolderInstructionsSerializer})
     @action(methods=["GET"], detail=True)

@@ -19,15 +19,15 @@ from pathlib import Path
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
-    has_contract_check_script,
     has_legacy_interface_leaks,
-    has_narrowed_turbo_inputs,
-    has_real_facade,
+    has_routes_module,
     has_tach_interface,
     is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
+    location_input_glob,
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
+    routes_in_turbo_inputs,
 )
 from .paths import TACH_TOML, get_tach_block
 
@@ -250,6 +250,19 @@ class CheckContext:
     is_isolated: bool
     structure: dict
     detailed: bool  # True = single-product run, False = --all
+    _isolation: IsolationStatus | None = field(default=None, repr=False, compare=False)
+
+    def isolation_status(self) -> IsolationStatus:
+        """Memoized isolation seal status, shared across checks within one product run.
+
+        Several checks need it; computing once avoids re-reading tach.toml/pyproject.toml/
+        package.json per check (files don't change mid-run).
+        """
+        if self._isolation is None:
+            self._isolation = compute_isolation_status(
+                self.name, self.product_dir, self.backend_dir, is_isolated=self.is_isolated
+            )
+        return self._isolation
 
 
 @dataclass
@@ -349,6 +362,9 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     Surfaced on a passing single-product lint so a reader sees the decision, not just
     its silent absence. Returns None when there's nothing meaningful to explain.
     """
+    if status.facade_leaks:
+        classes = ", ".join(sorted({v.class_name for v in status.facade_leaks}))
+        return f"facade hands out non-contract class(es) ({classes}) — not soundly isolated (see § Wiring couplings)"
     if status.deferred_count > 0 and status.has_legacy_leaks:
         return f"legacy interface leaks + {status.deferred_count} presentation bypass(es) still open"
     if status.deferred_count > 0:
@@ -385,9 +401,15 @@ class PackageJsonScriptsCheck(ProductCheck):
         # re-runs the full suite on facade/presentation changes, so an internals
         # change flowing to HTTP through such a view would be hidden. The skip is the
         # reward for finishing — it can't be enabled until the wave empties them.
-        status = compute_isolation_status(ctx.name, ctx.product_dir, ctx.backend_dir, is_isolated=ctx.is_isolated)
+        status = ctx.isolation_status()
         needs_contract_check = status.eligible_for_isolated_tests
-        required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
+        # The wiring gate also withholds the skip script: a facade that still hands out unsanctioned
+        # classes can't soundly narrow, so don't nag it to carry 'backend:contract-check' (the script
+        # would be inert, and IsolationChainCheck blocks the narrowing that would make it bite). The
+        # absence check below still keys on plain eligibility, so the five products that deliberately
+        # keep script+broad while un-narrowed aren't told to drop it.
+        require_contract_check_script = needs_contract_check and not status.facade_leaks
+        required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
             if script not in scripts:
                 result.lines.append(f"✗ missing '{script}'")
@@ -417,7 +439,12 @@ class PackageJsonScriptsCheck(ProductCheck):
             )
 
         # --- surface the withholding decision (single-product view only; keep the CI sweep quiet) ---
-        if ctx.detailed and ctx.is_isolated and not needs_contract_check and "backend:contract-check" not in scripts:
+        if (
+            ctx.detailed
+            and ctx.is_isolated
+            and not require_contract_check_script
+            and "backend:contract-check" not in scripts
+        ):
             note = _contract_check_withheld_note(status)
             if note:
                 result.lines.append(f"ℹ contract-check skip withheld — {note}")
@@ -480,6 +507,10 @@ class MisplacedFilesCheck(ProductCheck):
     # `temporal` is the established home for Temporal workflow + activity code
     # across products (batch_exports, data_warehouse, tasks, experiments, and
     # others), so it is allowed in isolated products on the same grounds.
+    # `sandbox` holds Docker build context (Dockerfiles + helper scripts) for
+    # sandboxed execution, not importable Python — its path is referenced by
+    # image-build workflows and COPY directives, so it can't follow the
+    # Python-package convention and is allowed at backend root.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -492,6 +523,7 @@ class MisplacedFilesCheck(ProductCheck):
         "logic",
         "hogql_queries",
         "temporal",
+        "sandbox",
         "templates",
         "admin",
         "__pycache__",
@@ -607,21 +639,26 @@ class TachCheck(ProductCheck):
 
 
 class IsolationChainCheck(ProductCheck):
-    """Validates the isolation prerequisite chain is consistent.
+    """Validates the isolation prerequisite chain is consistent — and finished.
 
     The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
-    Each step requires the previous one. A product that skips a step gets CI
-    benefits it hasn't earned (Django suite skipped on changes).
+    Each step requires the previous one, so a product can't claim a CI benefit it hasn't
+    earned (the Django suite skipped on changes). The final step also can't be left
+    half-wired: once a product is fully sealed and eligible, it must actually turn the skip
+    on by narrowing turbo.json inputs — otherwise the contract-check script is inert
+    (inputs default to all of backend/, so every change still re-runs the Django suite).
     """
 
     label = "isolation chain"
 
     def run(self, ctx: CheckContext) -> CheckResult:
         facade_api = ctx.backend_dir / "facade" / "api.py"
-        real_facade = has_real_facade(ctx.backend_dir)
-        has_tach = has_tach_interface(ctx.name)
-        has_script = has_contract_check_script(ctx.product_dir)
-        has_narrowed = has_narrowed_turbo_inputs(ctx.product_dir)
+        status = ctx.isolation_status()
+        real_facade = status.has_real_facade
+        has_tach = status.has_tach_interface
+        has_script = status.has_contract_check_script
+        has_narrowed = status.has_narrowed_turbo
+        facade_violations = status.facade_leaks
 
         result = CheckResult()
 
@@ -656,12 +693,143 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
+        # The wiring-doctrine gate. Facade class re-exports from a non-garage module gate NARROWING,
+        # not the script: while a product is un-narrowed the skip is inert (everything is watched), so
+        # a leak there is guidance, not breakage. Once narrowed, the same leak means core can reach an
+        # unsanctioned class the suite may not re-test — a hard error. See products/architecture.md
+        # § Wiring couplings.
+        if facade_violations:
+            detail = "; ".join(
+                f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in facade_violations
+            )
+            remedies = (
+                "move it to a garage (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
+                "backend/tasks.py) if it implements a core-owned base; move it to facade/contracts.py "
+                "if it's a data/error type; or drop the turbo.json narrowing to watch everything"
+            )
+            if has_narrowed:
+                result.issues.append(
+                    f"facade re-exports class(es) from outside the wiring locations: {detail} — {remedies}"
+                )
+            elif has_script:
+                result.warnings.append(
+                    f"facade re-exports class(es) from outside the wiring locations: {detail}. The skip is "
+                    f"inert while un-narrowed, but narrowing is blocked until this is fixed — {remedies}"
+                )
+
+        # Earned but not turned on: a fully sealed, eligible product that already carries
+        # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
+        # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
+        # script inherits the root task's all-of-backend inputs, so every internal change still
+        # re-runs the full Django suite — the skip is inert. Force the narrowing so READY
+        # products land on ON. Gating on has_script keeps this distinct from
+        # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
+        # Suppressed when the facade still hands out unsanctioned classes: narrowing would be
+        # rejected by the gate above, so nagging toward it is counterproductive — say what blocks it.
+        needs_turn_on = (
+            has_script
+            and status.eligible_for_isolated_tests
+            and status.externally_sealed
+            and not has_narrowed
+            and not facade_violations
+        )
+        if needs_turn_on:
+            result.issues.append(
+                "product is fully sealed and eligible for isolated tests and carries "
+                "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
+                "facade/presentation — the skip is inert (every change still re-runs the full Django "
+                'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
+                '"backend/presentation/**"] plus any wiring locations the product has '
+                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+            )
+        # When needs_turn_on is suppressed purely because of a facade violation (the other four
+        # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
+        # so there's nothing more to say here — the nag is silently withheld, not replaced.
+
+        # Watching the route registration: routes.py is the product's route-registration entry
+        # point (public API surface, imported by core to assemble the router), but it lives at
+        # backend/ root — outside the facade/presentation globs. A narrowed product that has one
+        # must add it to the inputs, or a routes-only change is invisible to the skip and runs no
+        # Django suite. (Mutually exclusive with needs_turn_on, which requires no narrowing.)
+        routes_unwatched = (
+            has_narrowed and has_routes_module(ctx.backend_dir) and not routes_in_turbo_inputs(ctx.product_dir)
+        )
+        if routes_unwatched:
+            routes_glob = "backend/routes/**" if (ctx.backend_dir / "routes").is_dir() else "backend/routes.py"
+            result.issues.append(
+                f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
+                "product's route-registration entry point (public API surface, imported by core), so a "
+                f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
+            )
+
+        # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
+        # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
+        # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
+        # change to those modules still re-runs the suite — they must be in the contract-check
+        # inputs. Mirrors routes_unwatched.
+        if has_narrowed and status.uncovered_permanent_exposures:
+            globs = ", ".join(f"{m.replace('.', '/')}.py" for m in status.uncovered_permanent_exposures)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the permanently-exposed module(s) "
+                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the import "
+                "graph (ClickHouse DDL in the schema registry and frozen migrations), so a change to them "
+                f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
+            )
+
+        # Watching the wiring garages: a garage the product has must stay in the contract-check
+        # inputs, or a change to a query runner / Max tool / Temporal defn / Celery task the facade
+        # wires would skip the Django suite. Mirrors routes_unwatched, presence-based.
+        if has_narrowed and status.unwatched_garages:
+            globs = ", ".join(location_input_glob(g) for g in status.unwatched_garages)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the wiring location(s) "
+                f"{', '.join(status.unwatched_garages)} — implementations core registers and drives live there, "
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs})"
+            )
+
+        # Watching the carve-out modules: a sanctioned model-registry carve-out crosses the facade by
+        # class identity, so its defining module must re-run the suite on change like any wiring.
+        if has_narrowed and status.uncovered_carveout_modules:
+            globs = ", ".join(location_input_glob(m) for m in status.uncovered_carveout_modules)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the carve-out module(s) "
+                f"{', '.join(status.uncovered_carveout_modules)} — the class crosses the facade for a core "
+                f"registry keyed by class identity, so a change must re-run the suite. Add the matching input(s) ({globs})"
+            )
+
+        # Guarding against marker abuse: the permanent-interface marker is only legitimate for
+        # modules core depends on outside the import graph (ClickHouse DDL in a frozen migration or
+        # the schema registry). Without this check the marker is mechanically unrestricted — a
+        # product could mark backend.models/backend.logic permanent, list it in turbo inputs, and
+        # pass the chain. Fires regardless of has_narrowed: the abuse lives in tach.toml itself, not
+        # in turbo config, so it must block even before the product narrows.
+        if status.unqualified_permanent_exposures:
+            modules = ", ".join(status.unqualified_permanent_exposures)
+            result.issues.append(
+                f"permanent-interface marker covers module(s) {modules}, but they are not imported by any "
+                "frozen ClickHouse migration or the ClickHouse schema registry — so they don't qualify as a "
+                "permanent interface. Route them through the facade instead (or remove the marker)"
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            result.file = f"products/{ctx.name}/backend/facade/api.py"
+            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
+            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
+            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
+            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
+            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
+            # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
+            # there; it takes precedence because it's the most fundamental of these issues.
+            turbo_omission = has_narrowed and (status.unwatched_garages or status.uncovered_carveout_modules)
+            if status.unqualified_permanent_exposures:
+                result.file = "tach.toml"
+            elif needs_turn_on or routes_unwatched or turbo_omission:
+                result.file = f"products/{ctx.name}/turbo.json"
+            else:
+                result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif result.warnings:
@@ -811,6 +979,8 @@ class OrphanedTestFilesCheck(ProductCheck):
         # ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
+        "warehouse_sources": ("backend/temporal/",),
+        "signals": ("backend/emission/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:

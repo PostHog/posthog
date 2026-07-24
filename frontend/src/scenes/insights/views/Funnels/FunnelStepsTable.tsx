@@ -2,15 +2,16 @@ import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonColorButton } from '@posthog/lemon-ui'
+import { LemonColorButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumnGroup, Sorting } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
@@ -29,9 +30,8 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional, breakdownSorting } =
+        useValues(funnelDataLogic(insightProps))
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
@@ -39,7 +39,8 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
-    const isOnlySeries = flattenedBreakdowns.length <= 1
+    // Count values, not rows — compare mode shows one row per period for each value.
+    const isOnlySeries = flattenedBreakdowns.filter((b) => b.compare_label !== 'previous').length <= 1
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -53,10 +54,19 @@ export function FunnelStepsTable(): JSX.Element | null {
 
     /** :HACKY: We don't want to allow changing of colors in experiments (they can't be
     saved there). Therefore we use the `disable_baseline` prop on the cached insight passed
-    in by experiments as a measure of detecting wether we are in an experiment context.
+    in by experiments as a measure of detecting whether we are in an experiment context.
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
     const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
+
+    // Sorting is controlled by the query's `funnelsFilter.breakdownSorting`, so it survives
+    // saving/reloading and never touches the URL (a router push here would make the insight
+    // scene reload the saved insight, discarding unsaved changes like the compare filter).
+    const sorting: Sorting | null = breakdownSorting
+        ? breakdownSorting.startsWith('-')
+            ? { columnKey: breakdownSorting.slice(1), order: -1 }
+            : { columnKey: breakdownSorting, order: 1 }
+        : null
 
     const columnsGrouped = [
         {
@@ -69,10 +79,17 @@ export function FunnelStepsTable(): JSX.Element | null {
                             <LemonCheckbox
                                 checked={allChecked ? true : someChecked ? 'indeterminate' : false}
                                 onChange={() => {
-                                    // Either toggle all breakdowns on or off
+                                    // Either toggle all breakdowns on or off. Deduped — both rows of
+                                    // a compare pair share one visibility key.
                                     setHiddenLegendBreakdowns(
                                         allChecked
-                                            ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
+                                            ? Array.from(
+                                                  new Set(
+                                                      flattenedBreakdowns.map((b) =>
+                                                          getVisibilityKey(b.breakdown_value)
+                                                      )
+                                                  )
+                                              )
                                             : []
                                     )
                                 }}
@@ -122,14 +139,24 @@ export function FunnelStepsTable(): JSX.Element | null {
 
                         const color = getFunnelsColor(breakdown)
 
+                        // Pure-compare rows carry no breakdown value (their color/customization key
+                        // must match the chart bars), so fall back to the baseline label.
+                        const labelText =
+                            formatBreakdownLabel(
+                                value,
+                                breakdownFilter,
+                                allCohorts.results,
+                                formatPropertyValueForDisplay
+                            ) || (breakdown.isBaseline ? 'Baseline' : '')
+
                         const label = (
                             <div className="flex justify-between items-center">
-                                {formatBreakdownLabel(
-                                    value,
-                                    breakdownFilter,
-                                    allCohorts.results,
-                                    formatPropertyValueForDisplay
-                                )}
+                                <span className="inline-flex items-center gap-2">
+                                    {labelText}
+                                    {breakdown.compare_label && (
+                                        <LemonTag>{capitalizeFirstLetter(breakdown.compare_label)}</LemonTag>
+                                    )}
+                                </span>
                                 {showCustomizationIcon && (
                                     <LemonColorButton
                                         onClick={() => openModal(breakdown)}
@@ -384,7 +411,8 @@ export function FunnelStepsTable(): JSX.Element | null {
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
             rowRibbonColor={getFunnelsColor}
             firstColumnSticky
-            useURLForSorting
+            sorting={sorting}
+            useURLForSorting={false}
             onSort={(newSorting) => {
                 if (!newSorting) {
                     setBreakdownSorting(undefined)

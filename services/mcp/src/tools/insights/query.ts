@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
@@ -16,6 +17,7 @@ type Result = WithPostHogUrl<{
     query: unknown
     insight: Insight & { url: string }
     results: unknown
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }>
 
@@ -83,16 +85,18 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     const fullUrl = `${context.api.getProjectBaseUrl(projectId)}${path}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
-    // Trends/funnel UI visualizers consume the raw results array; every other
-    // visualization (HogQL/table, retention, lifecycle, paths) expects the
-    // `{ columns, results }` shape the structural guards look for.
-    const isSeries = queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel'
-    const results = isSeries
-        ? queryResult.data.results
-        : {
+    // Only HogQL/table results carry a separate `columns` array, so they're the only
+    // shape the UI app wraps as `{ columns, results }`. Every chart visualizer
+    // (trends, funnel, retention, lifecycle, stickiness, paths) consumes the raw
+    // results array directly — wrapping those breaks the structural guards and renders
+    // an empty table.
+    const isTabular = queryInfo.visualization === 'table'
+    const results = isTabular
+        ? {
               columns: queryResult.data.columns || [],
               results: queryResult.data.results || [],
           }
+        : queryResult.data.results
 
     // Optimized output surfaces the server-formatted summary as the model-facing text, but the
     // UI app still needs the structured results in structuredContent. Carry the formatted string
@@ -109,6 +113,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
                 ...insightResult.data,
             },
             results,
+            ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
             ...(surfaceFormatted
                 ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
                 : {}),

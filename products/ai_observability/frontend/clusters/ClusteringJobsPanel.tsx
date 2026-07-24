@@ -13,12 +13,11 @@ import {
     LemonSwitch,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { AnyPropertyFilter } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type AnyPropertyFilter } from '~/types'
 
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import type { ClusteringJob, ClusteringLevel } from './types'
@@ -58,8 +57,6 @@ function JobEditor({
         (job.event_filters as AnyPropertyFilter[] | undefined) ?? []
     )
     const [enabled, setEnabled] = useState(job.enabled ?? true)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
     return (
         <div className="space-y-4">
@@ -75,7 +72,7 @@ function JobEditor({
                     options={[
                         { value: 'trace', label: 'Traces' },
                         { value: 'generation', label: 'Generations' },
-                        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+                        { value: 'evaluation' as const, label: 'Evaluations' },
                     ]}
                     size="small"
                 />
@@ -109,23 +106,30 @@ function JobEditor({
                 <LemonButton type="secondary" data-attr="llma-clustering-job-cancel" onClick={onCancel}>
                     Cancel
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    data-attr="llma-clustering-job-save"
-                    disabled={!name.trim()}
-                    loading={saving}
-                    onClick={() =>
-                        onSave({
-                            ...(job.id ? { id: job.id } : {}),
-                            name: name.trim(),
-                            analysis_level: analysisLevel,
-                            event_filters: eventFilters as Record<string, unknown>[],
-                            enabled,
-                        })
-                    }
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.AiObservabilityClusters}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    {job.id ? 'Save' : 'Create'}
-                </LemonButton>
+                    {({ disabledReason: accessDisabledReason }) => (
+                        <LemonButton
+                            type="primary"
+                            data-attr="llma-clustering-job-save"
+                            disabledReason={!name.trim() ? 'Name is required' : accessDisabledReason}
+                            loading={saving}
+                            onClick={() =>
+                                onSave({
+                                    ...(job.id ? { id: job.id } : {}),
+                                    name: name.trim(),
+                                    analysis_level: analysisLevel,
+                                    event_filters: eventFilters as Record<string, unknown>[],
+                                    enabled,
+                                })
+                            }
+                        >
+                            {job.id ? 'Save' : 'Create'}
+                        </LemonButton>
+                    )}
+                </AccessControlAction>
             </div>
         </div>
     )
@@ -134,20 +138,8 @@ function JobEditor({
 export function ClusteringJobsPanel(): JSX.Element {
     const { isJobsPanelOpen, jobs, jobsLoading, editingJob } = useValues(clusteringJobsLogic)
     const { closeJobsPanel, setEditingJob, createJob, updateJob, deleteJob } = useActions(clusteringJobsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
-    // Hide only the auto-seeded "Default - evaluations" row from the admin
-    // list when the FF is off, so teams that aren't on the feature yet don't
-    // see a mystery default row they didn't create. Any custom evaluation
-    // jobs (rename of the default, or created explicitly when the FF was on
-    // and later toggled off) stay visible — otherwise we'd leave hidden-but-
-    // still-scheduled jobs with no UI surface to manage them.
-    const visibleJobs = evaluationsEnabled
-        ? jobs
-        : jobs.filter(
-              (job: ClusteringJob) => !(job.analysis_level === 'evaluation' && job.name === 'Default - evaluations')
-          )
+    const visibleJobs = jobs
 
     return (
         <LemonModal
@@ -184,38 +176,48 @@ export function ClusteringJobsPanel(): JSX.Element {
                                 {!job.enabled && <span className="text-xs text-muted">Disabled</span>}
                             </div>
                             <div className="flex items-center gap-1">
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    data-attr="llma-clustering-job-edit"
-                                    onClick={() => setEditingJob(job)}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.AiObservabilityClusters}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Edit
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    status="danger"
-                                    icon={<IconTrash />}
-                                    data-attr="llma-clustering-job-delete"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete clustering job?',
-                                            description: `Are you sure you want to delete "${job.name}"? This cannot be undone.`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                status: 'danger',
-                                                onClick: () => deleteJob(job.id),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'secondary',
-                                            },
-                                        })
-                                    }}
-                                    tooltip="Delete job"
-                                />
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        data-attr="llma-clustering-job-edit"
+                                        onClick={() => setEditingJob(job)}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.AiObservabilityClusters}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        status="danger"
+                                        icon={<IconTrash />}
+                                        data-attr="llma-clustering-job-delete"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Delete clustering job?',
+                                                description: `Are you sure you want to delete "${job.name}"? This cannot be undone.`,
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    type: 'primary',
+                                                    status: 'danger',
+                                                    onClick: () => deleteJob(job.id),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        }}
+                                        tooltip="Delete job"
+                                    />
+                                </AccessControlAction>
                             </div>
                         </div>
                     ))}
@@ -228,18 +230,26 @@ export function ClusteringJobsPanel(): JSX.Element {
                         Jobs run automatically during the next scheduled clustering and summarization cycle.
                     </LemonBanner>
 
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        data-attr="llma-clustering-job-add"
-                        onClick={() => setEditingJob({})}
-                        disabled={jobs.length >= MAX_JOBS}
-                        tooltip={jobs.length >= MAX_JOBS ? `Maximum of ${MAX_JOBS} jobs` : undefined}
-                        fullWidth
-                        center
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.AiObservabilityClusters}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Add job
-                    </LemonButton>
+                        {({ disabledReason: accessDisabledReason }) => (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                data-attr="llma-clustering-job-add"
+                                onClick={() => setEditingJob({})}
+                                disabledReason={
+                                    jobs.length >= MAX_JOBS ? `Maximum of ${MAX_JOBS} jobs` : accessDisabledReason
+                                }
+                                fullWidth
+                                center
+                            >
+                                Add job
+                            </LemonButton>
+                        )}
+                    </AccessControlAction>
                 </div>
             )}
         </LemonModal>

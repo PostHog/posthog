@@ -135,7 +135,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
     )
     @freeze_time("2020-01-10T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_conversion_window_extends_to_last_exposure(self, name, use_precomputation):
+    def test_conversion_window_anchored_on_first_exposure(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
@@ -170,7 +170,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         distinct_id = "user_control_window"
         _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
 
-        # First exposure happens before the conversion window, second exposure extends it.
+        # Re-exposed on Jan 5, but the conversion window is measured from first exposure (Jan 2).
         for timestamp in ["2020-01-02T00:00:00Z", "2020-01-05T00:00:00Z"]:
             _create_event(
                 team=self.team,
@@ -184,13 +184,23 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
 
-        # Purchase happens outside the first window but within last exposure + window.
+        # Purchase sits inside first_exposure + window, so it counts.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 25},
+        )
+
+        # Purchase sits outside first_exposure + window (but inside last_exposure + window),
+        # so it must not count once inclusion is anchored on first exposure.
         _create_event(
             team=self.team,
             event="purchase",
             distinct_id=distinct_id,
             timestamp="2020-01-05T12:00:00Z",
-            properties={feature_flag_property: "control", "amount": 25},
+            properties={feature_flag_property: "control", "amount": 100},
         )
 
         flush_persons_and_events()
@@ -201,6 +211,107 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         assert result.baseline is not None
         self.assertEqual(result.baseline.sum, 25)
         self.assertEqual(result.baseline.number_of_samples, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    def test_matured_user_value_stable_across_re_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist"}
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            conversion_window=1,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        distinct_id = "user_re_exposed"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+
+        # First exposure Jan 2; the user matures at Jan 3 (first_exposure + 1 day).
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T00:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Purchase inside the first-exposure window is the entity's whole value.
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 25},
+        )
+        # Backend flag re-evaluated Jan 5, with another purchase in its wake.
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T00:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T12:00:00Z",
+            properties={feature_flag_property: "control", "amount": 100},
+        )
+
+        flush_persons_and_events()
+
+        # Re-run right after the user matures, then again after the re-exposure. The
+        # matured user's value must not grow just because the flag was re-evaluated.
+        with freeze_time("2020-01-04T00:00:00Z"):
+            early = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+        with freeze_time("2020-01-07T00:00:00Z"):
+            late = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+
+        assert early.baseline is not None
+        assert late.baseline is not None
+        self.assertEqual(early.baseline.sum, 25)
+        self.assertEqual(late.baseline.sum, 25)
 
     @parameterized.expand(
         [
@@ -509,13 +620,19 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("direct", False),
-            ("precomputed", True),
+            ("max_direct", False, ExperimentMetricMathType.MAX, 55, 160),
+            ("max_precomputed", True, ExperimentMetricMathType.MAX, 55, 160),
+            ("min_direct", False, ExperimentMetricMathType.MIN, 15, 90),
+            ("min_precomputed", True, ExperimentMetricMathType.MIN, 15, 90),
+            ("avg_direct", False, ExperimentMetricMathType.AVG, 35, 130),
+            ("avg_precomputed", True, ExperimentMetricMathType.AVG, 35, 130),
         ]
     )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_max_metric(self, name, use_precomputation):
+    def test_property_aggregation_metric(
+        self, name, use_precomputation, math_type, expected_control_sum, expected_test_sum
+    ):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
@@ -565,7 +682,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         metric = ExperimentMeanMetric(
             source=EventsNode(
                 event="purchase",
-                math=ExperimentMetricMathType.MAX,
+                math=math_type,
                 math_property="amount",
             ),
         )
@@ -589,182 +706,8 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 55)
-        self.assertEqual(test_variant.sum, 160)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_property_min_metric(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
-            purchase_events = [
-                {
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:01:{i:02d}",
-                    "properties": {
-                        ff_property: variant,
-                        "amount": amount,
-                    },
-                }
-                for i, amount in enumerate(amounts)
-            ]
-            return [
-                {
-                    "event": "$feature_flag_called",
-                    "timestamp": "2024-01-02T12:00:00",
-                    "properties": {
-                        "$feature_flag_response": variant,
-                        ff_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                },
-                *purchase_events,
-            ]
-
-        journeys_for(
-            {
-                "control_1": _create_events_for_user("control", [10, 20, 30]),
-                "control_2": _create_events_for_user("control", [5, 15, 25]),
-                "test_1": _create_events_for_user("test", [50, 60, 70]),
-                "test_2": _create_events_for_user("test", [40, 80, 90]),
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.MIN,
-                math_property="amount",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
-
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        self.assertEqual(control_variant.sum, 15)
-        self.assertEqual(test_variant.sum, 90)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_property_avg_metric(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
-            purchase_events = [
-                {
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:01:{i:02d}",
-                    "properties": {
-                        ff_property: variant,
-                        "amount": amount,
-                    },
-                }
-                for i, amount in enumerate(amounts)
-            ]
-            return [
-                {
-                    "event": "$feature_flag_called",
-                    "timestamp": "2024-01-02T12:00:00",
-                    "properties": {
-                        "$feature_flag_response": variant,
-                        ff_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                },
-                *purchase_events,
-            ]
-
-        journeys_for(
-            {
-                "control_1": _create_events_for_user("control", [10, 20, 30]),
-                "control_2": _create_events_for_user("control", [5, 15, 25]),
-                "test_1": _create_events_for_user("test", [50, 60, 70]),
-                "test_2": _create_events_for_user("test", [40, 80, 90]),
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.AVG,
-                math_property="amount",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
-
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        self.assertEqual(control_variant.sum, 35)
-        self.assertEqual(test_variant.sum, 130)
+        self.assertEqual(control_variant.sum, expected_control_sum)
+        self.assertEqual(test_variant.sum, expected_test_sum)
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
@@ -966,102 +909,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
-        self.assertEqual(control_variant.sum, 4)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        # test_1: 3 unique, test_2: 1 unique → sum = 4
-        self.assertEqual(test_variant.sum, 4)
-        self.assertEqual(test_variant.number_of_samples, 2)
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_count_distinct_property_values_via_hogql(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        def _create_events_for_user(variant: str, categories: list[str]) -> list[dict]:
-            purchase_events = [
-                {
-                    "event": "purchase",
-                    "timestamp": f"2024-01-02T12:01:{i:02d}",
-                    "properties": {
-                        ff_property: variant,
-                        "category": category,
-                    },
-                }
-                for i, category in enumerate(categories)
-            ]
-            return [
-                {
-                    "event": "$feature_flag_called",
-                    "timestamp": "2024-01-02T12:00:00",
-                    "properties": {
-                        "$feature_flag_response": variant,
-                        ff_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                },
-                *purchase_events,
-            ]
-
-        journeys_for(
-            {
-                # control_1: 3 events, 2 unique categories
-                "control_1": _create_events_for_user("control", ["electronics", "clothing", "electronics"]),
-                # control_2: 2 events, 2 unique categories
-                "control_2": _create_events_for_user("control", ["food", "clothing"]),
-                # control_3: exposed but no purchases → 0 unique categories
-                "control_3": _create_events_for_user("control", []),
-                # test_1: 4 events, 3 unique categories
-                "test_1": _create_events_for_user("test", ["electronics", "clothing", "food", "electronics"]),
-                # test_2: 3 events, 1 unique category
-                "test_2": _create_events_for_user("test", ["food", "food", "food"]),
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.HOGQL,
-                math_hogql="count(distinct properties.category)",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(ExperimentQueryResponse, query_runner.calculate())
-
-        assert result.baseline is not None
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        # Same expected results as uniqExact test
         # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
         self.assertEqual(control_variant.sum, 4)
         self.assertEqual(control_variant.number_of_samples, 3)

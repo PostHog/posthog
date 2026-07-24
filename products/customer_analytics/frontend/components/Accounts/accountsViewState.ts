@@ -1,3 +1,5 @@
+import type { AccountCustomPropertyFilter } from '~/types'
+
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
@@ -11,6 +13,7 @@ export interface AccountsViewFilters {
     unassigned: boolean
     assignedTo: RoleFilterValue
     tileFilter: TileFilter | null
+    customProperties: AccountCustomPropertyFilter[]
 }
 
 export interface AccountsViewProperties {
@@ -40,8 +43,8 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
 }
 
 // Sort persists as a single `["<column> <ASC|DESC>"]` entry using the LOGICAL
-// column name (e.g. `csm`); `deriveAccountsOrderByExpr` re-derives the tuple
-// expression at query-build time.
+// column name (e.g. `csm`) — HogQL resolves it against the SELECT alias at
+// query-build time.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []
@@ -78,6 +81,9 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.tileFilter) {
         filters.tileFilter = state.filters.tileFilter
     }
+    if (state.filters.customProperties.length > 0) {
+        filters.customProperties = state.filters.customProperties
+    }
     return {
         columns: state.columns,
         order_by: sortOrderToOrderBy(state.sortOrder),
@@ -104,6 +110,7 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
             unassigned: rawFilters.unassigned ?? false,
             assignedTo: normalizeRoleFilter(rawFilters.assignedTo),
             tileFilter: rawFilters.tileFilter ?? null,
+            customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],
         },
         tiles: rawProperties.tiles && rawProperties.tiles.length > 0 ? rawProperties.tiles : [...DEFAULT_TILES],
     }

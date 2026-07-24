@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -62,7 +63,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -70,6 +71,28 @@ from posthog.models.utils import UUIDT
 USE_GLOBAL_JOINS = False
 
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# ClickHouse's canonical UUID text form; it rejects anything else when parsing a compared literal.
+# Checked with fullmatch — a `$` anchor would let a trailing newline through.
+_UUID_LITERAL_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+_UUID_GUARDED_COMPARE_OPS = (
+    ast.CompareOperationOp.Eq,
+    ast.CompareOperationOp.NotEq,
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+)
+
+
+def _string_constants(node: ast.Expr) -> list[ast.Constant]:
+    if isinstance(node, ast.Constant):
+        return [node] if isinstance(node.value, str) else []
+    if isinstance(node, (ast.Tuple, ast.Array)):
+        return [expr for expr in node.exprs if isinstance(expr, ast.Constant) and isinstance(expr.value, str)]
+    return []
+
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
@@ -115,6 +138,18 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
+# Dialects with native PIVOT/UNPIVOT support. Snowflake speaks the same standard-SQL
+# `PIVOT (agg FOR col IN (...))` shape, so it joins the Postgres family here even though it
+# isn't Postgres-wire compatible for the other gated constructs. `hogql` is included so the
+# canonical round-trip (the re-printed `self.hogql`) doesn't reject a query the target dialect
+# accepts.
+_PIVOT_ONLY_DIALECTS: frozenset[HogQLDialect] = frozenset({"snowflake", "hogql"})
+_PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _PIVOT_ONLY_DIALECTS
+
+
+def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
+    return select_from is not None and isinstance(select_from.table, ast.PivotExpr)
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -144,9 +179,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
-) -> ast.Expr:
+def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
+    """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
+    resolve against to reference the table's columns. Raises `QueryError` if the database/table is
+    unavailable. Caching, if wanted, is the caller's concern."""
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
@@ -159,8 +195,14 @@ def resolve_types_from_table(
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
+    return select_node_with_types.type
 
-    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+def resolve_types_from_table(
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
+) -> ast.Expr:
+    scope = resolve_table_scope(table_chain, context, dialect)
+    return resolve_types(expr, context, dialect, [scope])
 
 
 ResolverFactory = Callable[
@@ -338,7 +380,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -525,7 +567,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _PIVOT_DIALECTS:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -774,6 +816,13 @@ class Resolver(CloningVisitor):
                 continue
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
+                # A PIVOT produces output columns named after its IN-list values, which we can't
+                # enumerate at resolve time. Snowflake names them in ways HogQL can't express, so
+                # keep `*` literal and let Snowflake expand it. (UNPIVOT output IS knowable, so it
+                # still expands normally.)
+                if self.dialect == "snowflake" and _select_from_is_pivot(new_node.select_from):
+                    select_nodes.append(new_expr)
+                    continue
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 for col in columns:
                     visited_col = self.visit(col)
@@ -1502,6 +1551,17 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
+            # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
+            # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.
+            if isinstance(left_type, ast.FloatType) or isinstance(right_type, ast.FloatType):
+                node.type = ast.FloatType()
+            elif isinstance(left_type, ast.DecimalType | ast.IntegerType) and isinstance(
+                right_type, ast.DecimalType | ast.IntegerType
+            ):
+                node.type = ast.DecimalType()
+            else:
+                node.type = ast.UnknownType()
         elif isinstance(left_type, ast.UnknownType) or isinstance(right_type, ast.UnknownType):
             node.type = ast.UnknownType()
         else:
@@ -1570,12 +1630,18 @@ class Resolver(CloningVisitor):
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "getSurveyResponse":
-                return self.visit(get_survey_response(node=node, args=node.args))
+                return self.visit(
+                    get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
+                )
             if node.name == "uniqueSurveySubmissionsFilter":
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
+                # The two-arg form duplicates its IP argument across the per-prefix-length range
+                # checks, so it needs the same re-entrancy guard as the lookup builders below.
+                if len(node.args) > 1:
+                    return self._expand_duplicating_macro(node, lambda: is_bot(node=node, args=node.args))
                 return self.visit(is_bot(node=node, args=node.args))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
@@ -2209,6 +2275,7 @@ class Resolver(CloningVisitor):
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType(nullable=False)
+        self._raise_on_invalid_uuid_literal(node)
 
         if (
             USE_GLOBAL_JOINS
@@ -2232,6 +2299,36 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    def _raise_on_invalid_uuid_literal(self, node: ast.CompareOperation) -> None:
+        """A malformed string literal compared against a UUID column (events.uuid, person ids,
+        warehouse UUID columns) would fail the whole query at execution time with ClickHouse's
+        CANNOT_PARSE_UUID — reject it here instead, naming the bad value. Only ClickHouse-bound
+        queries are guarded: other target dialects (postgres, snowflake, ...) accept UUID text
+        forms ClickHouse doesn't, so rejecting the canonical-form mismatch there would be wrong."""
+        if self.dialect not in ("clickhouse", "hogql"):
+            return
+        if node.op not in _UUID_GUARDED_COMPARE_OPS:
+            return
+        for uuid_side, literal_side in ((node.left, node.right), (node.right, node.left)):
+            if not self._resolves_to_uuid(uuid_side):
+                continue
+            for constant in _string_constants(literal_side):
+                if not _UUID_LITERAL_RE.fullmatch(constant.value):
+                    field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
+                    subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
+                    raise QueryError(
+                        f"'{constant.value}' is not a valid UUID, so it can never match {subject}. "
+                        f"Use the full UUID, for example '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
+                    )
+
+    def _resolves_to_uuid(self, node: ast.Expr) -> bool:
+        if node.type is None or isinstance(node, ast.Constant):
+            return False
+        try:
+            return isinstance(node.type.resolve_constant_type(self.context), ast.UUIDType)
+        except Exception:
+            return False
 
     def _get_scope(self):
         if len(self.scopes) > 0:

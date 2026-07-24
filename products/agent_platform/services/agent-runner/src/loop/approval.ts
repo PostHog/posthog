@@ -26,23 +26,23 @@ import {
     AgentSession,
     ApprovalRequest,
     ApprovalStore,
+    type ApprovalType,
     AssistantMessageRecord,
-    CLIENT_KIND_POSTHOG_CODE,
     ConversationMessage,
     hashCanonicalArgs,
-    readSessionClientKind,
+    parseApprovalDecidedMarker,
 } from '@posthog/agent-shared'
 
-import { parseApprovalDecidedMarker } from './approval-marker'
 import type { RealToolExecute, ToolResultDetails } from './build-agent-tools'
 
-const APPROVER_HINT_TEAM_ADMINS = 'an authorized admin on this team'
+// Who the model should tell the user to expect a decision from, by approval type.
+const APPROVER_HINT_PRINCIPAL = 'you — the person who started this session'
+const APPROVER_HINT_AGENT = 'an owner or admin of this agent'
 
 /** `ToolRef.approval_policy` after Zod parsing. */
 export interface ApprovalPolicy {
-    approvers: readonly string[]
+    type: ApprovalType
     allow_edit: boolean
-    allow_agent_approver: boolean
     ttl_ms: number
 }
 
@@ -63,6 +63,15 @@ export function approvalMarkerRequestId(msg: ConversationMessage): string | null
 /**
  * Gated-tool `execute`: upsert the queued row, return the synthetic queued
  * result. `terminate` is false — the model reads the envelope and continues.
+ *
+ * Capped at `maxOpenApprovals` open (queued) rows per session
+ * (`spec.limits.max_open_approvals`): a model looping on a gated tool with
+ * distinct args would otherwise flood approvers — args-hash dedupe only
+ * collapses identical calls. An identical re-ask dedupes onto its existing
+ * queued row and is always allowed; only a call that would insert a NEW row
+ * counts against the cap. At the cap the model receives a synthetic
+ * `approval_budget_exhausted` error (no row written, no approver ping) and
+ * continues the turn.
  */
 export async function queueApprovalResult(input: {
     approvals: ApprovalStore
@@ -74,10 +83,47 @@ export async function queueApprovalResult(input: {
     toolCallId: string
     args: Record<string, unknown>
     policy: ApprovalPolicy
+    maxOpenApprovals: number
 }): Promise<AgentToolResult<ToolResultDetails>> {
     const argsHash = hashCanonicalArgs(input.args)
     const previous = await input.approvals.findLatestByArgs(input.session.id, input.toolName, argsHash)
     const lastAssistant = findLastAssistant(input.session.conversation)
+
+    // An identical re-ask (existing `queued` row) is exempt from the cap: it
+    // dedupes onto that row via the partial unique index without growing the
+    // approver queue, so blocking it would spuriously reject a legitimate
+    // retry. Keep the dedupe exemption ahead of the cap check — reordering
+    // them so the cap runs first breaks that. The exemption opens a bounded
+    // TOCTOU: if an approver decides the queued row between `findLatestByArgs`
+    // and `upsertQueued`, the insert no longer conflicts and a new row lands
+    // uncapped (cap+1). It's self-correcting — that same decision freed a slot
+    // — so overshoot is bounded at 1 per concurrent decision.
+    if (previous?.state !== 'queued') {
+        const open = await input.approvals.countQueuedBySession(input.session.id)
+        if (open >= input.maxOpenApprovals) {
+            // Same policy-aware phrasing as the queued path's `approver_hint`:
+            // `agent` policies are decided by an owner/admin, not the session user.
+            const approverHint = input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: {
+                                code: 'approval_budget_exhausted',
+                                message:
+                                    `this session already has ${open} approval request(s) awaiting a decision ` +
+                                    `(limit ${input.maxOpenApprovals}). The call was NOT queued. Do not re-issue ` +
+                                    `gated calls; the pending requests must be decided by ${approverHint} first.`,
+                            },
+                        }),
+                    },
+                ],
+                details: {},
+                terminate: false,
+            }
+        }
+    }
 
     const upsert = await input.approvals.upsertQueued({
         id: randomUUID(),
@@ -95,28 +141,24 @@ export async function queueApprovalResult(input: {
             timestamp: Date.now(),
         },
         approver_scope: {
-            approvers: [...input.policy.approvers],
+            type: input.policy.type,
             allow_edit: input.policy.allow_edit,
-            allow_agent_approver: input.policy.allow_agent_approver,
         },
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
 
-    // Posthog-code sessions render an in-chat approval card on top of every
-    // queued tool call; the model echoing a "track it here: <url>" line on top
-    // of that card is redundant when the user is already in the app the deep
-    // link would open. Drop the URL + approver hint so the model has nothing to
-    // repeat about how the user should approve. Other clients (Slack, MCP) still
-    // surface the deep link so the approval can be opened in PostHog Code.
-    const suppressApprovalChannel = readSessionClientKind(input.session.trigger_metadata) === CLIENT_KIND_POSTHOG_CODE
     const buildUrl = input.buildApprovalUrl ?? defaultApprovalUrl
     const approval: Record<string, unknown> = {
         request_id: upsert.request.id,
         state: 'queued',
-    }
-    if (!suppressApprovalChannel) {
-        approval.approver_hint = APPROVER_HINT_TEAM_ADMINS
-        approval.approval_url = buildUrl(upsert.request.id)
+        // The inline approval card renders straight from this envelope (live
+        // `tool_result` + persisted transcript on reload) — no extra fetch. It
+        // needs the edit affordance and whether it's decidable inline
+        // (`principal`) or console-only (`agent`); neither is on the tool_call.
+        allow_edit: input.policy.allow_edit,
+        approver_scope: { type: input.policy.type },
+        approver_hint: input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL,
+        approval_url: buildUrl(upsert.request.id),
     }
     if (!upsert.deduped && previous && isTerminal(previous.state)) {
         approval.prior_decision = { state: previous.state, reason: previous.decision_reason ?? undefined }
@@ -124,7 +166,13 @@ export async function queueApprovalResult(input: {
 
     return {
         content: [{ type: 'text', text: JSON.stringify({ approval }) }],
-        details: { queued: true, requestId: upsert.request.id },
+        details: {
+            queued: true,
+            requestId: upsert.request.id,
+            deduped: upsert.deduped,
+            allowEdit: input.policy.allow_edit,
+            approverType: input.policy.type,
+        },
         terminate: false,
     }
 }

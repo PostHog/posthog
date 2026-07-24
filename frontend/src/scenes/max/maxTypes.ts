@@ -3,9 +3,6 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-// eslint-disable-next-line import/no-cycle
-import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
-
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
     INSIGHT = 'insight',
@@ -120,7 +117,6 @@ type MaxInsightContextInput = {
     data: InsightWithQuery
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
-    revenueAnalyticsQuery?: RevenueAnalyticsQuery
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
@@ -193,18 +189,15 @@ export const createMaxContextHelpers = {
         {
             filtersOverride,
             variablesOverride,
-            revenueAnalyticsQuery,
         }: {
             filtersOverride?: DashboardFilter
             variablesOverride?: Record<string, HogQLVariable>
-            revenueAnalyticsQuery?: RevenueAnalyticsQuery
         } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
         data: pickInsightFields(insight),
         filtersOverride,
         variablesOverride,
-        revenueAnalyticsQuery,
     }),
 
     event: (event: EventDefinition): MaxEventContextInput => ({
@@ -241,4 +234,26 @@ export const createMaxContextHelpers = {
 
 export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
+}
+
+// `ToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
+// the frozen LangGraph path and any in-flight branches keep resolving it from `maxTypes`.
+export type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
+
+/**
+ * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).
+ *
+ * Unlike the rich `MaxUIContext` payloads used by the LangGraph runtime, the sandbox runtime
+ * carries only typed references the agent fetches on demand via its read tools. This is a new
+ * export added alongside the existing context types during the coexistence window — existing
+ * types are untouched.
+ */
+export interface AttachedContext {
+    type: 'dashboard' | 'insight' | 'event' | 'action' | 'error_tracking_issue' | 'evaluation' | 'notebook' | 'text'
+    /** Entity id — int for dashboards/actions, short_id for insights/notebooks, UUID for error tracking issues. */
+    id?: string | number
+    /** Optional human-readable label for entity types. */
+    name?: string
+    /** Free-text value — only set when `type === 'text'`. */
+    value?: string
 }

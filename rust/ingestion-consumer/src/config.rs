@@ -2,6 +2,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
 
@@ -99,6 +100,17 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
+    /// Enable Kafka static membership (pins `group.instance.id` to the pod
+    /// hostname). Off by default: this runs as a Deployment, so pod names — and
+    /// thus instance IDs — already change on every rollout, meaning static
+    /// membership never avoids a deploy rebalance, yet it makes an in-place
+    /// container restart fail fatally with `UnreleasedInstanceId` (the broker
+    /// still holds the previous incarnation's slot until its session expires).
+    /// Dynamic membership rejoins cleanly on restart. Only enable for pods with
+    /// stable names (e.g. a StatefulSet).
+    #[envconfig(from = "KAFKA_CONSUMER_STATIC_MEMBERSHIP", default = "false")]
+    pub kafka_consumer_static_membership: bool,
+
     // ---- Batching ----
     /// Maximum number of messages to collect before dispatching a batch.
     /// Matches Node.js CONSUMER_BATCH_SIZE default.
@@ -109,10 +121,55 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// No-progress bound on flushing a batch's deferred messages
+    /// (milliseconds): the deadline resets whenever any of the batch's
+    /// messages are accepted, so a slow drain keeps going and the batch only
+    /// fails (exiting the process) after a full window with nothing landed —
+    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
+    /// offsets before the process exits and restarts.
+    #[envconfig(default = "60000")]
+    pub consumer_deferred_flush_timeout_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// Release a deferring key's next stashed group as soon as the send
+    /// blocking it resolves, instead of waiting for the owning batch to become
+    /// the oldest completed one. Breaks the deferral cascade where a hot key
+    /// re-stashes on every arriving batch faster than completion-paced flushes
+    /// drain it. The completion-time flush remains as backstop either way.
+    #[envconfig(from = "DISPATCHER_EAGER_DEFERRED_FLUSH", default = "false")]
+    pub dispatcher_eager_deferred_flush: bool,
+
+    // ---- Debug API ----
+    /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
+    /// `/debug/events` SSE) on the health server, recording structured events
+    /// (batch lifecycle, deferrals, retries, worker health) into a bounded
+    /// in-memory buffer. Consumed by the ingestion control plane UI. A pure
+    /// observer for dev and incident debugging; off by default. Requires
+    /// DEBUG_API_SECRET — enabling without a secret mounts nothing.
+    #[envconfig(from = "DEBUG_API_ENABLED", default = "false")]
+    pub debug_api_enabled: bool,
+
+    /// Shared secret callers must present as `X-Debug-Api-Secret` on every
+    /// `/debug/*` request. Dedicated to this one control-plane→consumer hop
+    /// (deliberately not `INTERNAL_API_SECRET` — see .agents/security.md).
+    /// Empty fails closed: the debug API is not mounted without it.
+    #[envconfig(from = "DEBUG_API_SECRET", default = "")]
+    pub debug_api_secret: String,
+
+    // ---- Ordering sentinels ----
+    /// Kill switch for the ordering sentinels (per-partition commit
+    /// contiguity/monotonicity checks and per-key send-order checks). They are
+    /// pure observers with per-batch lock/state overhead bounded by in-flight
+    /// work; disable only if that overhead is ever implicated. The commit-result
+    /// and rebalance metrics from the consumer context stay on regardless. The
+    /// worker-side feed-order sentinel has its own flag
+    /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
+    #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
+    pub consumer_order_sentinel_enabled: bool,
 
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
@@ -139,15 +196,74 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
+    /// Gzip-compress /ingest request bodies (`Content-Encoding: gzip`). Batch
+    /// bodies are JSON wrapping JSON-text Kafka messages, so they compress
+    /// several-fold; the worker's Express body parser inflates transparently.
+    /// Kill switch in case compression CPU cost is ever implicated.
+    #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
+    pub transport_compression_enabled: bool,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ---- Worker discovery ----
+    /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
+    /// co-located sidecar default) or `endpointslice` (watch a Kubernetes
+    /// Service's EndpointSlices for a separately-deployed, autoscaled worker pool).
+    #[envconfig(from = "WORKER_DISCOVERY_MODE", default = "static")]
+    pub worker_discovery_mode: DiscoveryMode,
+
+    /// EndpointSlice mode: Kubernetes Service name whose EndpointSlices list the
+    /// worker pods (label selector `kubernetes.io/service-name=<name>`).
+    #[envconfig(from = "WORKER_SERVICE_NAME", default = "")]
+    pub worker_service_name: String,
+
+    /// EndpointSlice mode: namespace of the worker Service. Defaults to the
+    /// pod's own namespace via the downward-API `POD_NAMESPACE` env var.
+    #[envconfig(from = "POD_NAMESPACE", default = "default")]
+    pub worker_namespace: String,
+
+    /// EndpointSlice mode: the worker pods' HTTP port (the ingestion-api port).
+    #[envconfig(from = "WORKER_PORT", default = "9001")]
+    pub worker_port: u16,
+
+    /// When a worker leaves the pool (e.g. a draining pod during a deploy), it is
+    /// marked draining rather than removed: no new work is routed to it, but its
+    /// in-flight batches are allowed to finish and ACK. It is fully removed once
+    /// its in-flight count reaches zero, or after this timeout as a safety net
+    /// (milliseconds) — sized above the worst-case batch processing time.
+    #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
+    pub worker_drain_timeout_ms: u64,
 
     /// How unpinned routing keys are assigned to workers: `binpack` (default,
     /// least-loaded — accurate for the co-located sidecar) or `p2c`
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
+    /// many workers this dispatcher's ring slice spans. The effective width
+    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
+    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
+    /// values maximize sub-batch consolidation; the width becomes
+    /// feedback-driven in a later stage.
+    #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
+    pub min_aperture: usize,
+
+    // ---- Peer awareness ----
+    /// Kubernetes Service whose EndpointSlices list this consumer's own peer
+    /// pods. Enables coordination-free peer awareness (each pod's stable index
+    /// among its replicas), the basis for deterministic aperture routing.
+    /// Empty (default) disables it. The Service is looked up in the pod's own
+    /// namespace (`POD_NAMESPACE`).
+    #[envconfig(from = "PEER_SERVICE_NAME", default = "")]
+    pub peer_service_name: String,
+
+    /// This pod's IP from the downward API, used to locate self in the peer
+    /// Service's EndpointSlices. Required when PEER_SERVICE_NAME is set.
+    #[envconfig(from = "POD_IP")]
+    pub pod_ip: Option<String>,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
@@ -196,6 +312,20 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // ---- Metric labels (match Node.js global default labels) ----
+    /// Ingestion pipeline this consumer serves (e.g. `analytics`). Emitted as a
+    /// global `ingestion_pipeline` label on every metric, mirroring the Node.js
+    /// `initializePrometheusLabels` default labels so dashboards, alerts, and
+    /// KEDA lag triggers select this consumer's series the same way.
+    #[envconfig(from = "INGESTION_PIPELINE")]
+    pub ingestion_pipeline: Option<String>,
+
+    /// Ingestion lane this consumer serves (e.g. `main`, `overflow`). Emitted as
+    /// a global `ingestion_lane` label on every metric, matching the Node.js
+    /// default labels. The lag-based KEDA autoscaler selects on this label.
+    #[envconfig(from = "INGESTION_LANE")]
+    pub ingestion_lane: Option<String>,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -258,7 +388,10 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
-        .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+        .with_sticky_partition_assignment(
+            self.pod_hostname.as_deref(),
+            self.kafka_consumer_static_membership,
+        )
         .set("security.protocol", &self.kafka_security_protocol)
         .set(
             "socket.timeout.ms",

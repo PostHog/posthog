@@ -117,44 +117,17 @@ export interface OrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
-    scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
     /** Returns whether ID-JAG (XAA) is configured for this domain. */
     readonly has_id_jag: boolean
     /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
-     * @maxLength 512
+     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
      * @nullable
      */
-    id_jag_issuer_url?: string | null
-    /**
-     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
-     * @maxLength 512
-     * @nullable
-     */
-    id_jag_jwks_url?: string | null
-    /**
-     * Allowed ID-JAG client IDs. Empty list allows any client_id.
-     * @items.maxLength 256
-     */
-    id_jag_allowed_clients?: string[]
+    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -180,29 +153,60 @@ export interface PatchedOrganizationDomainApi {
     sso_enforcement?: string
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim?: boolean
+    /** @nullable */
+    readonly scim_base_url?: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag?: boolean
     /**
+     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+     * @nullable
+     */
+    identity_provider_config?: string | null
+}
+
+export interface IdentityProviderConfigApi {
+    readonly id: string
+    /**
+     * Display name for this IdP configuration (e.g. 'Okta production').
+     * @maxLength 255
+     */
+    name?: string
+    readonly created_at: string
+    readonly updated_at: string
+    /** Whether SAML is fully configured on this config. */
+    readonly has_saml: boolean
+    /**
+     * SAML IdP entity ID (issuer).
      * @maxLength 512
      * @nullable
      */
     saml_entity_id?: string | null
     /**
+     * SAML single sign-on (ACS) URL the IdP redirects to.
      * @maxLength 512
      * @nullable
      */
     saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
-    scim_enabled?: boolean
-    /** @nullable */
-    readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag?: boolean
     /**
-     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
+    saml_x509_cert?: string | null
+    /** Whether SCIM is enabled and a bearer token is set on this config. */
+    readonly has_scim: boolean
+    /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+    scim_enabled?: boolean
+    /**
+     * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+     * @nullable
+     */
+    readonly scim_bearer_token: string | null
+    /** Whether ID-JAG (XAA) is configured on this config. */
+    readonly has_id_jag: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
      * @maxLength 512
      * @nullable
      */
@@ -218,6 +222,80 @@ export interface PatchedOrganizationDomainApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+}
+
+export interface PaginatedIdentityProviderConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IdentityProviderConfigApi[]
+}
+
+export interface PatchedIdentityProviderConfigApi {
+    readonly id?: string
+    /**
+     * Display name for this IdP configuration (e.g. 'Okta production').
+     * @maxLength 255
+     */
+    name?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** Whether SAML is fully configured on this config. */
+    readonly has_saml?: boolean
+    /**
+     * SAML IdP entity ID (issuer).
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * SAML single sign-on (ACS) URL the IdP redirects to.
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /**
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
+    saml_x509_cert?: string | null
+    /** Whether SCIM is enabled and a bearer token is set on this config. */
+    readonly has_scim?: boolean
+    /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+    scim_enabled?: boolean
+    /**
+     * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+     * @nullable
+     */
+    readonly scim_bearer_token?: string | null
+    /** Whether ID-JAG (XAA) is configured on this config. */
+    readonly has_id_jag?: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /**
+     * Allowed ID-JAG client IDs. Empty list allows any client_id.
+     * @items.maxLength 256
+     */
+    id_jag_allowed_clients?: string[]
+}
+
+export interface SCIMTokenResponseApi {
+    /** Whether SCIM is enabled for this config. */
+    scim_enabled: boolean
+    /** Newly generated plaintext SCIM bearer token. Only returned once. */
+    scim_bearer_token: string
 }
 
 /**
@@ -449,9 +527,6 @@ export const BusinessModelEnumApi = {
  * * `track_costs` - track_costs
  * * `set_up_llm_evaluation` - set_up_llm_evaluation
  * * `run_ai_playground` - run_ai_playground
- * * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
- * * `connect_revenue_source` - connect_revenue_source
- * * `set_up_revenue_goal` - set_up_revenue_goal
  * * `enable_log_capture` - enable_log_capture
  * * `view_first_logs` - view_first_logs
  * * `create_first_workflow` - create_first_workflow
@@ -523,9 +598,6 @@ export const AvailableSetupTaskIdsEnumApi = {
     TrackCosts: 'track_costs',
     SetUpLlmEvaluation: 'set_up_llm_evaluation',
     RunAiPlayground: 'run_ai_playground',
-    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
-    ConnectRevenueSource: 'connect_revenue_source',
-    SetUpRevenueGoal: 'set_up_revenue_goal',
     EnableLogCapture: 'enable_log_capture',
     ViewFirstLogs: 'view_first_logs',
     CreateFirstWorkflow: 'create_first_workflow',
@@ -858,7 +930,6 @@ export const BaseCurrencyEnumApi = {
 export interface TeamRevenueAnalyticsConfigApi {
     base_currency?: BaseCurrencyEnumApi
     events?: unknown
-    goals?: unknown
     filter_test_accounts?: boolean
 }
 
@@ -1762,6 +1833,10 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2610,14 +2685,10 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months?: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced?: boolean
 }
 
 export interface SharePasswordApi {
@@ -2632,6 +2703,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2640,6 +2714,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
@@ -2662,6 +2741,11 @@ export interface FileSystemApi {
     readonly created_at: string
     /** @nullable */
     readonly last_viewed_at: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemListApi {
@@ -2693,6 +2777,43 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
+/**
+ * Payload for publishing a freeform canvas's React source via the agent.
+ */
+export interface PatchedCanvasPublishApi {
+    /** The complete single-file React source for the canvas. */
+    code?: string
+    /** Short description of the change, stored on the appended version history entry. */
+    prompt?: string
+    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+    name?: string
+    /**
+     * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+     * @nullable
+     */
+    expected_current_version_id?: string | null
+}
+
+/**
+ * 409 body for a guarded canvas publish based on a stale version.
+ */
+export interface CanvasPublishConflictApi {
+    /** Human-readable description of the conflict and how to recover. */
+    detail: string
+    /** Always "version_conflict". */
+    code: string
+    /**
+     * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+     * @nullable
+     */
+    current_version_id: string | null
 }
 
 export interface ContextGenerationApi {
@@ -2800,6 +2921,11 @@ export interface FileSystemShortcutApi {
      */
     order?: number
     readonly created_at: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedFileSystemShortcutListApi {
@@ -2838,71 +2964,16 @@ export interface PatchedFileSystemShortcutApi {
      */
     order?: number
     readonly created_at?: string
+    /**
+     * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
-}
-
-/**
- * * `home` - Home
- * * `pinned` - Pinned
- * * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 /**
@@ -2947,6 +3018,11 @@ export interface ExportedAssetApi {
     readonly expires_after: string | null
     /** @nullable */
     readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExportedAssetListApi {
@@ -2956,6 +3032,37 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+/**
+ * * `conversations` - conversations
+ * * `error_tracking` - error_tracking
+ * * `session_replay` - session_replay
+ */
+export type ProductsEnumApi = (typeof ProductsEnumApi)[keyof typeof ProductsEnumApi]
+
+export const ProductsEnumApi = {
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    SessionReplay: 'session_replay',
+} as const
+
+export interface ProductEnablementApi {
+    /**
+     * Products to turn on for this project, each enabled with server-owned conservative defaults.
+     * @minItems 1
+     */
+    products: ProductsEnumApi[]
+}
+
+/**
+ * Per requested product: "enabled" (just turned on) or "already_enabled".
+ */
+export type ProductEnablementResultApiResults = { [key: string]: string }
+
+export interface ProductEnablementResultApi {
+    /** Per requested product: "enabled" (just turned on) or "already_enabled". */
+    results: ProductEnablementResultApiResults
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -3040,6 +3147,8 @@ export interface EnterprisePropertyDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin: unknown
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -3072,6 +3181,8 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
+    readonly warehouse_origin?: unknown
 }
 
 /**
@@ -3079,9 +3190,9 @@ export interface PatchedEnterprisePropertyDefinitionApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -3098,7 +3209,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -3216,6 +3327,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -3338,6 +3451,7 @@ export const ShortcutPositionEnumApi = {
  * * `delegated` - Delegated to teammate
  * * `later` - Skipped for later
  * * `other` - Other
+ * * `provisioned` - Account provisioned by a partner
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -3346,6 +3460,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Delegated: 'delegated',
     Later: 'later',
     Other: 'other',
+    Provisioned: 'provisioned',
 } as const
 
 /**
@@ -3399,6 +3514,11 @@ export interface UserApi {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly is_impersonated_read_only: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
@@ -3501,6 +3621,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly is_impersonated_read_only?: boolean | null
+    /**
+     * The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating.
+     * @nullable
+     */
+    readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
@@ -3614,9 +3739,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -3628,6 +3768,11 @@ export interface GitHubReposResponseApi {
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+}
+
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
 }
 
 export interface UserGitHubLinkStartRequestApi {
@@ -3645,6 +3790,81 @@ export interface UserGitHubLinkStartResponseApi {
     install_url: string
     /** OAuth or install flow used for this GitHub connection. */
     connect_flow: string
+}
+
+export interface UserSlackLinkableWorkspaceItemApi {
+    /** PostHog team/project id owning the Slack workspace install. */
+    posthog_team_id: number
+    /** PostHog team/project name, for display in a picker. */
+    posthog_team_name: string
+    /** PostHog organization name owning the team, for picker disambiguation. */
+    posthog_organization_name: string
+    /** Slack workspace (team) id. */
+    slack_team_id: string
+    /**
+     * Slack workspace display name as known by PostHog.
+     * @nullable
+     */
+    slack_team_name?: string | null
+}
+
+export interface UserSlackLinkableWorkspaceListResponseApi {
+    /** Slack workspaces the user could link to but hasn't yet. */
+    results: UserSlackLinkableWorkspaceItemApi[]
+}
+
+/**
+ * Settings-initiated link can target a specific PostHog team + Slack workspace.
+ *
+ * Both are optional — when omitted we fall back to the user's ``current_team``
+ * and that team's first Slack ``Integration`` (mirrors ``github_start`` for
+ * the simple case). The frontend passes both explicitly once it has the
+ * linkable-workspace list and the user has picked a workspace.
+ */
+export interface UserSlackLinkStartRequestApi {
+    /**
+     * Optional team/project id to link against; defaults to the user's current team.
+     * @nullable
+     */
+    team_id?: number | null
+    /**
+     * Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).
+     * @nullable
+     */
+    slack_team_id?: string | null
+}
+
+export interface UserSlackLinkStartResponseApi {
+    /** URL to open in the browser to start the Sign-in-with-Slack flow. */
+    install_url: string
+}
+
+/**
+ * A cookie-auth login session shown on the user's 'Web sessions' screen.
+ */
+export interface UserAuthSessionApi {
+    /** Identifier used to revoke this login session. */
+    readonly id: string
+    /**
+     * When this login session was first created — the original sign-in time.
+     * @nullable
+     */
+    readonly created_at: string | null
+    /** When this login session last made a request (refreshed periodically). */
+    readonly last_activity: string
+    /** Approximate city and country derived from the IP address, if known. */
+    readonly location: string
+    /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+    readonly device: string
+    /** How this session signed in (e.g. password, Google, SAML). */
+    readonly login_method: string
+    /** Whether this is the login session making the current request. */
+    readonly is_current: boolean
+}
+
+export interface RevokeOtherSessionsResponseApi {
+    /** Number of other login sessions that were revoked. */
+    revoked_count: number
 }
 
 /**
@@ -3751,6 +3971,17 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type IdentityProviderConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type InvitesListParams = {
     /**
      * Number of results to return per page.
@@ -3829,17 +4060,6 @@ export type DesktopFileSystemShortcutListParams = {
     offset?: number
 }
 
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3867,17 +4087,6 @@ export type FileSystemListParams = {
 }
 
 export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3999,6 +4208,10 @@ export type UsersListParams = {
 
 export type UsersIntegrationsListParams = {
     /**
+     * Integration kind to list. Defaults to `github` for back-compat with mobile and the Code SDK, which call this endpoint without a query param and expect GitHub-shaped items.
+     */
+    kind?: UsersIntegrationsListKind
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -4007,6 +4220,13 @@ export type UsersIntegrationsListParams = {
      */
     offset?: number
 }
+
+export type UsersIntegrationsListKind = (typeof UsersIntegrationsListKind)[keyof typeof UsersIntegrationsListKind]
+
+export const UsersIntegrationsListKind = {
+    Github: 'github',
+    Slack: 'slack',
+} as const
 
 export type UsersIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -4047,4 +4267,9 @@ export type UsersIntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type UsersLoginSessionsListParams = {
+    email?: string
+    is_staff?: boolean
 }

@@ -27,8 +27,7 @@ from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEven
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 
 from products.actions.backend.models.action import Action
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):
@@ -94,9 +93,10 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         timestamp_field: str,
         extra_columns: dict[str, dict[str, str | bool]] | None = None,
         timestamp_column: dict[str, str | bool] | None = None,
+        id_column: dict[str, str | bool] | None = None,
     ) -> None:
         columns: dict[str, dict[str, str | bool]] = {
-            id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            id_field: id_column or {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             distinct_id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             timestamp_field: timestamp_column
             or {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')", "valid": True},
@@ -364,6 +364,39 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("globalIn(e.some_id,", sql)
         self.assertIn("argMin(some_id, e.ts) AS uuid", sql)
         self.assertIn("GROUP BY some_user_id", sql)
+
+    @parameterized.expand(
+        [
+            ("nullable_uuid_keeps_null_guard", "Nullable(UUID)", True),
+            ("non_nullable_uuid_skips_null_guard", "UUID", False),
+        ]
+    )
+    def test_dwh_uuid_id_field_null_guard(self, _name: str, clickhouse_type: str, nullable: bool) -> None:
+        self._create_data_warehouse_table(
+            name="payments_uuid",
+            id_field="uuid_id",
+            distinct_id_field="user_id",
+            timestamp_field="created_at",
+            id_column={"hogql": "UUIDDatabaseField", "clickhouse": clickhouse_type, "valid": True},
+        )
+        dwh_node = FunnelsDataWarehouseNode(
+            id="payments_uuid",
+            table_name="payments_uuid",
+            id_field="uuid_id",
+            aggregation_target_field="user_id",
+            timestamp_field="created_at",
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        sql = raw_query(FunnelEventQuery(context=context, extra_event_fields_and_properties=["uuid"]).to_query())
+
+        if nullable:
+            # a null id must fail loudly instead of flowing into the funnel silently
+            self.assertIn("throwIf(isNull(e.uuid_id)", sql)
+        else:
+            self.assertIn("e.uuid_id AS uuid", sql)
+            self.assertNotIn("throwIf", sql)
 
     @freeze_time("2025-11-12")
     def test_dwh_first_time_for_user_two_different_tables(self):

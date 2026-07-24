@@ -1,30 +1,33 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
-import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
+import { ScoutLink } from 'lib/signals/ScoutLink'
+import { scoutDisplayName, signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 
 /**
  * Header shared by every signal card: the source product's brand icon, the human
- * "Product · Signal type" line, an optional label/right slot, and the weight tag.
+ * "Product · Signal type" line, and an optional label/right slot.
  */
 export function SignalCardHeader({
     signal,
     label,
     rightSlot,
-    hideWeight,
 }: {
     signal: SignalNode
     /** Optional bold title shown after the source line (e.g. an entity name). */
     label?: React.ReactNode
-    /** Optional content rendered before the weight tag (e.g. a severity badge). */
+    /** Optional content rendered at the end of the header (e.g. a severity badge). */
     rightSlot?: React.ReactNode
-    /** Hide the weight tag — weight is an internal pipeline knob, not user-facing for every source. */
-    hideWeight?: boolean
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
     const Icon = meta?.Icon
+
+    // Scout-authored findings link the scout's name to its detail page; everything else stays plain text.
+    const scoutSkillName =
+        signal.source_product === 'signals_scout'
+            ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
+            : undefined
+    const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
 
     return (
         <div className="flex items-center gap-2 mb-2">
@@ -40,15 +43,18 @@ export function SignalCardHeader({
             ) : (
                 <span className="size-2.5 rounded-full shrink-0 bg-border" />
             )}
-            <span className="text-xs font-medium text-tertiary">{signalCardSourceLine(signal)}</span>
+            <span className="text-xs font-medium text-tertiary">
+                {scoutName && typeof scoutSkillName === 'string' ? (
+                    <>
+                        Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                    </>
+                ) : (
+                    signalCardSourceLine(signal)
+                )}
+            </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
             {rightSlot}
-            {!hideWeight && (
-                <LemonTag size="small" className="shrink-0">
-                    Weight: {signal.weight.toFixed(1)}
-                </LemonTag>
-            )}
         </div>
     )
 }
@@ -58,18 +64,16 @@ export function SignalCardShell({
     signal,
     label,
     rightSlot,
-    hideWeight,
     children,
 }: {
     signal: SignalNode
     label?: React.ReactNode
     rightSlot?: React.ReactNode
-    hideWeight?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
         <div className="border rounded p-3 bg-surface-primary">
-            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} hideWeight={hideWeight} />
+            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} />
             {children}
         </div>
     )

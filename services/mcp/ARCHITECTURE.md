@@ -24,6 +24,15 @@ flowchart TB
 
 The Worker no longer serves the protocol itself — an earlier iteration ran a stateful Cloudflare Durable Object (`mcp.ts`) for this, but that has been removed in favor of always proxying to Hono.
 
+### Protocol dialects: legacy stateful and 2026-07-28 stateless
+
+The Hono dispatcher serves both MCP dialects side by side (`src/lib/stateless-protocol.ts` holds the shared constants):
+
+- **Legacy (≤2025-11-25)**: the `initialize` handshake negotiates a protocol version, the server mints an `Mcp-Session-Id`, and clients echo it on subsequent requests. Unchanged wire shape.
+- **Stateless (2026-07-28, SEP-2575)**: no handshake and no protocol-level sessions. Each request self-describes via reserved `_meta` keys (`io.modelcontextprotocol/protocolVersion`, `.../clientInfo`, `.../clientCapabilities` — the first is the dialect switch, all three are mandatory and missing ones are rejected with `-32602` + HTTP 400); capability discovery happens through the mandatory `server/discover` RPC (capabilities + `serverInfo` + instructions + `supportedVersions`). Results carry `resultType: "complete"`, the server's identity in `_meta` (`io.modelcontextprotocol/serverInfo`), and — for `CacheableResult` methods (`server/discover`, `tools/list`, `resources/list`, `resources/read`, `prompts/list`) — `ttlMs`/`cacheScope: "private"` freshness hints. The TTL is nonzero in production only — locally `ttlMs: 0` (the spec-compliant "don't cache") keeps SDK client response caches from serving stale results while iterating on tool definitions.
+
+A request's dialect is detected per request from the `_meta` protocol-version key or a modern `MCP-Protocol-Version` header. Only modern versions (2026-07-28+) are valid there — legacy versions are implemented solely behind the `initialize` handshake, so `server/discover` advertises modern versions only, and a legacy or unknown `_meta` version is rejected with `UnsupportedProtocolVersionError` (`-32022` on HTTP 400, with the spec's machine-readable `data.supported`/`data.requested` payload). Modern requests must also carry SEP-2243's operation headers — `MCP-Protocol-Version` (mirroring `_meta`), `Mcp-Method` (mirroring the body `method`), and `Mcp-Name` (mirroring `params.name`/`params.uri` on `tools/call`, `prompts/get`, `resources/read`) — so intermediaries can route without parsing bodies; a missing or contradicting header is rejected with `HeaderMismatch` (`-32020`) + HTTP 400 before dispatch. Modern messages are also barred from JSON-RPC arrays (`-32600` + 400; batching was removed from the protocol in 2025-06-18), and RPCs the modern dialect removed (`initialize`, `ping`) answer method-not-found on HTTP 404. Legacy clients are untouched by all of this: header-free requests — including ones sending a legacy `MCP-Protocol-Version` value such as `2025-06-18` — keep the exact pre-existing wire behavior (HTTP 200 with errors in the JSON-RPC body). Client identity for analytics is read from the `initialize` body for legacy clients and from per-request `_meta` for stateless clients. Stateless requests never mint or echo `Mcp-Session-Id` — cross-request correlation for that traffic relies on `mcpConversationId` (see below).
+
 ## File Structure
 
 ```txt
@@ -83,7 +92,9 @@ There are three independent layers that emit signals about each MCP request:
 
 #### `$mcp_tool_call` event paths
 
-Three distinct code paths emit the tool-call event (canonical `$mcp_tool_call`, with a legacy unprefixed `mcp_tool_call` alias still dual-emitted during the cutover — see the transition shim in `hono/analytics.ts`); which one fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The canonical event is `$mcp_tool_call`.
+The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
+The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
 
 - **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
 - **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.

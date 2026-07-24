@@ -3,7 +3,7 @@ import sys
 
 import structlog
 
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import assert_debug_not_in_production, get_from_env, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +26,9 @@ TEST = get_from_env(
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
+# Kill-switch for routing JSONField (jsonb) decode through orjson (see posthog/helpers/orjson_jsonfield.py).
+# Process-wide once applied in ready(), so keep it disable-able via env without a code revert.
+JSONFIELD_ORJSON_DECODE: bool = get_from_env("JSONFIELD_ORJSON_DECODE", True, type_cast=str_to_bool)
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)
 DEMO: bool = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 CLOUD_DEPLOYMENT: str | None = get_from_env(
@@ -41,6 +44,7 @@ Possible values:
 - `E2E` for **e2e tests**.
 - Unset for **self-hosted** environments.
 """
+COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
@@ -64,10 +68,18 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 
+# Shared secret for EU→US personal-spend proxy calls (products/ai_observability).
+# Must hold the same value in both regions; unset disables the proxy.
+PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
+
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+# Read source for per-team managed-warehouse state: "django" (DuckgresServerTeam rows,
+# the default), "dual" (serve django, compare against the duckgres control plane and emit
+# parity telemetry), or "cp" (serve the control plane org-teams API).
+DUCKGRES_TEAM_STATE_SOURCE: str = get_from_env("DUCKGRES_TEAM_STATE_SOURCE", "django")
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
@@ -79,3 +91,6 @@ if DEBUG and not TEST and not IS_INTERACTIVE_SHELL:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         ]
     )
+
+# Hard stop: DEBUG must never run on a deployed cloud env (US/EU/DEV) — it relaxes auth and exposes debug surfaces.
+assert_debug_not_in_production(debug=DEBUG, cloud_deployment=CLOUD_DEPLOYMENT, test=TEST)

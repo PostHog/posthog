@@ -16,6 +16,7 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableEmpty,
     TableHead,
     TableHeader,
     TableRow,
@@ -26,14 +27,18 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { formatMs, formatNumber } from '../dashboard/formatters'
-import { type SortState, type ToolQualityRow, mcpAnalyticsToolQualityLogic } from '../mcpAnalyticsToolQualityLogic'
+import {
+    type SortState,
+    type ToolQualityRow,
+    mcpAnalyticsToolQualityLogic,
+    mcpToolReportUrl,
+} from '../mcpAnalyticsToolQualityLogic'
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
-// LIMIT in tool_quality.sql — when the fetched set hits this, more tools may exist.
+// LIMIT in MCPToolQualityRowsQueryRunner — when the fetched set hits this, more tools may exist.
 const TOOL_ROW_LIMIT = 200
 
 function formatToolCount(filtered: number, total: number): string {
@@ -69,8 +74,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-// Tool column + every sortable column, for the skeleton/empty-row colSpan
-// Tool column + every sortable column + the trailing "Full report" action
+// Tool column + every sortable column + the trailing "Full report" action, for the skeleton-row colSpan
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
@@ -113,33 +117,29 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { filteredRows, toolRowsLoading, selectedTool } = useValues(mcpAnalyticsToolQualityLogic)
+    const { filteredRows, toolRowsLoading, selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (toolRowsLoading && filteredRows.length === 0) {
         return (
-            <TableRow>
-                <TableCell colSpan={COLUMN_COUNT}>
-                    <div className="space-y-2 py-1">
-                        {Array.from({ length: 6 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-3.5 w-full" />
-                        ))}
-                    </div>
-                </TableCell>
-            </TableRow>
+            <TableBody>
+                <TableRow>
+                    <TableCell colSpan={COLUMN_COUNT}>
+                        <div className="space-y-2 py-1">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <LemonSkeleton key={i} className="h-3.5 w-full" />
+                            ))}
+                        </div>
+                    </TableCell>
+                </TableRow>
+            </TableBody>
         )
     }
     if (filteredRows.length === 0) {
-        return (
-            <TableRow>
-                <TableCell colSpan={COLUMN_COUNT} align="center" className="py-6 text-secondary">
-                    No tool calls match the current filters.
-                </TableCell>
-            </TableRow>
-        )
+        return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
     return (
-        <>
+        <TableBody>
             {filteredRows.map((row) => (
                 <TableRow
                     key={row.tool}
@@ -167,7 +167,7 @@ function ToolRows(): JSX.Element {
                         <Button
                             variant="outline"
                             size="sm"
-                            render={<LinkPrimitive to={urls.mcpAnalyticsTool(row.tool)} />}
+                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter)} />}
                             onClick={(e) => e.stopPropagation()}
                             data-attr="mcp-tool-quality-full-report"
                         >
@@ -176,7 +176,7 @@ function ToolRows(): JSX.Element {
                     </TableCell>
                 </TableRow>
             ))}
-        </>
+        </TableBody>
     )
 }
 
@@ -219,9 +219,7 @@ export function ToolQualityTable(): JSX.Element {
                         <TableHead />
                     </TableRow>
                 </TableHeader>
-                <TableBody>
-                    <ToolRows />
-                </TableBody>
+                <ToolRows />
             </Table>
             {!toolRowsLoading && toolRows.length > 0 && (
                 <CardFooter className="border-t border-border py-2 text-xs text-secondary">

@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
@@ -12,9 +13,13 @@ import { useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
+import __dashboard1 from './__mocks__/dashboard1.json'
+import __dashboard_template_schema from './__mocks__/dashboard_template_schema.json'
+import __dashboard_templates from './__mocks__/dashboard_templates.json'
+import __dashboards from './__mocks__/dashboards.json'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-const dashboardRaw = require('./__mocks__/dashboard1.json')
+const dashboardRaw = __dashboard1 as any
 
 // Mark all tiles as cached to prevent refresh attempts in storybook
 const dashboard = {
@@ -75,7 +80,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/environments/:team_id/dashboards/': __dashboards as any,
                 [`/api/environments/:team_id/dashboards/${BASE_DASHBOARD_ID}/`]: dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
@@ -84,8 +89,8 @@ const meta: Meta = {
                     500,
                     { detail: 'Server error' },
                 ],
-                '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
-                '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
+                '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
+                '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
                 '/api/environments/:team_id/dashboards/:dash_id/sharing/': {
                     created_at: '2023-02-25T13:28:20.454940Z',
                     enabled: false,
@@ -193,6 +198,27 @@ export const Show: Story = {
     parameters: {
         pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
         testOptions: { snapshotBrowsers: [] },
+    },
+}
+
+// Multi-viewport snapshots of the dashboard scene from mobile to superwide, so we catch the header
+// layout (and any squishing) across breakpoints. The "PostHog AI" button label is gated on a
+// multivariate experiment flag; DashboardHeader reads it through kea, so the `featureFlags`
+// parameter pins the arm. `skipCanvasDraw` is re-declared because per-story `testOptions` replaces
+// the meta-level object rather than merging into it.
+export const ShowWithoutPostHogAIButtonLabel: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'control' },
+        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
+    },
+}
+
+export const ShowWithPostHogAIButtonLabel: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
+        featureFlags: { [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'test' },
+        testOptions: { skipCanvasDraw: true, viewportWidths: ['narrow', 'medium', 'wide', 'superwide'] },
     },
 }
 

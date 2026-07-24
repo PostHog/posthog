@@ -19,8 +19,8 @@ Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_v
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
 join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
 is not on that view). The `SignalsScoutSignalExtra`
-shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
-in `products/signals/backend/api.py` validates against.
+shape (defined in `products/signals/backend/contracts.py`) is what `SIGNAL_VARIANT_LOOKUP`
+validates against.
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
-from products.tasks.backend.models import TaskRun
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +103,17 @@ class EmitResult:
       - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
+
+    `remediation` carries a one-line, scout-actionable next step whenever the skip is one the
+    scout can act on (see `EMIT_SKIP_REMEDIATION`); None when emitted normally or nothing is
+    actionable. It exists so a gate-skipped emit isn't a dead end — the scout learns why its
+    finding was dropped and how to unblock it instead of burning the run producing a lost finding.
     """
 
     finding_id: str
     emitted: bool
     skipped_reason: str | None
+    remediation: str | None = None
 
 
 async def emit_finding(
@@ -169,7 +176,9 @@ async def emit_finding(
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
-        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
+        return EmitResult(
+            finding_id=finding_id, emitted=False, skipped_reason=preflight, remediation=remediation_for_skip(preflight)
+        )
 
     # Deferred to keep the harness module import lightweight — emitting is an opt-in path here.
     from products.signals.backend.facade.api import emit_signal
@@ -263,7 +272,9 @@ def emit_finding_sync(
             preflight,
             extra={**attempt_extra, "skipped_reason": preflight},
         )
-        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
+        return EmitResult(
+            finding_id=finding_id, emitted=False, skipped_reason=preflight, remediation=remediation_for_skip(preflight)
+        )
 
     from products.signals.backend.facade.api import emit_signal
 
@@ -364,7 +375,7 @@ def _resolve_task_id(run: SignalScoutRun) -> str | None:
         return None
     # Team-scope the lookup: the bridge run is already team-owned, but scoping the TaskRun query keeps
     # the resolution fail-closed against cross-team ids.
-    task_id = TaskRun.objects.filter(id=run.task_run_id, team_id=run.team_id).values_list("task_id", flat=True).first()
+    task_id = tasks_facade.get_task_id_for_run(run.task_run_id, run.team_id)
     return str(task_id) if task_id else None
 
 
@@ -439,12 +450,13 @@ def _record_emit(
     the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
     run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
     so the two never drift. The emission row is written in the same atomic block so the tally
-    and the per-finding record never diverge — one row per appended `finding_id`. Uses the
-    unscoped `all_teams` manager because the caller already validated `team`/`run` ownership
-    and emit can run with no team scope set (Temporal activity)."""
+    and the per-finding record never diverge — one row per appended `finding_id`. A configured
+    Slack delivery is queued only after this transaction commits, with the destination snapshotted
+    at emit time. Uses the unscoped `all_teams` manager because the caller already validated
+    `team`/`run` ownership and emit can run with no team scope set (Temporal activity)."""
     try:
         with transaction.atomic():
-            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run_id).first()
             if run is None:
                 logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
                 return
@@ -452,7 +464,7 @@ def _record_emit(
             run.emitted_finding_ids = finding_ids
             run.emitted_count = len(finding_ids)
             run.save(update_fields=["emitted_finding_ids", "emitted_count"])
-            SignalScoutEmission.all_teams.create(
+            emission = SignalScoutEmission.all_teams.create(
                 team_id=run.team_id,
                 scout_run=run,
                 finding_id=finding_id,
@@ -462,6 +474,12 @@ def _record_emit(
                 severity=severity,
                 source_id=source_id,
                 tags=tags or [],
+            )
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                delivery_id=str(emission.id),
             )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on
@@ -527,3 +545,35 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     if not SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE):
         return "source_disabled"
     return None
+
+
+# One-line, scout-actionable next step for each preflight skip reason. A gate-skipped emit
+# otherwise hands back a bare reason code with no remediation — the scout can't tell whether the
+# block is fixable (an org-level consent gate) or terminal, so it burns a full run producing a
+# finding that is silently dropped before the inbox with no way to know why or how to fix it.
+# `None` for reasons the scout itself can't act on (e.g. a config deleted mid-run).
+EMIT_SKIP_REMEDIATION: dict[str, str | None] = {
+    "scout_config_missing": None,
+    "scout_emit_disabled": (
+        "This scout is in dry-run: its config has emit disabled. Enable emit on the scout's config "
+        "(scout/config `emit=true`) for its findings to reach the inbox."
+    ),
+    "ai_processing_not_approved": (
+        "This organization has not approved AI data processing, so no scout finding can reach the "
+        "inbox. An org admin must turn on the 'Enable PostHog features that use third-party AI "
+        "services' toggle in Organization settings → AI service providers."
+    ),
+    "source_disabled": (
+        "The signals_scout source is disabled for this team, so findings are dropped before the "
+        "inbox. Re-enable it in the Signals source configuration."
+    ),
+}
+
+
+def remediation_for_skip(skipped_reason: str | None) -> str | None:
+    """One-line next step for a preflight skip reason, or None when emitted normally / nothing the
+    scout can act on. Keeps the pointer authoritative in one place so the emit skip response and the
+    project-profile eligibility section never drift."""
+    if skipped_reason is None:
+        return None
+    return EMIT_SKIP_REMEDIATION.get(skipped_reason)

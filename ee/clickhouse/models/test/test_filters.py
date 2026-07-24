@@ -5,14 +5,15 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _cre
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Element, Organization, Person, Team
-from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
+from posthog.models import Element, Organization, Team
+from posthog.models.event.new_events_schema import events_read_table
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.util import PersonPropertiesMode
+from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -25,13 +26,25 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
         hogql_context=filter.hogql_context,
     )
     params = {"team_id": team.pk, **prop_filter_params}
+    use_new_events_schema = filter.hogql_context.uses_new_events_schema()
+    events_table = events_read_table(use_new_events_schema)
+    properties_expr = "toJSONString(properties)" if use_new_events_schema else "properties"
 
     events = query_with_columns(
-        GET_EVENTS_WITH_PROPERTIES.format(
-            filters=prop_filters,
-            order_by="ORDER BY {}".format(order_by) if order_by else "",
-        ),
-        params,
+        f"""
+        SELECT
+            uuid,
+            event,
+            {properties_expr} AS properties,
+            timestamp,
+            distinct_id,
+            elements_chain
+        FROM {events_table} WHERE
+        team_id = %(team_id)s
+        {prop_filters}
+        {"ORDER BY {}".format(order_by) if order_by else ""}
+        """,
+        {**params, **filter.hogql_context.values},
     )
     parsed_events = ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
     return parsed_events
@@ -1220,7 +1233,7 @@ class TestFiltering(ClickhouseTestMixin, BaseTest):
 
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=[person1_distinct_id],
             properties={"$some_prop": "something"},
@@ -1233,7 +1246,7 @@ class TestFiltering(ClickhouseTestMixin, BaseTest):
         )
 
         person2_distinct_id = "person2"
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=[person2_distinct_id],
             properties={"$some_prop": "different"},

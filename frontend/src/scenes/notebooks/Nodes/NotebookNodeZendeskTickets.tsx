@@ -4,7 +4,6 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
 
 import { Query } from '~/queries/Query/Query'
 import type { DataTableNode } from '~/queries/schema/schema-general'
@@ -48,11 +47,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
         return <ZendeskTicketsMissingTarget />
     }
 
-    return (
-        <ZendeskSourceSetupPrompt className="border-none" attachTo={notebookLogic}>
-            <Query query={{ ...query, embedded: true }} context={context} attachTo={notebookLogic} />
-        </ZendeskSourceSetupPrompt>
-    )
+    return <Query query={{ ...query, embedded: true }} context={context} attachTo={notebookLogic} />
 }
 
 function ZendeskTicketsMissingTarget(): JSX.Element {

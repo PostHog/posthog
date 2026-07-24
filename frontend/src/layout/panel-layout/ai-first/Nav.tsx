@@ -1,23 +1,30 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -28,12 +35,13 @@ import {
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
+import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
+import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
-const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
+const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -97,6 +105,13 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
 
+// Keeps newDashboardLogic mounted while the Create button is visible, so the "Start from scratch"
+// flow completes (and redirects) even after the menu closes and unmounts its own logic reference.
+function CreateMenuLogics(): null {
+    useMountedLogic(newDashboardLogic)
+    return null
+}
+
 export function Nav(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
@@ -107,10 +122,19 @@ export function Nav(): JSX.Element {
         clearActivePanelIdentifier,
         setNavbarWidth,
     } = useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
-        useValues(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        isLayoutNavCollapsed,
+        navExperimentActiveTab,
+        activePanelIdentifier,
+        visitedNavTabs,
+    } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showCreateButton = useFeatureFlag('CREATE_BUTTON_NAV_EXPERIMENT', 'test')
+    // When expanded, the search-bar variant swaps the icon-only search button for a full-width bar below the header
+    const showNavSearchBar = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'search-bar' && !isLayoutNavCollapsed
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -133,7 +157,7 @@ export function Nav(): JSX.Element {
         }
     }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
-    useAppShortcut({
+    useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
         intent: 'Toggle collapse left navigation',
@@ -176,7 +200,12 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
+                        {!showNavSearchBar && (
+                            <NavSearchButton
+                                isLayoutNavCollapsed={isLayoutNavCollapsed}
+                                toggleCommand={toggleCommand}
+                            />
+                        )}
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -217,6 +246,42 @@ export function Nav(): JSX.Element {
                     </div>
                 </div>
 
+                {showNavSearchBar && (
+                    <div className="px-2 py-1">
+                        <NavSearchBar toggleCommand={toggleCommand} />
+                    </div>
+                )}
+
+                {showCreateButton && (
+                    <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
+                        <CreateMenuLogics />
+                        <DropdownMenu
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    posthog.capture('nav create button clicked')
+                                }
+                            }}
+                        >
+                            <DropdownMenuTrigger asChild>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    fullWidth={!isLayoutNavCollapsed}
+                                    center={!isLayoutNavCollapsed}
+                                    title={isLayoutNavCollapsed ? 'Create' : undefined}
+                                    data-attr="nav-create-button"
+                                >
+                                    {!isLayoutNavCollapsed ? 'Create' : null}
+                                </LemonButton>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent side="bottom" align="start" className="min-w-[220px]">
+                                <CreateMenu />
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                )}
+
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
                     value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
@@ -229,52 +294,53 @@ export function Nav(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    {!isLayoutNavCollapsed && (
-                        <div className="p-1">
-                            <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                                {TAB_CONFIG.map((tab) => (
-                                    <Tabs.Tab
-                                        key={tab.id}
-                                        value={tab.id}
-                                        render={(props) => (
-                                            <ButtonPrimitive
-                                                {...props}
-                                                className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
-                                                data-attr={`nav-tab-${tab.id}`}
+                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
+                        <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
+                            {TAB_CONFIG.map((tab) => (
+                                <Tabs.Tab
+                                    key={tab.id}
+                                    value={tab.id}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
+                                            data-attr={`nav-tab-${tab.id}`}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'flex size-4',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
-                                                <span
-                                                    className={cn(
-                                                        'text-xs',
-                                                        navExperimentActiveTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.label}
-                                                </span>
-                                            </ButtonPrimitive>
-                                        )}
-                                    />
-                                ))}
-                            </Tabs.List>
-                        </div>
-                    )}
+                                                {tab.icon}
+                                            </span>
+                                            <span
+                                                className={cn(
+                                                    'text-xs',
+                                                    navExperimentActiveTab === tab.id
+                                                        ? 'text-primary'
+                                                        : 'text-secondary group-hover:text-primary'
+                                                )}
+                                            >
+                                                {tab.label}
+                                            </span>
+                                        </ButtonPrimitive>
+                                    )}
+                                />
+                            ))}
+                        </Tabs.List>
+                    </div>
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
                             <NavTabBrowse />
                         </Tabs.Panel>
-                        {!isLayoutNavCollapsed && (
+                        {/* Lazy until first activated: the visited list only ever grows, so once
+                            mounted the panel never unmounts — keepMounted then preserves it across
+                            tab switches. Users who never open chat never pay for its chunk. */}
+                        {visitedNavTabs.includes('chat') && (
                             <Tabs.Panel
                                 value="chat"
                                 className="absolute inset-0 flex flex-col"

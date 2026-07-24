@@ -1,4 +1,4 @@
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
 
 import { SesWebhookHandler } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -220,7 +220,9 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics).toEqual([])
     })
 
-    it('still opts out recipients on a permanent bounce even for test sends', async () => {
+    it('does not suppress recipients on a permanent bounce for test sends', async () => {
+        // Editor "Run test" traffic must not be able to suppress a production address just by
+        // targeting a bad recipient — the isTest gate on suppressionAllowed blocks the write.
         const testMail = {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
@@ -243,9 +245,43 @@ describe('SesWebhookHandler', () => {
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
-        // No metric recorded for the test send, but the hard bounce still triggers an opt-out.
         expect(result.metrics).toEqual([])
-        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
+        expect(result.logEntries).toEqual([])
+        expect(result.hardBounceRecipients).toEqual([])
+    })
+
+    it.each([
+        [
+            'Transient bounce',
+            {
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'temp' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            },
+            'transientBounceRecipients' as const,
+        ],
+        [
+            'Delivery',
+            {
+                eventType: 'Delivery',
+                delivery: { timestamp: '2025-10-03T12:04:00Z', recipients: ['to@example.com'] },
+            },
+            'deliveredRecipients' as const,
+        ],
+    ])('does not populate %s suppression writes for test sends', async (_label, eventFields, arrayKey) => {
+        // Same guarantee as the permanent-bounce test above but for the counter-driving events:
+        // a "Run test" from the editor must not push into the suppression counter (transient) or
+        // reset it (delivery), which could otherwise perturb production suppression state.
+        const testMail = {
+            ...baseMail,
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            tags: { ph_id: [signer.generateShort(baseInvocation)] },
+        }
+        const result = await handler.handleWebhook({ body: [{ mail: testMail, ...eventFields }], headers: {} })
+        expect(result[arrayKey]).toEqual([])
     })
 
     it('parses a raw Delivery event', async () => {
@@ -271,7 +307,7 @@ describe('SesWebhookHandler', () => {
         ])
     })
 
-    it('parses a raw Bounce event and returns opt-out recipients for permanent bounces', async () => {
+    it('parses a raw Bounce event and surfaces permanent bounces for suppression', async () => {
         const body = [
             {
                 eventType: 'Bounce',
@@ -288,12 +324,16 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Hard bounces emit both the catch-all metric and the AWS-comparable hard-only one
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_hard'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
-        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
+        expect(result.hardBounceRecipients).toEqual([
+            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
+        ])
+        expect(result.transientBounceRecipients).toEqual([])
     })
 
-    it('does not return opt-out recipients for transient bounces', async () => {
+    it('surfaces transient bounces for the soft-bounce counter, not the hard-bounce list', async () => {
         const body = [
             {
                 eventType: 'Bounce',
@@ -310,9 +350,32 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
-        expect(result.metrics?.[0].metricName).toBe('email_bounced')
+        // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
-        expect(result.optOutRecipients).toEqual([])
+        expect(result.hardBounceRecipients).toEqual([])
+        expect(result.transientBounceRecipients).toEqual([
+            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+        ])
+    })
+
+    it('surfaces delivered recipients so the suppression counter can reset', async () => {
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: baseMail,
+                delivery: {
+                    timestamp: '2025-10-03T12:04:00Z',
+                    recipients: ['to@example.com'],
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.deliveredRecipients).toEqual([
+            { teamId: '1', emailAddresses: ['to@example.com'], timestamp: '2025-10-03T12:04:00Z' },
+        ])
+        expect(result.transientBounceRecipients).toEqual([])
     })
 
     it('rejects raw (non-SNS) deliveries when signature verification is required', async () => {
@@ -337,7 +400,7 @@ describe('SesWebhookHandler', () => {
         ]
         const result = await handler.handleWebhook({ body, headers: {}, verifySignature: true })
         expect(result.status).toBe(403)
-        expect(result.optOutRecipients).toBeUndefined()
+        expect(result.hardBounceRecipients).toBeUndefined()
     })
 
     it('parses a raw Complaint event', async () => {
@@ -489,5 +552,308 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_opened')
+    })
+
+    describe('log entries', () => {
+        const logCases: { name: string; event: Record<string, any>; level: string; message: string }[] = [
+            {
+                name: 'Bounce permanent',
+                event: {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            {
+                                emailAddress: 'to@example.com',
+                                status: '5.1.1',
+                                diagnosticCode: 'mailbox does not exist',
+                            },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                level: 'error',
+                message: '[Action:act789] Permanent bounce to to@example.com, mailbox does not exist (5.1.1)',
+            },
+            {
+                name: 'Bounce transient',
+                event: {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Transient',
+                        bouncedRecipients: [
+                            { emailAddress: 'to@example.com', status: '4.1.1', diagnosticCode: 'temp' },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                level: 'warn',
+                message: '[Action:act789] Transient bounce to to@example.com, temp (4.1.1)',
+            },
+            {
+                name: 'Complaint',
+                event: {
+                    eventType: 'Complaint',
+                    mail: baseMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'to@example.com' }],
+                        timestamp: '2025-10-03T12:05:00Z',
+                        complaintFeedbackType: 'abuse',
+                    },
+                },
+                level: 'warn',
+                message: '[Action:act789] Complaint from to@example.com, feedback type: abuse',
+            },
+            {
+                name: 'RenderingFailure',
+                event: {
+                    eventType: 'RenderingFailure',
+                    mail: baseMail,
+                    renderingFailure: { errorMessage: 'bad template', templateName: 'welcome' },
+                },
+                level: 'error',
+                message: '[Action:act789] Rendering failure for template welcome: bad template',
+            },
+            {
+                name: 'Reject',
+                event: { eventType: 'Reject', mail: baseMail, reject: { reason: 'spam' } },
+                level: 'error',
+                message: '[Action:act789] Message rejected by SES: spam',
+            },
+        ]
+
+        it.each(logCases)('emits a $name log entry', async ({ event, level, message }) => {
+            const result = await handler.handleWebhook({ body: [event], headers: {} })
+            expect(result.logEntries).toEqual([
+                expect.objectContaining({ functionId: 'abc123', invocationId: 'inv456', level, message }),
+            ])
+        })
+
+        it.each([
+            { name: 'Open', event: { eventType: 'Open', mail: baseMail, open: { timestamp: '2025-10-03T12:01:00Z' } } },
+            {
+                name: 'Delivery',
+                event: { eventType: 'Delivery', mail: baseMail, delivery: { timestamp: '2025-10-03T12:03:00Z' } },
+            },
+            { name: 'Send', event: { eventType: 'Send', mail: baseMail } },
+        ])('does not emit a log entry for the info-level $name event', async ({ event }) => {
+            const result = await handler.handleWebhook({ body: [event], headers: {} })
+            expect(result.logEntries).toEqual([])
+        })
+
+        it('emits one log entry per bounced recipient', async () => {
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            { emailAddress: 'a@example.com', diagnosticCode: 'mailbox full' },
+                            { emailAddress: 'b@example.com', diagnosticCode: 'mailbox full' },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.map((e) => e.message)).toEqual([
+                '[Action:act789] Permanent bounce to a@example.com, mailbox full',
+                '[Action:act789] Permanent bounce to b@example.com, mailbox full',
+            ])
+        })
+
+        it('does not duplicate the status when SES inlines it inside diagnosticCode', async () => {
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: baseMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [
+                            {
+                                emailAddress: 'to@example.com',
+                                status: '5.1.1',
+                                diagnosticCode: 'smtp; 550 5.1.1 user unknown <to@example.com>',
+                            },
+                        ],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.[0].message).toBe(
+                '[Action:act789] Permanent bounce to to@example.com, smtp; 550 5.1.1 user unknown <to@example.com>'
+            )
+        })
+
+        it('drops the [Action:...] prefix when the actionId contains unsafe characters', async () => {
+            // A ph_id whose actionId would close the Action token early and inject an Actor token
+            // must not reach the rich-log viewer with brackets intact.
+            const maliciousInvocation = {
+                ...baseInvocation,
+                state: { actionId: 'act] [Actor:attacker@evil.com' },
+            }
+            const maliciousMail = {
+                ...baseMail,
+                headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(maliciousInvocation) }],
+                tags: { ph_id: [signer.generateShort(maliciousInvocation)] },
+            }
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: maliciousMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'unknown' }],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.logEntries?.[0].message).toBe('Permanent bounce to to@example.com, unknown')
+        })
+
+        it('accepts DeliveryDelay without producing a metric or log (so SNS does not retry)', async () => {
+            const body = [
+                {
+                    eventType: 'DeliveryDelay',
+                    mail: baseMail,
+                    deliveryDelay: {
+                        delayType: 'MailboxFull',
+                        timestamp: '2025-10-03T12:06:00Z',
+                        delayedRecipients: [{ emailAddress: 'to@example.com' }],
+                    },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+            expect(result.metrics).toEqual([])
+            expect(result.logEntries).toEqual([])
+        })
+    })
+
+    describe('security: TopicArn allowlist + signed-code gate', () => {
+        // Two-layer hardening: the TopicArn allowlist restricts which SNS topics we accept events from,
+        // and state-changing writes require a signed tracking code (unsigned carriers only contribute
+        // to engagement metrics/log entries).
+        const buildEnvelope = (
+            topicArn: string,
+            innerRecord: object,
+            envelopeType: 'Notification' | 'SubscriptionConfirmation' = 'Notification'
+        ): Record<string, any> => ({
+            Type: envelopeType,
+            MessageId: 'sns-msg-1',
+            TopicArn: topicArn,
+            Message: envelopeType === 'Notification' ? JSON.stringify(innerRecord) : JSON.stringify({}),
+            Timestamp: '2025-10-03T12:10:00Z',
+            SignatureVersion: '1',
+            Signature: 'stubbed',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+        })
+
+        it('rejects a Notification whose TopicArn is not on the allowlist', async () => {
+            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:other-topic', {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [{ emailAddress: 'recipient@example.com', diagnosticCode: 'bad' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            })
+            const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
+            expect(result.status).toBe(403)
+            expect(result.hardBounceRecipients).toBeUndefined()
+        })
+
+        it('accepts a Notification whose TopicArn matches the allowlist', async () => {
+            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const envelope = buildEnvelope('arn:aws:sns:us-east-1:123456789012:allowed-topic', {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [{ emailAddress: 'recipient@example.com', diagnosticCode: 'bad' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            })
+            const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
+            expect(result.status).toBe(200)
+            expect(result.hardBounceRecipients).toEqual([
+                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+            ])
+        })
+
+        it('empty allowlist means no restriction (dev/test backward compat)', async () => {
+            // The default `handler` in the outer beforeEach was constructed without an allowlist.
+            const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:some-topic', {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'bad' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            })
+            const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
+            expect(result.status).toBe(200)
+        })
+
+        it('rejects a SubscriptionConfirmation from a disallowed topic', async () => {
+            const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
+            const envelope = buildEnvelope(
+                'arn:aws:sns:us-east-1:999999999999:other-topic',
+                {},
+                'SubscriptionConfirmation'
+            )
+            const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
+            expect(result.status).toBe(403)
+        })
+
+        it('does not populate suppression writes for an unsigned tracking code', async () => {
+            // Only signed tracking codes drive state changes. Unsigned codes still contribute to
+            // metrics/log entries (engagement signal) but not to suppression / opt-out / delivery resets.
+            const unsignedMail = {
+                ...baseMail,
+                headers: undefined,
+                tags: { ph_id: [signer.generateShort(baseInvocation)] },
+            }
+            const body = [
+                {
+                    eventType: 'Bounce',
+                    mail: unsignedMail,
+                    bounce: {
+                        bounceType: 'Transient',
+                        bouncedRecipients: [{ emailAddress: 'soft-bounce@example.com', diagnosticCode: 'temp' }],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                {
+                    eventType: 'Bounce',
+                    mail: unsignedMail,
+                    bounce: {
+                        bounceType: 'Permanent',
+                        bouncedRecipients: [{ emailAddress: 'hard-bounce@example.com', diagnosticCode: 'bad' }],
+                        timestamp: '2025-10-03T12:04:00Z',
+                    },
+                },
+                {
+                    eventType: 'Delivery',
+                    mail: unsignedMail,
+                    delivery: { timestamp: '2025-10-03T12:05:00Z', recipients: ['delivered@example.com'] },
+                },
+            ]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.status).toBe(200)
+            expect(result.transientBounceRecipients).toEqual([])
+            expect(result.hardBounceRecipients).toEqual([])
+            expect(result.deliveredRecipients).toEqual([])
+            // Metrics are unaffected — engagement signal is still emitted for the parsed events.
+            expect(result.metrics?.length).toBeGreaterThan(0)
+        })
     })
 })

@@ -7,7 +7,6 @@ import {
     IconFlask,
     IconGraph,
     IconGroups,
-    IconHogQL,
     IconImage,
     IconList,
     IconMapPin,
@@ -22,6 +21,8 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { IconBracketsChart } from 'lib/lemon-ui/icons'
+
 import { NotebookNodeType } from './types'
 
 // Single source of truth for icons that represent a notebook node type.
@@ -29,9 +30,11 @@ import { NotebookNodeType } from './types'
 // back to the generic notebook icon at the consumer site.
 export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Query]: <IconGraph />,
-    [NotebookNodeType.HogQLSQL]: <IconHogQL />,
-    [NotebookNodeType.DuckSQL]: <IconHogQL />,
+    [NotebookNodeType.HogQLSQL]: <IconBracketsChart />,
+    [NotebookNodeType.DuckSQL]: <IconBracketsChart />,
+    [NotebookNodeType.SQLV2]: <IconBracketsChart />,
     [NotebookNodeType.Python]: <IconPython />,
+    [NotebookNodeType.PythonV2]: <IconPython />,
     [NotebookNodeType.Latex]: <IconSquareRoot />,
     [NotebookNodeType.Recording]: <IconRewindPlay />,
     [NotebookNodeType.RecordingPlaylist]: <IconRewindPlay />,

@@ -81,7 +81,10 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
-                <div className="mb-4 text-xs text-secondary">This will be the table name used when writing queries</div>
+                <div className="mb-4 text-xs text-secondary">
+                    This will be the table name used when writing queries. Use only letters, numbers, and underscores,
+                    and start with a letter or underscore.
+                </div>
                 <LemonField name="url_pattern" label="Files URL pattern">
                     {({ value = '', onChange }) => (
                         <LemonInput
@@ -117,23 +120,30 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                     )}
                 </LemonField>
                 {isCsvFormat && (
-                    <LemonField
-                        name={['options', 'csv_allow_double_quotes']}
-                        label="CSV quote handling"
-                        className="mb-4 w-max"
-                    >
-                        {({ value, onChange }) => (
-                            <LemonSelect
-                                data-attr="csv-quote-handling"
-                                options={[
-                                    { label: 'RFC 4180 double quotes', value: true },
-                                    { label: 'Literal quotes', value: false },
-                                ]}
-                                value={value ?? false}
-                                onChange={onChange}
-                            />
-                        )}
-                    </LemonField>
+                    <>
+                        <LemonField
+                            name={['options', 'csv_allow_double_quotes']}
+                            label="CSV quote handling"
+                            className="w-max"
+                        >
+                            {({ value, onChange }) => (
+                                <LemonSelect
+                                    data-attr="csv-quote-handling"
+                                    options={[
+                                        { label: 'RFC 4180 double quotes', value: true },
+                                        { label: 'Literal quotes', value: false },
+                                    ]}
+                                    value={value ?? false}
+                                    onChange={onChange}
+                                />
+                            )}
+                        </LemonField>
+                        <div className="mb-4 text-xs text-secondary">
+                            Pick RFC 4180 if your CSV wraps values in double quotes (the usual way to keep commas inside
+                            a field). If import fails with a column count mismatch, switching to RFC 4180 usually fixes
+                            it.
+                        </div>
+                    </>
                 )}
                 <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
                     {({ value = '', onChange }) => (

@@ -6,15 +6,20 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+from datetime import datetime
 from typing import Literal
+
+from django.utils import timezone
 
 import structlog
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
+from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
+from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -22,8 +27,10 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models.constants import Channel, OrganizationIdSource
+
+from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -147,8 +154,40 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     return groups
 
 
-def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
-    """Resolve the customer organization's ``$groups`` for a ticket.
+def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict | None:
+    """Resolve ``$groups`` from the person's own ``organization_id`` profile property.
+
+    Fallback for when both the membership lookup and the analytics fallback miss:
+    app instrumentation commonly stamps the org id onto the person profile via
+    ``$identify``, and the profile persists even when the person's last identified
+    session predates the analytics fallback's 30-day event window.
+
+    Person properties are client-supplied — the same trust level as the analytics
+    fallback (enrichment, never authorization). The value only counts when it names
+    an organization group that already exists in this project, so a team whose
+    ``organization_id`` person property follows a different convention than its
+    organization group keys can't stamp bogus group keys onto events. A value that
+    coincidentally matches an unrelated org group key (e.g. small-integer keys) can
+    still mis-enrich — same collision class as event-supplied ``$groups``.
+    """
+    org_id = (person.properties or {}).get("organization_id")
+    if not org_id or not isinstance(org_id, str):
+        return None
+
+    group_type_index = {
+        gtm["group_type"]: gtm["group_type_index"] for gtm in get_group_types_for_project(team.project_id)
+    }
+    org_index = group_type_index.get("organization")
+    if org_index is None:
+        return None
+    if not get_groups_by_identifiers(team.id, org_index, [org_id]):
+        return None
+
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
+
+
+def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
+    """Resolve the customer organization's ``$groups`` from the requester's identity.
 
     Returns ``(process_person, groups)``. ``groups`` is ``None`` when the
     customer can't be tied to a PostHog organization.
@@ -157,17 +196,20 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     so the membership is found directly. Other channels (Slack, Email, MS
     Teams) set ``distinct_id`` to the customer email (or empty), so we fall
     back to looking the person up by ``properties.email`` in ClickHouse and
-    resolving the membership through that person's real distinct_ids.
+    resolving the membership through that person's real distinct_ids. Either
+    way, the person's own ``organization_id`` profile property is the last
+    resort when the membership and analytics lookups both miss.
     """
     # 1. Real distinct_id (web widget). An identified person is authoritative: if they
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        # Only is_identified is read, and the membership lookup below keys off the ticket's own
-        # distinct_id — so skip fetching the person's distinct_ids.
+        # Only is_identified and properties are read, and the membership lookup below keys off
+        # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
         with personhog_caller_tag("conversations/ticket-event-person"):
             persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
-        if any(p.is_identified for p in persons):
+        identified_person = next((p for p in persons if p.is_identified), None)
+        if identified_person is not None:
             membership = (
                 OrganizationMembership.objects.select_related("organization")
                 .filter(user__distinct_id=ticket.distinct_id)
@@ -180,6 +222,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
             # stamped onto this project's analytics events (same distinct_id, so the
             # shared-email caveat above still holds).
             groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
+            if groups:
+                return True, groups
+            # Their events may have aged out of the analytics window; the profile they
+            # identified with is still the same person's own claim about their org.
+            groups = _resolve_groups_from_person_properties(team, identified_person)
             if groups:
                 return True, groups
             return False, None
@@ -196,20 +243,85 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
         from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
 
         person = _get_persons_by_email(team, [email]).get(email.lower())
-        if person is not None and person.distinct_ids:
-            membership = (
-                OrganizationMembership.objects.select_related("organization")
-                .filter(user__distinct_id__in=person.distinct_ids)
-                .first()
-            )
-            if membership:
-                return True, build_groups(membership.organization, team)
-            # Same cross-region fallback as above, keyed by the person's distinct_ids.
-            groups = _resolve_groups_from_analytics(team, person.distinct_ids)
+        if person is not None:
+            if person.distinct_ids:
+                membership = (
+                    OrganizationMembership.objects.select_related("organization")
+                    .filter(user__distinct_id__in=person.distinct_ids)
+                    .first()
+                )
+                if membership:
+                    return True, build_groups(membership.organization, team)
+                # Same cross-region fallback as above, keyed by the person's distinct_ids.
+                groups = _resolve_groups_from_analytics(team, person.distinct_ids)
+                if groups:
+                    return True, groups
+            # Same last resort as above: the org id the person's own profile carries.
+            groups = _resolve_groups_from_person_properties(team, person)
             if groups:
                 return True, groups
 
     return False, None
+
+
+def _resolve_groups_from_slack_channel(team: Team, slack_channel_id: str) -> dict | None:
+    """Attribute the ticket to the customer analytics account bound to its Slack channel.
+
+    Last-resort fallback when the requester can't be tied to an organization: a
+    dedicated support channel maps to one account, and that account's ``external_id``
+    is the group key at the team's configured account group type. Channel-level
+    evidence only — it says which account the ticket belongs to, not who sent it.
+    """
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+
+    group_type_name = next(
+        (
+            gtm["group_type"]
+            for gtm in get_group_types_for_project(team.project_id)
+            if gtm["group_type_index"] == group_type_index
+        ),
+        None,
+    )
+    if group_type_name is None:
+        return None
+
+    # The facade pulls the workflows/notebooks facades with it; keep that off the
+    # django.setup() path this module loads on via the conversations signal wiring.
+    from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
+
+    account = customer_analytics.get_account_ref_by_slack_channel_id(team.id, slack_channel_id)
+    if account is None or not account.external_id:
+        return None
+
+    return {"instance": SITE_URL, "project": str(team.uuid), group_type_name: account.external_id}
+
+
+def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, str | None]:
+    """Resolve a ticket's ``$groups``, preferring the requester's identity.
+
+    Returns ``(process_person, groups, source)`` where ``source`` is an
+    ``OrganizationIdSource`` value recording how ``groups`` was resolved, or
+    ``None`` when nothing resolved. Slack tickets that can't be attributed
+    through the person fall back to the customer analytics account associated
+    with the ticket's Slack channel.
+    """
+    process_person, groups = _resolve_person_org_groups(ticket, team)
+    if groups is not None:
+        return process_person, groups, OrganizationIdSource.PERSON
+
+    if ticket.channel_source == Channel.SLACK.value and ticket.slack_channel_id:
+        groups = _resolve_groups_from_slack_channel(team, ticket.slack_channel_id)
+        if groups is not None:
+            return process_person, groups, OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+
+    return process_person, None, None
+
+
+def _groups_from_org_id(team: Team, organization_id: str) -> dict:
+    """Rebuild minimal $groups from a stored org id, skipping the expensive resolver."""
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
@@ -235,6 +347,55 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_assignment_properties(ticket: Ticket) -> dict:
+    """Current assignment on the ticket, so workflows can route a single team's tickets.
+
+    `assignee_type` is "user", "role", or None (unassigned). `assignee_role_name` is set only for
+    role assignments, letting filters target a team by name instead of its UUID.
+    """
+    assignment = TicketAssignment.objects.select_related("role").filter(ticket_id=ticket.id).first()
+    if assignment is None:
+        return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+    if assignment.user_id is not None:
+        return {"assignee_type": "user", "assignee_id": str(assignment.user_id), "assignee_role_name": None}
+    if assignment.role_id is not None:
+        return {
+            "assignee_type": "role",
+            "assignee_id": str(assignment.role_id),
+            "assignee_role_name": assignment.role.name if assignment.role else None,
+        }
+    return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+
+
+def _role_name_for_assignee(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> str | None:
+    """Look up a role's name for the assignment event; None for user or empty assignees."""
+    if assignee_type != "role" or not assignee_id:
+        return None
+    return (
+        Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
+        .values_list("name", flat=True)
+        .first()
+    )
+
+
+def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
+    """SLA state at the moment of the event.
+
+    Stamped on events (rather than derived later) so attainment metrics reflect the
+    deadline that was in force at the time, even if the SLA is reset afterwards.
+    `sla_delta_seconds` is positive when past due, negative when time remains.
+    """
+    if ticket.sla_due_at is None:
+        return {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None}
+    delta_seconds_float = (now - ticket.sla_due_at).total_seconds()
+    return {
+        "sla_due_at": ticket.sla_due_at.isoformat(),
+        "sla_active": True,
+        "sla_breached": delta_seconds_float > 0,
+        "sla_delta_seconds": int(delta_seconds_float),
+    }
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))
@@ -243,13 +404,18 @@ def capture_ticket_created(ticket: Ticket) -> None:
     team_id = team.id
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
+        process_person, groups, groups_source = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
+            org_id = groups.get("organization")
+            if org_id and not ticket.organization_id:
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id, organization_id_source=groups_source)
+                ticket.organization_id = org_id
+                ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
-    capture_internal_routed(
+    capture_internal(
         token=team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
@@ -271,8 +437,9 @@ def capture_ticket_status_changed(
     properties["old_status"] = old_status
     properties["new_status"] = new_status
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_status_changed",
         event_source=EVENT_SOURCE,
@@ -293,8 +460,9 @@ def capture_ticket_priority_changed(
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_priority_changed",
         event_source=EVENT_SOURCE,
@@ -314,9 +482,11 @@ def capture_ticket_assigned(
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
+    properties["assignee_role_name"] = _role_name_for_assignee(ticket, assignee_type, assignee_id)
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_assigned",
         event_source=EVENT_SOURCE,
@@ -339,8 +509,10 @@ def capture_message_sent(
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_assignment_properties(ticket))
+    properties.update(_get_sla_properties(ticket, timezone.now()))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_message_sent",
         event_source=EVENT_SOURCE,
@@ -357,17 +529,36 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
     properties.update(_get_customer_properties(ticket))
+    properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
-        if groups is not None:
-            properties["$groups"] = groups
+        if ticket.organization_id:
+            properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
+            # A channel-inferred org says nothing about the sender, so don't create a
+            # person profile for it (legacy rows without a source were person-resolved).
+            process_person = ticket.organization_id_source != OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+        else:
+            process_person, groups, groups_source = _resolve_org_groups(ticket, team)
+            if groups is not None:
+                properties["$groups"] = groups
+                org_id = groups.get("organization")
+                if org_id:
+                    # Persist like capture_ticket_created does, so later messages take the
+                    # stored-org fast path instead of re-running the resolver. First write
+                    # wins: only mirror to the in-memory ticket when this update landed,
+                    # so a concurrent handler's value isn't shadowed.
+                    rows_updated = Ticket.objects.filter(id=ticket.id, organization_id__isnull=True).update(
+                        organization_id=org_id, organization_id_source=groups_source
+                    )
+                    if rows_updated:
+                        ticket.organization_id = org_id
+                        ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 
-    capture_internal_routed(
+    capture_internal(
         token=team.api_token,
         event_name="$conversation_message_received",
         event_source=EVENT_SOURCE,

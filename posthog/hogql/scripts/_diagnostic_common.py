@@ -20,8 +20,8 @@ Holds the cross-script vocabulary:
 - **Backend probe** — `_probe_backend` fails fast on an unusable
   `--oracle` / `--candidate`.
 
-Importing this module pulls `posthog.hogql.*` — callers must have run
-`django.setup()` first (every script here does, before its imports).
+Importing this module pulls in the HogQL parser and AST layer only, which
+run without Django — no `django.setup()` required.
 """
 
 from __future__ import annotations
@@ -40,7 +40,10 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
-from posthog.hogql.errors import BaseHogQLError
+from hogql_parser import parse_string_literal_text as _cpp_parse_string_literal_text
+from hogql_parser_rs import parse_string_literal_text as _rust_parse_string_literal_text
+
+from posthog.hogql.errors import BaseHogQLError, ParsingError
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
     parse_expr,
@@ -61,6 +64,16 @@ def _parse_full_template_string(query: str, backend: Any = None) -> Any:
     return parse_string_template(body, backend=backend)
 
 
+def _parse_string_literal_text(query: str, backend: Any = None) -> str:
+    """Dispatch the unquoter by backend family (`cpp*`/`rust*`) for parity fuzzing; raises like both wheels."""
+    use_cpp = backend is None or str(backend).startswith("cpp")
+    # cpp wheel aborts the process on "" (uncaught C++ ParsingError); raise the class it declares so the grind survives.
+    if use_cpp and query == "":
+        raise ParsingError("Encountered an unexpected empty string input")
+    fn = _cpp_parse_string_literal_text if use_cpp else _rust_parse_string_literal_text
+    return fn(query)
+
+
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
 # fn / try-catch / return / throw / blocks); `full_template_string` is the
@@ -72,6 +85,7 @@ _PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "select": parse_select,
     "program": parse_program,
     "full_template_string": _parse_full_template_string,
+    "string_literal": _parse_string_literal_text,
 }
 
 # ---------------------------------------------------------------------------

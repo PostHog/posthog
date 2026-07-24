@@ -9,11 +9,12 @@ for teams that haven't been organically re-synced. This command warms it from th
 persisted RemoteConfig.config column without calling build_config(), avoiding the
 expense and side effects of a full rebuild across tens of thousands of teams.
 
-Writes go through `HyperCache.set_cache_value_redis_only`, which writes to Redis
-only and skips S3 and expiry tracking. S3 already has fresh data via the normal
-sync() path, and the goal here is specifically to populate the Redis tier the
-Rust service reads first. A per-row S3 PUT would turn a fast Redis backfill
-into hours of synchronous boto3 round-trips for tens of thousands of teams.
+Writes go through `HyperCache.set_cache_value_redis_only` with `track_expiry=True`,
+which writes to Redis (plus the secondary mirror) and seeds the
+`remote_config_cache_expiry` sorted set, but skips S3 — S3 already holds fresh data
+via the normal sync() path, and the goal here is to populate the Redis tier the Rust
+service reads first. A per-row S3 PUT would turn a fast Redis backfill into hours of
+synchronous boto3 round-trips for tens of thousands of teams.
 
 Race note: this reads `RemoteConfig.config` via a cursored snapshot and writes
 it to Redis. If an organic `sync()` for the same team writes a newer config to
@@ -118,7 +119,8 @@ class Command(BaseCommand):
                 continue
 
             try:
-                hypercache.set_cache_value_redis_only(team.api_token, remote_config.config)
+                # Pass the Team (not the token) so track_expiry stamps the expiry sorted set.
+                hypercache.set_cache_value_redis_only(team, remote_config.config, track_expiry=True)
                 warmed += 1
             except Exception:
                 failed += 1

@@ -22,6 +22,7 @@ import {
     TextSelectionPointerStartEvent,
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
+import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
 import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({
@@ -61,7 +62,9 @@ export function renderNode({
     isInsertMenuOpen,
     insertMenuMode,
     hasInvalidInsertMenuQuery,
+    isAIWriting,
     isAIWritingPlaceholder,
+    isAIPromptSubmitDisabled,
     aiPromptFocusRequest,
     submitInsertMenuSelection,
     submitAIPrompt,
@@ -106,7 +109,9 @@ export function renderNode({
     isInsertMenuOpen: boolean
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
+    isAIWriting: boolean
     isAIWritingPlaceholder: boolean
+    isAIPromptSubmitDisabled: boolean
     aiPromptFocusRequest?: number
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
@@ -159,6 +164,7 @@ export function renderNode({
                     deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
                     updateAIPromptQuery={updateAIPromptQuery}
                     submitAIPrompt={submitAIPrompt}
+                    isAIPromptSubmitDisabled={isAIPromptSubmitDisabled}
                     isActive={isInsertMenuOpen && insertMenuMode === 'ai'}
                     focusRequest={aiPromptFocusRequest}
                     restoreSelectionRef={restoreSelectionRef}
@@ -219,6 +225,11 @@ export function renderNode({
     }
 
     if (node.type === 'code') {
+        // Render mermaid fences as diagrams in view mode; edit mode keeps the source editable.
+        if (mode === 'view' && isMermaidCodeBlock(node)) {
+            return <NotebookMermaidBlock node={node} setBlockRef={setBlockRef} />
+        }
+
         return (
             <EditableCodeBlock
                 node={node}
@@ -256,6 +267,7 @@ export function renderNode({
             isInsertMenuOpen={isInsertMenuOpen}
             insertMenuMode={insertMenuMode}
             hasInvalidInsertMenuQuery={hasInvalidInsertMenuQuery}
+            isAIWriting={isAIWriting}
             isAIWritingPlaceholder={isAIWritingPlaceholder}
             submitInsertMenuSelection={submitInsertMenuSelection}
             handleSelectionChange={handleSelectionChange}

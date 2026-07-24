@@ -47,6 +47,7 @@ import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogi
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
+import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -79,6 +80,7 @@ const INPUT_TYPE_LIST = [
     'choice',
     'json',
     'integration',
+    'integration_multi',
     'email',
     'native_email',
     'non_failure_status_codes',
@@ -671,6 +673,14 @@ function CyclotronJobInputRenderer({
                     }}
                 />
             )
+        case 'integration_multi':
+            return (
+                <CyclotronJobInputIntegrationMulti
+                    schema={schema}
+                    value={input.value as number[] | undefined}
+                    onChange={onValueChange}
+                />
+            )
         case 'integration_field':
             return (
                 <CyclotronJobInputIntegrationField
@@ -698,7 +708,12 @@ function CyclotronJobInputRenderer({
             if (CustomRenderer) {
                 return (
                     <Suspense>
-                        <CustomRenderer schema={schema} value={input.value} onChange={onValueChange} />
+                        <CustomRenderer
+                            schema={schema}
+                            value={input.value}
+                            onChange={onValueChange}
+                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                        />
                     </Suspense>
                 )
             }

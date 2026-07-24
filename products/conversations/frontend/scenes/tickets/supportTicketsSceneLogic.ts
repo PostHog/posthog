@@ -1,14 +1,20 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { TeamType } from '~/types'
+
+import { conversationsViewsRetrieve } from '../../generated/api'
+import { normalizeAssigneeFilter } from '../../types'
 import type {
-    AssigneeFilterValue,
+    AITriageFilterValue,
+    AssigneeFilterEntry,
     SavedTicketView,
     Ticket,
     TicketChannel,
@@ -18,14 +24,345 @@ import type {
     TicketTagsMatch,
     TicketViewFilters,
 } from '../../types'
-import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
+
+// Must mirror the filter reducers' defaults below. The date range is deliberately
+// omitted: it's a persisted user preference, so clearing a view restores the
+// pre-view selection (dateRangeBeforeView), falling back to all time.
+const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
+    status: [],
+    priority: [],
+    channel: 'all',
+    sla: 'all',
+    aiTriageResult: [],
+    assignee: 'all',
+    tags: [],
+    tagsMatch: 'any',
+    tagsExclude: [],
+    sorting: { columnKey: 'updated_at', order: -1 },
+    search: '',
+}
+
+const DEFAULT_SORTING: Sorting = { columnKey: 'updated_at', order: -1 }
+const DEFAULT_ORDER_BY = '-updated_at'
+
+// Shareable ticket-filter query params. Date range stays a personal preference,
+// while free-text search stays out of URLs because it can contain customer data.
+const FILTER_URL_PARAM_KEYS = [
+    'status',
+    'priority',
+    'ai_triage_result',
+    'channel',
+    'sla',
+    'assignee',
+    'tags',
+    'tags_match',
+    'tags_exclude',
+    'order_by',
+] as const
+
+function sortingToOrderBy(sorting: Sorting | null | undefined): string {
+    if (!sorting) {
+        return DEFAULT_ORDER_BY
+    }
+    return `${sorting.order === 1 ? '' : '-'}${sorting.columnKey}`
+}
+
+function orderByToSorting(orderBy: string): Sorting {
+    return { columnKey: orderBy.replace(/^-/, ''), order: orderBy.startsWith('-') ? -1 : 1 }
+}
+
+function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
+    return entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`
+}
+
+// kea-router hands back arrays for multi-value params, but a hand-typed single
+// value can arrive as a bare string — coerce both to a string array.
+function toStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.map(String)
+    }
+    if (typeof value === 'string' && value !== '') {
+        return [value]
+    }
+    return []
+}
+
+function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
+    const entries = toStringArray(value).map((token): AssigneeFilterEntry | null => {
+        if (token === 'unassigned') {
+            return 'unassigned'
+        }
+        const separator = token.indexOf(':')
+        const type = token.slice(0, separator)
+        const id = token.slice(separator + 1)
+        return (type === 'user' || type === 'role') && id ? { type, id } : null
+    })
+    return normalizeAssigneeFilter(entries.filter((entry): entry is AssigneeFilterEntry => entry !== null))
+}
+
+// Canonical URL representation of the filters. Only non-default values are
+// emitted so shared links stay readable.
+function filtersToUrlParams(filters: TicketViewFilters): Record<string, any> {
+    const params: Record<string, any> = {}
+    if (filters.status?.length) {
+        params.status = filters.status
+    }
+    if (filters.priority?.length) {
+        params.priority = filters.priority
+    }
+    if (filters.aiTriageResult?.length) {
+        params.ai_triage_result = filters.aiTriageResult
+    }
+    if (filters.channel && filters.channel !== 'all') {
+        params.channel = filters.channel
+    }
+    if (filters.sla && filters.sla !== 'all') {
+        params.sla = filters.sla
+    }
+    const assignee = normalizeAssigneeFilter(filters.assignee)
+    if (assignee.length) {
+        params.assignee = assignee.map(encodeAssigneeEntry)
+    }
+    if (filters.tags?.length) {
+        params.tags = filters.tags
+        if (filters.tagsMatch === 'all') {
+            params.tags_match = 'all'
+        }
+    }
+    if (filters.tagsExclude?.length) {
+        params.tags_exclude = filters.tagsExclude
+    }
+    const orderBy = sortingToOrderBy(filters.sorting)
+    if (orderBy !== DEFAULT_ORDER_BY) {
+        params.order_by = orderBy
+    }
+    return params
+}
+
+// A shared link fully determines the filter set, so params absent from the URL
+// reset to their defaults rather than keeping persisted state. Date range is
+// omitted so the recipient's own window is preserved.
+function urlParamsToFilters(searchParams: Record<string, any>): TicketViewFilters {
+    return {
+        status: toStringArray(searchParams.status) as TicketStatus[],
+        priority: toStringArray(searchParams.priority) as TicketPriority[],
+        aiTriageResult: toStringArray(searchParams.ai_triage_result) as AITriageFilterValue[],
+        channel: (searchParams.channel as TicketChannel) ?? 'all',
+        sla: (searchParams.sla as TicketSlaState) ?? 'all',
+        assignee: decodeAssignee(searchParams.assignee),
+        tags: toStringArray(searchParams.tags),
+        tagsMatch: searchParams.tags_match === 'all' ? 'all' : 'any',
+        tagsExclude: toStringArray(searchParams.tags_exclude),
+        search: '',
+        sorting: searchParams.order_by ? orderByToSorting(String(searchParams.order_by)) : { ...DEFAULT_SORTING },
+    }
+}
+
+function hasFilterParams(searchParams: Record<string, any>): boolean {
+    return FILTER_URL_PARAM_KEYS.some((paramKey) => searchParams[paramKey] !== undefined)
+}
+
+// Compare a URL against the current filters via their canonical encodings, so
+// non-canonical inputs (single-value strings, redundant defaults) don't read as
+// a difference and trigger a needless re-apply loop.
+function urlFiltersMatchState(searchParams: Record<string, any>, currentFilters: TicketViewFilters): boolean {
+    return (
+        !currentFilters.search &&
+        objectsEqual(filtersToUrlParams(urlParamsToFilters(searchParams)), filtersToUrlParams(currentFilters))
+    )
+}
 
 export interface SupportTicketsSceneLogicProps {
     key?: string
     distinctIds?: string[]
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportTicketsSceneLogicValues {
+    activeView: SavedTicketView | null
+    aiEnabled: boolean
+    aiTriageResultFilter: AITriageFilterValue[]
+    assigneeFilter: AssigneeFilterEntry[]
+    assigneeFilterEntries: AssigneeFilterEntry[]
+    bulkUpdating: boolean
+    channelFilter: TicketChannel | 'all'
+    currentFilters: TicketViewFilters
+    currentPage: number
+    dateFrom: string | null
+    dateRangeBeforeView: {
+        dateFrom: string | null
+        dateTo: string | null
+    } | null
+    dateTo: string | null
+    hasActiveFilters: boolean
+    orderBy: string
+    priorityFilter: TicketPriority[]
+    searchQuery: string
+    selectedTicketIds: string[]
+    selectedTickets: Ticket[]
+    slaFilter: TicketSlaState | 'all'
+    sorting: Sorting | null
+    statusFilter: TicketStatus[]
+    tagsExcludeFilter: string[]
+    tagsFilter: string[]
+    tagsMatch: TicketTagsMatch
+    tickets: Ticket[]
+    ticketsLoading: boolean
+    totalCount: number
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportTicketsSceneLogicActions {
+    applyUrlFilters: (filters: TicketViewFilters) => {
+        filters: TicketViewFilters
+    }
+    applyView: (view: SavedTicketView) => {
+        view: SavedTicketView
+    }
+    applyViewFilters: (filters: TicketViewFilters) => {
+        filters: TicketViewFilters
+    }
+    bulkUpdateStatus: (
+        ids: string[],
+        status: TicketStatus
+    ) => {
+        ids: string[]
+        status: TicketStatus
+    }
+    clearActiveView: () => {
+        value: true
+    }
+    clearFiltersKeepingSearch: () => {
+        value: true
+    }
+    clearSelectedTickets: () => {
+        value: true
+    }
+    loadSavedView: (shortId: string) => {
+        shortId: string
+    }
+    loadTickets: () => {
+        value: true
+    }
+    resetFilters: () => {
+        value: true
+    }
+    setActiveView: (view: SavedTicketView | null) => {
+        view: SavedTicketView | null
+    }
+    setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
+        results: AITriageFilterValue[]
+    }
+    setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
+        assignees: AssigneeFilterEntry[]
+    }
+    setBulkUpdating: (updating: boolean) => {
+        updating: boolean
+    }
+    setChannelFilter: (channel: TicketChannel | 'all') => {
+        channel: TicketChannel | 'all'
+    }
+    setCurrentPage: (page: number) => {
+        page: number
+    }
+    setDateRange: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setDateRangeBeforeView: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setPriorityFilter: (priorities: TicketPriority[]) => {
+        priorities: TicketPriority[]
+    }
+    setSearchQuery: (query: string) => {
+        query: string
+    }
+    setSelectedTicketIds: (ids: string[]) => {
+        ids: string[]
+    }
+    setSlaFilter: (sla: TicketSlaState | 'all') => {
+        sla: TicketSlaState | 'all'
+    }
+    setSorting: (sorting: Sorting | null) => {
+        sorting: Sorting | null
+    }
+    setStatusFilter: (statuses: TicketStatus[]) => {
+        statuses: TicketStatus[]
+    }
+    setTagsExcludeFilter: (tags: string[]) => {
+        tags: string[]
+    }
+    setTagsFilter: (tags: string[]) => {
+        tags: string[]
+    }
+    setTagsMatch: (match: TicketTagsMatch) => {
+        match: TicketTagsMatch
+    }
+    setTickets: (tickets: Ticket[]) => {
+        tickets: Ticket[]
+    }
+    setTicketsLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setTotalCount: (count: number) => {
+        count: number
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface supportTicketsSceneLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
+        orderBy: (sorting: Sorting | null) => string
+        selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
+        hasActiveFilters: (
+            statusFilter: TicketStatus[],
+            priorityFilter: TicketPriority[],
+            channelFilter: TicketChannel | 'all',
+            slaFilter: TicketSlaState | 'all',
+            aiTriageResultFilter: AITriageFilterValue[],
+            assigneeFilterEntries: AssigneeFilterEntry[],
+            tagsFilter: string[],
+            tagsExcludeFilter: string[],
+            dateFrom: string | null,
+            dateTo: string | null
+        ) => boolean
+        currentFilters: (
+            statusFilter: TicketStatus[],
+            priorityFilter: TicketPriority[],
+            channelFilter: TicketChannel | 'all',
+            slaFilter: TicketSlaState | 'all',
+            aiTriageResultFilter: AITriageFilterValue[],
+            assigneeFilterEntries: AssigneeFilterEntry[],
+            tagsFilter: string[],
+            tagsMatch: TicketTagsMatch,
+            tagsExcludeFilter: string[],
+            dateFrom: string | null,
+            dateTo: string | null,
+            sorting: Sorting | null,
+            searchQuery: string
+        ) => TicketViewFilters
+    }
+}
+
+export type supportTicketsSceneLogicType = MakeLogicType<
+    supportTicketsSceneLogicValues,
+    supportTicketsSceneLogicActions,
+    SupportTicketsSceneLogicProps,
+    supportTicketsSceneLogicMeta
+>
 
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
@@ -36,7 +373,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
-        setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
+        setAiTriageResultFilter: (results: AITriageFilterValue[]) => ({ results }),
+        setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => ({ assignees }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setTagsMatch: (match: TicketTagsMatch) => ({ match }),
         setTagsExcludeFilter: (tags: string[]) => ({ tags }),
@@ -49,8 +387,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
+        applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
+        applyView: (view: SavedTicketView) => ({ view }),
+        loadSavedView: (shortId: string) => ({ shortId }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
+        resetFilters: true,
+        clearFiltersKeepingSearch: true,
+        setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
@@ -93,6 +437,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         channelFilter: [
             'all' as TicketChannel | 'all',
+            { persist: true },
             {
                 setChannelFilter: (_, { channel }) => channel,
                 applyViewFilters: (state, { filters }) => filters.channel ?? state,
@@ -100,6 +445,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
+            { persist: true },
             {
                 setSlaFilter: (_, { sla }) => sla,
                 applyViewFilters: (state, { filters }) => filters.sla ?? state,
@@ -113,12 +459,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 applyViewFilters: (state, { filters }) => filters.priority ?? state,
             },
         ],
-        assigneeFilter: [
-            'all' as AssigneeFilterValue,
+        aiTriageResultFilter: [
+            [] as AITriageFilterValue[],
             { persist: true },
             {
-                setAssigneeFilter: (_, { assignee }) => assignee,
-                applyViewFilters: (state, { filters }) => filters.assignee ?? state,
+                setAiTriageResultFilter: (_, { results }) => results,
+                applyViewFilters: (state, { filters }) => filters.aiTriageResult ?? state,
+            },
+        ],
+        assigneeFilter: [
+            [] as AssigneeFilterEntry[],
+            { persist: true },
+            {
+                setAssigneeFilter: (_, { assignees }) => assignees,
+                applyViewFilters: (state, { filters }) =>
+                    filters.assignee != null ? normalizeAssigneeFilter(filters.assignee) : state,
             },
         ],
         tagsFilter: [
@@ -147,6 +502,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         searchQuery: [
             '' as string,
+            { persist: true },
             {
                 setSearchQuery: (_, { query }) => query,
                 applyViewFilters: (state, { filters }) => filters.search ?? state,
@@ -182,6 +538,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 clearActiveView: () => null,
             },
         ],
+        dateRangeBeforeView: [
+            null as { dateFrom: string | null; dateTo: string | null } | null,
+            { persist: true },
+            {
+                setDateRangeBeforeView: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                // A manual date pick is the user's new preference, so the snapshot is obsolete
+                setDateRange: () => null,
+            },
+        ],
         bulkUpdating: [
             false,
             {
@@ -198,6 +563,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
     }),
     selectors({
+        aiEnabled: [
+            () => [teamLogic.selectors.currentTeam],
+            (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
+        ],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -215,13 +584,54 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return tickets.filter((t) => idSet.has(t.id))
             },
         ],
+        assigneeFilterEntries: [
+            (s) => [s.assigneeFilter],
+            (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
+        ],
+        hasActiveFilters: [
+            (s) => [
+                s.statusFilter,
+                s.priorityFilter,
+                s.channelFilter,
+                s.slaFilter,
+                s.aiTriageResultFilter,
+                s.assigneeFilterEntries,
+                s.tagsFilter,
+                s.tagsExcludeFilter,
+                s.dateFrom,
+                s.dateTo,
+            ],
+            (
+                status: TicketStatus[],
+                priority: TicketPriority[],
+                channel: TicketChannel | 'all',
+                sla: TicketSlaState | 'all',
+                aiTriageResult: AITriageFilterValue[],
+                assignee: AssigneeFilterEntry[],
+                tags: string[],
+                tagsExclude: string[],
+                dateFrom: string | null,
+                dateTo: string | null
+            ): boolean =>
+                status.length > 0 ||
+                priority.length > 0 ||
+                channel !== 'all' ||
+                sla !== 'all' ||
+                aiTriageResult.length > 0 ||
+                assignee.length > 0 ||
+                tags.length > 0 ||
+                tagsExclude.length > 0 ||
+                dateFrom !== null ||
+                dateTo !== null,
+        ],
         currentFilters: [
             (s) => [
                 s.statusFilter,
                 s.priorityFilter,
                 s.channelFilter,
                 s.slaFilter,
-                s.assigneeFilter,
+                s.aiTriageResultFilter,
+                s.assigneeFilterEntries,
                 s.tagsFilter,
                 s.tagsMatch,
                 s.tagsExcludeFilter,
@@ -235,7 +645,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority: TicketPriority[],
                 channel: TicketChannel | 'all',
                 sla: TicketSlaState | 'all',
-                assignee: AssigneeFilterValue,
+                aiTriageResult: AITriageFilterValue[],
+                assignee: AssigneeFilterEntry[],
                 tags: string[],
                 tagsMatch: TicketTagsMatch,
                 tagsExclude: string[],
@@ -248,6 +659,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority,
                 channel,
                 sla,
+                aiTriageResult,
                 assignee,
                 tags,
                 tagsMatch,
@@ -259,7 +671,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
@@ -274,18 +686,19 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.priorityFilter.length > 0) {
                 params.priority = values.priorityFilter.join(',')
             }
+            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+                params.ai_triage_result = values.aiTriageResultFilter.join(',')
+            }
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
             }
             if (values.slaFilter !== 'all') {
                 params.sla = values.slaFilter
             }
-            if (values.assigneeFilter !== 'all') {
-                if (values.assigneeFilter === 'unassigned') {
-                    params.assignee = 'unassigned'
-                } else if (values.assigneeFilter && typeof values.assigneeFilter === 'object') {
-                    params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
-                }
+            if (values.assigneeFilterEntries.length > 0) {
+                params.assignee = values.assigneeFilterEntries
+                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
+                    .join(',')
             }
             if (values.tagsFilter.length > 0) {
                 params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
@@ -318,6 +731,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: () => {
             actions.setCurrentPage(1)
         },
+        clearActiveView: () => {
+            // Once detached there's no view to fall back to, so a later param-less
+            // navigation shouldn't be treated as "leaving a saved view" and reset filters.
+            cache.latestViewShortId = null
+        },
+        applyUrlFilters: ({ filters }) => {
+            cache.applyingUrlFilters = true
+            cache.latestViewShortId = null
+            try {
+                actions.clearActiveView()
+                actions.applyViewFilters({
+                    ...filters,
+                    ...(values.dateRangeBeforeView ?? { dateFrom: values.dateFrom, dateTo: values.dateTo }),
+                })
+            } finally {
+                cache.applyingUrlFilters = false
+            }
+        },
         setCurrentPage: () => {
             actions.loadTickets()
         },
@@ -338,6 +769,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         setSlaFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setAiTriageResultFilter: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
@@ -365,18 +800,61 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
-        setActiveView: ({ view }) => {
-            if (view) {
-                const { searchParams } = router.values
-                router.actions.replace(router.values.location.pathname, { ...searchParams, view: view.short_id })
+        applyView: ({ view }) => {
+            // Snapshot the user's own date selection the first time a view overwrites it.
+            // The snapshot survives view switches and detaches (a detached view's dates
+            // remain applied and persisted, so the snapshot is the only copy of the
+            // user's preference) and is invalidated only by a manual date pick.
+            if (!values.dateRangeBeforeView) {
+                actions.setDateRangeBeforeView(values.dateFrom, values.dateTo)
+            }
+            actions.applyViewFilters(view.filters || {})
+            actions.setActiveView(view)
+        },
+        loadSavedView: async ({ shortId }) => {
+            // Track the view the URL currently names. Rapidly switching views leaves
+            // several requests in flight; only the latest one may touch state, so a
+            // slow earlier response can't clobber the view the user actually landed on.
+            cache.latestViewShortId = shortId
+            const inFlight: Set<string> = (cache.inFlightViewShortIds ??= new Set())
+            // De-dupe the concurrent afterMount + urlToAction mount triggers for the same view.
+            if (inFlight.has(shortId)) {
+                return
+            }
+            inFlight.add(shortId)
+            const teamId = teamLogic.values.currentTeamId
+            try {
+                const view = (await conversationsViewsRetrieve(String(teamId), shortId)) as unknown as SavedTicketView
+                if (cache.latestViewShortId === shortId) {
+                    actions.applyView(view)
+                }
+            } catch {
+                if (cache.latestViewShortId === shortId) {
+                    lemonToast.error('Failed to load saved view')
+                    actions.applyUrlFilters(DEFAULT_TICKET_FILTERS)
+                }
+            } finally {
+                inFlight.delete(shortId)
             }
         },
-        clearActiveView: () => {
-            const { searchParams } = router.values
-            if (searchParams.view) {
-                const { view: _, ...rest } = searchParams
-                router.actions.replace(router.values.location.pathname, rest)
-            }
+        resetFilters: () => {
+            const dateRangeBeforeView = values.dateRangeBeforeView
+            actions.clearActiveView()
+            actions.applyViewFilters({
+                ...DEFAULT_TICKET_FILTERS,
+                ...(dateRangeBeforeView ?? { dateFrom: null, dateTo: null }),
+            })
+        },
+        clearFiltersKeepingSearch: () => {
+            // Reset every filter to its default but keep the current search text, so the
+            // user can rerun the same search unconstrained (date range included → all time).
+            actions.clearActiveView()
+            actions.applyViewFilters({
+                ...DEFAULT_TICKET_FILTERS,
+                search: values.searchQuery,
+                dateFrom: null,
+                dateTo: null,
+            })
         },
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
@@ -392,22 +870,109 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    actionToUrl(({ values, props, cache }) => {
+        const buildUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
+            if (cache.applyingUrlFilters) {
+                return
+            }
+            const searchParams = { ...router.values.searchParams }
+            // Embedded instances (e.g. the person side panel) must never touch the page URL.
+            if (props.distinctIds?.length) {
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            }
+            for (const paramKey of FILTER_URL_PARAM_KEYS) {
+                delete searchParams[paramKey]
+            }
+            delete searchParams.search
+            delete searchParams.view
+            if (values.activeView) {
+                // A saved view is a compact stand-in for its filters.
+                searchParams.view = values.activeView.short_id
+            } else {
+                Object.assign(searchParams, filtersToUrlParams(values.currentFilters))
+            }
+            // Only URL changes we didn't originate should re-apply filters. Flag our own
+            // writes so urlToAction skips them; re-applying a URL we just wrote resets any
+            // state absent from it — e.g. the sort order while detaching a saved view.
+            if (!objectsEqual(searchParams, router.values.searchParams)) {
+                cache.selfNavigating = true
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        }
+        return {
+            setStatusFilter: buildUrl,
+            setPriorityFilter: buildUrl,
+            setChannelFilter: buildUrl,
+            setSlaFilter: buildUrl,
+            setAiTriageResultFilter: buildUrl,
+            setAssigneeFilter: buildUrl,
+            setTagsFilter: buildUrl,
+            setTagsMatch: buildUrl,
+            setTagsExcludeFilter: buildUrl,
+            setSorting: buildUrl,
+            setSearchQuery: buildUrl,
+            applyViewFilters: buildUrl,
+            applyUrlFilters: buildUrl,
+            setActiveView: buildUrl,
+            clearActiveView: buildUrl,
+        }
+    }),
+    urlToAction(({ actions, values, props, cache }) => ({
+        '/support/tickets': (_, searchParams) => {
+            if (props.distinctIds?.length) {
+                return
+            }
+            // A URL change we wrote ourselves already matches state — re-applying it would
+            // clobber filters not encoded in the URL. External navigations don't set this.
+            if (cache.selfNavigating) {
+                cache.selfNavigating = false
+                return
+            }
+            if (searchParams.search !== undefined) {
+                const sanitizedSearchParams = { ...searchParams }
+                delete sanitizedSearchParams.search
+                router.actions.replace(router.values.location.pathname, sanitizedSearchParams, router.values.hashParams)
+                return
+            }
+            if (searchParams.view) {
+                if (values.activeView?.short_id !== searchParams.view) {
+                    actions.loadSavedView(String(searchParams.view))
+                }
+                return
+            }
+            const leavingSavedView = !!values.activeView || !!cache.latestViewShortId
+            if (
+                leavingSavedView ||
+                (hasFilterParams(searchParams) && !urlFiltersMatchState(searchParams, values.currentFilters))
+            ) {
+                actions.applyUrlFilters(urlParamsToFilters(searchParams))
+            }
+        },
+    })),
+    afterMount(({ actions, values, props }) => {
+        const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
-        const viewShortId = searchParams.view
-        if (viewShortId) {
-            const teamId = teamLogic.values.currentTeamId
-            // nosemgrep: prefer-codegen-api
-            api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
-                .then((view: SavedTicketView) => {
-                    actions.applyViewFilters(view.filters || {})
-                    actions.setActiveView(view)
-                })
-                .catch(() => {
-                    lemonToast.error('Failed to load saved view')
-                    actions.loadTickets()
-                })
+        if (!embedded && searchParams.view) {
+            actions.loadSavedView(String(searchParams.view))
             return
+        }
+        if (!embedded) {
+            if (hasFilterParams(searchParams)) {
+                if (!urlFiltersMatchState(searchParams, values.currentFilters)) {
+                    // A shared/bookmarked link overrides the persisted selection.
+                    actions.applyUrlFilters(urlParamsToFilters(searchParams))
+                    return
+                }
+            } else {
+                // No filters in the URL — reflect the persisted selection so the page is shareable on open.
+                const currentFilterParams = filtersToUrlParams(values.currentFilters)
+                if (Object.keys(currentFilterParams).length > 0) {
+                    router.actions.replace(router.values.location.pathname, {
+                        ...searchParams,
+                        ...currentFilterParams,
+                    })
+                }
+            }
         }
         actions.loadTickets()
     }),

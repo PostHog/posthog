@@ -3,14 +3,15 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
@@ -94,7 +95,8 @@ describe('EmailService', () => {
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
         )
         mockFetch.mockClear()
     })
@@ -109,7 +111,8 @@ describe('EmailService', () => {
                 new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
                 hub.SITE_URL,
-                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -332,7 +335,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         const mailDevAPI = new MailDevAPI()
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -388,7 +391,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -457,6 +460,36 @@ describe('EmailService', () => {
 
             const testSend = await service.executeSendEmail(invocation, true)
             expect(testSend.metrics).toEqual([])
+        })
+
+        describe('suppression enforcement at send time', () => {
+            // Guards the "email hog function destination bypasses shouldSkipAction, so suppression
+            // isn't enforced on that path" gap. executeSendEmail is the single choke point every
+            // outbound send goes through — the suppression check has to live here so it can't be
+            // skipped just by choosing a different upstream code path.
+            it('does not call SES when the recipient is on the suppression list', async () => {
+                const isSuppressedSpy = jest
+                    .spyOn(service['emailSuppressionService'], 'isSuppressed')
+                    .mockResolvedValue(true)
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(isSuppressedSpy).toHaveBeenCalled()
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_suppressed')
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
+            })
+
+            it('calls SES when the recipient is not suppressed', async () => {
+                jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            })
         })
 
         it('should include cc addresses in SES destination', async () => {

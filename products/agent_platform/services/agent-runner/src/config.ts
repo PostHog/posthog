@@ -19,6 +19,7 @@ import {
     PlatformConfigSchema,
     requiredInProd,
     requiredInProdUnsetInDev,
+    WEB_SEARCH_PROVIDER_NAMES,
 } from '@posthog/agent-shared'
 
 // Dev SeaweedFS defaults — the PostHog dev stack pre-creates the `posthog`
@@ -189,7 +190,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            "Dev-only bearer attached to `kind: external` MCP requests when the ref has no `auth.integration` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via integrations or `kind: agent`."
+            "Dev-only bearer attached to MCP requests when the ref has no `auth.provider` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via `auth.provider` or a bring-your-own-token secret."
         ),
     sandboxBackend: z
         .enum(['docker', 'modal'])
@@ -238,6 +239,59 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),
+    routingMode: z
+        .enum(['path', 'domain'])
+        .default('path')
+        .describe(
+            'Ingress routing mode; must match the ingress `ROUTING_MODE`. In `domain` mode the OAuth link callback host is the agent‑specific `<slug><domainSuffix>`; `path` (dev) uses `linkRedirectBaseUrl`.'
+        ),
+    domainSuffix: z
+        .string()
+        .optional()
+        .describe(
+            'Domain suffix for `domain` mode (e.g. `.agents.us.posthog.com`); mirrors the ingress `DOMAIN_SUFFIX`. Builds the per-agent OAuth link callback host (`https://<slug><domainSuffix>/link/<provider>/callback`).'
+        ),
+    linkRedirectBaseUrl: z
+        .string()
+        .url()
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'http://localhost:3030' : undefined))
+        .describe(
+            'Flat ingress base URL used to build OAuth link callback URIs (`<base>/link/<provider>/callback`) in `path` mode (dev). Dev defaults to the local ingress. In `domain` mode (prod) the callback host is derived from the agent slug + `domainSuffix`, so this is unused.'
+        ),
+    webSearchProvider: z
+        .enum(WEB_SEARCH_PROVIDER_NAMES)
+        .optional()
+        .describe(
+            'Primary `@posthog/web-search` provider id (`exa` | `tavily` | `brave`), tried first. A typo fails fast at config load rather than silently disabling the tool. Unset → the highest-priority keyed provider acts as primary. With no provider key set at all the tool is gated out of every session.'
+        ),
+    webSearchFallbacks: z
+        .string()
+        .optional()
+        .refine(
+            (v) => {
+                if (!v) {
+                    return true
+                }
+                const tokens = v
+                    .split(',')
+                    .map((s) => s.trim().toLowerCase())
+                    .filter(Boolean)
+                return tokens.every((t) => (WEB_SEARCH_PROVIDER_NAMES as readonly string[]).includes(t))
+            },
+            {
+                message: `webSearchFallbacks must be a comma-separated list of: ${WEB_SEARCH_PROVIDER_NAMES.join(', ')}`,
+            }
+        )
+        .describe(
+            'Comma-separated ordered fallback provider ids tried after the primary on error. A typo fails fast at config load (matches the primary). Empty → every other keyed provider is a last-resort fallback in natural order (exa, tavily, brave).'
+        ),
+    exaApiKey: z.string().optional().describe('Exa search API key. Enables the `exa` web-search provider.'),
+    tavilyApiKey: z.string().optional().describe('Tavily search API key. Enables the `tavily` web-search provider.'),
+    braveApiKey: z
+        .string()
+        .optional()
+        .describe('Brave Search API subscription token. Enables the `brave` web-search provider.'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -277,6 +331,14 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
+    ROUTING_MODE: 'routingMode',
+    DOMAIN_SUFFIX: 'domainSuffix',
+    AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
+    AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
+    AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',
+    EXA_API_KEY: 'exaApiKey',
+    TAVILY_API_KEY: 'tavilyApiKey',
+    BRAVE_API_KEY: 'braveApiKey',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

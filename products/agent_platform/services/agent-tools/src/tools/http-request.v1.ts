@@ -28,6 +28,15 @@
 
 import { defineNativeTool, secretHostMatches, type ToolContext, Type } from '@posthog/agent-shared'
 
+import {
+    ABSOLUTE_MAX_RESPONSE_BYTES,
+    ABSOLUTE_MAX_TIMEOUT_MS,
+    DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_TIMEOUT_MS,
+    fetchWithTimeout,
+    pickHeaders,
+    readCappedBody,
+} from './http-shared'
 import { parseFetchableUrl } from './http-url'
 
 const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
@@ -155,68 +164,13 @@ function serializeBody(
     return { body: substituteSecrets(JSON.stringify(body), host, ctx), headers: finalHeaders }
 }
 
-const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000
-const ABSOLUTE_MAX_RESPONSE_BYTES = 5_000_000
-const DEFAULT_TIMEOUT_MS = 15_000
-const ABSOLUTE_MAX_TIMEOUT_MS = 60_000
-
-/**
- * Read the response body up to `maxBytes`, streaming so an oversized or
- * highly-compressed response is never fully materialized before truncation.
- * Stops at the cap and cancels the stream, which tears down the underlying
- * connection so we don't keep pulling bytes we'll throw away. Falls back to
- * `res.text()` only when the response exposes no readable stream (e.g. an
- * empty body or a non-streaming test mock), still capping the result.
- */
-async function readCappedBody(
-    res: Response,
-    maxBytes: number
-): Promise<{ body: string; bytesRead: number; truncated: boolean }> {
-    const stream = res.body
-    if (!stream) {
-        const text = await res.text()
-        const bytes = new TextEncoder().encode(text)
-        if (bytes.byteLength <= maxBytes) {
-            return { body: text, bytesRead: bytes.byteLength, truncated: false }
-        }
-        return { body: new TextDecoder().decode(bytes.subarray(0, maxBytes)), bytesRead: maxBytes, truncated: true }
-    }
-
-    const reader = stream.getReader()
-    const chunks: Uint8Array[] = []
-    let total = 0
-    let truncated = false
-    try {
-        while (total < maxBytes) {
-            const { done, value } = await reader.read()
-            if (done) {
-                break
-            }
-            if (total + value.byteLength > maxBytes) {
-                chunks.push(value.subarray(0, maxBytes - total))
-                total = maxBytes
-                truncated = true
-                break
-            }
-            chunks.push(value)
-            total += value.byteLength
-        }
-    } finally {
-        // Cancel rather than drain: releases the socket so we never pull past the cap.
-        await reader.cancel().catch(() => {})
-    }
-
-    const buf = new Uint8Array(total)
-    let offset = 0
-    for (const chunk of chunks) {
-        buf.set(chunk, offset)
-        offset += chunk.byteLength
-    }
-    return { body: new TextDecoder().decode(buf), bytesRead: total, truncated }
-}
+const HEADER_ALLOWLIST = new Set(['content-type', 'content-length', 'location', 'retry-after', 'date'])
 
 export const httpRequestV1 = defineNativeTool({
     id: '@posthog/http-request',
+    // Proxy-bound (smokescreen blocks internal SSRF) and author-opt-in — gating
+    // every outbound call would make integration automation unusable, so allow.
+    approval: 'allow',
     description: [
         'Make an arbitrary HTTP request (GET/POST/PUT/PATCH/DELETE) against a URL.',
         'Use this for any service where the platform does not ship a typed tool —',
@@ -224,8 +178,6 @@ export const httpRequestV1 = defineNativeTool({
         'secrets declared in `spec.secrets` as `${NAME}` inside url, headers, or',
         'body; the runner substitutes the plaintext value before the request goes',
         "out, so the token never appears in the model's tool-call history.",
-        'For Slack specifically: POST to `https://slack.com/api/<method>` with',
-        '`Authorization: Bearer ${SLACK_BOT_TOKEN}` and a JSON body.',
     ].join(' '),
     args: Type.Object({
         url: Type.String({
@@ -255,7 +207,7 @@ export const httpRequestV1 = defineNativeTool({
         body: Type.Optional(
             Type.Union([Type.String(), Type.Record(Type.String(), Type.Unknown())], {
                 description:
-                    'Request body. Strings are sent verbatim; objects are JSON-encoded and Content-Type defaults to application/json. `${NAME}` placeholders work inside either form.',
+                    'Request body. Strings are sent verbatim; objects are JSON-encoded and Content-Type defaults to application/json. For form-encoded (or any non-JSON) APIs, pass a pre-encoded string body and set Content-Type yourself. `${NAME}` placeholders work inside either form.',
             })
         ),
         timeout_ms: Type.Optional(
@@ -282,7 +234,7 @@ export const httpRequestV1 = defineNativeTool({
         url: Type.String(),
         truncated: Type.Boolean({ description: 'True if the response body was clipped to max_response_bytes.' }),
     }),
-    requires: { integrations: [], scopes: ['web:fetch'] },
+    requires: {},
     cost_hint: 'medium',
     async run(args, ctx) {
         // URL is substituted first so we know the FINAL host; every secret
@@ -297,38 +249,10 @@ export const httpRequestV1 = defineNativeTool({
         const maxBytes = args.max_response_bytes ?? DEFAULT_MAX_RESPONSE_BYTES
         const timeoutMs = args.timeout_ms ?? DEFAULT_TIMEOUT_MS
 
-        const controller = new AbortController()
-        const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
-
-        let res: Response
-        try {
-            res = await ctx.http.fetch(url, {
-                method,
-                headers: finalHeaders,
-                body,
-                signal: controller.signal,
-            })
-        } catch (err) {
-            const e = err as Error & { name?: string }
-            if (e.name === 'AbortError') {
-                throw new Error(`http_request_timeout: ${timeoutMs}ms`)
-            }
-            throw new Error(`http_request_failed: ${e.message ?? 'unknown'}`)
-        } finally {
-            clearTimeout(abortTimer)
-        }
+        const res = await fetchWithTimeout(ctx, url, { method, headers: finalHeaders, body }, timeoutMs, 'http_request')
 
         const { body: bodyOut, bytesRead, truncated } = await readCappedBody(res, maxBytes)
-
-        // Surface a small fixed set of useful response headers; sending every
-        // header back inflates the context for no model-side payoff.
-        const HEADER_ALLOWLIST = new Set(['content-type', 'content-length', 'location', 'retry-after', 'date'])
-        const headersOut: Record<string, string> = {}
-        for (const [k, v] of res.headers.entries()) {
-            if (HEADER_ALLOWLIST.has(k.toLowerCase())) {
-                headersOut[k] = v
-            }
-        }
+        const headersOut = pickHeaders(res, HEADER_ALLOWLIST)
 
         ctx.log('info', 'http.request.completed', {
             method,

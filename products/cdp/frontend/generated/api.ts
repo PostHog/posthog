@@ -19,6 +19,8 @@ import type {
     HogFunctionsLogsRetrieveParams,
     HogFunctionsMetricsRetrieveParams,
     HogFunctionsMetricsTotalsRetrieveParams,
+    HogInvocationRerunRequestApi,
+    HogInvocationRerunResponseApi,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
     PaginatedPluginLogEntryListApi,
@@ -325,6 +327,44 @@ export const hogFunctionsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFunctionsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/rerun/`
+}
+
+/**
+ * Rerun past invocations of this hog function from their stored payloads.
+ *
+ * The CDP worker reads matching rows from the `hog_invocation_results`
+ * ClickHouse table, rehydrates the invocation from the stored
+ * `invocation_globals`, and re-enqueues onto cyclotron. Each rerun
+ * run reuses the original `invocation_id` with `is_retry=1` set on the
+ * new lifecycle row so the UI can surface that it was a rerun.
+ *
+ * Only types a cyclotron worker executes (`TYPES_THAT_CAN_RERUN`) can be
+ * rerun: rerun re-enqueues onto the cyclotron hog queue, and other types
+ * run elsewhere (source webhooks inline in the cdp-api HTTP handler,
+ * transformations during ingestion, `site_*` transpiled to client-side
+ * JS). A re-enqueued invocation of one of those would never drain and
+ * wedges the partition, so a rerun of a non-rerunnable type is rejected
+ * with a 400 here.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_function:write`.
+ */
+export const hogFunctionsRerunCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationRerunRequestApi: HogInvocationRerunRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationRerunResponseApi> => {
+    return apiMutator<HogInvocationRerunResponseApi>(getHogFunctionsRerunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationRerunRequestApi),
     })
 }
 

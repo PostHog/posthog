@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any
 
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
@@ -12,9 +13,9 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
     serializers,
@@ -22,6 +23,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
+from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -30,22 +32,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
-    ComposeTicketBurstThrottle,
-    ComposeTicketSustainedThrottle,
-)
+from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
 
-from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -66,11 +63,7 @@ from ee.models.rbac.role import Role
 logger = structlog.get_logger(__name__)
 
 
-class SuggestReplyResponseSerializer(serializers.Serializer):
-    suggestion = serializers.CharField()
-
-
-class SuggestReplyErrorSerializer(serializers.Serializer):
+class TicketErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
     error_type = serializers.CharField(required=False)
 
@@ -124,6 +117,16 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class AiFeedbackRequestSerializer(serializers.Serializer):
+    """Payload for recording reviewer feedback on an AI reply."""
+
+    message_id = serializers.CharField(max_length=200, help_text="ID of the AI message being rated.")
+    rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
+    feedback_text = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
 
 
 class ComposeTicketSerializer(serializers.Serializer):
@@ -246,8 +249,10 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority",
             "assignee",
             "anonymous_traits",
+            "identity_verified",
             "ai_resolved",
             "escalation_reason",
+            "ai_triage",
             "created_at",
             "updated_at",
             "message_count",
@@ -268,6 +273,9 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
+            "organization_id_source",
             "person",
             "tags",
         ]
@@ -295,13 +303,37 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
+            "organization_id_source",
             "person",
+            "ai_triage",
+            "identity_verified",
         ]
         extra_kwargs = {
+            "identity_verified": {
+                "help_text": (
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
+                    "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
+                )
+            },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
-            "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "organization_id": {
+                "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "organization_id_source": {
+                "help_text": "How organization_id was resolved: 'person' (from the requester's identity) or "
+                "'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). "
+                "Null when organization_id is unset."
+            },
+            "ai_triage": {
+                "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
+            },
         }
 
     def get_email_to(self, obj: Ticket) -> str | None:
@@ -328,14 +360,13 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
+    # "create" stays listed so a ticket:write token reaches the create() override below and
+    # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
-    posthog_feature_flag = {
-        "product-support-ai-suggestion": ["suggest_reply"],
-    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -368,23 +399,34 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
 
-        assignee = self.request.query_params.get("assignee")
-        if assignee:
-            if assignee.lower() == "unassigned":
-                queryset = queryset.filter(assignment__isnull=True)
-            elif assignee.startswith("user:"):
-                try:
-                    user_id = int(assignee[5:])
-                    queryset = queryset.filter(assignment__user_id=user_id)
-                except ValueError:
-                    pass
-            elif assignee.startswith("role:"):
-                try:
-                    role_id = uuid.UUID(assignee[5:])
-                except (ValueError, AttributeError):
-                    pass
-                else:
-                    queryset = queryset.filter(assignment__role_id=role_id)
+        assignee_param = self.request.query_params.get("assignee")
+        if assignee_param:
+            user_ids: list[int] = []
+            role_ids: list[uuid.UUID] = []
+            include_unassigned = False
+            for raw_entry in assignee_param.split(",")[:100]:
+                entry = raw_entry.strip()
+                if entry.lower() == "unassigned":
+                    include_unassigned = True
+                elif entry.startswith("user:"):
+                    try:
+                        user_ids.append(int(entry[5:]))
+                    except ValueError:
+                        pass
+                elif entry.startswith("role:"):
+                    try:
+                        role_ids.append(uuid.UUID(entry[5:]))
+                    except (ValueError, AttributeError):
+                        pass
+            assignee_q = Q()
+            if user_ids:
+                assignee_q |= Q(assignment__user_id__in=user_ids)
+            if role_ids:
+                assignee_q |= Q(assignment__role_id__in=role_ids)
+            if include_unassigned:
+                assignee_q |= Q(assignment__isnull=True)
+            if assignee_q:
+                queryset = queryset.filter(assignee_q)
 
         date_from = self.request.query_params.get("date_from")
         if date_from and date_from != "all":
@@ -398,16 +440,39 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
+        # Related-ticket matching: a ticket belongs to the same customer if it shares one of the
+        # person's merged distinct_ids OR the same email address. Email widens the match to tickets
+        # whose distinct_id was never merged into the person (a separate anonymous session, or an
+        # email-only ticket). The two params OR together when both are supplied.
+        match_q = Q()
+
         distinct_ids_param = self.request.query_params.get("distinct_ids")
         if distinct_ids_param:
             ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
             if ids:
-                queryset = queryset.filter(distinct_id__in=ids)
+                match_q |= Q(distinct_id__in=ids)
+
+        emails_param = self.request.query_params.get("emails")
+        if emails_param:
+            emails = [e.strip() for e in emails_param.split(",") if e.strip()][:100]
+            email_q = Q()
+            for email in emails:
+                email_q |= Q(email_from__iexact=email)
+            if email_q:
+                match_q |= email_q
+
+        if match_q:
+            queryset = queryset.filter(match_q)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            if search.isdigit():
-                queryset = queryset.filter(ticket_number=int(search))
+            # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
+            # treat "#1234" the same as "1234" and match the ticket number exactly.
+            # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
+            # that int() then rejects, which would 500 the request.
+            ticket_number_search = search[1:] if search.startswith("#") else search
+            if ticket_number_search.isascii() and ticket_number_search.isdigit():
+                queryset = queryset.filter(ticket_number=int(ticket_number_search))
             else:
                 # EXISTS subquery: matches any comment in the ticket's conversation.
                 # Uses the (team_id, scope, item_id) composite index on Comment to
@@ -477,6 +542,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             except json.JSONDecodeError:
                 pass
 
+        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
+        if ai_triage_result_param:
+            valid_results = {
+                "persisted",
+                "escalated_with_best",
+                "escalated_no_reply",
+                "skipped_unactionable",
+                "blocked_unsafe",
+                "blocked_unsafe_reply",
+                "in_progress",
+            }
+            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
+            if results:
+                q = Q()
+                normal_results = results - {"in_progress"}
+                if normal_results:
+                    q |= Q(ai_triage__result__in=normal_results)
+                if "in_progress" in results:
+                    q |= Q(ai_triage__status="in_progress")
+                queryset = queryset.filter(q)
+
         allowed_orderings = {
             "updated_at",
             "-updated_at",
@@ -529,6 +615,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
+
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        # Tickets are created through their channel (widget, email, Slack, etc.) or the
+        # `compose` action, all of which assign team + ticket_number. The bare collection
+        # POST can't set those and is not a supported intake path — reject it explicitly
+        # instead of 500ing on the NOT NULL violation.
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating tickets via this endpoint is not supported. "
+            "Use posthog.conversations.sendMessage() from the JavaScript SDK. "
+            "See https://posthog.com/docs/support/javascript-api for details.",
+        )
 
     def _attach_persons_to_tickets(self, tickets: Sequence[Ticket]) -> None:
         """Batch-fetch persons by distinct_id and attach to tickets."""
@@ -585,7 +684,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Filter by priority. Accepts a single value or a comma-separated list "
-                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`."
+                    "(e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`."
                 ),
             ),
             OpenApiParameter(
@@ -607,8 +706,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Filter by assignee. Use `unassigned` for tickets with no assignee, "
-                    "`user:<user_id>` for a specific user, or `role:<role_uuid>` for a role."
+                    "Filter by assignee. Accepts a single value or a comma-separated list "
+                    "(matches any, max 100 entries). Each entry is `unassigned` (no assignee), "
+                    "`user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`."
                 ),
             ),
             OpenApiParameter(
@@ -631,6 +731,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            ),
+            OpenApiParameter(
+                "emails",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of email addresses to filter by, matched case-insensitively "
+                    "against `email_from` (max 100). When combined with `distinct_ids`, tickets matching "
+                    "either the distinct_ids or the emails are returned (OR)."
+                ),
             ),
             OpenApiParameter(
                 "search",
@@ -773,7 +883,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self.organization,
                 request.user,
                 self.team_id,
-                is_impersonated_session(request),
+                is_impersonated(request),
             )
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
@@ -851,7 +961,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     organization_id=self.organization.id,
                     team_id=self.team_id,
                     user=request.user,
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(request),
                     item_id=str(instance.id),
                     scope="Ticket",
                     activity="updated",
@@ -900,7 +1010,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=str(ticket.id),
                 scope="Ticket",
                 activity="updated",
@@ -970,57 +1080,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(response=SuggestReplyResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            403: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            500: OpenApiResponse(response=SuggestReplyErrorSerializer),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["POST"],
-        url_path="suggest_reply",
-        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
-    )
-    def suggest_reply_action(self, request, *args, **kwargs):
-        if not self.organization.is_ai_data_processing_approved:
-            return Response(
-                {"detail": "AI data processing is not approved for this organization"},
-                status=drf_status.HTTP_403_FORBIDDEN,
-            )
-
-        ticket = self.get_object()
-
-        try:
-            reply_text = suggest_reply(ticket, self.team, request.user)
-            return Response({"suggestion": reply_text})
-        except NoMessagesError:
-            return Response(
-                {"detail": "No messages in this ticket"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
-        except ValueError:
-            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id)})
-            return Response(
-                {
-                    "detail": "Failed to generate suggestion. Please try again.",
-                    "error_type": "validation_error",
-                },
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        except Exception as e:
-            logger.exception(
-                "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
-            )
-            capture_exception(e, {"ticket_id": str(ticket.id)})
-            return Response(
-                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
@@ -1088,13 +1147,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         item_context = comment.item_context or {}
         author_type = item_context.get("author_type", "customer")
 
+        # Per-message author identity (Slack/Teams/Zendesk store each comment's own
+        # author) takes precedence over the ticket-level requester, so a thread reply
+        # from a second participant doesn't show as the ticket owner.
+        context_author_name = (
+            item_context.get("author_name")
+            or item_context.get("author_email")
+            or item_context.get("slack_author_name")
+            or item_context.get("teams_author_name")
+            or item_context.get("teams_author_email")
+            or item_context.get("email_from_name")
+        )
+
         if comment.created_by:
             author_name = comment.created_by.first_name or comment.created_by.email
+        elif author_type == "AI":
+            author_name = "PostHog Assistant"
+        elif context_author_name:
+            author_name = context_author_name
         elif author_type == "customer":
             traits = ticket.anonymous_traits or {}
             author_name = traits.get("name") or traits.get("email") or "Customer"
-        elif author_type == "AI":
-            author_name = "PostHog Assistant"
         else:
             author_name = "Support"
 
@@ -1132,7 +1205,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not self.team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1158,10 +1231,57 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         )
 
     @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=AiFeedbackRequestSerializer,
+        responses={202: None},
+    )
+    @action(detail=True, methods=["post"])
+    def ai_feedback(self, request, *args, **kwargs):
+        """Record reviewer feedback on an AI reply, captured to the internal analytics project."""
+        ticket = self.get_object()
+        serializer = AiFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        ai_triage = ticket.ai_triage or {}
+        trace_id = ai_triage.get("ai_trace_id")
+        distinct_id = f"reviewer:{request.user.distinct_id}"
+
+        feedback_text = data.get("feedback_text", "").strip()
+
+        if feedback_text and data["rating"] == "bad":
+            feedback_properties: dict[str, Any] = {
+                "$ai_feedback_text": feedback_text,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                feedback_properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+        else:
+            properties: dict[str, Any] = {
+                "$ai_metric_name": "reviewer_quality",
+                "$ai_metric_value": 1 if data["rating"] == "good" else 0,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+
+        return Response(status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
         request=ComposeTicketSerializer,
         responses={
             201: OpenApiResponse(response=ComposeTicketResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
         },
     )
     @action(
@@ -1179,7 +1299,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         if not team.conversations_enabled:
             return Response(
-                {"detail": "Conversations is not enabled."},
+                {"detail": "Support is not enabled."},
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1234,6 +1354,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(
@@ -1297,7 +1420,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1308,6 +1433,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1332,6 +1458,13 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                 assignment_before.delete()
             serialized_assignment_after = None
 
+        # Callers pass the assignee whenever it's present in the payload (the ticket UI always
+        # sends the full form), so skip logging and the assignment event when nothing changed —
+        # otherwise every save writes "assigned to unassigned" and fires assignment-triggered
+        # workflows.
+        if serialized_assignment_before == serialized_assignment_after:
+            return
+
         log_activity(
             organization_id=organization.id,
             team_id=team_id,
@@ -1351,6 +1484,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

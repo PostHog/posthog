@@ -12,6 +12,7 @@ import csv
 import sys
 import json
 import shlex
+import base64
 import shutil
 import socket
 import functools
@@ -67,10 +68,18 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # parameters, so forwarding the region here breaks every resume instead of
 # suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
+DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
-# Key of the workspace metadata item the template publishes the region back as.
+
+# Immutable, create-time parameter consumed by `devbox:clone`: the EC2 instance
+# of the source devbox. The template images that instance server-side and boots
+# the new box from the capture, so the duplicate comes up with the source's full
+# disk state instead of a blank golden AMI. Empty everywhere else.
+CLONE_SOURCE_PARAMETER = "clone_source_instance_id"
+# Keys of the workspace metadata items the template publishes back.
 REGION_METADATA_KEY = "region"
+DISK_METADATA_KEY = "disk"
 # Workspace-name suffix per region. us-east-1 is the historical default and
 # carries no suffix, so existing workspace names stay unchanged. Non-default
 # regions append `-{suffix}` at the end of the name so that a single user can
@@ -1087,22 +1096,42 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def get_workspace_region(workspace: dict[str, Any]) -> str | None:
-    """Return the region a workspace lives in, or ``None`` when unknown.
+def _workspace_metadata_value(workspace: dict[str, Any], key: str) -> str | None:
+    """Return a ``coder_metadata`` item value the template publishes back.
 
-    The template publishes the region as a ``coder_metadata`` item (key
-    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
-    in the ``coder list`` payload. Returns ``None`` for boxes created before
-    the metadata item existed so callers can render their own placeholder.
+    Items surface under ``latest_build.resources[].metadata[]`` in the ``coder
+    list`` payload. Returns ``None`` when the key is absent (e.g. boxes created
+    before that item existed) so callers can decide on a fallback.
     """
-    resources = workspace.get("latest_build", {}).get("resources", [])
-    for resource in resources:
+    for resource in workspace.get("latest_build", {}).get("resources", []):
         for item in resource.get("metadata", []):
-            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+            if isinstance(item, dict) and item.get("key") == key:
                 value = item.get("value")
                 if isinstance(value, str) and value:
                     return value
     return None
+
+
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``). Returns ``None`` for boxes created before the metadata item
+    existed so callers can render their own placeholder.
+    """
+    return _workspace_metadata_value(workspace, REGION_METADATA_KEY)
+
+
+def get_workspace_disk_size(workspace: dict[str, Any]) -> int | None:
+    """Return a workspace's root disk size in GiB, or ``None`` when unknown.
+
+    The template publishes it as a ``coder_metadata`` item (key ``disk``, value
+    like ``"100 GiB"``). A clone must request at least the source's size or the
+    instance fails to launch from the captured AMI (``InvalidBlockDeviceMapping``).
+    """
+    value = _workspace_metadata_value(workspace, DISK_METADATA_KEY)
+    match = re.search(r"^(\d+)\s*GiB$", value.strip()) if value else None
+    return int(match.group(1)) if match else None
 
 
 def _list_template_presets(template: str) -> list[str]:
@@ -1204,7 +1233,7 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        "disk_size": str(disk_size),
+        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
@@ -1230,6 +1259,117 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+# A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
+# box fails fast instead of hanging the clone.
+INSTANCE_ID_TIMEOUT = 60
+
+_INSTANCE_ID_RE = re.compile(r"\bi-[0-9a-f]{8,17}\b")
+
+# Runs ON the source devbox (over its ssh alias) and prints the box's own EC2
+# instance id from IMDSv2. A read-only metadata lookup -- no AWS credentials and
+# no imaging permissions. The clone template captures the AMI from this id
+# server-side, after verifying the instance carries the requester's owner tag.
+_INSTANCE_ID_SCRIPT = """#!/usr/bin/env bash
+set -euo pipefail
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id
+"""
+
+
+def get_source_instance_id(workspace_name: str, *, timeout: int = INSTANCE_ID_TIMEOUT) -> str:
+    """Return the source devbox's own EC2 instance id (``i-...``), read from IMDS.
+
+    A read-only metadata lookup over the box's ssh alias -- hogli makes no AWS
+    calls and needs no imaging permissions. The clone template captures the AMI
+    from this id server-side, after verifying the instance carries the
+    requester's ownership tag.
+    """
+    if not coder_ssh_alias_configured(workspace_name):
+        _fail(f"ssh alias for '{workspace_name}' is not configured. {RUNTIME_SETUP_HINT}")
+
+    encoded = base64.b64encode(_INSTANCE_ID_SCRIPT.encode()).decode()
+    try:
+        result = subprocess.run(
+            ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        _fail(f"Timed out after {timeout}s reading the source devbox's instance id.")
+
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        _fail("Failed to read the source devbox's instance id over ssh.")
+
+    match = _INSTANCE_ID_RE.search(result.stdout)
+    if match is None:
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        _fail("Could not determine the source devbox's EC2 instance id.")
+    return match.group(0)
+
+
+def clone_workspace(
+    target: str,
+    *,
+    source_instance_id: str,
+    disk_size: int,
+    region: str,
+    template: str = DEFAULT_TEMPLATE,
+    verbose: bool = False,
+) -> None:
+    """Create ``target`` as a clone via server-side AMI capture.
+
+    ``clone_source_instance_id`` tells the template which instance to image; the
+    template verifies ownership and captures the AMI itself, so hogli passes
+    only the id. ``disk_size`` must be at least the source's or the clone fails
+    to launch from the captured snapshot; ``region`` must match the source's
+    (the AMI is region-scoped). Every other parameter falls back to the
+    template default (``--use-parameter-defaults``), which resolves git identity
+    to the workspace owner -- the source's on-disk config rides in via the AMI.
+
+    ``--copy-parameters-from`` is deliberately NOT used: Coder resolves a copied
+    value ahead of an explicit ``--parameter``, so it silently overrides
+    ``clone_source_instance_id`` back to the source's empty value and boots a
+    blank golden box as a successful clone. This also skips the param-retry
+    shim, which would drop ``clone_source_instance_id`` on a template that
+    predates the clone change; that key is load-bearing, so we fail loudly.
+    """
+    # --preset none is required: newer Coder shows an interactive preset picker
+    # that --yes does not bypass, which would hang the build.
+    args = _append_parameter_flags(
+        [
+            "coder",
+            "create",
+            target,
+            "--template",
+            template,
+            "--preset",
+            NO_PRESET,
+            "--use-parameter-defaults",
+            "--yes",
+        ],
+        {
+            CLONE_SOURCE_PARAMETER: source_instance_id,
+            DISK_SIZE_PARAMETER: str(disk_size),
+            WORKSPACE_REGION_PARAMETER: region,
+        },
+    )
+    result = _run_build(args, verbose=verbose)
+    if result.returncode != 0:
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        missing = match.group(1) if match else None
+        if missing == CLONE_SOURCE_PARAMETER:
+            _fail(
+                f"This Coder template does not accept '{CLONE_SOURCE_PARAMETER}', so it cannot be "
+                "cloned. Deploy the cloud-infra devbox-clone template change first."
+            )
+        if missing is not None:
+            _fail(f"This Coder template does not accept the '{missing}' parameter.")
         raise SystemExit(result.returncode)
 
 

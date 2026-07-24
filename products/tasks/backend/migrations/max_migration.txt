@@ -1,1 +1,1 @@
-0039_codeprsnapshot_head_branch
+0071_alter_origin_product_mcp_analytics

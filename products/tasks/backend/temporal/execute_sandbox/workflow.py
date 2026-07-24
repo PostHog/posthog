@@ -11,24 +11,28 @@ is deleted in a later PR.
 
 import json
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Optional
 
 import temporalio
-import temporalio.exceptions
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
+    MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS,
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -79,6 +83,8 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     relay_sandbox_events,
 )
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
+    STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -95,7 +101,10 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
-from products.tasks.backend.temporal.process_task.credential_refresh import run_credential_refresh_loop
+from products.tasks.backend.temporal.process_task.credential_refresh import (
+    CredentialRefreshExitReason,
+    run_credential_refresh_loop,
+)
 from products.tasks.backend.temporal.utils import log_on_fail
 
 # Names of signals this workflow sends back to the TaskManagement parent. Kept
@@ -166,6 +175,11 @@ class PendingFollowup:
     artifact_ids: list[str]
     ack_id: str
     source: str = FOLLOWUP_SOURCE_USER  # FOLLOWUP_SOURCE_USER | FOLLOWUP_SOURCE_CI
+    actor_user_id: int | None = None
+    message_id: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
+    steer: bool = False
+    sequence: int = 0
 
 
 @dataclass
@@ -202,6 +216,34 @@ class ChildCompletionPayload:
 class SandboxEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
+    SANDBOX_GONE = "sandbox_gone"
+
+
+_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
+_PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+_PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY = "tasks-execute-sandbox-bounded-final-outbound-delivery"
+_PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
+    "ExternalWorkflowExecutionNotFound",
+    "NamespaceNotFound",
+}
+
+
+def _ordered_outbound_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ORDERED_OUTBOUND_DELIVERY)
+
+
+def _bounded_final_outbound_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_BOUNDED_FINAL_OUTBOUND_DELIVERY)
+
+
+def _parent_cannot_receive_signals(error: Exception) -> bool:
+    return (
+        isinstance(error, temporalio.exceptions.ApplicationError) and error.type in _PARENT_SIGNAL_TERMINAL_ERROR_TYPES
+    )
 
 
 @temporalio.workflow.defn(name="execute-sandbox")
@@ -240,10 +282,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
+        self._completion_error_type: Optional[str] = None
+        self._sandbox_gone: bool = False
 
         self._heartbeat_received: bool = False
         self._pending_followups: list[PendingFollowup] = []
+        self._next_followup_sequence: int = 0
         self._pending_outbound: list[OutboundSignal] = []
+        self._ordered_outbound_delivery: bool = True
+        self._parent_signal_delivery_closed: bool = False
+        self._active_followup_task: asyncio.Task[None] | None = None
 
         # Set in the `finally` block before we start emitting the terminal
         # completion signal. While true, signal handlers that would otherwise
@@ -285,29 +333,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     @staticmethod
-    def _activity_error_properties(error: Exception) -> dict[str, Any]:
-        if not isinstance(error, temporalio.exceptions.ActivityError):
-            return {}
-
-        retry_state = error.retry_state
-        properties: dict[str, Any] = {
-            "temporal_activity_id": error.activity_id,
-            "temporal_activity_type": error.activity_type,
-            "temporal_activity_identity": error.identity,
-            "temporal_activity_retry_state": retry_state.name if retry_state else None,
-            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
-            "temporal_activity_started_event_id": error.started_event_id,
-        }
-        if error.cause:
-            properties.update(
-                {
-                    "cause_error_type": type(error.cause).__name__,
-                    "cause_error_message": str(error.cause)[:500],
-                }
-            )
-        return properties
-
-    @staticmethod
     def _should_skip_followup(message: str | None, artifact_ids: list[str]) -> bool:
         return not message and not artifact_ids
 
@@ -319,12 +344,71 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         await workflow.wait_condition(
             lambda: (
                 self._task_completed
+                or self._sandbox_gone
                 or self._heartbeat_received
-                or len(self._pending_followups) > 0
+                or self._has_dispatchable_followup()
                 or len(self._pending_outbound) > 0
             )
         )
+        if self._sandbox_gone and not self._task_completed:
+            return SandboxEvent.SANDBOX_GONE
         return SandboxEvent.SIGNAL_RECEIVED
+
+    def _has_dispatchable_followup(self) -> bool:
+        if self._active_followup_task is None:
+            return bool(self._pending_followups)
+        if self._active_followup_task.done():
+            return True
+        return any(followup.steer for followup in self._pending_followups)
+
+    def _pop_next_followup(self, *, steer_only: bool = False) -> PendingFollowup | None:
+        for index, followup in enumerate(self._pending_followups):
+            if not steer_only or followup.steer:
+                return self._pending_followups.pop(index)
+        return None
+
+    def _insert_followup_in_arrival_order(self, followup: PendingFollowup) -> None:
+        for index, pending in enumerate(self._pending_followups):
+            if pending.sequence > followup.sequence:
+                self._pending_followups.insert(index, followup)
+                return
+        self._pending_followups.append(followup)
+
+    async def _dispatch_next_followup(self) -> bool:
+        if self._active_followup_task is not None:
+            if self._active_followup_task.done():
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await task
+                return True
+            followup = self._pop_next_followup(steer_only=True)
+            if followup is None:
+                return False
+            await self._handle_followup(followup)
+            return True
+
+        followup = self._pop_next_followup()
+        if followup is None:
+            return False
+        self._active_followup_task = asyncio.create_task(self._handle_followup(followup))
+        return True
+
+    async def _finish_active_followup(self) -> None:
+        self._shutting_down = True
+        while True:
+            if self._active_followup_task is not None:
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await task
+
+            if not self._pending_followups:
+                return
+            if not workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                return
+
+            followup = self._pop_next_followup()
+            if followup is not None:
+                await self._handle_followup(followup)
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
         await workflow.sleep(self.context.inactivity_timeout().total_seconds())
@@ -360,6 +444,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         timed_out = False
         run_id = input.run_id
 
+        self._ordered_outbound_delivery = _ordered_outbound_delivery()
+        self._parent_signal_delivery_closed = False
         self._parent_workflow_id = input.parent_workflow_id
         self._slack_thread_context = input.slack_thread_context
         self._sandbox_id_for_cleanup = None
@@ -412,7 +498,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
             if self.context.has_github_credentials:
-                credential_refresh_task = asyncio.ensure_future(run_credential_refresh_loop(self.context, sandbox_id))
+                credential_refresh_task = asyncio.ensure_future(
+                    self._run_credential_refresh_until_sandbox_gone(sandbox_id)
+                )
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -427,13 +515,18 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     case SandboxEvent.TIMEOUT_REACHED:
                         timed_out = True
                         break
+                    case SandboxEvent.SANDBOX_GONE:
+                        self._mark_sandbox_gone()
                     case SandboxEvent.SIGNAL_RECEIVED:
                         # complete_task lands here too — `_flush_pending_outbound`
                         # delivers its ACK and the `while not self._task_completed:`
                         # check at the top of the loop exits us on the next pass.
                         await self._flush_pending_outbound()
 
-                        if self._pending_followups:
+                        if workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                            if await self._dispatch_next_followup():
+                                continue
+                        elif self._pending_followups:
                             followup = self._pending_followups.pop(0)
                             await self._handle_followup(followup)
                             continue
@@ -448,6 +541,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown sandbox event: {event}")
 
+            await self._finish_active_followup()
             await self._cancel_relay(relay_task)
             # Drain any outbound signals that landed during shutdown so the
             # parent never waits on a signal we silently dropped.
@@ -496,15 +590,17 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # setting it here the orchestrator would see `success=True` for
             # a run that died on an unhandled exception.
             self._completion_status = "failed"
-            self._completion_error = str(e)[:500]
+            self._completion_error = truncate_error_message(str(e))
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-            error_message = str(e)[:500]
+            error_message = truncate_error_message(str(e))
             if self._context:
                 if self._current_progress_step is not None:
                     failed_step, failed_label, failed_group = self._current_progress_step
                     await self._emit_progress(
                         failed_step, "failed", failed_label, failed_group, detail=error_message[:200]
                     )
+                # Metrics and logs only: the status-update activity below owns the
+                # task_run_failed analytics capture, keyed on the DB transition.
                 await self._track_workflow_event(
                     "task_run_failed",
                     {
@@ -524,8 +620,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "sandbox_id": current_sandbox_id,
                         **self._activity_error_properties(e),
                     },
+                    capture_analytics=False,
                 )
-            await self._update_task_run_status("failed", error_message=error_message, run_id=run_id)
+            await self._update_task_run_status(
+                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+            )
 
             return ExecuteSandboxOutput(
                 success=False,
@@ -540,6 +639,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # point on are rejected so the orchestrator's retry path can
             # route them to a fresh sandbox instead of waiting on us.
             self._shutting_down = True
+
+            if self._active_followup_task is not None:
+                await self._cancel_relay(self._active_followup_task)
+                self._active_followup_task = None
 
             if credential_refresh_task is not None:
                 await self._cancel_relay(credential_refresh_task)
@@ -570,7 +673,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             )
             # Final outbound flush — the parent should never be left waiting
             # on a signal we accepted but never acknowledged.
-            await self._flush_pending_outbound()
+            if self._ordered_outbound_delivery:
+                await self._flush_all_pending_outbound()
+            else:
+                await self._flush_pending_outbound()
 
     # ------------------------------------------------------------------
     # Signal handlers — keep these short. They only mutate state; the main
@@ -614,6 +720,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             return
         self._completion_status = status
         self._completion_error = error_message
+        # Completion signals originate from the agent reporting its own terminal
+        # state (via the run PATCH endpoint, relayed by the orchestrator).
+        self._completion_error_type = "agent_reported" if status == "failed" else None
         self._task_completed = True
         self._enqueue_ack(signal_name=COMPLETE_TASK_SIGNAL, ack_id=ack_id)
 
@@ -624,6 +733,63 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         message: str | None = None,
         artifact_ids: Optional[list[str]] = None,
         source: str = FOLLOWUP_SOURCE_USER,
+        message_id: str | bool | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
+    ) -> None:
+        legacy_steer = message_id if isinstance(message_id, bool) else False
+        stable_message_id = message_id if isinstance(message_id, str) else None
+        self._queue_followup_message(
+            ack_id,
+            message,
+            artifact_ids,
+            source,
+            actor_user_id=actor_user_id,
+            message_id=stable_message_id,
+            message_context=message_context,
+            steer=legacy_steer,
+            signal_name=SEND_FOLLOWUP_SIGNAL,
+        )
+
+    @workflow.signal(name=SEND_STEER_SIGNAL)
+    async def send_steer_message(
+        self,
+        ack_id: str,
+        message: str | None = None,
+        artifact_ids: Optional[list[str]] = None,
+        source: str = FOLLOWUP_SOURCE_USER,
+        message_id: str | None = None,
+        actor_user_id: int | None = None,
+        message_context: dict[str, Any] | None = None,
+    ) -> None:
+        self._queue_followup_message(
+            ack_id,
+            message,
+            artifact_ids,
+            source,
+            actor_user_id=actor_user_id,
+            message_id=message_id,
+            message_context=message_context,
+            steer=True,
+            signal_name=SEND_STEER_SIGNAL,
+        )
+
+    @workflow.query(name=STEERING_PROTOCOL_QUERY)
+    def steering_protocol_version(self) -> int:
+        return STEERING_PROTOCOL_VERSION
+
+    def _queue_followup_message(
+        self,
+        ack_id: str,
+        message: str | None,
+        artifact_ids: Optional[list[str]],
+        source: str,
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
+        *,
+        steer: bool,
+        signal_name: str,
     ) -> None:
         """Accept a follow-up message from the parent and queue it.
 
@@ -641,7 +807,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ack_id=ack_id,
         )
         # Already dispatched (or rejected) — re-ack and skip.
-        if self._is_duplicate_signal(SEND_FOLLOWUP_SIGNAL, ack_id):
+        if self._is_duplicate_signal(signal_name, ack_id):
             return
         if any(p.ack_id == ack_id for p in self._pending_followups) or ack_id in self._in_flight_followup_ack_ids:
             # Still in flight from the first delivery (queued, or popped and
@@ -653,7 +819,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # route it to a fresh sandbox instead of waiting indefinitely
             # on a child that has already torn down its session.
             self._enqueue_ack(
-                signal_name=SEND_FOLLOWUP_SIGNAL,
+                signal_name=signal_name,
                 ack_id=ack_id,
                 accepted=False,
                 detail=SHUTDOWN_REJECTION_DETAIL,
@@ -665,8 +831,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 artifact_ids=artifact_ids or [],
                 ack_id=ack_id,
                 source=source,
+                actor_user_id=actor_user_id,
+                message_id=message_id,
+                context=message_context if isinstance(message_context, dict) else {},
+                steer=steer,
+                sequence=self._next_followup_sequence,
             )
         )
+        self._next_followup_sequence += 1
 
     @workflow.signal(name=HEARTBEAT_SIGNAL)
     async def heartbeat(self, agent_active: bool = False) -> None:
@@ -690,6 +862,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         # arrives mid-dispatch sees it via the dedupe check in
         # `send_followup_message` and is dropped quietly.
         self._in_flight_followup_ack_ids.add(followup.ack_id)
+        signal_name = SEND_STEER_SIGNAL if followup.steer else SEND_FOLLOWUP_SIGNAL
         try:
             if self._should_skip_followup(followup.message, followup.artifact_ids):
                 workflow.logger.warning(
@@ -698,7 +871,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     ack_id=followup.ack_id,
                 )
                 self._enqueue_ack(
-                    signal_name=SEND_FOLLOWUP_SIGNAL,
+                    signal_name=signal_name,
                     ack_id=followup.ack_id,
                     accepted=False,
                     detail="empty follow-up skipped",
@@ -706,28 +879,50 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 return
 
             try:
-                await self._send_followup_to_sandbox(
+                outcome = await self._send_followup_to_sandbox(
                     message=followup.message,
                     artifact_ids=followup.artifact_ids,
+                    actor_user_id=followup.actor_user_id,
+                    message_id=followup.message_id,
+                    message_context=followup.context,
+                    steer=followup.steer,
                 )
-                self._enqueue_ack(signal_name=SEND_FOLLOWUP_SIGNAL, ack_id=followup.ack_id)
+                if followup.steer and outcome == STEER_DECLINED_OUTCOME:
+                    self._insert_followup_in_arrival_order(
+                        PendingFollowup(
+                            message=followup.message,
+                            artifact_ids=followup.artifact_ids,
+                            ack_id=followup.ack_id,
+                            source=followup.source,
+                            actor_user_id=followup.actor_user_id,
+                            message_id=followup.message_id,
+                            context=followup.context,
+                            sequence=followup.sequence,
+                        ),
+                    )
+                    return
+                self._enqueue_ack(signal_name=signal_name, ack_id=followup.ack_id)
             except Exception as e:
                 # Mirror process_task: a failed follow-up dispatch is terminal.
                 # Surface the failure to the parent via both the ACK and the
                 # task-completion path so it can react immediately.
+                error_properties = self._activity_error_properties(e)
+                cause_message = error_properties.get("cause_error_message")
                 workflow.logger.warning(
                     "execute_sandbox_send_followup_failed",
                     run_id=self.context.run_id,
                     error=str(e),
+                    **error_properties,
                 )
                 self._completion_status = "failed"
-                self._completion_error = f"Follow-up delivery failed: {e}"
+                self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
+                self._completion_error_type = "followup_delivery_failed"
                 self._task_completed = True
                 self._enqueue_ack(
-                    signal_name=SEND_FOLLOWUP_SIGNAL,
+                    signal_name=signal_name,
                     ack_id=followup.ack_id,
                     accepted=False,
-                    detail=str(e)[:200],
+                    detail=(cause_message or str(e))[:200],
                 )
         finally:
             self._in_flight_followup_ack_ids.discard(followup.ack_id)
@@ -781,29 +976,28 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     async def _flush_pending_outbound(self) -> None:
-        if not self._pending_outbound or not self._parent_workflow_id:
+        if not self._pending_outbound or not self._parent_workflow_id or self._parent_signal_delivery_closed:
             return
         # Snapshot + clear before awaiting so a signal landing mid-flush
         # doesn't lose its delivery on the next iteration.
-        #
-        # Ordering note: we keep iterating after a failure, so a later
-        # signal that succeeds is delivered before an earlier one that
-        # failed and was re-queued. The protocol tolerates this — ACKs
-        # match by `ack_id` and PARENT_COMPLETED_SIGNAL is always enqueued
-        # last (from the finally block), so it trails any failed signals
-        # in the snapshot. Don't "fix" this by breaking after the first
-        # failure: that would drop the rest of the snapshot on the floor.
         to_send = self._pending_outbound
         self._pending_outbound = []
         parent = workflow.get_external_workflow_handle(self._parent_workflow_id)
-        for outbound in to_send:
+        for index, outbound in enumerate(to_send):
             try:
                 await parent.signal(outbound.target_signal, args=outbound.args)
             except Exception as e:
-                # Don't lose the signal — re-queue and let the next flush
-                # retry. If the parent is gone, future flushes will keep
-                # failing but the child run is independent and can complete
-                # on its own.
+                if _parent_cannot_receive_signals(e):
+                    self._parent_signal_delivery_closed = True
+                    self._pending_outbound.clear()
+                    workflow.logger.info(
+                        "execute_sandbox_parent_signal_delivery_closed",
+                        run_id=self.context.run_id if self._context else None,
+                        target_signal=outbound.target_signal,
+                        correlation_id=outbound.correlation_id,
+                        error=str(e),
+                    )
+                    return
                 workflow.logger.warning(
                     "execute_sandbox_outbound_signal_failed",
                     run_id=self.context.run_id if self._context else None,
@@ -811,6 +1005,12 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     correlation_id=outbound.correlation_id,
                     error=str(e),
                 )
+                if self._ordered_outbound_delivery:
+                    # Keep the failed ACK and every later signal ahead of
+                    # anything that arrived during the await. Completion must
+                    # never overtake an ACK for already-delivered work.
+                    self._pending_outbound = to_send[index:] + self._pending_outbound
+                    break
                 self._pending_outbound.append(outbound)
         if self._pending_outbound:
             # Re-queued items would otherwise wake the main loop immediately
@@ -818,6 +1018,24 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # tight-loop against an unreachable parent, starving the
             # inactivity timer. Sleep to rate-limit retries.
             await workflow.sleep(OUTBOUND_RETRY_BACKOFF.total_seconds())
+
+    async def _flush_all_pending_outbound(self) -> None:
+        attempts = 0
+        while self._pending_outbound and not self._parent_signal_delivery_closed:
+            attempts += 1
+            await self._flush_pending_outbound()
+            if (
+                self._pending_outbound
+                and attempts >= MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
+                and _bounded_final_outbound_delivery()
+            ):
+                workflow.logger.warning(
+                    "execute_sandbox_final_outbound_retries_exhausted",
+                    run_id=self.context.run_id if self._context else None,
+                    attempts=attempts,
+                    undelivered=len(self._pending_outbound),
+                )
+                self._pending_outbound.clear()
 
     # ------------------------------------------------------------------
     # Activities — these mirror process_task's implementations directly so
@@ -849,7 +1067,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
 
-        if prepared.used_snapshot:
+        used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
+        if used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -860,7 +1079,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         else:
             await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
 
-        if prepared.snapshot_external_id:
+        if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
                 inject_fresh_tokens_on_resume,
                 InjectFreshTokensOnResumeInput(
@@ -875,7 +1094,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
@@ -909,7 +1128,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
-                    used_snapshot=prepared.used_snapshot,
+                    used_snapshot=used_snapshot,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -920,8 +1139,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
-            used_snapshot=prepared.used_snapshot,
-            should_create_snapshot=prepared.should_create_snapshot,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -1019,7 +1238,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         return self.context.mode != "interactive" and not is_resume
 
-    async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
+    async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
         await workflow.execute_activity(
             track_workflow_event,
             TrackWorkflowEventInput(
@@ -1030,6 +1249,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     "organization": self.context.organization_id,
                     "project": self.context.team_uuid,
                 },
+                capture_analytics=capture_analytics,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
@@ -1069,6 +1289,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         status: str,
         error_message: Optional[str] = None,
         run_id: Optional[str] = None,
+        error_type: Optional[str] = None,
     ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
@@ -1076,19 +1297,54 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
+                error_type=error_type,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _maybe_record_terminal_status(self) -> None:
-        # TaskRun stays in_progress on successful completion *and* on
-        # inactivity timeout — the run is always followable, so neither
-        # path is terminal. Only an explicit failure or cancellation
-        # propagated through complete_task transitions out of in_progress;
-        # the except blocks in run() cover the other terminal paths.
+        # An interactive run stays in_progress on successful completion *and* on
+        # inactivity timeout — it is always followable, so neither path is
+        # terminal. Only an explicit failure or cancellation propagated through
+        # complete_task transitions it out; the except blocks in run() cover the
+        # other terminal paths.
         if self._task_completed and self._completion_status in {"failed", "cancelled"}:
-            await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
+            await self._update_task_run_status(
+                self._completion_status,
+                error_message=self._completion_error,
+                error_type=self._completion_error_type,
+            )
+            return
+
+        # A background run (loop / automated) is one-shot and unattended: nothing
+        # sends a follow-up, so its natural end (agent idle timeout or a
+        # successful complete_task) is terminal. Mark it completed so it doesn't
+        # sit in_progress forever after the sandbox is reclaimed. Adding this
+        # activity is replay-safe without a patch gate: it runs only on the
+        # terminal path, which no in-flight execution has passed (reaching it
+        # completes the workflow).
+        if self._context and self._context.mode != "interactive":
+            await self._update_task_run_status("completed")
+
+    async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
+        exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
+        if exit_reason == CredentialRefreshExitReason.SANDBOX_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_sandbox_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            self._sandbox_gone = True
+        elif exit_reason == CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE:
+            workflow.logger.warning(
+                "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+
+    def _mark_sandbox_gone(self) -> None:
+        self._task_completed = True
 
     # `log_on_fail` only catches `Exception`, so `asyncio.CancelledError`
     # (a `BaseException`) still propagates — required for cooperative
@@ -1111,8 +1367,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_id,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # A worker restart (deploy, eviction) kills the in-flight attempt while
+            # the sandbox agent keeps working — without retries the event stream is
+            # orphaned for good and the run looks dead to the user. Retrying is safe:
+            # the agent server buffers events while no relay is attached and replays
+            # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+            # exhausted) return cleanly, and application-level failures that write an
+            # error sentinel to the stream raise non-retryable ApplicationError, so
+            # retries only cover attempt-level deaths where no sentinel was written;
+            # schedule_to_close bounds the total.
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_interval=timedelta(minutes=1),
+                maximum_attempts=0,
+                non_retryable_error_types=["ValueError"],
+            ),
             cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
         )
 
@@ -1130,30 +1401,53 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
         result = await workflow.execute_activity(
             create_resume_snapshot,
-            CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            CreateResumeSnapshotInput(
+                sandbox_id=sandbox_id,
+                run_id=self.context.run_id,
+                use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+            ),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if result.external_id:
             workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
         elif result.error:
             workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
 
-    async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
+    async def _send_followup_to_sandbox(
+        self,
+        message: str | None,
+        artifact_ids: list[str],
+        actor_user_id: int | None = None,
+        message_id: str | None = None,
+        message_context: dict[str, Any] | None = None,
+        *,
+        steer: bool = False,
+    ) -> str | None:
         workflow.logger.info(
             "execute_sandbox_send_followup_begin",
             run_id=self.context.run_id,
             message_length=len(message or ""),
             artifact_count=len(artifact_ids),
         )
-        await workflow.execute_activity(
+        return await workflow.execute_activity(
             send_followup_to_sandbox,
             SendFollowupToSandboxInput(
                 run_id=self.context.run_id,
                 message=message,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 artifact_ids=artifact_ids,
+                message_id=message_id or str(workflow.uuid4()),
+                actor_user_id=actor_user_id,
+                context=message_context if isinstance(message_context, dict) else {},
+                steer=steer,
             ),
             start_to_close_timeout=timedelta(minutes=35),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            # See process_task: heartbeat detects worker restarts, message_id
+            # makes redelivery idempotent, sentinel failures are non-retryable.
+            heartbeat_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
         )

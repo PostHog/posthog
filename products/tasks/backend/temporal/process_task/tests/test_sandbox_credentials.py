@@ -1,17 +1,16 @@
-import base64
-
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     GitHubSandboxCredential,
     build_sandbox_credentials,
     github_refresh_interval_seconds,
+    replace_sandbox_credentials,
     set_git_remote_token,
-    update_sandbox_env_file,
 )
 
 
@@ -60,6 +59,16 @@ class TestSetGitRemoteToken:
         assert "x-access-token:ghs_new" in command
         assert "explore-science/paper-wizard-frontend" in command
 
+    def test_removes_stale_token_when_current_credential_is_missing(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok()
+
+        assert set_git_remote_token(sandbox, "owner/repo", None) is True
+
+        command = sandbox.execute.call_args[0][0]
+        assert "https://github.com/owner/repo.git" in command
+        assert "x-access-token" not in command
+
     def test_returns_false_on_failure(self):
         sandbox = MagicMock()
         sandbox.execute.return_value = ExecutionResult(stdout="", stderr="not a git repo", exit_code=128)
@@ -67,39 +76,38 @@ class TestSetGitRemoteToken:
         assert set_git_remote_token(sandbox, "owner/repo", "ghs_new") is False
 
 
-class TestUpdateSandboxEnvFile:
-    def test_preserves_other_keys_and_replaces_updated_ones(self):
+class TestReplaceSandboxCredentials:
+    def test_replaces_each_credential_domain_without_reading_existing_state(self):
         sandbox = MagicMock()
-        existing = b"PATH=/usr/bin\x00GITHUB_TOKEN=ghs_old\x00HOME=/root\x00"
-        sandbox.execute.return_value = _ok(base64.b64encode(existing).decode())
+        sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert update_sandbox_env_file(sandbox, {"GITHUB_TOKEN": "ghs_new", "GH_TOKEN": "ghs_new"}) is True
+        assert replace_sandbox_credentials(sandbox, "ghs_new", "oauth_new") is True
 
-        _, payload = sandbox.write_file.call_args[0]
-        entries = {e.split(b"=", 1)[0]: e.split(b"=", 1)[1] for e in payload.split(b"\x00") if e}
-        # Untouched keys survive, updated key is replaced, new key is appended.
-        assert entries[b"PATH"] == b"/usr/bin"
-        assert entries[b"HOME"] == b"/root"
-        assert entries[b"GITHUB_TOKEN"] == b"ghs_new"
-        assert entries[b"GH_TOKEN"] == b"ghs_new"
+        assert sandbox.write_file.call_args_list[0].args == (
+            GITHUB_ENV_FILE,
+            b"GITHUB_TOKEN=ghs_new\x00GH_TOKEN=ghs_new\x00",
+        )
+        assert sandbox.write_file.call_args_list[1].args == (
+            OAUTH_ENV_FILE,
+            b"POSTHOG_PERSONAL_API_KEY=oauth_new\x00",
+        )
+        assert [call.args[0] for call in sandbox.execute.call_args_list] == [
+            f"chmod 600 {GITHUB_ENV_FILE}",
+            f"chmod 600 {OAUTH_ENV_FILE}",
+        ]
 
-    def test_noop_when_no_updates(self):
+    def test_empty_current_credentials_clear_both_files(self):
         sandbox = MagicMock()
-        assert update_sandbox_env_file(sandbox, {}) is True
-        sandbox.execute.assert_not_called()
-        sandbox.write_file.assert_not_called()
-
-    def test_writes_updates_when_env_file_absent(self):
-        sandbox = MagicMock()
-        # base64 of empty file (the `|| true` path yields empty stdout).
-        sandbox.execute.return_value = _ok("")
+        sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert update_sandbox_env_file(sandbox, {"GH_TOKEN": "ghs_new"}) is True
+        assert replace_sandbox_credentials(sandbox, None, None) is True
 
-        _, payload = sandbox.write_file.call_args[0]
-        assert payload == b"GH_TOKEN=ghs_new\x00"
+        assert [call.args for call in sandbox.write_file.call_args_list] == [
+            (GITHUB_ENV_FILE, b""),
+            (OAUTH_ENV_FILE, b""),
+        ]
 
 
 class TestGitHubSandboxCredential:
@@ -145,6 +153,56 @@ class TestGitHubSandboxCredential:
         assert outcome.refreshed is False
         sandbox.execute.assert_not_called()
         sandbox.write_file.assert_not_called()
+
+    def test_deleted_integration_raises_credential_unavailable(self):
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+
+        task = MagicMock()
+        task.github_integration_id = None
+        task.github_user_integration_id = None
+
+        with (
+            patch(f"{MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{MODULE}.get_sandbox_github_token") as resolve,
+        ):
+            with pytest.raises(CredentialUnavailableError):
+                GitHubSandboxCredential().refresh(MagicMock(), _context(), task)
+
+        resolve.assert_not_called()
+
+    def test_fresh_task_ids_take_precedence_over_ctx_snapshot(self):
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        task = MagicMock()
+        task.github_integration_id = 456
+        task.github_user_integration_id = None
+
+        with patch(f"{MODULE}.get_sandbox_github_token", return_value="ghs_fresh") as resolve:
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), task)
+
+        assert outcome.refreshed is True
+        assert resolve.call_args.args[0] == 456
+        assert resolve.call_args.kwargs["github_user_integration_id"] is None
+
+    def test_caller_token_run_with_deleted_integration_is_not_orphaned(self):
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        task = MagicMock()
+        task.github_integration_id = None
+        task.github_user_integration_id = None
+
+        with (
+            patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER),
+            patch(f"{MODULE}.is_caller_token_run", return_value=True),
+            patch(f"{MODULE}.get_sandbox_github_token", return_value="ghu_caller"),
+        ):
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), task)
+
+        assert outcome.refreshed is True
 
 
 class TestBuildSandboxCredentials:
@@ -200,6 +258,49 @@ class TestSharedUserIntegrationRefresh:
             assert outcome.refreshed is False
             apply.assert_not_called()
 
+    def test_reauthorization_falls_back_to_installation_token(self):
+        import contextlib
+
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(
+                patch(f"{MODULE}.resolve_coordinated_user_token", side_effect=ReauthorizationRequired("expired"))
+            )
+            installation_token = stack.enter_context(patch(f"{MODULE}.get_github_token", return_value="ghs_team"))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            task = MagicMock()
+            task.github_integration_id = 456
+
+            sandbox = MagicMock()
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), task)
+
+            assert outcome.refreshed is True
+            assert outcome.next_refresh_seconds == 20 * 60
+            installation_token.assert_called_once_with(456)
+            apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghs_team")
+
+    def test_reauthorization_without_team_integration_raises_credential_unavailable(self):
+        import contextlib
+
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(
+                patch(f"{MODULE}.resolve_coordinated_user_token", side_effect=ReauthorizationRequired("expired"))
+            )
+            task = MagicMock()
+            task.github_integration_id = None
+
+            with pytest.raises(CredentialUnavailableError):
+                GitHubSandboxCredential().refresh(MagicMock(), _context(), task)
+
     def test_caller_token_run_skips_coordinated_path(self):
         import contextlib
 
@@ -219,6 +320,53 @@ class TestSharedUserIntegrationRefresh:
             assert outcome.refreshed is True
             resolve.assert_not_called()
             apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_caller")
+
+
+class TestLoopOwnerRefreshGate:
+    def _as_user_integration_run(self, stack):
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        stack.enter_context(patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.USER))
+        stack.enter_context(patch(f"{MODULE}.is_caller_token_run", return_value=False))
+
+    def test_user_token_refresh_is_withheld_when_the_loop_owner_lost_access(self):
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(patch(f"{MODULE}.resolve_coordinated_user_token", return_value="ghu_fresh"))
+            stack.enter_context(patch(f"{MODULE}.transaction"))
+            stack.enter_context(patch(f"{MODULE}.loop_owner_eligible_for_credentials", return_value=False))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+
+            outcome = GitHubSandboxCredential().refresh(MagicMock(), _context(state={"loop_id": "loop-1"}), MagicMock())
+
+            assert outcome.refreshed is False
+            apply.assert_not_called()
+
+    def test_installation_fallback_is_withheld_when_the_loop_owner_lost_access(self):
+        import contextlib
+
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        with contextlib.ExitStack() as stack:
+            self._as_user_integration_run(stack)
+            stack.enter_context(patch(f"{MODULE}.resolve_user_github_integration_for_task", return_value=MagicMock()))
+            stack.enter_context(
+                patch(f"{MODULE}.resolve_coordinated_user_token", side_effect=ReauthorizationRequired("expired"))
+            )
+            stack.enter_context(patch(f"{MODULE}.get_github_token", return_value="ghs_team"))
+            stack.enter_context(patch(f"{MODULE}.transaction"))
+            stack.enter_context(patch(f"{MODULE}.loop_owner_eligible_for_credentials", return_value=False))
+            apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox"))
+            task = MagicMock()
+            task.github_integration_id = 456
+
+            outcome = GitHubSandboxCredential().refresh(MagicMock(), _context(state={"loop_id": "loop-1"}), task)
+
+            assert outcome.refreshed is False
+            apply.assert_not_called()
 
 
 class TestResolveCoordinatedUserToken:
@@ -366,6 +514,34 @@ class TestLiveSandboxRegistry:
             state={"sandbox_id": "sb-caller", "pr_authorship_mode": "user", "github_credential_source": "caller_token"},
         )
 
+        # Loop runs pass the owner-eligibility gate per row: an eligible member's loop sandbox
+        # still receives the sibling token, a deactivated owner's must not.
+        member = User.objects.create(email="member@test.com")
+        org.members.add(member)
+        eligible_loop = Task.objects.create(
+            team=team, created_by=member, repository="org/loop", github_user_integration=integration
+        )
+        eligible_loop_run = TaskRun.objects.create(
+            task=eligible_loop,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-loop", "pr_authorship_mode": "user", "loop_id": "loop-1"},
+        )
+        deactivated = User.objects.create(email="gone@test.com", is_active=False)
+        org.members.add(deactivated)
+        revoked_loop = Task.objects.create(
+            team=team, created_by=deactivated, repository="org/revoked", github_user_integration=integration
+        )
+        TaskRun.objects.create(
+            task=revoked_loop,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"sandbox_id": "sb-revoked", "pr_authorship_mode": "user", "loop_id": "loop-2"},
+        )
+
         result = _live_sandboxes_for_user_integration(integration.id)
 
-        assert result == [(str(live_run.id), "sb-live", "org/live")]
+        assert set(result) == {
+            (str(live_run.id), "sb-live", "org/live"),
+            (str(eligible_loop_run.id), "sb-loop", "org/loop"),
+        }

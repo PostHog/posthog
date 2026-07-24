@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonDivider, LemonDropdown, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -16,9 +16,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
@@ -106,67 +109,70 @@ export function LogsAlertForm(): JSX.Element {
         (group: UniversalFiltersGroup) => setAlertFormValue('filterGroup', group),
         [setAlertFormValue]
     )
+    const enabledAdvancedOptionsCount =
+        Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
+        Number(alertForm.cooldownMinutes > 0)
 
     return (
         <div className="space-y-6 max-w-2xl">
-            <div className="space-y-3">
-                <h3 className="text-base font-semibold m-0">Filters</h3>
-                <p className="text-xs text-secondary m-0">Every 5 minutes, query for logs matching these filters.</p>
-                <LemonField name="severityLevels" label="Severity">
-                    <SeverityLevelsFilter
-                        value={alertForm.severityLevels}
-                        onChange={(levels) => setAlertFormValue('severityLevels', levels)}
-                    />
-                </LemonField>
-                <LemonField.Pure label="Service">
-                    <ServiceFilter
-                        value={alertForm.serviceNames}
-                        onChange={(names) => setAlertFormValue('serviceNames', names)}
-                    />
-                </LemonField.Pure>
-                <LemonField name="filterGroup" label="Attributes">
-                    <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
-                </LemonField>
-            </div>
+            <AlertEditorSection
+                title="Definition"
+                description="Checks run every 5 minutes. Each check queries logs matching these filters."
+            >
+                <div className="space-y-6">
+                    <div className="space-y-5">
+                        <h4 className="m-0">Filters</h4>
+                        <LemonField name="severityLevels" label="Severity">
+                            <SeverityLevelsFilter
+                                value={alertForm.severityLevels}
+                                onChange={(levels) => setAlertFormValue('severityLevels', levels)}
+                            />
+                        </LemonField>
+                        <LemonField.Pure label="Service">
+                            <ServiceFilter
+                                value={alertForm.serviceNames}
+                                onChange={(names) => setAlertFormValue('serviceNames', names)}
+                            />
+                        </LemonField.Pure>
+                        <LemonField name="filterGroup" label="Attributes">
+                            <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
+                        </LemonField>
+                    </div>
 
-            <LemonDivider />
-
-            <div className="space-y-3">
-                <h3 className="text-base font-semibold m-0">Rules</h3>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm">Alert if count goes</span>
-                    <LemonSegmentedButton
-                        value={alertForm.thresholdOperator}
-                        onChange={(value) => setAlertFormValue('thresholdOperator', value)}
-                        options={[
-                            { value: ThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: ThresholdOperatorEnumApi.Below, label: 'below' },
-                        ]}
-                        size="small"
-                    />
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        value={alertForm.thresholdCount}
-                        onChange={(val) => setAlertFormValue('thresholdCount', val ?? 0)}
-                        className="w-24"
-                        size="small"
-                        data-attr="logs-alert-threshold-count"
-                    />
-                    <span className="text-sm">in the last</span>
-                    <LemonSelect
-                        value={alertForm.windowMinutes}
-                        onChange={(val) => setAlertFormValue('windowMinutes', val ?? 10)}
-                        options={WINDOW_OPTIONS}
-                        size="small"
-                    />
+                    <div className="space-y-2">
+                        <h4 className="m-0">Trigger condition</h4>
+                        <AlertDefinitionRow label="Alert if count goes">
+                            <LemonSegmentedButton
+                                value={alertForm.thresholdOperator}
+                                onChange={(value) => setAlertFormValue('thresholdOperator', value)}
+                                options={[
+                                    { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
+                                    { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
+                                ]}
+                                size="small"
+                            />
+                            <LemonInput
+                                type="number"
+                                min={0}
+                                value={alertForm.thresholdCount}
+                                onChange={(value) => setAlertFormValue('thresholdCount', value ?? 0)}
+                                className="w-24"
+                                size="small"
+                                data-attr="logs-alert-threshold-count"
+                            />
+                            <span className="text-sm">in the last</span>
+                            <LemonSelect
+                                value={alertForm.windowMinutes}
+                                onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
+                                options={WINDOW_OPTIONS}
+                                size="small"
+                            />
+                        </AlertDefinitionRow>
+                    </div>
                 </div>
-            </div>
+            </AlertEditorSection>
 
-            <LemonDivider />
-
-            <div className="space-y-4">
-                <h3 className="text-base font-semibold m-0">Advanced</h3>
+            <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
                 <LemonField.Pure
                     label={
                         <span className="inline-flex items-center gap-1">
@@ -184,7 +190,7 @@ export function LogsAlertForm(): JSX.Element {
                                 min={1}
                                 max={alertForm.evaluationPeriods}
                                 value={alertForm.datapointsToAlarm}
-                                onChange={(val) => setAlertFormValue('datapointsToAlarm', val ?? 1)}
+                                onChange={(value) => setAlertFormValue('datapointsToAlarm', value ?? 1)}
                                 className="w-16"
                                 size="small"
                             />
@@ -194,8 +200,8 @@ export function LogsAlertForm(): JSX.Element {
                                 min={alertForm.datapointsToAlarm}
                                 max={10}
                                 value={alertForm.evaluationPeriods}
-                                onChange={(val) => {
-                                    const newPeriods = val ?? alertForm.datapointsToAlarm
+                                onChange={(value) => {
+                                    const newPeriods = value ?? alertForm.datapointsToAlarm
                                     setAlertFormValue('evaluationPeriods', newPeriods)
                                     if (alertForm.datapointsToAlarm > newPeriods) {
                                         setAlertFormValue('datapointsToAlarm', newPeriods)
@@ -224,14 +230,14 @@ export function LogsAlertForm(): JSX.Element {
                             type="number"
                             min={0}
                             value={alertForm.cooldownMinutes}
-                            onChange={(val) => setAlertFormValue('cooldownMinutes', val ?? 0)}
+                            onChange={(value) => setAlertFormValue('cooldownMinutes', value ?? 0)}
                             className="w-24"
                             size="small"
                         />
                         <span className="text-sm">minutes</span>
                     </div>
                 </LemonField.Pure>
-            </div>
+            </AlertAdvancedOptions>
         </div>
     )
 }
@@ -243,6 +249,11 @@ const AlertFilterGroup = memo(function AlertFilterGroup({
     filterGroup: UniversalFiltersGroup
     onChange: (group: UniversalFiltersGroup) => void
 }): JSX.Element {
+    const newlyAddedFilterIndex = useRef<number | null>(null)
+    const markBlankFilterAsNew = useCallback((index: number): void => {
+        newlyAddedFilterIndex.current = index
+    }, [])
+
     return (
         <UniversalFilters
             rootKey={taxonomicFilterLogicKey}
@@ -251,14 +262,14 @@ const AlertFilterGroup = memo(function AlertFilterGroup({
             onChange={onChange}
         >
             <div className="space-y-2">
-                <AlertFilterSearch />
-                <AlertAppliedFilters />
+                <AlertFilterSearch onAddBlankFilter={markBlankFilterAsNew} />
+                <AlertAppliedFilters initiallyOpenFilterIndex={newlyAddedFilterIndex.current} />
             </div>
         </UniversalFilters>
     )
 })
 
-function AlertFilterSearch(): JSX.Element {
+function AlertFilterSearch({ onAddBlankFilter }: { onAddBlankFilter: (index: number) => void }): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -279,6 +290,7 @@ function AlertFilterSearch(): JSX.Element {
             taxonomicGroupTypes,
             onChange: (taxonomicGroup, value, item) => {
                 if (item.value === undefined) {
+                    onAddBlankFilter(filterGroupRef.current.values.length)
                     addGroupFilter(taxonomicGroup, value, item)
                     setVisible(false)
                     return
@@ -301,7 +313,7 @@ function AlertFilterSearch(): JSX.Element {
             },
             autoSelectItem: true,
         }),
-        [addGroupFilter, setGroupValues]
+        [addGroupFilter, onAddBlankFilter, setGroupValues]
     )
 
     const showDropdown = useCallback(() => setVisible(true), [])
@@ -328,13 +340,18 @@ function AlertFilterSearch(): JSX.Element {
                     searchInputRef={searchInputRef}
                     onClose={onClose}
                     onChange={showDropdown}
+                    autoFocus={false}
                 />
             </LemonDropdown>
         </BindLogic>
     )
 }
 
-function AlertAppliedFilters(): JSX.Element | null {
+function AlertAppliedFilters({
+    initiallyOpenFilterIndex = null,
+}: {
+    initiallyOpenFilterIndex?: number | null
+}): JSX.Element | null {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
@@ -356,7 +373,9 @@ function AlertAppliedFilters(): JSX.Element | null {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={filterOrGroup.type !== PropertyFilterType.HogQL}
+                        initiallyOpen={
+                            index === initiallyOpenFilterIndex && filterOrGroup.type !== PropertyFilterType.HogQL
+                        }
                     />
                 )
             })}

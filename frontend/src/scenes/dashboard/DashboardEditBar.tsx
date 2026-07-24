@@ -2,14 +2,16 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -18,11 +20,40 @@ import { Scene } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardMode, InsightLogicProps } from '~/types'
+import { DashboardMode, InsightLogicProps, IntervalType } from '~/types'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
     className?: string
+}
+
+export function DashboardIntervalFilter(): JSX.Element {
+    const { dashboardMode, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setInterval, setDashboardMode } = useActions(dashboardLogic)
+
+    return (
+        <span className="flex items-center gap-2">
+            <span className="hidden md:inline">grouped by</span>
+            <LemonSelect<IntervalType | null>
+                size="small"
+                value={effectiveEditBarFilters.interval ?? null}
+                dropdownMatchSelectWidth={false}
+                onChange={(interval) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    }
+                    setInterval(interval)
+                }}
+                options={[
+                    { value: null, label: "each insight's interval" },
+                    { value: 'hour', label: 'hour' },
+                    { value: 'day', label: 'day' },
+                    { value: 'week', label: 'week' },
+                    { value: 'month', label: 'month' },
+                ]}
+            />
+        </span>
+    )
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
@@ -59,7 +90,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
         >
             {showDateFilter && (
                 <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
-                    <AppShortcut
+                    <Shortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}
                         intent="Date filter"
@@ -87,7 +118,12 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                 </>
                             )}
                         />
-                    </AppShortcut>
+                    </Shortcut>
+                </div>
+            )}
+            {showDateFilter && (
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <DashboardIntervalFilter />
                 </div>
             )}
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
@@ -117,7 +153,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     ]}
                 />
             </div>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            {/* Single flex item so the "…" button always wraps together with the breakdown button */}
+            <div className={clsx('content-end flex items-end gap-2', { 'h-[61px]': hasVariables })}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <TaxonomicBreakdownFilter
                         insightProps={insightProps}
@@ -141,6 +178,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
+                <DashboardEditBarAdvancedFilters />
             </div>
 
             <VariablesForDashboard />

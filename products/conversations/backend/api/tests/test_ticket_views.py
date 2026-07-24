@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
 
-from products.conversations.backend.models import TicketView
+from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 
 class TestTicketViewAPI(APIBaseTest):
@@ -75,14 +75,47 @@ class TestTicketViewAPI(APIBaseTest):
         mock_report.assert_called_once()
         assert mock_report.call_args[0][1] == "ticket view deleted"
 
-    def test_update_not_allowed(self):
+    @patch("products.conversations.backend.api.ticket_views.report_user_action")
+    def test_update_name_keeps_short_id_and_filters(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
+
         response = self.client.patch(
             f"{self.base_url}{created['short_id']}/",
-            {"name": "Renamed"},
+            {"name": "Renamed", "short_id": "hijacked"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Renamed"
+        assert data["short_id"] == created["short_id"]
+        assert data["filters"] == created["filters"]
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "ticket view updated"
+
+    def test_put_not_allowed(self):
+        created = self._create_via_api()
+        response = self.client.put(
+            f"{self.base_url}{created['short_id']}/",
+            {"name": "Replaced"},
             format="json",
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert TicketView.objects.get(pk=created["id"]).filters == created["filters"]
+
+    def test_update_filters_keeps_name(self):
+        created = self._create_via_api()
+
+        new_filters = {"status": ["resolved"], "assignee": {"type": "role", "id": "abc"}}
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/",
+            {"filters": new_filters},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["filters"] == new_filters
+        assert response.json()["name"] == created["name"]
 
     # --- Filters are optional ---
 
@@ -147,6 +180,15 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}{other_view.short_id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_cannot_update_other_teams_view(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        other_view = TicketView.objects.create(team=team2, name="Other", created_by=self.user)
+
+        response = self.client.patch(f"{self.base_url}{other_view.short_id}/", {"name": "Hacked"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        other_view.refresh_from_db()
+        assert other_view.name == "Other"
+
     def test_cannot_delete_other_teams_view(self):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
         other_view = TicketView.objects.create(team=team2, name="Other", created_by=self.user)
@@ -154,6 +196,69 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.delete(f"{self.base_url}{other_view.short_id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert TicketView.objects.filter(pk=other_view.id).exists()
+
+    # --- Personal favorites ---
+
+    def test_favorite_and_unfavorite(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_favorited"] is True
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
+
+        # Idempotent: favoriting again doesn't create a second row
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": False}, format="json")
+        assert response.json()["is_favorited"] is False
+        assert (
+            not TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .exists()
+        )
+
+    @parameterized.expand([("favorited", True), ("not_favorited", False)])
+    def test_create_with_favorited_flag(self, _label, favorited):
+        data = self._create_via_api(is_favorited=favorited)
+        assert data["is_favorited"] is favorited
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk).filter(ticket_view_id=data["id"], user=self.user).exists()
+            is favorited
+        )
+
+    def test_favorites_are_personal_to_each_user(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+
+        other_user = self._create_user("other@posthog.com")
+        other_client = APIClient()
+        other_client.force_login(other_user)
+
+        response = other_client.get(self.base_url)
+        assert response.json()["results"][0]["is_favorited"] is False
+
+    def test_favorited_views_sort_to_top(self):
+        older = self._create_via_api(name="Older")
+        self._create_via_api(name="Newer")
+
+        # Default order is newest-first; favoriting the older view must float it up
+        self.client.patch(f"{self.base_url}{older['short_id']}/", {"is_favorited": True}, format="json")
+
+        results = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in results] == ["Older", "Newer"]
+        assert results[0]["is_favorited"] is True
 
     # --- Auth ---
 

@@ -7,13 +7,17 @@ class EarlyAccessFeaturesConfig(AppConfig):
     label = "early_access_features"
 
     def ready(self) -> None:
+        # Register the post_save signal that auto-creates a waitlist survey for
+        # concept-stage ("Coming Soon") features.
         from posthog.api.file_system.deletion import (
             register_file_system_type,
             register_post_delete_hook,
             register_pre_delete_hook,
         )
+        from posthog.helpers.impersonation import is_impersonated
         from posthog.models.activity_logging.activity_log import Detail, log_activity
-        from posthog.models.activity_logging.model_activity import is_impersonated_session
+
+        import products.early_access_features.backend.signals  # noqa: F401
 
         def _with_feature_flag(queryset):
             return queryset.select_related("feature_flag")
@@ -50,7 +54,7 @@ class EarlyAccessFeaturesConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=getattr(context.team, "id", None),
                 user=context.user,
-                was_impersonated=is_impersonated_session(context.request) if context.request else False,
+                was_impersonated=is_impersonated(context.request),
                 item_id=str(ref),
                 scope="EarlyAccessFeature",
                 activity="deleted",

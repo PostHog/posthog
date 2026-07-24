@@ -3,13 +3,13 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '../../utils/event-loop-yield'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createExampleInvocation,
@@ -257,6 +257,23 @@ describe('CdpCyclotronWorker', () => {
             expect(results).toEqual([])
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
+
+        it.each([['project'], ['event']] as const)(
+            'should DLQ a malformed invocation whose globals is missing %s instead of crashing',
+            async (field) => {
+                const dequeueInvocationsSpy = jest
+                    .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                    .mockResolvedValue(undefined)
+
+                const malformed = createExampleInvocation(fn, globals)
+                delete (malformed.state.globals as any)[field]
+
+                const results = await processor['loadHogFunctions']([malformed])
+
+                expect(results).toEqual([])
+                expect(dequeueInvocationsSpy).toHaveBeenCalledWith([malformed])
+            }
+        )
 
         it('should skip a loaded function if it is disabled', async () => {
             const fn2 = await insertHogFunction(

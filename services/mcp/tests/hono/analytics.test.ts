@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { mockCaptureToolCall, mockCaptureInitialize, mockCapture } = vi.hoisted(() => ({
     mockCaptureToolCall: vi.fn(),
     mockCaptureInitialize: vi.fn(),
-    // `capture` backs the temporary dual-emit of the legacy `mcp_*` event names.
+    // Raw `capture`; must never be used for the retired legacy `mcp_*` event names.
     mockCapture: vi.fn(),
 }))
 
@@ -15,8 +15,12 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackInitEvent, trackToolCall } from '@/hono/analytics'
+import { trackExecuteSqlGeneration, trackInitEvent, trackSkillInvoked, trackToolCall } from '@/hono/analytics'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
+import type { SkillInvocation } from '@/tools/exec-learn'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -62,6 +66,8 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         scopeGatedTools: [],
         distinctId: 'distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -73,15 +79,12 @@ describe('Hono MCP analytics contexts', () => {
         mockCapture.mockClear()
     })
 
-    it('dual-emits the legacy mcp_tool_call / mcp_initialize names during the cutover', async () => {
-        // TRANSITION SHIM coverage — delete alongside the dual-emit once insights
-        // are migrated to the `$mcp_*` names.
+    it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
+        // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
         await trackToolCall('user-get', 12, false, makeState())
 
-        const legacyEvents = mockCapture.mock.calls.map((c) => c[0].event)
-        expect(legacyEvents).toContain('mcp_initialize')
-        expect(legacyEvents).toContain('mcp_tool_call')
+        expect(mockCapture).not.toHaveBeenCalled()
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
@@ -127,5 +130,121 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('exec', 5, false, makeState())
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+    })
+
+    describe('trackExecuteSqlGeneration', () => {
+        it('emits an $ai_generation carrying the intent as input and the HogQL as output', async () => {
+            await trackExecuteSqlGeneration(
+                'execute-sql',
+                { query: 'SELECT count() FROM events' },
+                makeState(),
+                { durationMs: 1500, isError: false },
+                { intent: 'count yesterday signups' }
+            )
+
+            expect(mockCapture).toHaveBeenCalledTimes(1)
+            const payload = mockCapture.mock.calls[0]![0]
+            expect(payload.event).toBe('$ai_generation')
+            expect(payload.distinctId).toBe('distinct-id')
+            expect(payload.properties).toMatchObject({
+                $ai_span_name: 'execute-sql',
+                $ai_trace_id: 'session-uuid',
+                $session_id: 'session-uuid',
+                $ai_input: [{ role: 'user', content: 'count yesterday signups' }],
+                $ai_output_choices: [{ role: 'assistant', content: 'SELECT count() FROM events' }],
+                $ai_latency: 1.5,
+                $ai_is_error: false,
+                // Rides the same base MCP context as every other event, so
+                // evaluations can condition on client/session properties.
+                $mcp_client_name: 'Claude Desktop',
+            })
+        })
+
+        it('flags failed calls so evaluations can target errored SQL too', async () => {
+            await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT bogus' }, makeState(), {
+                durationMs: 200,
+                isError: true,
+                errorMessage: 'Unknown table',
+            })
+
+            expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+                $ai_is_error: true,
+                $ai_error: 'Unknown table',
+            })
+        })
+
+        it.each([
+            ['a different tool', 'query-logs', { query: 'SELECT 1' }],
+            ['a missing query', 'execute-sql', {}],
+            ['a non-string query', 'execute-sql', { query: 42 }],
+        ])('does not emit for %s', async (_case, toolName, args) => {
+            await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
+
+            expect(mockCapture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('trackSkillInvoked', () => {
+        it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
+            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            async (readKind) => {
+                await trackSkillInvoked(makeState(), {
+                    source: 'posthog',
+                    skill: 'retention-analysis',
+                    path: readKind === 'skill' ? undefined : 'references/functions.md',
+                    readKind,
+                })
+
+                expect(mockCapture).toHaveBeenCalledTimes(1)
+                expect(mockCapture.mock.calls[0]![0]).toMatchObject({
+                    event: 'skill invoked',
+                    properties: {
+                        skill_identifier: 'posthog:retention-analysis',
+                        skill_read_kind: readKind,
+                    },
+                })
+            }
+        )
+    })
+
+    describe('exec learn catalog skill-invoked dedupe', () => {
+        function skillsCatalog(): SkillCatalog {
+            return new SkillCatalog([
+                {
+                    name: 'retention-analysis',
+                    description: 'Retention.',
+                    files: [
+                        makeSkillFile('SKILL.md', '# Retention'),
+                        makeSkillFile('a.md', 'alpha'),
+                        makeSkillFile('b.md', 'beta'),
+                    ],
+                },
+                { name: 'funnels', description: 'Funnels.', files: [makeSkillFile('SKILL.md', '# Funnels')] },
+            ])
+        }
+
+        function skillsState(): ResolvedState {
+            return makeState({
+                clientProfile: { isClaudeChatHost: () => false } as any,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            })
+        }
+
+        it('counts one skill once per command but each command separately', async () => {
+            const catalog = new InstructionsBuilder('').buildExecLearnCatalog(skillsState(), skillsCatalog())!
+
+            // A batch that reads two files of one skill must dedupe to a single event.
+            await catalog.execute('posthog:retention-analysis a.md b.md')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(1))
+
+            // A separate command reading another skill still counts.
+            await catalog.execute('posthog:funnels')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(2))
+
+            expect(mockCapture.mock.calls.map((call) => call[0].properties.skill_identifier)).toEqual([
+                'posthog:retention-analysis',
+                'posthog:funnels',
+            ])
+        })
     })
 })

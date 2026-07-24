@@ -3,14 +3,23 @@ import json
 import time
 import hashlib
 from contextlib import suppress
+from datetime import timedelta
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.urls import resolve
+from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
+
+if TYPE_CHECKING:
+    # This module is imported by DRF's DEFAULT_THROTTLE_CLASSES setting while rest_framework.views
+    # is still initializing, so importing it (or anything that pulls it in) at runtime is circular.
+    from rest_framework.request import Request
+    from rest_framework.views import APIView
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
@@ -448,6 +457,29 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+# copy_flags fans out to up to 50 target projects per call, creating a feature flag (and any
+# missing cohorts) in each one, a much heavier write than most endpoints, so it gets its own
+# tighter budget instead of the general per-project Burst/SustainedRateThrottle. It's a plain
+# Postgres write path (no ClickHouse), so it doesn't need the ClickHouse*RateThrottle pair.
+# PersonalApiKeyOrUserRateThrottle applies regardless of auth method, covering the
+# session-authenticated bulk-copy UI too. That UI (frontend/src/scenes/feature-flags/
+# flagSelectionLogic.ts) awaits one copy_flags call per flag, sequentially, for up to 100 flags
+# in one operation, and does not retry on 429, so the burst rate has to clear a full legitimate
+# session (which can complete in well under a minute when each call is fast) without tripping.
+class CopyFlagsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # 120/minute clears a full 100-call session with headroom even if every call returns quickly,
+    # while still catching a tight scripted loop well beyond normal bulk-copy usage.
+    scope = "copy_flags_burst"
+    rate = "120/minute"
+
+
+class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Bounds an hour to a couple of full bulk-copy sessions plus retries, well short of what
+    # sustained abuse could rack up unthrottled.
+    scope = "copy_flags_sustained"
+    rate = "300/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -651,6 +683,43 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Per-team throttle for the (paid, Opus-backed) custom-source AI manifest builder.
+
+    One drafting request fans out to several Opus calls and isn't billed to the customer, so the
+    budget is keyed per team rather than per user: the whole org shares one bucket regardless of
+    auth type, which caps cost and stops the endpoint being used as a free Opus proxy. Session/web
+    users are the primary callers, so they're throttled too (not just personal API keys).
+    """
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is not None:
+            return self.cache_format % {"scope": self.scope, "ident": team_id}
+        return super().get_cache_key(request, view)
+
+
+class CustomSourceAIBuilderBurstThrottle(_CustomSourceAIBuilderThrottle):
+    # Guards against double-submits and frontend retry storms. A human can't naturally beat this —
+    # each draft takes 20–60s (several sequential Opus calls).
+    scope = "custom_source_ai_builder_burst"
+    rate = "5/minute"
+
+
+class CustomSourceAIBuilderSustainedThrottle(_CustomSourceAIBuilderThrottle):
+    # Covers the most intense single-source setup session (paste docs → wrong → tweak auth →
+    # re-draft, ~10–15 iterations).
+    scope = "custom_source_ai_builder_sustained"
+    rate = "20/hour"
+
+
+class CustomSourceAIBuilderDailyThrottle(_CustomSourceAIBuilderThrottle):
+    # Hard backstop against scripted abuse — above this isn't a human setting up sources, and a
+    # team can only keep a handful of custom sources anyway.
+    scope = "custom_source_ai_builder_daily"
+    rate = "50/day"
+
+
 class PersonalSpendBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Burst limit for the personal LLM spend analysis endpoint.
     # ClickHouse-bound; protects against impatient refresh-spamming.
@@ -693,19 +762,33 @@ class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
-class EmailMFAThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa"
+class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification"
     rate = "6/20minutes"
 
+    def get_cache_key(self, request, view):
+        # Key on the pending login's user id (from the session), not on request data. The base class
+        # would fall back to a request-body "email" field, which the code-verification request never
+        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
+        # it. The session is the source of truth for who is being verified.
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-class EmailMFAResendThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa_resend"
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
+class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification_resend"
     rate = "1/minute"
 
     def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import email_mfa_verifier
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -794,6 +877,65 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         # this value isn't use controllable and can't generate html/js, so there's no risk of xss
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_query_{sha_hash}"
+
+
+class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
+    """Counts a user's recent wizard cloud RUNS (not requests), excluding failed and cancelled ones.
+
+    Each cloud run provisions a Modal sandbox and runs an LLM agent, so the cap must stay hard — but
+    counting raw requests locks users out after a run fails or gets cancelled, exactly when they need
+    to retry. Run outcomes change after the request, so this counts run rows in the DB at request
+    time instead of DRF's cache-side request history. Requests that boot no sandbox (validation
+    errors, missing GitHub integration, 429s from a sibling throttle) consume no quota — DRF
+    evaluates every throttle on every request, so a cache-side counter would silently charge
+    rejected requests.
+
+    These DB counts are read-then-create and can be raced by parallel requests, so they are the
+    user-facing soft limits; the hard ceiling on sandbox boots is the atomic per-request attempt
+    reservation inside the cloud_run view itself.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            # cloud_run requires IsAuthenticated; anything else is rejected by permissions.
+            return True
+        # DRF evaluates both sibling throttles on every request; memoizing on the request keeps
+        # that at one DB read per distinct window instead of one per throttle.
+        memo = getattr(request, "_wizard_run_times_memo", None)
+        if memo is None:
+            memo = {}
+            setattr(request, "_wizard_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
+        if self.duration not in memo:
+            # Deferred: rate_limit is core and imports at module scope would pull the tasks
+            # product into every process's import path.
+            from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
+
+            memo[self.duration] = recent_wizard_cloud_run_times(
+                user.pk, timezone.now() - timedelta(seconds=self.duration)
+            )
+        self._recent_run_times = memo[self.duration]
+        return len(self._recent_run_times) < self.num_requests
+
+    def wait(self) -> float | None:
+        run_times = getattr(self, "_recent_run_times", None)
+        if not run_times:
+            return None
+        return max((run_times[0] + timedelta(seconds=self.duration) - timezone.now()).total_seconds(), 0)
+
+
+class SetupWizardCloudRunBurstRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
+    scope = "wizard_cloud_run_burst"
+    rate = "2/hour"
+
+
+class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
+    scope = "wizard_cloud_run_day"
+    rate = "5/day"
 
 
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -1159,4 +1301,13 @@ class TeamsOAuthCallbackThrottle(IPThrottle):
     """
 
     scope = "teams_oauth_callback"
+    rate = "30/minute"
+
+
+class SupportSlackOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated support Slack OAuth callback endpoint by IP.
+    """
+
+    scope = "support_slack_oauth_callback"
     rate = "30/minute"

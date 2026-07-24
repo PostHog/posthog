@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -26,14 +24,13 @@ export interface MessageActionsMenuProps {
 }
 
 export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
         item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { maybeLoadComments, startNewComment } = useActions(commentsLogicInstance)
 
     const logic = messageActionsMenuLogic({ content })
     const { showConsentPopover, dataProcessingAccepted } = useValues(logic)
@@ -44,6 +41,11 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
     }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
+        // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
+        // away or switches traces), so bail out rather than reading `.values` off a torn-down store.
+        if (!commentsLogicInstance.isMounted()) {
+            return
+        }
         // Access editor via .values to get the latest value at retry time, not render time
         const editor = commentsLogicInstance.values.richContentEditor
         if (editor) {
@@ -57,6 +59,9 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
 
     const handleStartDiscussion = (): void => {
         maybeLoadComments()
+        // Exit any in-progress reply and deregister its editor, so the retry loop below
+        // waits for the footer composer instead of pasting into a thread's reply composer
+        startNewComment()
         openSidePanel(SidePanelTab.Discussion)
 
         const truncatedContent =
@@ -70,9 +75,7 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
         setTimeout(() => insertQuoteIntoEditor(quotedContent), EDITOR_RETRY_DELAY_MS)
     }
 
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const showDiscussions = !!traceId && (isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS])
-    const showTranslation = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
+    const showDiscussions = !!traceId
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
@@ -89,22 +92,18 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
                   },
               ]
             : []),
-        ...(showTranslation
-            ? [
-                  {
-                      label: 'Translate',
-                      disabledReason: accessControlDisabledReason ?? undefined,
-                      onClick: () => {
-                          if (dataProcessingAccepted) {
-                              setShowTranslatePopover(true)
-                          } else {
-                              setShowConsentPopover(true)
-                          }
-                      },
-                      'data-attr': 'llma-message-translate',
-                  },
-              ]
-            : []),
+        {
+            label: 'Translate',
+            disabledReason: accessControlDisabledReason ?? undefined,
+            onClick: () => {
+                if (dataProcessingAccepted) {
+                    setShowTranslatePopover(true)
+                } else {
+                    setShowConsentPopover(true)
+                }
+            },
+            'data-attr': 'llma-message-translate',
+        },
     ]
 
     if (menuItems.length === 0) {

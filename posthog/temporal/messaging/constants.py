@@ -1,9 +1,18 @@
 """Shared constants for temporal messaging workflows."""
 
+# precalculated_events.source prefix written by the event backfill (as opposed to the
+# realtime consumer, which writes a "cohort_filter_" prefix). Shared so the day-already-
+# backfilled check and the backfill writer can't drift apart.
+BACKFILL_EVENT_SOURCE_PREFIX = "cohort_event_backfill"
+
 # Workflow IDs and patterns
 REALTIME_COHORT_CALCULATION_SCHEDULE_ID = "realtime-cohort-calculation-schedule"
 REALTIME_COHORT_CALCULATION_COORDINATOR_WORKFLOW_NAME = "realtime-cohort-calculation-coordinator"
 CHILD_WORKFLOW_ID_SUFFIX = "child"
+
+# Reconciliation of precalculated_events rows made stale by person merges
+RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID = "reconcile-precalculated-data-schedule"
+RECONCILE_PRECALCULATED_DATA_WORKFLOW_NAME = "reconcile-precalculated-data"
 
 # Duration percentile-based schedule IDs
 REALTIME_COHORT_CALCULATION_P0_P50_SCHEDULE_ID = "realtime-cohort-calculation-p0-p50"

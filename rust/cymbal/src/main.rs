@@ -1,4 +1,6 @@
-use cymbal::config::Config;
+use cymbal::modes::notifications::NotificationsConfig;
+use cymbal::modes::processing::ProcessingConfig;
+use cymbal::modes::resolution::ResolutionConfig;
 use cymbal::modes::{self, CymbalMode};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
@@ -11,9 +13,19 @@ fn setup_tracing() {
         EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap()),
+            .add_directive("pyroscope=warn".parse().unwrap())
+            .add_directive("rdkafka=warn".parse().unwrap()),
     );
     tracing_subscriber::registry().with(log_layer).init();
+}
+
+/// Read `CYMBAL_MODE` without parsing any mode-specific config, so each mode can
+/// own and parse its own config below.
+fn read_mode() -> CymbalMode {
+    std::env::var("CYMBAL_MODE")
+        .ok()
+        .map(|s| s.parse().expect("invalid CYMBAL_MODE"))
+        .unwrap_or_default()
 }
 
 #[tokio::main]
@@ -25,36 +37,56 @@ async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_with_defaults().unwrap();
+    match read_mode() {
+        CymbalMode::Processing => {
+            let config = ProcessingConfig::init_with_defaults().unwrap();
+            let _profiling_agent = start_profiling(&config.continuous_profiling);
+            init_posthog("cymbal", &config.posthog_api_key, &config.posthog_endpoint).await;
+            modes::processing::run(config).await;
+        }
+        CymbalMode::Resolution => {
+            let config = ResolutionConfig::init_with_defaults().unwrap();
+            let _profiling_agent = start_profiling(&config.continuous_profiling);
+            init_posthog(
+                "cymbal-resolution",
+                &config.posthog_api_key,
+                &config.posthog_endpoint,
+            )
+            .await;
+            if let Err(e) = modes::resolution::serve(&config.resolver, &config.service).await {
+                error!("cymbal-resolution server error: {e}");
+                std::process::exit(1);
+            }
+        }
+        CymbalMode::Notifications => {
+            let config = NotificationsConfig::init_with_defaults().unwrap();
+            let _profiling_agent = start_profiling(&config.continuous_profiling);
+            init_posthog(
+                "cymbal-notifications",
+                &config.posthog_api_key,
+                &config.posthog_endpoint,
+            )
+            .await;
+            modes::notifications::run(config).await;
+        }
+    }
+}
 
-    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
-    let _profiling_agent = match config.continuous_profiling.start_agent() {
+// Keep the returned agent alive for the duration of the program.
+fn start_profiling(
+    config: &common_continuous_profiling::ContinuousProfilingConfig,
+) -> Option<impl Sized> {
+    match config.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
             error!("Failed to start continuous profiling agent: {e}");
             None
         }
-    };
-
-    let service_name = match config.mode {
-        CymbalMode::Processing => "cymbal",
-        CymbalMode::Resolution => "cymbal-resolution",
-    };
-    common_posthog::init(
-        service_name,
-        config.posthog_api_key.as_deref(),
-        &config.posthog_endpoint,
-    )
-    .await
-    .unwrap();
-
-    match config.mode {
-        CymbalMode::Processing => modes::processing::run(config).await,
-        CymbalMode::Resolution => {
-            if let Err(e) = modes::resolution::serve(&config).await {
-                error!("cymbal-resolution server error: {e}");
-                std::process::exit(1);
-            }
-        }
     }
+}
+
+async fn init_posthog(service_name: &'static str, api_key: &Option<String>, endpoint: &str) {
+    common_posthog::init(service_name, api_key.as_deref(), endpoint)
+        .await
+        .unwrap();
 }

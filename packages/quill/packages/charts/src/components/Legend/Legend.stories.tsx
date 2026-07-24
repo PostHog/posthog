@@ -69,6 +69,44 @@ export const ManyItemsWraps: Story = {
     ),
 }
 
+const LONG_LABELS: LegendItem[] = [
+    { key: 'a', label: 'pageview · Chrome · United States · organic search', color: '#22c55e' },
+    { key: 'b', label: 'pageview · Safari · United Kingdom · paid social', color: '#3b82f6' },
+    { key: 'c', label: 'Short one', color: '#f97316' },
+]
+
+const LONG_SINGLE: LegendItem[] = [
+    { key: 'a', label: 'pageview · Chrome · United States · organic search · returning visitor', color: '#22c55e' },
+]
+
+// Clipping is driven by available space: each horizontal row caps at an equal share of the line, floored
+// at 180px, so labels show unclipped when there's room and clip into tidy columns when there isn't.
+// Top-to-bottom: a lone long series in a wide box (fits, no clip), the same series in a narrow box
+// (clips), a group of long labels in a wide box (each fits its share, no clip), the same group in a
+// narrow box (clips to its share of the line), and a vertical legend that truncates at its column edge.
+// The full text is always on the row's `title` tooltip.
+export const LongLabelsTruncate: Story = {
+    render: () => (
+        <div className="flex flex-col gap-4">
+            <div className="w-[640px] border border-border rounded p-2">
+                <Legend items={LONG_SINGLE} align="start" />
+            </div>
+            <div className="w-[240px] border border-border rounded p-2">
+                <Legend items={LONG_SINGLE} align="start" />
+            </div>
+            <div className="w-[1100px] border border-border rounded p-2">
+                <Legend items={LONG_LABELS} />
+            </div>
+            <div className="w-[480px] border border-border rounded p-2">
+                <Legend items={LONG_LABELS} />
+            </div>
+            <div className="w-[200px] border border-border rounded p-2">
+                <Legend items={LONG_LABELS} orientation="vertical" align="start" />
+            </div>
+        </div>
+    ),
+}
+
 function ChartLegendStory({
     show = true,
     position,
@@ -92,17 +130,9 @@ function ChartLegendStory({
     )
 }
 
+// One position suffices — the BuiltInToggle set below pins all four via the same ChartLegendLayout
 export const LayoutTop: Story = {
     render: () => <ChartLegendStory position="top" />,
-}
-export const LayoutBottom: Story = {
-    render: () => <ChartLegendStory position="bottom" />,
-}
-export const LayoutLeft: Story = {
-    render: () => <ChartLegendStory position="left" />,
-}
-export const LayoutRight: Story = {
-    render: () => <ChartLegendStory position="right" />,
 }
 export const LegendHidden: Story = {
     render: () => <ChartLegendStory show={false} position="top" />,

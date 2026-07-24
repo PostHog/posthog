@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -53,6 +54,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "slack_service": {"available": False, "client_id": None},
             "object_storage": False,
             "public_egress_ip_addresses": [],
+            "wizard_cloud_run_available": False,
             **options,
         }
 
@@ -67,6 +69,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
             # we calculate this here because otherwise it is non-deterministic when running locally
             # it can be overridden in tests by passing in options
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
@@ -121,6 +124,18 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
                 assert response == self.preflight_authenticated_dict({"object_storage": True})
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
+
+    def test_preflight_request_with_wizard_cloud_run_available(self):
+        self.client.logout()
+        with self.is_cloud(False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+                WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id",
+            ):
+                response = self.client.get("/_preflight/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.preflight_dict({"wizard_cloud_run_available": True})
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):

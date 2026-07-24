@@ -15,9 +15,22 @@
 
 import { createHash } from 'node:crypto'
 
-import { AssistantMessageRecord } from '../spec/spec'
+import { ApprovalType, ApprovalTypeSchema, AssistantMessageRecord, legacyApproversToApprovalType } from '../spec/spec'
 
-export type ApprovalRequestState = 'queued' | 'approving' | 'dispatched' | 'dispatched_failed' | 'rejected' | 'expired'
+/**
+ * Source of truth for the approval-request state vocabulary: Django's DRF
+ * `choices` and the DB `CheckConstraint` derive from the emitted JSON (see
+ * `spec/spec-codegen.ts`), not a hand-copy. Lifecycle order; terminal last.
+ */
+export const APPROVAL_REQUEST_STATES = [
+    'queued',
+    'approving',
+    'dispatched',
+    'dispatched_failed',
+    'rejected',
+    'expired',
+] as const
+export type ApprovalRequestState = (typeof APPROVAL_REQUEST_STATES)[number]
 
 export interface ApprovalRequest {
     id: string
@@ -32,8 +45,13 @@ export interface ApprovalRequest {
     args_hash: Buffer
     /** Snapshot of the assistant message that emitted the call. */
     assistant_message: AssistantMessageRecord
-    /** Resolved approver policy at request time — v0 always `["team_admins"]`. */
-    approver_scope: { approvers: string[]; allow_edit: boolean; allow_agent_approver: boolean }
+    /**
+     * Resolved approval policy at request time. `type` decides who may clear it:
+     * `principal` (the session principal, via the ingress decision API) or
+     * `agent` (the agent's owners, via the console). `allow_edit` gates
+     * approver-edited args.
+     */
+    approver_scope: { type: ApprovalType; allow_edit: boolean }
     state: ApprovalRequestState
     decision_by: string | null
     decision_at: string | null
@@ -43,6 +61,84 @@ export interface ApprovalRequest {
     dispatch_outcome: { result?: unknown; error?: string } | null
     created_at: string
     expires_at: string
+}
+
+/**
+ * Effective approval authority for a stored row. New rows carry `type`; rows
+ * queued before the principal/agent rebuild carry the legacy `approvers[]`
+ * scope with no `type`, so `scope.type` is `undefined` on them. Every surface
+ * that gates on type MUST resolve through this, not read `.type` raw.
+ *
+ * Uses `ApprovalTypeSchema` (not a hardcoded check) so a new enum authority isn't
+ * silently downgraded to the weakest gate; legacy rows map via
+ * `legacyApproversToApprovalType`; last-resort `principal` mirrors Django's
+ * `approvals_decide` fallback.
+ */
+export function effectiveApprovalType(scope: ApprovalRequest['approver_scope']): ApprovalType {
+    const s = scope as unknown as { type?: unknown; approvers?: unknown }
+    const parsed = ApprovalTypeSchema.safeParse(s.type)
+    if (parsed.success) {
+        return parsed.data
+    }
+    return legacyApproversToApprovalType(s.approvers) ?? 'principal'
+}
+
+/**
+ * Wire shape for an approval row — matches the Django `approvals` serializer and
+ * the frontend `AgentApprovalRequest`. Drops the internal `args_hash` (a Buffer)
+ * and reports a concrete `approver_scope.type`.
+ */
+export interface SerializedApprovalRequest {
+    id: string
+    session_id: string
+    application_id: string
+    team_id: number
+    revision_id: string
+    turn: number
+    tool_call_id: string
+    tool_name: string
+    proposed_args: Record<string, unknown>
+    decided_args: Record<string, unknown> | null
+    assistant_message: AssistantMessageRecord
+    approver_scope: { type: ApprovalType; allow_edit: boolean }
+    state: ApprovalRequestState
+    decision_by: string | null
+    decision_at: string | null
+    decision_reason: string | null
+    dispatch_outcome: { result?: unknown; error?: string } | null
+    created_at: string
+    expires_at: string
+}
+
+/**
+ * Serialize a stored row to the wire shape clients consume. Shared by the
+ * ingress read route (`GET /approvals/:id`) and the runner's `approval_required`
+ * SSE frame so every surface emits an identical shape. Resolves
+ * `approver_scope.type` through `effectiveApprovalType` so legacy rows report a
+ * concrete type instead of `undefined`.
+ */
+export function serializeApprovalRequest(row: ApprovalRequest): SerializedApprovalRequest {
+    return {
+        id: row.id,
+        session_id: row.session_id,
+        application_id: row.application_id,
+        team_id: row.team_id,
+        revision_id: row.revision_id,
+        turn: row.turn,
+        tool_call_id: row.tool_call_id,
+        tool_name: row.tool_name,
+        proposed_args: row.proposed_args,
+        decided_args: row.decided_args,
+        assistant_message: row.assistant_message,
+        approver_scope: { type: effectiveApprovalType(row.approver_scope), allow_edit: row.approver_scope.allow_edit },
+        state: row.state,
+        decision_by: row.decision_by,
+        decision_at: row.decision_at,
+        decision_reason: row.decision_reason,
+        dispatch_outcome: row.dispatch_outcome,
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+    }
 }
 
 export interface UpsertApprovalRequestInput {
@@ -118,6 +214,8 @@ export interface ApprovalStore {
     countQueuedByTeam(teamId: number): Promise<number>
     /** Count `queued` rows for one application — drives the per-agent badge. */
     countQueuedByApplication(applicationId: string): Promise<number>
+    /** Count `queued` rows for one session — drives the per-session open-approvals cap. */
+    countQueuedBySession(sessionId: string): Promise<number>
 }
 
 /**

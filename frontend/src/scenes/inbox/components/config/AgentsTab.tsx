@@ -1,32 +1,20 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
-
-import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
-import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
-import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
-import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
-import { AutoStartThresholdSection } from './AutoStartThresholdSection'
 import { ConnectionsSection } from './ConnectionsSection'
+import { DataSourceSetup } from './DataSourceSetup'
 import { McpServersSection } from './McpServersSection'
 import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
-
-// Each signal source reads from specific tables – pre-select them and make them required
-const SIGNAL_SOURCE_REQUIRED_TABLES: Partial<Record<ExternalDataSourceType, string[]>> = {
-    Github: ['issues'],
-    Linear: ['issues'],
-    Zendesk: ['tickets'],
-    PgAnalyze: ['issues', 'servers'],
-}
 
 function Subsection({
     title,
@@ -61,11 +49,12 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 /**
  * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
  * PostHog Code desktop Agents view. Composes Connections, the agent roster,
- * Slack, auto-start, and MCP servers. Session-analysis and data-source setup
+ * Slack, and MCP servers. Session-analysis and data-source setup
  * render inline (replacing the roster) when their sub-flow is open.
  */
 export function AgentsTab(): JSX.Element {
-    const { sessionAnalysisSetupOpen, dataSourceSetupProduct } = useValues(signalSourcesLogic)
+    const { sessionAnalysisSetupOpen, dataSourceSetupSource } = useValues(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         loadSources,
         loadSourceConfigs,
@@ -79,17 +68,12 @@ export function AgentsTab(): JSX.Element {
         loadSourceConfigs()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const isDataSourceSetupOpen = dataSourceSetupProduct !== null
-
     let agentsBody: JSX.Element
-    if (isDataSourceSetupOpen) {
+    if (dataSourceSetupSource !== null) {
         agentsBody = (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
-                <DataSourceSetup
-                    product={dataSourceSetupProduct}
-                    onComplete={() => onDataSourceSetupComplete(dataSourceSetupProduct)}
-                />
+                <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
             </div>
         )
     } else if (sessionAnalysisSetupOpen) {
@@ -127,91 +111,23 @@ export function AgentsTab(): JSX.Element {
                     {agentsBody}
                 </Subsection>
 
-                <Subsection
-                    title="Slack"
-                    description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
-                >
-                    <SlackNotificationsSection />
-                </Subsection>
+                {featureFlags[FEATURE_FLAGS.INBOX_SLACK_NOTIFICATIONS] && (
+                    <Subsection
+                        title="Slack"
+                        description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
+                    >
+                        <SlackNotificationsSection />
+                    </Subsection>
+                )}
 
-                <Subsection
-                    title="Auto-start"
-                    description="Self-driving can start coding tasks automatically when a report is immediately actionable and assigned to you."
-                >
-                    <AutoStartThresholdSection />
-                </Subsection>
-
-                <Subsection
-                    title="MCP servers"
-                    description="External tools agents can read from. PostHog data is always available; this is everything else."
-                >
-                    <McpServersSection />
-                </Subsection>
-            </div>
-        </div>
-    )
-}
-
-function DataSourceSetup({
-    product,
-    onComplete,
-}: {
-    product: ExternalDataSourceType
-    onComplete: () => void
-}): JSX.Element {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-
-    if (availableSourcesLoading || availableSources === null) {
-        return <LemonSkeleton />
-    }
-
-    const sourceConfig = Object.values(availableSources).find((s: SourceConfig) => s.name === product)
-    if (!sourceConfig) {
-        return <div>Source not found</div>
-    }
-
-    return (
-        <BindLogic
-            logic={sourceWizardLogic}
-            props={{
-                availableSources,
-                requiredTables: SIGNAL_SOURCE_REQUIRED_TABLES[product],
-                onComplete,
-            }}
-        >
-            <DataSourceSetupForm sourceConfig={sourceConfig} />
-        </BindLogic>
-    )
-}
-
-function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): JSX.Element {
-    const { isLoading, canGoNext } = useValues(sourceWizardLogic)
-    const { setInitialConnector, onSubmit } = useActions(sourceWizardLogic)
-
-    useEffect(() => {
-        setInitialConnector(sourceConfig)
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-    return (
-        <div className="space-y-4">
-            <div className="flex items-center gap-3">
-                <SourceIcon type={sourceConfig.name} size="small" disableTooltip />
-                <p className="text-sm text-muted-alt mb-0">
-                    Connect {sourceConfig.label ?? sourceConfig.name} as a data source to enable this signal.
-                </p>
-            </div>
-
-            <SourceForm sourceConfig={sourceConfig} showPrefix={false} />
-
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    loading={isLoading}
-                    disabledReason={!canGoNext ? 'Fill in the required fields' : undefined}
-                    onClick={() => onSubmit()}
-                >
-                    Connect
-                </LemonButton>
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && (
+                    <Subsection
+                        title="MCP servers"
+                        description="External tools agents can read from. PostHog data is always available; this is everything else."
+                    >
+                        <McpServersSection />
+                    </Subsection>
+                )}
             </div>
         </div>
     )

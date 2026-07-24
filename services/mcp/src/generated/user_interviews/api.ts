@@ -15,7 +15,7 @@ export const UserInterviewTopicsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -32,7 +32,7 @@ export const UserInterviewTopicsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -86,7 +86,7 @@ export const UserInterviewTopicsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -98,7 +98,7 @@ export const UserInterviewTopicsPartialUpdateParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -152,7 +152,7 @@ export const UserInterviewTopicsAddIntervieweeCreateParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -175,7 +175,7 @@ export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -187,7 +187,7 @@ export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -199,7 +199,7 @@ export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -223,7 +223,7 @@ export const UserInterviewTopicsRemoveIntervieweeCreateParams = /* @__PURE__ */ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -246,7 +246,7 @@ export const UserInterviewTopicsSendInvitesCreateParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -281,7 +281,7 @@ export const UserInterviewTopicsIntervieweesListParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     topic_id: zod.string(),
 })
@@ -298,7 +298,7 @@ export const UserInterviewTopicsIntervieweesCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     topic_id: zod.string(),
 })
@@ -330,7 +330,7 @@ export const UserInterviewTopicsIntervieweesPartialUpdateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     topic_id: zod.string(),
 })
@@ -364,7 +364,7 @@ export const UserInterviewTopicsIntervieweesDestroyParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     topic_id: zod.string(),
 })
@@ -376,7 +376,7 @@ export const UserInterviewTopicsIntervieweesBulkCreateParams = /* @__PURE__ */ z
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     topic_id: zod.string(),
 })
@@ -412,7 +412,7 @@ export const UserInterviewsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -433,7 +433,7 @@ export const UserInterviewsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -442,7 +442,7 @@ export const UserInterviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -452,7 +452,7 @@ export const UserInterviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     interviewee_emails: zod.array(zod.string().max(userInterviewsPartialUpdateBodyIntervieweeEmailsItemMax)).optional(),
     summary: zod.string().optional(),
     classifications: zod
-        .array(zod.enum(['abandoned', 'off-topic']).describe('* `abandoned` - Abandoned\n* `off-topic` - Off-topic'))
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
         .optional()
         .describe(
             'Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta.'
@@ -468,7 +468,7 @@ export const UserInterviewsSearchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -482,18 +482,18 @@ export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
         .max(userInterviewsSearchCreateBodyQueryMax)
         .describe('Natural-language query to match semantically against interview transcripts and summaries.'),
     document_types: zod
-        .array(zod.enum(['transcript', 'summary']).describe('* `transcript` - transcript\n* `summary` - summary'))
+        .array(zod.enum(['transcript', 'summary']).describe('\* `transcript` - transcript\n\* `summary` - summary'))
         .min(1)
         .optional()
         .describe(
             'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
         ),
     topic_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
     classifications: zod
-        .array(zod.enum(['abandoned', 'off-topic']).describe('* `abandoned` - Abandoned\n* `off-topic` - Off-topic'))
+        .array(zod.enum(['abandoned', 'off-topic']).describe('\* `abandoned` - Abandoned\n\* `off-topic` - Off-topic'))
         .min(1)
         .optional()
         .describe(

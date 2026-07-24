@@ -1,0 +1,275 @@
+import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
+
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
+import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
+
+import { MAX_GROUP_BY_DIMENSIONS, logsViewerConfigLogic } from './config/logsViewerConfigLogic'
+import { resolveGroupBySource } from './groupBySource'
+import { LogsViewerToolbar } from './LogsViewerToolbar'
+
+export interface LogsDisplayBarProps {
+    id: string
+    // Whether to render the facet-rail collapse toggle in the frame (facet-rail layout only).
+    showFacetRailToggle?: boolean
+    totalLogsCount?: number
+}
+
+/**
+ * The bar above the results, grouped by scope rather than by widget kind:
+ *
+ *  - persistent-left "frame": controls that belong to the results region in *every* lens —
+ *    the filters toggle, the Logs⇄Patterns⇄Group switch, and a lens-aware count indicator.
+ *  - lens configuration: the group-by key picker, shown only in Group mode (the mode lives
+ *    in the segmented bar; the key is that mode's setting, like Patterns owns its mining).
+ *  - contextual-right: each lens's own tools. Logs mode gets the presentation tools (sort,
+ *    wrap, timezone, export, shortcuts); Patterns mode gets the compare controls; Group
+ *    mode has none.
+ *
+ * Sits below the sparkline, next to the table it affects.
+ */
+export const LogsDisplayBar = ({
+    id,
+    showFacetRailToggle = false,
+    totalLogsCount,
+}: LogsDisplayBarProps): JSX.Element => {
+    const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
+    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
+    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
+
+    const inPatternsMode = showPatternsView && viewMode === 'patterns'
+    // Group is a third view like Patterns: the mode lives in the segmented bar; the key
+    // picker below is the mode's configuration. Double-gated so it's unreachable flag-off.
+    const inGroupByMode = showGroupBy && viewMode === 'group'
+
+    // Each lens joins the bar behind its own flag; the bar renders once any non-Logs lens exists.
+    const viewModeOptions = [
+        { value: 'logs' as const, label: 'Logs' },
+        ...(showPatternsView ? [{ value: 'patterns' as const, label: 'Patterns' }] : []),
+        ...(showGroupBy ? [{ value: 'group' as const, label: 'Group' }] : []),
+    ]
+
+    return (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+                {showFacetRailToggle && (
+                    <LemonButton
+                        size="small"
+                        icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
+                        onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
+                        aria-label={facetRailCollapsed ? 'Show filters' : 'Hide filters'}
+                    >
+                        {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
+                    </LemonButton>
+                )}
+                {viewModeOptions.length > 1 && (
+                    <LemonSegmentedButton
+                        size="small"
+                        value={viewMode}
+                        onChange={setViewMode}
+                        options={viewModeOptions}
+                    />
+                )}
+                {inGroupByMode && <GroupByDimensionPickers />}
+                {inPatternsMode ? (
+                    <PatternsCountIndicator id={id} />
+                ) : inGroupByMode ? (
+                    <GroupsCountIndicator id={id} />
+                ) : (
+                    totalLogsCount !== undefined &&
+                    totalLogsCount > 0 && (
+                        <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
+                    )
+                )}
+            </div>
+            {inPatternsMode ? (
+                <PatternsCompareControls id={id} />
+            ) : (
+                !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />
+            )}
+        </div>
+    )
+}
+
+// `message` is not a grouping key — high-cardinality free text is the Patterns lens's job,
+// and the backend can't aggregate by it. Excluding it from the Logs group drops the
+// message-search item; excluding it from LogAttributes keeps a `message contains …` search
+// from leaking back in via the Recent tab (message searches are recorded under LogAttributes).
+const BASE_EXCLUDED_KEYS = ['message']
+
+/**
+ * Group mode's configuration: one picker pill per dimension, joined by "and", plus a
+ * trailing "+ and" affordance to add another (up to MAX_GROUP_BY_DIMENSIONS). Clearing a
+ * pill removes its dimension; clearing the last one returns the Group view's empty state —
+ * leaving the view is the segmented bar's job, not the picker's.
+ */
+const GroupByDimensionPickers = (): JSX.Element => {
+    const { groupBys } = useValues(logsViewerConfigLogic)
+    const { addGroupBy, removeGroupByAt, replaceGroupByAt } = useActions(logsViewerConfigLogic)
+
+    // A dimension's identity is (source, key), and the reducer allows the same key from
+    // different sources (resource `env` and log `env` are distinct combinations). So exclude a
+    // key from a tab only when picking it there would resolve to a source that's already used —
+    // re-picking that exact (source, key) would duplicate a dimension or silently no-op (the
+    // reducer guards both), but the cross-source combination stays available.
+    const excludedForPill = (pillIndex: number | null): Partial<Record<TaxonomicFilterGroupType, string[]>> => {
+        const used = groupBys.filter((_, i) => i !== pillIndex)
+        const usedKeysForTab = (groupType: TaxonomicFilterGroupType): string[] =>
+            used.filter((d) => resolveGroupBySource(d.key, groupType) === d.source).map((d) => d.key)
+        return {
+            [TaxonomicFilterGroupType.Logs]: [...BASE_EXCLUDED_KEYS, ...usedKeysForTab(TaxonomicFilterGroupType.Logs)],
+            [TaxonomicFilterGroupType.LogAttributes]: [
+                ...BASE_EXCLUDED_KEYS,
+                ...usedKeysForTab(TaxonomicFilterGroupType.LogAttributes),
+            ],
+            [TaxonomicFilterGroupType.LogResourceAttributes]: usedKeysForTab(
+                TaxonomicFilterGroupType.LogResourceAttributes
+            ),
+        }
+    }
+
+    const pickerProps = {
+        size: 'small' as const,
+        groupType: TaxonomicFilterGroupType.Logs,
+        groupTypes: [
+            TaxonomicFilterGroupType.Logs,
+            TaxonomicFilterGroupType.LogAttributes,
+            TaxonomicFilterGroupType.LogResourceAttributes,
+        ],
+        selectingKeyOnly: true,
+    }
+
+    return (
+        <>
+            {groupBys.map((dimension, index) => (
+                <Fragment key={`${dimension.source}:${dimension.key}`}>
+                    {index > 0 && <span className="text-muted text-xs font-semibold uppercase">and</span>}
+                    <TaxonomicStringPopover
+                        {...pickerProps}
+                        excludedProperties={excludedForPill(index)}
+                        value={dimension.key}
+                        onChange={(value, groupType) =>
+                            // The source is resolved from the key so a recent (recorded under
+                            // LogAttributes) still groups by the right top-level column instead
+                            // of a missing attribute.
+                            value
+                                ? replaceGroupByAt(index, {
+                                      key: value,
+                                      source: resolveGroupBySource(value, groupType),
+                                  })
+                                : removeGroupByAt(index)
+                        }
+                        allowClear
+                        placeholder="Group by"
+                        renderValue={(value) => (
+                            <span>
+                                {index === 0 ? 'Group by ' : ''}
+                                <span className="font-mono">{value}</span>
+                            </span>
+                        )}
+                        data-attr="logs-group-by-picker"
+                    />
+                </Fragment>
+            ))}
+            {/* First pick and "+ and" are the same add picker: with no dimension chosen yet it
+                must render (labelled "Group by") or the empty Group view has no picker at all. */}
+            {groupBys.length < MAX_GROUP_BY_DIMENSIONS && (
+                <TaxonomicStringPopover
+                    {...pickerProps}
+                    type="tertiary"
+                    excludedProperties={excludedForPill(null)}
+                    value={undefined}
+                    onChange={(value, groupType) =>
+                        value && addGroupBy({ key: value, source: resolveGroupBySource(value, groupType) })
+                    }
+                    placeholder={groupBys.length === 0 ? 'Group by' : '+ and'}
+                    data-attr="logs-group-by-add-dimension"
+                />
+            )}
+        </>
+    )
+}
+
+/**
+ * Patterns mode's contextual-right tools: the Compare toggle and its baseline picker. Lives in
+ * the display bar's right slot (like the Logs toolbar) rather than inside the results region,
+ * and in its own component so `logsPatternsLogic` only mounts while Patterns is active.
+ */
+const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
+    const { compareEnabled, baselineMode, diffResponseLoading, patternsResponseLoading } = useValues(
+        logsPatternsLogic({ id })
+    )
+    const { setCompareEnabled, setBaselineMode } = useActions(logsPatternsLogic({ id }))
+
+    return (
+        <div className="flex items-center gap-2">
+            {compareEnabled && (
+                <LemonSelect
+                    size="small"
+                    loading={diffResponseLoading}
+                    value={baselineMode}
+                    onChange={setBaselineMode}
+                    options={[
+                        { value: 'lastWeek' as const, label: 'vs. same time last week' },
+                        { value: 'preceding' as const, label: 'vs. preceding period' },
+                    ]}
+                    data-attr="logs-patterns-baseline-mode"
+                />
+            )}
+            <LemonSwitch
+                checked={compareEnabled}
+                onChange={setCompareEnabled}
+                // Toggling swaps which loader runs, so a toggle mid-flight is a double submission.
+                loading={diffResponseLoading || patternsResponseLoading}
+                label="Compare"
+                bordered
+                size="small"
+                data-attr="logs-patterns-compare-toggle"
+            />
+        </div>
+    )
+}
+
+/**
+ * Lens-aware count for Patterns mode. Split into its own component so `logsPatternsLogic` is only
+ * mounted while Patterns is active — mounting it in Logs mode would kick off the heavier patterns query.
+ */
+const PatternsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
+    const { patterns, compareEnabled, diffResponse } = useValues(logsPatternsLogic({ id }))
+
+    // In compare mode the table renders diff entries, not the plain mine — counting `patterns`
+    // there would show a number from a different dataset than the rows on screen.
+    if (compareEnabled) {
+        const count = diffResponse?.entries.length ?? 0
+        return count > 0 ? <span className="text-muted text-xs">{humanFriendlyNumber(count)} changes</span> : null
+    }
+
+    if (patterns.length === 0) {
+        return null
+    }
+
+    return <span className="text-muted text-xs">{humanFriendlyNumber(patterns.length)} patterns</span>
+}
+
+/**
+ * Lens-aware count for Group mode, mirroring PatternsCountIndicator: mounted only while the
+ * Group view is active so `logsGroupByLogic` (and its query) stays down otherwise.
+ */
+const GroupsCountIndicator = ({ id }: { id: string }): JSX.Element | null => {
+    const { groupByResponse } = useValues(logsGroupByLogic({ id }))
+
+    if (groupByResponse.total_groups === 0) {
+        return null
+    }
+
+    return <span className="text-muted text-xs">{humanFriendlyNumber(groupByResponse.total_groups)} groups</span>
+}

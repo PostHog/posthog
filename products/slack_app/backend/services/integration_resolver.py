@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -10,6 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -131,6 +131,7 @@ def resolve_from_candidates(
         defaults = list(
             SlackSettings.objects.filter(slack_workspace_id=slack_team_id)
             .filter(Q(slack_user_id=slack_user_id) | Q(slack_user_id__isnull=True))
+            .exclude(default_integration__isnull=True)
             .select_related(
                 "default_integration",
                 "default_integration__team",
@@ -139,16 +140,19 @@ def resolve_from_candidates(
         )
         defaults.sort(key=lambda d: d.slack_user_id is None)
         for default in defaults:
-            if accessible_team_ids is not None and default.default_integration.team_id not in accessible_team_ids:
+            target = default.default_integration
+            if target is None:
+                continue
+            if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
                 continue
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
             # we were asked to resolve, or it was deleted+recreated. The user
             # can overwrite the row at any time with `@PostHog project <id>`.
-            if default.default_integration.id not in candidate_ids:
+            if target.id not in candidate_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
-            return ResolutionResult(integration=default.default_integration, source=source, candidates=accessible)
+            return ResolutionResult(integration=target, source=source, candidates=accessible)
 
     if len(accessible) == 1:
         return ResolutionResult(integration=accessible[0], source="sole_candidate", candidates=accessible)
@@ -168,11 +172,14 @@ def load_integrations(
     the routing resolver against them. Thin wrapper around
     ``resolve_from_candidates`` that owns the candidate query.
     """
+    from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
+
     candidates = list(
         Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
+    candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
         slack_team_id=slack_team_id,
@@ -232,16 +239,17 @@ def resolve_user_for_workspace(
         )
         return UserAndIntegrationsResolution(failure_reason="user_not_found")
 
-    # Look the Slack email up once and pass it through so the user resolver
-    # doesn't repeat the cache hit and so the routing layer can mention it in
-    # the user-facing failure reply.
     probe = workspace_result.candidates[0]
-    slack_email = get_slack_email_for_user(probe, slack_user_id)
 
-    if settings.DEBUG:
-        # When running locally - match the local user
-        slack_email = "test@posthog.com"
+    # In local dev, match the seeded user the single-integration resolver also
+    # uses. Keep this at the resolver layer so lower-level callers like channel
+    # approval can still exercise real or stubbed Slack emails under DEBUG.
+    slack_email = local_dev_slack_email()
 
+    # Pass slack_email=None outside local dev so the linked-user path
+    # short-circuits before users.info; the resolver fetches lazily on the
+    # email-fallback branch. Re-fetch on the failure branches below is a cache
+    # hit.
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
@@ -249,6 +257,7 @@ def resolve_user_for_workspace(
         slack_email=slack_email,
     )
     if posthog_user is None:
+        slack_email = get_slack_email_for_user(probe, slack_user_id)
         logger.warning(
             "slack_app_no_integration_found",
             reason="user_not_found",
@@ -272,6 +281,9 @@ def resolve_user_for_workspace(
     ]
     accessible_team_ids = {c.team_id for c in accessible_candidates}
     if not accessible_candidates:
+        # Fetch slack_email lazily for the failure reply (cached after the
+        # earlier resolve_posthog_user_from_event call, so this is free).
+        slack_email = get_slack_email_for_user(probe, slack_user_id)
         logger.warning(
             "slack_app_no_integration_found",
             reason="no_team_access",

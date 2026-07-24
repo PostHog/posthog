@@ -1,12 +1,12 @@
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
 
 import type { CommonConfig } from '../../common/config'
 import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
-import { GeoIPService } from '../../utils/geoip'
-import { logger } from '../../utils/logger'
-import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,

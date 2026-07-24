@@ -23,6 +23,7 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use async_trait::async_trait;
+use common_types::CapturedEventHeaders;
 use metrics::{counter, gauge, histogram};
 use rdkafka::producer::{FutureProducer, Producer};
 use rdkafka::util::Timeout;
@@ -30,13 +31,17 @@ use rdkafka::ClientConfig;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info};
+use tracing::log::{debug, error, info, warn};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: lifecycle::Handle,
+    /// Lifecycle handle this producer reports liveness to. `None` for a producer
+    /// whose health must not gate the pod (e.g. the non-critical side of a
+    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
+    /// drive a manager component.
+    liveness: Option<lifecycle::Handle>,
 }
 
 /// Emit min/avg/max/stddev plus p50/p90/p95/p99 for an rdkafka window stat
@@ -72,7 +77,9 @@ impl rdkafka::ClientContext for KafkaContext {
         // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy();
+            if let Some(liveness) = &self.liveness {
+                liveness.report_healthy();
+            }
         }
 
         let total_brokers = stats.brokers.len();
@@ -175,6 +182,15 @@ pub struct KafkaTopicConfig {
     pub dlq_topic: String,
     pub error_tracking_topic: String,
     pub traces_topic: String,
+    /// Dedicated topic for `DataType::AiEvents` (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Optional
+    /// because the AI lane is opt-in: startup validation guarantees it is set
+    /// whenever the routing policy can produce `AiEvents` records.
+    pub ai_events_topic: Option<String>,
+    /// Overflow topic for the AI lane (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`). Unset
+    /// means AI events never overflow; when set, stamped/forced overflow on
+    /// `AiEvents` records reroutes here with the same key semantics as the
+    /// analytics overflow topic.
+    pub ai_events_overflow_topic: Option<String>,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -189,6 +205,8 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             dlq_topic: config.kafka_dlq_topic.clone(),
             error_tracking_topic: config.kafka_error_tracking_topic.clone(),
             traces_topic: config.kafka_traces_topic.clone(),
+            ai_events_topic: config.capture_analytics_ai_events_topic.clone(),
+            ai_events_overflow_topic: config.capture_analytics_ai_events_overflow_topic.clone(),
         }
     }
 }
@@ -218,13 +236,60 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
+/// Overflow routing shared by the lanes that own a dedicated overflow topic:
+/// the analytics main lane always, and the AI lane once
+/// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is set. Keeping both lanes on one function
+/// guarantees identical semantics, including the partition-key handling
+/// driven by `overflow_preserve_partition_locality`.
+///
+/// Precedence (matches the pre-refactor sink ordering): force_overflow
+/// (restrictions) -> overflow_reason (pipeline-stamped) -> the lane's
+/// `default_route`. `ReplayLimited` never applies to these lanes and falls
+/// through to the default.
+fn route_with_overflow<'a>(
+    overflow_topic: &'a str,
+    default_route: (&'a str, Option<&'a str>),
+    event_key: &'a str,
+    force_overflow: bool,
+    skip_person_processing: bool,
+    overflow_reason: Option<&OverflowReason>,
+    headers: &mut CapturedEventHeaders,
+) -> (&'a str, Option<&'a str>) {
+    if force_overflow {
+        // Drop partition key if skip_person_processing is set
+        let key = if skip_person_processing {
+            None
+        } else {
+            Some(event_key)
+        };
+        return (overflow_topic, key);
+    }
+    match overflow_reason {
+        Some(OverflowReason::ForceLimited) => {
+            // Redundant with the generic skip-person path (the pipeline
+            // stamps `metadata.skip_person_processing = true` alongside
+            // `OverflowReason::ForceLimited`), but kept as defense against a
+            // future caller that stamps the reason without the side-effect.
+            headers.set_force_disable_person_processing(true);
+            (overflow_topic, None)
+        }
+        Some(OverflowReason::RateLimited {
+            preserve_locality: true,
+        }) => (overflow_topic, Some(event_key)),
+        Some(OverflowReason::RateLimited {
+            preserve_locality: false,
+        }) => (overflow_topic, None),
+        Some(OverflowReason::ReplayLimited) | None => default_route,
+    }
+}
+
 /// The default KafkaSink using rdkafka's FutureProducer
 pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: lifecycle::Handle,
+        liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -337,7 +402,9 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy();
+            if let Some(liveness) = &liveness {
+                liveness.report_healthy();
+            }
             info!("connected to Kafka brokers");
         };
 
@@ -478,46 +545,22 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     (&self.topics.historical_topic, Some(event_key.as_str()))
                 }
                 DataType::AnalyticsMain => {
-                    // Precedence: force_overflow (restrictions) -> overflow_reason
-                    // (pipeline-stamped) -> default main-topic routing.
-                    if force_overflow {
-                        // Drop partition key if skip_person_processing is set
-                        let key = if skip_person_processing {
-                            None
-                        } else {
-                            Some(event_key.as_str())
-                        };
-                        (&self.topics.overflow_topic, key)
+                    // Drop the partition key on the default main-topic route
+                    // if skip_person_processing is set.
+                    let default_key = if skip_person_processing {
+                        None
                     } else {
-                        match &overflow_reason {
-                            Some(OverflowReason::ForceLimited) => {
-                                // Redundant with the generic skip-person path
-                                // above (the pipeline stamps
-                                // `metadata.skip_person_processing = true`
-                                // alongside `OverflowReason::ForceLimited`), but
-                                // kept as defense against a future caller that
-                                // stamps the reason without the side-effect.
-                                headers.set_force_disable_person_processing(true);
-                                (&self.topics.overflow_topic, None)
-                            }
-                            Some(OverflowReason::RateLimited {
-                                preserve_locality: true,
-                            }) => (&self.topics.overflow_topic, Some(event_key.as_str())),
-                            Some(OverflowReason::RateLimited {
-                                preserve_locality: false,
-                            }) => (&self.topics.overflow_topic, None),
-                            // ReplayLimited never applies to AnalyticsMain; fall through to main.
-                            Some(OverflowReason::ReplayLimited) | None => {
-                                // Drop partition key if skip_person_processing is set
-                                let key = if skip_person_processing {
-                                    None
-                                } else {
-                                    Some(event_key.as_str())
-                                };
-                                (&self.topics.main_topic, key)
-                            }
-                        }
-                    }
+                        Some(event_key.as_str())
+                    };
+                    route_with_overflow(
+                        &self.topics.overflow_topic,
+                        (&self.topics.main_topic, default_key),
+                        &event_key,
+                        force_overflow,
+                        skip_person_processing,
+                        overflow_reason.as_ref(),
+                        &mut headers,
+                    )
                 }
                 DataType::ClientIngestionWarning => (
                     &self.topics.client_ingestion_warning_topic,
@@ -526,6 +569,44 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 DataType::HeatmapMain => (&self.topics.heatmaps_topic, Some(event_key.as_str())),
                 DataType::ExceptionErrorTracking => {
                     (&self.topics.error_tracking_topic, Some(event_key.as_str()))
+                }
+                DataType::AiEvents => {
+                    // AI events never reroute historical; like the
+                    // exception/heatmap lanes the record keeps its event key
+                    // on the default route (v1 only nulls keys for
+                    // Main/Overflow-shaped destinations). An unset topic
+                    // should be impossible here (startup validation requires
+                    // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC whenever the routing policy can produce
+                    // AiEvents), so fall back to the main topic rather than
+                    // failing the batch.
+                    let default_topic: &str = match self.topics.ai_events_topic.as_deref() {
+                        Some(topic) if !topic.is_empty() => topic,
+                        _ => {
+                            warn!(
+                                "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
+                            );
+                            &self.topics.main_topic
+                        }
+                    };
+                    match self.topics.ai_events_overflow_topic.as_deref() {
+                        // The AI overflow valve is armed: mirror the
+                        // analytics main lane's overflow handling onto the
+                        // AI topics.
+                        Some(overflow_topic) if !overflow_topic.is_empty() => route_with_overflow(
+                            overflow_topic,
+                            (default_topic, Some(event_key.as_str())),
+                            &event_key,
+                            force_overflow,
+                            skip_person_processing,
+                            overflow_reason.as_ref(),
+                            &mut headers,
+                        ),
+                        // Valve unarmed: AI events never overflow;
+                        // force_overflow and overflow_reason are
+                        // deliberately ignored, and the pipeline never
+                        // stamps a reason on this lane anyway.
+                        _ => (default_topic, Some(event_key.as_str())),
+                    }
                 }
                 DataType::SnapshotMain => {
                     let session_id = session_id
@@ -785,6 +866,8 @@ pub(crate) fn test_topics() -> KafkaTopicConfig {
         dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         error_tracking_topic: "error_tracking_events".to_string(),
         traces_topic: "tracing_ingestion".to_string(),
+        ai_events_topic: Some("ai_events".to_string()),
+        ai_events_overflow_topic: Some("ai_events_overflow".to_string()),
     }
 }
 
@@ -794,7 +877,7 @@ mod tests {
     use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
-    use crate::utils::uuid_v7;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use rand::distributions::Alphanumeric;
@@ -836,6 +919,8 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
@@ -882,7 +967,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, handle)
+        let sink = KafkaSink::new(config, Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)
@@ -895,8 +980,9 @@ mod tests {
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let distinct_id = "test_distinct_id_123".to_string();
+        let timestamp = chrono::Utc::now();
         let event: CapturedEvent = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.clone(),
             session_id: None,
             ip: "".to_string(),
@@ -905,7 +991,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -949,8 +1035,9 @@ mod tests {
             .take(2_000_000)
             .map(char::from)
             .collect();
+        let timestamp = chrono::Utc::now();
         let captured = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: "id1".to_string(),
             session_id: None,
             ip: "".to_string(),
@@ -959,7 +1046,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -980,9 +1067,10 @@ mod tests {
             .map(char::from)
             .collect();
 
+        let timestamp = chrono::Utc::now();
         let big_event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "id1".to_string(),
                 session_id: None,
                 ip: "".to_string(),
@@ -991,7 +1079,7 @@ mod tests {
                 sent_at: None,
                 token: "token1".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -1177,6 +1265,7 @@ mod tests {
         use super::*;
         use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
+        use rstest::rstest;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
         const OVERFLOW_TOPIC: &str = "events_plugin_ingestion_overflow";
@@ -1186,6 +1275,8 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
+        const AI_EVENTS_TOPIC: &str = "ai_events";
+        const AI_EVENTS_OVERFLOW_TOPIC: &str = "ai_events_overflow";
 
         struct EventInput {
             data_type: DataType,
@@ -1210,8 +1301,9 @@ mod tests {
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
+            let timestamp = chrono::Utc::now();
             let event = CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_user".to_string(),
                 session_id: Some("session123".to_string()),
                 ip: "127.0.0.1".to_string(),
@@ -1220,7 +1312,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             };
@@ -1926,6 +2018,279 @@ mod tests {
                 },
             )
             .await;
+        }
+
+        // ==================== AiEvents ====================
+        // The dedicated $ai_* lane routes to its own topic, keyed on the
+        // event key. test_topics() arms the AI overflow valve
+        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC), so overflow handling mirrors the
+        // AnalyticsMain arm onto the AI topics; the unarmed tests below
+        // override the valve off.
+
+        #[tokio::test]
+        async fn ai_events_normal() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_force_overflow_reroutes_when_armed() {
+            // With the valve armed, restriction-driven force_overflow behaves
+            // exactly like the analytics main lane: rerouted, key kept.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_force_overflow_with_skip_person_drops_key() {
+            // Mirrors analytics_main_force_overflow_with_skip_person.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        /// Stamped overflow reasons on the AI lane route exactly like the
+        /// analytics main lane, including the preserve-partition-locality
+        /// key handling mirrored from the limiter config.
+        #[rstest]
+        #[case::force_limited(OverflowReason::ForceLimited, false, Some(true))]
+        #[case::rate_limited_preserving(
+            OverflowReason::RateLimited {
+                preserve_locality: true
+            },
+            true,
+            None
+        )]
+        #[case::rate_limited_spreading(
+            OverflowReason::RateLimited {
+                preserve_locality: false
+            },
+            false,
+            None
+        )]
+        #[tokio::test]
+        async fn ai_events_stamped_overflow_mirrors_analytics(
+            #[case] reason: OverflowReason,
+            #[case] has_key: bool,
+            #[case] force_disable_person_processing: Option<bool>,
+        ) {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: Some(reason),
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
+                    has_key,
+                    force_disable_person_processing,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_unarmed_never_overflows() {
+            // Without CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC the lane keeps today's
+            // behavior: force_overflow and any stamped reason (which the
+            // gated pipeline would not produce anyway) are ignored.
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_overflow_topic = None;
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let mut event = create_test_event(&EventInput {
+                data_type: DataType::AiEvents,
+                force_overflow: true,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+                redirect_to_topic: None,
+                overflow_reason: None,
+            });
+            event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+        }
+
+        #[tokio::test]
+        async fn ai_events_skip_person_keeps_key() {
+            // skip_person_processing sets the header but must not null the
+            // key: v1's sink only nulls keys for Main/Overflow destinations.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_dlq() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_topic_wins() {
+            // A restriction-driven redirect beats the AI lane, matching v1
+            // where Destination::Custom overwrites Destination::AiEvents.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_record_matches_other_lanes_byte_for_byte() {
+            // The AI lane must only change the topic: for the same event, the
+            // record key is the event key (token:distinct_id) and the headers
+            // are identical to what another dedicated lane produces.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let base = create_test_event(&EventInput::default());
+            let mut ai_event = base.clone();
+            ai_event.metadata.data_type = DataType::AiEvents;
+            let mut exception_event = base;
+            exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
+
+            sink.send(ai_event).await.unwrap();
+            sink.send(exception_event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[1].topic, ERROR_TRACKING_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+            assert_eq!(records[0].key, records[1].key);
+            assert_eq!(records[0].payload, records[1].payload);
+            assert_eq!(
+                format!("{:?}", records[0].headers),
+                format!("{:?}", records[1].headers)
+            );
+        }
+
+        #[tokio::test]
+        async fn ai_events_missing_topic_falls_back_to_main() {
+            // Should be impossible in production (startup validation), but a
+            // misconfigured sink must degrade to the main topic, not error.
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_topic = None;
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+        }
+
+        #[tokio::test]
+        async fn ai_events_empty_topic_falls_back_to_main() {
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_topic = Some(String::new());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================

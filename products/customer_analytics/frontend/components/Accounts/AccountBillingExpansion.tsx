@@ -1,18 +1,26 @@
 import { useActions, useValues } from 'kea'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { BurningMoneyHog, DetectiveHog } from 'lib/components/hedgehogs'
+import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 
+import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
-    const Hog = kind === 'spend' ? BurningMoneyHog : DetectiveHog
+    const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
     return (
-        <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+        <div
+            className="flex flex-col items-center justify-center gap-2 p-8 text-center"
+            data-attr="account-billing-insight-not-found"
+        >
             <Hog className="w-24 h-24" />
             <h4 className="mb-0">No billing {kind} insight here</h4>
             <p className="text-secondary max-w-sm mb-0">
@@ -58,20 +66,35 @@ export function AccountBillingExpansion({
             />
             {savedInsights.map((insight) => {
                 const queryKey = queryKeyFor(insight.short_id)
+                const variablesOverride = variableOverridesByShortId[insight.short_id] ?? null
                 return (
                     <div key={insight.short_id} className="flex flex-col gap-1">
                         {showTitles && insight.name ? <h4 className="mb-0 text-sm">{insight.name}</h4> : null}
-                        {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
-                        <div className="h-80 flex flex-col overflow-hidden">
-                            <Query
+                        {canRenderBillingChart(insight.query) ? (
+                            <AccountBillingChart
                                 key={queryKey}
-                                uniqueKey={queryKey}
+                                logicProps={{ accountId, externalId, kind }}
+                                shortId={insight.short_id}
                                 query={insight.query}
-                                variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
-                                readOnly
-                                embedded
+                                queryKey={queryKey}
+                                variablesOverride={variablesOverride}
                             />
-                        </div>
+                        ) : (
+                            /* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */
+                            <div className="h-80 flex flex-col overflow-hidden">
+                                <Query
+                                    key={queryKey}
+                                    uniqueKey={queryKey}
+                                    query={insight.query}
+                                    variablesOverride={variablesOverride}
+                                    readOnly
+                                    embedded
+                                    // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
+                                    // root) so the loaded results survive tab switches instead of refetching on return.
+                                    attachTo={logic}
+                                />
+                            </div>
+                        )}
                     </div>
                 )
             })}

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -52,6 +53,57 @@ impl std::str::FromStr for EnvelopeCompression {
             "none" => Ok(EnvelopeCompression::None),
             "lz4" => Ok(EnvelopeCompression::Lz4),
             _ => Err(format!("Unknown EnvelopeCompression: {s}")),
+        }
+    }
+}
+
+/// Routing mode for AI capture events between the primary cluster and a
+/// secondary (e.g. WarpStream) cluster. Only consulted in `CaptureMode::Ai`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum AiSinkMode {
+    /// All AI events stay on the primary sink (current behavior).
+    #[default]
+    Primary,
+    /// Only tokens listed in `ai_secondary_allowlist_tokens` go to the
+    /// secondary sink; everything else stays on the primary.
+    SecondaryAllowlist,
+    /// All AI events go to the secondary sink.
+    Secondary,
+}
+
+impl std::str::FromStr for AiSinkMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "primary" => Ok(AiSinkMode::Primary),
+            "secondary_allowlist" | "secondary-allowlist" => Ok(AiSinkMode::SecondaryAllowlist),
+            "secondary" => Ok(AiSinkMode::Secondary),
+            _ => Err(format!("Unknown AiSinkMode: {s}")),
+        }
+    }
+}
+
+/// Resolved AI routing policy: the configured `AiSinkMode` with the token
+/// allowlist it needs attached to the one variant that uses it. Built from the
+/// raw `ai_sink_mode` + `ai_secondary_allowlist_tokens` config in `setup` and
+/// carried by `SplitKafkaSink`, so routing needs nothing but the event's token.
+#[derive(Debug, Clone)]
+pub enum AiRouting {
+    Primary,
+    SecondaryAllowlist(HashSet<String>),
+    Secondary,
+}
+
+impl AiRouting {
+    /// Whether an AI event for `token` should be routed to the secondary sink.
+    /// `Primary` never does; `Secondary` always does; `SecondaryAllowlist` routes
+    /// only allowlisted tokens.
+    pub fn routes_to_secondary(&self, token: &str) -> bool {
+        match self {
+            AiRouting::Primary => false,
+            AiRouting::Secondary => true,
+            AiRouting::SecondaryAllowlist(allowlist) => allowlist.contains(token),
         }
     }
 }
@@ -138,6 +190,18 @@ pub struct Config {
     /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
+
+    /// Redis key holding the dynamic custom per-key rate-limit thresholds
+    /// (JSON object of `{key: threshold}`), written by Django. When set, the
+    /// per-(token, distinct_id) limiter refreshes its custom thresholds from
+    /// this key on a timer, overriding the static CSV overrides. Sourced from
+    /// the same Redis as event restrictions (`event_restrictions_redis_url`).
+    /// When unset, the limiter uses only the static CSV overrides.
+    pub global_rate_limit_custom_threshold_key: Option<String>,
+
+    /// How often to refresh the dynamic custom thresholds from Redis (seconds).
+    #[envconfig(default = "60")]
+    pub global_rate_limit_custom_threshold_refresh_secs: u64,
 
     // Event restrictions configuration (reads from Redis, synced by Django)
     #[envconfig(default = "false")]
@@ -227,6 +291,47 @@ pub struct Config {
     pub ai_s3_access_key_id: Option<String>,
     pub ai_s3_secret_access_key: Option<String>,
 
+    // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
+    // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
+    // exempted from the llm_events quota limiter. Unset disables verification
+    // (all $ai_gateway* props are stripped as untrusted).
+    pub ai_gateway_signing_secret: Option<String>,
+
+    // --- AI secondary sink (e.g. WarpStream cluster) routing ---
+    /// `primary` keeps all AI events on the primary sink; `secondary_allowlist`
+    /// sends only `ai_secondary_allowlist_tokens` to the secondary; `secondary`
+    /// sends every AI event to the secondary. Only consulted in `CaptureMode::Ai`.
+    #[envconfig(default = "primary")]
+    pub ai_sink_mode: AiSinkMode,
+
+    /// Comma-separated tokens routed to the secondary AI sink when
+    /// `ai_sink_mode = secondary_allowlist`.
+    pub ai_secondary_allowlist_tokens: Option<String>,
+
+    /// Secondary AI Kafka cluster connection. When `ai_sink_mode` is not
+    /// `primary`, `ai_secondary_kafka_hosts` and `ai_secondary_kafka_topic` are
+    /// required; the secondary producer inherits all other tuning from `kafka`.
+    pub ai_secondary_kafka_hosts: Option<String>,
+    pub ai_secondary_kafka_topic: Option<String>,
+    #[envconfig(default = "false")]
+    pub ai_secondary_kafka_tls: bool,
+    #[envconfig(default = "")]
+    pub ai_secondary_kafka_client_id: String,
+
+    // --- Dedicated $ai_* topic routing on analytics deployments ---
+    /// Routing mode for `$ai_*` events into the dedicated AI topic
+    /// (`kafka.capture_analytics_ai_events_topic`, i.e. `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`): `primary` (default)
+    /// diverts nothing, `secondary` diverts all `$ai_*` events, and
+    /// `secondary_allowlist` diverts only tokens listed in
+    /// `capture_analytics_ai_events_allowlist_tokens`. The topic is required whenever the
+    /// mode is not `primary`.
+    #[envconfig(default = "primary")]
+    pub capture_analytics_ai_events_mode: AiSinkMode,
+
+    /// Comma-separated project API tokens whose `$ai_*` events are diverted to
+    /// `capture_analytics_ai_events_topic` when `capture_analytics_ai_events_mode` is `secondary_allowlist`.
+    pub capture_analytics_ai_events_allowlist_tokens: Option<String>,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -263,6 +368,34 @@ pub struct Config {
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
+
+    // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
+    // Warnings are emitted as `$$client_ingestion_warning` events onto the
+    // existing `client_ingestion_warning` topic on the main event cluster
+    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
+    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
+    // acks/retries and a small queue, so a saturated or slow warnings topic
+    // can never behave like — or contend with — the main event producer.
+    // Defaults off (fail open).
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_enabled: bool,
+
+    // The producer's fire-and-forget policy (acks, retries, linger, queue
+    // depth in messages, message timeout) is fixed in code — see the
+    // `WARNINGS_KAFKA_*` constants in `setup.rs` — not env-configurable, since
+    // those define the "a warning is worth less than the cost of retrying it"
+    // contract rather than operator knobs. Only the two capacity/safety limits
+    // below stay tunable.
+    #[envconfig(default = "16")]
+    pub capture_ingestion_warnings_kafka_queue_mib: u32,
+
+    // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
+    // the main producer's, so an oversized warning envelope (e.g. built from
+    // attacker-controlled input) cannot inflate past this regardless of what
+    // the main event producer allows.
+    #[envconfig(default = "1048576")]
+    pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 }
 
 #[derive(Envconfig, Clone)]
@@ -303,6 +436,21 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
+    /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
+    /// Unlike the `ai_secondary_*` family on `Config` (which picks a secondary
+    /// CLUSTER on `CaptureMode::Ai` deployments), this picks a TOPIC on the
+    /// same sink: per `Config::capture_analytics_ai_events_mode`, both the v0 pipeline
+    /// (via `DataType::AiEvents`) and the v1 pipeline (via
+    /// `Destination::AiEvents`) divert `$ai_*` events here instead of the
+    /// analytics main topic. Setup also injects it into every v1 sink config.
+    pub capture_analytics_ai_events_topic: Option<String>,
+    /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
+    /// Unset means AI events never overflow (the pre-overflow behavior). When
+    /// set, the AI lane participates in the same overflow limiter and
+    /// restriction-driven force_overflow as the analytics main lane, rerouting
+    /// here instead of the analytics overflow topic. Settable in advance of
+    /// the AI routing mode, so no startup validation ties it to the mode.
+    pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -373,4 +521,126 @@ pub struct KafkaConfig {
     pub kafka_metrics_producer_max_retries: Option<u32>,
     pub kafka_metrics_topic_metadata_refresh_interval_ms: Option<u32>,
     pub kafka_metrics_metadata_max_age_ms: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AiRouting, AiSinkMode, Config};
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    fn required_config_env() -> HashMap<String, String> {
+        [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_topic_defaults() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.kafka.capture_analytics_ai_events_topic, None);
+        assert_eq!(config.capture_analytics_ai_events_mode, AiSinkMode::Primary);
+        assert_eq!(config.capture_analytics_ai_events_allowlist_tokens, None);
+    }
+
+    #[test]
+    fn capture_analytics_ai_events_topic_parses() {
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC".into(),
+            "ai_events".into(),
+        );
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
+            "secondary_allowlist".into(),
+        );
+        env.insert(
+            "CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS".into(),
+            "tok_a,tok_b".into(),
+        );
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            config.kafka.capture_analytics_ai_events_topic.as_deref(),
+            Some("ai_events")
+        );
+        assert_eq!(
+            config.capture_analytics_ai_events_mode,
+            AiSinkMode::SecondaryAllowlist
+        );
+        assert_eq!(
+            config
+                .capture_analytics_ai_events_allowlist_tokens
+                .as_deref(),
+            Some("tok_a,tok_b")
+        );
+    }
+
+    #[test]
+    fn ai_sink_mode_from_str() {
+        // Locks the AI_SINK_MODE env contract: accepted spellings (incl. the
+        // dash/underscore allowlist alias), case-insensitivity, and rejection
+        // of anything else.
+        let ok = [
+            ("primary", AiSinkMode::Primary),
+            ("PRIMARY", AiSinkMode::Primary),
+            ("secondary", AiSinkMode::Secondary),
+            (" Secondary ", AiSinkMode::Secondary),
+            ("secondary_allowlist", AiSinkMode::SecondaryAllowlist),
+            ("secondary-allowlist", AiSinkMode::SecondaryAllowlist),
+            ("Secondary_Allowlist", AiSinkMode::SecondaryAllowlist),
+        ];
+        for (input, expected) in ok {
+            assert_eq!(
+                AiSinkMode::from_str(input).unwrap(),
+                expected,
+                "input={input}"
+            );
+        }
+
+        for bad in ["", "secondaryallowlist", "warpstream", "allowlist"] {
+            assert!(
+                AiSinkMode::from_str(bad).is_err(),
+                "expected err for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ai_routing_routes_to_secondary() {
+        // Locks the routing decision: a flipped arm or the allowlist being
+        // consulted in the wrong variant would send AI traffic to the wrong
+        // cluster mid-cutover.
+        use std::collections::HashSet;
+        let allowlist: HashSet<String> = ["tok_a".to_string()].into_iter().collect();
+
+        // (routing, token, expected_secondary)
+        let cases = [
+            (AiRouting::Primary, "tok_a", false),
+            (AiRouting::Secondary, "tok_a", true),
+            (AiRouting::Secondary, "unlisted", true),
+            (
+                AiRouting::SecondaryAllowlist(allowlist.clone()),
+                "tok_a",
+                true,
+            ),
+            (AiRouting::SecondaryAllowlist(allowlist), "unlisted", false),
+            (
+                AiRouting::SecondaryAllowlist(HashSet::new()),
+                "tok_a",
+                false,
+            ),
+        ];
+        for (routing, token, expected) in cases {
+            assert_eq!(
+                routing.routes_to_secondary(token),
+                expected,
+                "routing={routing:?} token={token}"
+            );
+        }
+    }
 }

@@ -1,5 +1,85 @@
 # posthog-cli
 
+## 0.9.1 — 2026-07-23
+
+### Patch changes
+
+- [1e49417142](https://github.com/PostHog/posthog/commit/1e49417142febac7925637eeb92ec12549e88235) Publish fresh CLI artifacts after fixing repository paths that prevented the Windows release build from checking out the source. — Thanks @cat-ph!
+
+## 0.9.0 — 2026-07-22
+
+### Minor changes
+
+- [845de8f80c](https://github.com/PostHog/posthog/commit/845de8f80c301e63e7daea1a73a33a6a98cf3a9c) `symbol-sets upload` now accepts standalone Mach-O executables and dylibs, not just ELF files and `.dSYM` bundles. Binaries that embed their own DWARF — Go binaries on macOS, which never produce a dSYM (`dsymutil` reports "no debug symbols in executable") — upload directly, with the `LC_UUID` as the symbol set id. Universal (fat) binaries upload one symbol set per architecture slice. Go's default darwin build compresses the embedded DWARF, which the server cannot read yet; such binaries are skipped with guidance to rebuild with `-ldflags=-compressdwarf=false`. — Thanks @cat-ph!
+
+## 0.8.5 — 2026-07-21
+
+### Patch changes
+
+- [f3a3420b95](https://github.com/PostHog/posthog/commit/f3a3420b951b9a38d75cbc811f44745585e2cba5) `posthog-cli api` failures are now diagnosable and attributable. Launch failures report the specific cause (bundle not embedded in the build, no home directory, install-directory write failure with the underlying IO error kind, Node.js missing) both in the error message and in error telemetry, instead of one generic bundle-not-found error. When the proxied Node process fails, the CLI now exits through its normal path — flushing telemetry and honoring `--no-fail` — instead of terminating immediately, and the bundled API CLI flushes its own analytics before exiting non-zero so failed calls are no longer silently dropped. The `api` command also emits the standard command-run usage event and attaches the project id from `POSTHOG_CLI_PROJECT_ID`/`POSTHOG_CLI_ENV_ID` to telemetry when stored credentials are not used. — Thanks @cvolzer3!
+
+## 0.8.4 — 2026-07-16
+
+### Patch changes
+
+- [f45778f281](https://github.com/PostHog/posthog/commit/f45778f28141b42559f59dca347aa64e8671c8bd) The dotenv credentials file can now also be pointed at with the `POSTHOG_CLI_DOTENV_FILE` environment variable, equivalent to passing `--dotenv-file` — for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh). — Thanks @ablaszkiewicz!
+
+## 0.8.3 — 2026-07-15
+
+### Patch changes
+
+- [97457ef9b4](https://github.com/PostHog/posthog/commit/97457ef9b493debd3975f12b8b6d1c4baaee2d93) Sourcemap upload concurrency can now be configured with `--concurrency` or `POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY`, while keeping the existing default of 10 uploads at a time. — Thanks @DebadityaHait!
+
+## 0.8.2 — 2026-07-13
+
+### Patch changes
+
+- [e38163eaab](https://github.com/PostHog/posthog/commit/e38163eaab6d1120f3c87fc2c38f2772ee9cadf2) Fix concurrent release creation and multipart symbol uploads — Thanks @ablaszkiewicz!
+
+## 0.8.1 — 2026-07-06
+
+### Minor changes
+
+- [066d914497](https://github.com/PostHog/posthog/commit/066d9144970955eaf366ff2a8be818460c6ad759) `symbol-sets upload` now also accepts Apple `.dSYM` bundles, packaging them through the same path as `dsym upload` (uppercase UUID chunk_ids, `AppleDsym` container). A single `posthog-cli symbol-sets upload --directory <dir>` run uploads both Linux ELF debug symbols and macOS dSYMs, so native symbol uploads no longer need a different command per platform. The dSYM branch shells out to `dwarfdump` (Xcode, macOS-only); when it is unavailable the bundle is reported and skipped while ELF symbols in the same directory still upload. The standalone `dsym upload` command is unchanged. — Thanks @cat-ph!
+
+### Patch changes
+
+- [d57bdcce6d](https://github.com/PostHog/posthog/commit/d57bdcce6dc77adde629de5ffbbad10a6a99b850) Capture CLI errors with PostHog telemetry — Thanks @hpouillot!
+
+## 0.8.0 — 2026-07-03
+
+_Never published: the release pipeline's Windows build failed after the version bump landed, so no tag, GitHub release, or npm package exists for this version. Its changes first shipped in 0.8.1._
+
+## 0.7.34 — 2026-06-30
+
+### Patch changes
+
+- [889dd51553](https://github.com/PostHog/posthog/commit/889dd5155315fa05b3cb369f3e461c6f51cc61c1) Strip sourceMappingURL comments when deleting uploaded source maps — Thanks @hpouillot!
+
+## 0.7.33 — 2026-06-25
+
+### Patch changes
+
+- [c334e9f9c3](https://github.com/PostHog/posthog/commit/c334e9f9c3c5f733de8b531c9854412ad253cc4d) Mention Go's `-ldflags=-B=gobuildid` when `symbol-sets upload` finds ELF files without a GNU build id, since Go binaries don't emit one by default. — Thanks @cat-ph!
+- [b9097541d4](https://github.com/PostHog/posthog/commit/b9097541d446587f1ad9374b77d2c3e78773f60c) Allow explicit sourcemap release uploads to continue when optional Git metadata cannot be read — Thanks @cat-ph!
+
+## 0.7.32 — 2026-06-24
+
+### Patch changes
+
+- [6fb4456e8f](https://github.com/PostHog/posthog/commit/6fb4456e8f9a5048b3db6ceb6d873241e14fe6b8) Fix the CLI release workflow so the Windows (`x86_64-pc-windows-msvc`) build succeeds and ships with each release. — Thanks @cat-ph!
+- [dfd1f66a9f](https://github.com/PostHog/posthog/commit/dfd1f66a9f0a5ae4e492887c79921b0692c97d51) Add `symbol-sets upload` for native (ELF) debug symbols: it scans a directory for executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id and uploads them to PostHog. — Thanks @cat-ph!
+
+## 0.7.31 — 2026-06-24
+
+_Never published: the release pipeline's Windows build failed after the version bump landed, so no tag, GitHub release, or npm package exists for this version. Its changes first shipped in 0.7.32._
+
+## 0.7.30 — 2026-06-22
+
+### Patch changes
+
+- [d51a877525](https://github.com/PostHog/posthog/commit/d51a8775252d4fd4e35f389e4960a5f23726e429) Handle Git worktrees and packed refs when detecting repository info — Thanks @hpouillot!
+
 ## 0.7.29 — 2026-06-19
 
 ### Patch changes

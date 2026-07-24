@@ -30,6 +30,7 @@ use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
+use cymbal::types::exception_event::{ExceptionEvent, Parsed, Resolved};
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
@@ -131,10 +132,9 @@ fn remote_stage(
 
 async fn run_stage(
     stage: ResolutionStage,
-    evt: cymbal::types::exception_properties::ExceptionProperties,
-) -> cymbal::types::exception_properties::ExceptionProperties {
-    let batch: Batch<cymbal::stages::pipeline::ExceptionEventPipelineItem> =
-        Batch::from(vec![Ok(evt)]);
+    evt: ExceptionEvent<Parsed>,
+) -> ExceptionEvent<Resolved> {
+    let batch: Batch<cymbal::stages::pipeline::ParsedPipelineItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await.expect("stage processed");
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
@@ -155,30 +155,17 @@ async fn local_and_remote_stages_produce_identical_exception_list_for_empty_stac
     // Exception's #[serde(skip_serializing_if = "Option::is_none")] fields and
     // the difference in how `Stacktrace::Raw` vs `Stacktrace::Resolved`
     // serialize.
-    let local_json = serde_json::to_value(&local_out.exception_list).unwrap();
-    let remote_json = serde_json::to_value(&remote_out.exception_list).unwrap();
+    let local_json = serde_json::to_value(local_out.exception_list()).unwrap();
+    let remote_json = serde_json::to_value(remote_out.exception_list()).unwrap();
     assert_eq!(local_json, remote_json, "exception_list parity");
 
-    // Properties derived by PropertiesResolver should also match in both
-    // paths, since they're computed from the (parity-checked) exception_list.
+    // Derived properties should also match in both paths, since they're
+    // computed from the parity-checked exception list.
     // `unique_by` preserves exception_list order, so compare directly.
-    assert_eq!(local_out.exception_types, remote_out.exception_types);
-    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
-    assert_eq!(local_out.exception_handled, remote_out.exception_handled);
-}
-
-#[tokio::test]
-async fn parity_holds_for_empty_exception_list() {
-    let resolver: Arc<dyn SymbolResolver> = Arc::new(FakeResolver);
-    let addr = spawn_cymbal_resolution_with_resolver(resolver.clone()).await;
-    let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
-
-    let evt = build_event(0);
-    let local_out = run_stage(local_stage(resolver.clone()), evt.clone()).await;
-    let remote_out = run_stage(remote_stage(resolver, ctx), evt).await;
-
-    assert_eq!(local_out.exception_list.len(), 0);
-    assert_eq!(remote_out.exception_list.len(), 0);
-    assert_eq!(local_out.exception_types, remote_out.exception_types);
-    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
+    assert_eq!(local_out.metadata().types, remote_out.metadata().types);
+    assert_eq!(
+        local_out.metadata().messages,
+        remote_out.metadata().messages
+    );
+    assert_eq!(local_out.metadata().handled, remote_out.metadata().handled);
 }

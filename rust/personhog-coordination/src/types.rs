@@ -58,6 +58,17 @@ pub enum AssignmentStatus {
     Active,
 }
 
+/// What a rebalance plan asserts, at apply time, about a touched
+/// partition's assignment record: the plan's handoffs derive their
+/// `old_owner` from the assignments it read, so applying is only sound
+/// while those records are exactly as read (moves) or still absent
+/// (fresh partitions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentPrecondition {
+    UnchangedSince { partition: u32, mod_revision: i64 },
+    Absent { partition: u32 },
+}
+
 /// Tracks the progress of moving a partition from one writer pod to another,
 /// or a fresh initial assignment.
 ///
@@ -84,6 +95,14 @@ pub struct HandoffState {
     pub new_owner: String,
     pub phase: HandoffPhase,
     pub started_at: i64,
+    /// Unique identity of this handoff attempt. Acks echo it, and the
+    /// coordinator's quorum checks only count acks whose id matches —
+    /// without this, an ack written for a previous handoff of the same
+    /// partition (e.g. re-put by a participant racing the coordinator's
+    /// ack cleanup) could satisfy a later handoff's quorum and advance it
+    /// past a drain or warm that never happened.
+    #[serde(default)]
+    pub handoff_id: String,
 }
 
 /// State machine for partition handoffs:
@@ -111,7 +130,7 @@ pub struct HandoffState {
 ///   - `Warming → Complete`: the new owner has written a `PodWarmedAck`,
 ///     meaning its cache has been populated up to the stable HWM. The
 ///     phase write and the new `PartitionAssignment` happen atomically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum HandoffPhase {
     /// Routers are establishing per-partition stash queues. While in this
     /// phase, the old owner continues to serve writes — the gate that
@@ -137,6 +156,10 @@ pub struct RouterFreezeAck {
     pub router_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
 }
 
 /// The old owner's acknowledgment that all inflight request handlers for a
@@ -150,6 +173,10 @@ pub struct PodDrainedAck {
     pub pod_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
 }
 
 /// The new owner's acknowledgment that it has consumed Kafka up to the stable
@@ -160,6 +187,10 @@ pub struct PodWarmedAck {
     pub pod_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
 }
 
 /// Written to `{prefix}coordinator/leader` by the coordinator that wins
@@ -221,6 +252,7 @@ mod tests {
             new_owner: "personhog-writer-3".to_string(),
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&handoff).unwrap();
         let deserialized: HandoffState = serde_json::from_str(&json).unwrap();
@@ -235,6 +267,7 @@ mod tests {
             new_owner: "personhog-writer-3".to_string(),
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&handoff).unwrap();
         let deserialized: HandoffState = serde_json::from_str(&json).unwrap();
@@ -247,6 +280,7 @@ mod tests {
             router_name: "router-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: RouterFreezeAck = serde_json::from_str(&json).unwrap();
@@ -259,6 +293,7 @@ mod tests {
             pod_name: "leader-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: PodDrainedAck = serde_json::from_str(&json).unwrap();
@@ -271,6 +306,7 @@ mod tests {
             pod_name: "leader-1".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: PodWarmedAck = serde_json::from_str(&json).unwrap();

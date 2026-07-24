@@ -6,13 +6,12 @@ from unittest.mock import patch
 
 from django.db.models.query import QuerySet as DjangoQuerySet
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 DELETE_SAVED_QUERY_SCHEDULE = (
-    "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+    "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
 )
 
 
@@ -175,37 +174,3 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
-
-
-class TestColumnOrder(BaseTest):
-    """Postgres stores `columns` as jsonb, which reorders keys (length, then bytewise). The
-    stamped positions must restore the view's defined column order after a DB round-trip so
-    `SELECT *` and the schema UI show columns in the order the view defines them."""
-
-    def test_hogql_definition_restores_defined_order_after_db_round_trip(self):
-        # jsonb returns these as id, content, source_product — not the defined order
-        defined_order = ["content", "id", "source_product"]
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="ordered_view",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            columns={
-                name: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True} for name in defined_order
-            },
-        )
-
-        refreshed = DataWarehouseSavedQuery.objects.get(pk=saved_query.pk)
-
-        assert refreshed.columns is not None
-        assert all(value["position"] is not None for value in refreshed.columns.values())
-        assert list(refreshed.hogql_definition().fields.keys()) == defined_order
-
-    def test_hogql_definition_keeps_legacy_columns_without_positions(self):
-        saved_query = DataWarehouseSavedQuery(
-            team=self.team,
-            name="legacy_view",
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            columns={"id": "String", "content": "String"},
-        )
-
-        assert list(saved_query.hogql_definition().fields.keys()) == ["id", "content"]

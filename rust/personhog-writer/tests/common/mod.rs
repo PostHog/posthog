@@ -1,3 +1,8 @@
+// Each `tests/*.rs` integration test compiles as its own binary and imports
+// `common` via `mod common;`. Helpers used by some test files but not others
+// would otherwise fire `dead_code` per-binary; suppress at the module level.
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
@@ -20,8 +25,6 @@ pub fn test_store_config() -> StoreConfig {
     StoreConfig {
         chunk_size: 500,
         row_fallback_concurrency: 8,
-        properties_size_threshold: 655_360,
-        properties_trim_target: 524_288,
     }
 }
 
@@ -60,6 +63,9 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_partitioner: None,
+        kafka_producer_acks: None,
+        kafka_producer_retries: None,
     };
     common_kafka::kafka_producer::create_kafka_producer(&config, handle)
         .await

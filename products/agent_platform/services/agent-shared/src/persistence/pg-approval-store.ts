@@ -38,7 +38,8 @@ export class PgApprovalStore implements ApprovalStore {
             `INSERT INTO agent_tool_approval_request
                 (id, session_id, application_id, team_id, revision_id, turn,
                  tool_call_id, tool_name, proposed_args, args_hash,
-                 assistant_message, approver_scope, state, created_at, expires_at)
+                 assistant_message, approver_scope, state,
+                 created_at, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb,
                      $12::jsonb, 'queued', NOW(), $13)
              ON CONFLICT (session_id, tool_name, args_hash) WHERE state = 'queued'
@@ -182,6 +183,16 @@ export class PgApprovalStore implements ApprovalStore {
              FROM agent_tool_approval_request
              WHERE application_id = $1 AND state = 'queued'`,
             [applicationId]
+        )
+        return Number(r.rows[0]?.count ?? 0)
+    }
+
+    async countQueuedBySession(sessionId: string): Promise<number> {
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM agent_tool_approval_request
+             WHERE session_id = $1 AND state = 'queued'`,
+            [sessionId]
         )
         return Number(r.rows[0]?.count ?? 0)
     }

@@ -426,27 +426,14 @@ describe('batchExportConfigFormLogic', () => {
                 ],
             },
             {
+                // New AwsS3 exports authenticate via an integration, not inline credentials.
                 service: 'AwsS3' as const,
-                fields: [
-                    'bucket_name',
-                    'region',
-                    'prefix',
-                    'aws_access_key_id',
-                    'aws_secret_access_key',
-                    'file_format',
-                ],
+                fields: ['integration_id', 'bucket_name', 'region', 'prefix', 'file_format'],
             },
             {
+                // New S3Compatible exports authenticate via an integration; endpoint_url lives on it.
                 service: 'S3Compatible' as const,
-                fields: [
-                    'bucket_name',
-                    'region',
-                    'prefix',
-                    'endpoint_url',
-                    'aws_access_key_id',
-                    'aws_secret_access_key',
-                    'file_format',
-                ],
+                fields: ['integration_id', 'bucket_name', 'region', 'prefix', 'file_format'],
             },
             {
                 service: 'Postgres' as const,
@@ -457,8 +444,9 @@ describe('batchExportConfigFormLogic', () => {
                 fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
             },
             {
+                // New Snowflake exports authenticate via an integration, not inline credentials.
                 service: 'Snowflake' as const,
-                fields: ['account', 'database', 'warehouse', 'user', 'password', 'schema', 'table_name'],
+                fields: ['integration_id', 'database', 'warehouse', 'schema', 'table_name'],
             },
             { service: 'BigQuery' as const, fields: ['integration_id', 'dataset_id', 'table_id'] },
             { service: 'HTTP' as const, fields: ['url', 'token'] },
@@ -758,7 +746,7 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'Snowflake',
-                expected: { destination: 'Snowflake', authentication_type: 'password', paused: true, model: 'events' },
+                expected: { destination: 'Snowflake', paused: true, model: 'events' },
             },
             {
                 service: 'Redshift',
@@ -833,50 +821,46 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                // AwsS3 must not leak endpoint_url / use_virtual_style_addressing into the payload.
+                // New AwsS3 exports authenticate via an integration; credentials live on it, and
+                // endpoint_url / use_virtual_style_addressing must not leak into the payload.
                 name: 'AwsS3',
                 service: 'AwsS3' as const,
                 requiredValues: {
+                    integration_id: 21,
                     bucket_name: 'my-bucket',
                     region: 'us-east-1',
                     prefix: 'test/',
-                    aws_access_key_id: 'AKIA',
-                    aws_secret_access_key: 'secret',
                 },
                 expectedDestination: {
                     type: 'AwsS3',
+                    integration: 21,
                     config: {
                         bucket_name: 'my-bucket',
                         region: 'us-east-1',
                         prefix: 'test/',
-                        aws_access_key_id: 'AKIA',
-                        aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
                         compression: 'zstd',
                     },
                 },
             },
             {
-                // S3Compatible requires endpoint_url and must not leak encryption / kms_key_id.
+                // New S3Compatible exports authenticate via an integration (which carries endpoint_url);
+                // no inline credentials, no leaked encryption / kms_key_id.
                 name: 'S3Compatible',
                 service: 'S3Compatible' as const,
                 requiredValues: {
+                    integration_id: 22,
                     bucket_name: 'my-bucket',
                     region: 'auto',
                     prefix: 'test/',
-                    endpoint_url: 'https://my-minio-host:9000',
-                    aws_access_key_id: 'AKIA',
-                    aws_secret_access_key: 'secret',
                 },
                 expectedDestination: {
                     type: 'S3Compatible',
+                    integration: 22,
                     config: {
                         bucket_name: 'my-bucket',
                         region: 'auto',
                         prefix: 'test/',
-                        endpoint_url: 'https://my-minio-host:9000',
-                        aws_access_key_id: 'AKIA',
-                        aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
                         compression: 'zstd',
                     },
@@ -902,26 +886,23 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                name: 'Snowflake (password)',
+                // New Snowflake exports authenticate via an integration; account/user/credentials live
+                // on it and must not leak into the payload.
+                name: 'Snowflake',
                 service: 'Snowflake' as const,
                 requiredValues: {
-                    account: 'sf-account',
+                    integration_id: 31,
                     database: 'sf-db',
                     warehouse: 'sf-wh',
-                    user: 'sf-user',
-                    password: 'sf-pass',
                     schema: 'public',
                     table_name: 'events',
                 },
                 expectedDestination: {
                     type: 'Snowflake',
+                    integration: 31,
                     config: {
-                        account: 'sf-account',
                         database: 'sf-db',
                         warehouse: 'sf-wh',
-                        user: 'sf-user',
-                        password: 'sf-pass',
-                        authentication_type: 'password',
                         schema: 'public',
                         table_name: 'events',
                     },
@@ -1111,6 +1092,30 @@ describe('batchExportConfigFormLogic', () => {
                 exclude_events: [],
                 include_events: [],
             })
+        })
+    })
+
+    describe('grandfathered inline S3 exports stay editable without an integration', () => {
+        // AwsS3/S3Compatible are integration-backed for new exports, but exports created before
+        // integrations existed have inline credentials and no linked integration. Editing one must not
+        // require an integration and must preserve the inline credentials — otherwise the export breaks.
+        it('saves an inline AwsS3 export, keeping its credentials and sending no integration', async () => {
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValue('prefix', 'updated-prefix/')
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[AWS_S3_BATCH_EXPORT.id]
+            expect(body).not.toBeUndefined()
+            expect(body.destination.integration).toBeUndefined()
+            expect(body.destination.config.prefix).toBe('updated-prefix/')
+            expect(body.destination.config.aws_access_key_id).toBe('AKIAIOSFODNN7EXAMPLE')
+            expect(body.destination.config.aws_secret_access_key).toBe('wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
         })
     })
 })

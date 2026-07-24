@@ -2,8 +2,25 @@ name: Build and deploy node container image
 
 on:
     workflow_dispatch:
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
-    merge_group:
+        paths:
+            - 'nodejs/**'
+            - 'common/hogvm/typescript/**'
+            - 'common/plugin_transpiler/**'
+            - 'common/esbuilder/**'
+            - 'common/replay-shared/**'
+            - 'common/replay-headless/**'
+            - 'rust/cyclotron-node/**'
+            - 'rust/common/hogvm/**'
+            - 'rust/replay-anonymizer/**'
+            - 'rust/replay-anonymizer-node/**'
+            - 'Dockerfile.node'
+            - '.github/workflows/ci-nodejs-container.yml'
+            - 'turbo.json'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
     push:
         branches:
             - 'master'
@@ -19,7 +36,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
@@ -33,10 +50,11 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       node_files:
                         - 'nodejs/**'
@@ -46,6 +64,9 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'
@@ -58,9 +79,8 @@ jobs:
         name: Build and push node image
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
-            github.event_name == 'merge_group' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -89,6 +109,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
               id: build
@@ -97,7 +119,7 @@ jobs:
                   context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
-                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.node
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}

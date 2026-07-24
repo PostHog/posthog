@@ -178,13 +178,25 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 }
 
 /** Whether a STEPS result is a compare-tagged flat list (both periods' steps tagged with
- * `compare_label`, no breakdown). Breakdown compare lands in a later slice. */
+ * `compare_label`, no breakdown). Breakdown + compare is a list-of-lists — see
+ * `isFunnelStepsBreakdownCompareResult`. */
 export function isFunnelStepsCompareResult(results: FunnelResultType): results is FunnelStep[] {
     return (
         Array.isArray(results) &&
         results.length > 0 &&
         !Array.isArray(results[0]) &&
         (results as FunnelStep[]).some((step) => step.compare_label != null)
+    )
+}
+
+/** Whether a STEPS result is a breakdown + compare result — a list of inner funnels (one per
+ * breakdown value, per period) whose steps carry `compare_label`. The runner emits 2·N such inner
+ * funnels; `aggregateBreakdownCompareResult` pairs them by breakdown value. */
+export function isFunnelStepsBreakdownCompareResult(results: FunnelResultType): results is FunnelStep[][] {
+    return (
+        isBreakdownFunnelResults(results) &&
+        results.length > 0 &&
+        (results[0] as FunnelStep[]).some((step) => step.compare_label != null)
     )
 }
 
@@ -232,6 +244,26 @@ export function funnelComparePeriodDateRange(
     return formatDateRange(previousFrom, previousTo)
 }
 
+/** Compose the funnel tooltip header from the parts a series carries: its breakdown value, its
+ * compare period (optionally with a date range), or both joined — so breakdown + compare bars are
+ * labelled with both which value and which period they represent. */
+export function funnelTooltipHeaderLabel({
+    breakdownLabel,
+    compareLabel,
+    comparePeriodDateRange,
+}: {
+    breakdownLabel?: string | null
+    compareLabel?: 'current' | 'previous'
+    comparePeriodDateRange?: string | null
+}): string {
+    const periodLabel = compareLabel
+        ? `${compareLabel === 'current' ? 'Current' : 'Previous'}${
+              comparePeriodDateRange ? ` (${comparePeriodDateRange})` : ''
+          }`
+        : null
+    return [breakdownLabel || null, periodLabel].filter(Boolean).join(' • ')
+}
+
 /** Desaturate a series color to the "previous period" treatment (50% opacity), matching the
  * dimmed previous-period series in trends (`LineGraph.processDataset`). */
 export function dimPreviousPeriodColor(color: string): string {
@@ -261,6 +293,74 @@ export function aggregateFunnelCompareResult(results: FunnelStep[]): FunnelStepW
     }))
 }
 
+/**
+ * Reshape a breakdown + compare STEPS result (2·N inner funnels — one per breakdown value, per
+ * period) into one step per order, each carrying a `nested_breakdown` that pairs the current and
+ * previous bar for every breakdown value: `[A_current, A_previous, B_current, B_previous, …]`.
+ *
+ * Both bars of a value share an `order` so they resolve to the same breakdown color (the previous
+ * one is then desaturated via its `compare_label`), while distinct values get distinct orders and
+ * colors. Values are ordered by current first-step count descending, matching the non-compare
+ * breakdown path.
+ */
+export function aggregateBreakdownCompareResult(
+    results: FunnelStep[][],
+    breakdownProperty?: BreakdownKeyType
+): FunnelStepWithNestedBreakdown[] {
+    const groups = results.filter((group) => group.length > 0)
+    if (!groups.length) {
+        return []
+    }
+
+    const valueKey = (group: FunnelStep[]): string => getBreakdownStepValues(group[0], -1).breakdown_value.join('_')
+
+    const currentByValue = new Map<string, FunnelStep[]>()
+    const previousByValue = new Map<string, FunnelStep[]>()
+    for (const group of groups) {
+        const target = group[0].compare_label === 'previous' ? previousByValue : currentByValue
+        target.set(valueKey(group), group)
+    }
+
+    // Union of breakdown values across periods, ordered by current first-step count descending
+    // (falling back to the previous period's count for values that only appear there).
+    const firstStepCount = (key: string): number =>
+        currentByValue.get(key)?.[0]?.count ?? previousByValue.get(key)?.[0]?.count ?? 0
+    const orderedValues = Array.from(new Set(groups.map(valueKey))).sort(
+        (a, b) => firstStepCount(b) - firstStepCount(a)
+    )
+
+    const representative = groups[0]
+
+    return representative.map((baseStep, stepIndex) => {
+        const nestedBreakdown: FunnelStep[] = []
+        let currentTotal = 0
+
+        orderedValues.forEach((key, breakdownOrder) => {
+            const current = currentByValue.get(key)?.[stepIndex]
+            const previous = previousByValue.get(key)?.[stepIndex]
+            if (current) {
+                nestedBreakdown.push({ ...current, order: breakdownOrder })
+                currentTotal += current.count
+            }
+            if (previous) {
+                nestedBreakdown.push({ ...previous, order: breakdownOrder })
+            }
+        })
+
+        return {
+            ...baseStep,
+            count: currentTotal,
+            breakdown: breakdownProperty,
+            nested_breakdown: nestedBreakdown,
+            average_conversion_time: calculateAverageConversionTime(
+                nestedBreakdown.filter((variant) => variant.compare_label !== 'previous')
+            ),
+            median_conversion_time: null,
+            people: [],
+        }
+    })
+}
+
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */
 export function hasBreakdownFilterParameter(
     breakdown: BreakdownKeyType | undefined,
@@ -284,6 +384,21 @@ export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): bool
         breakdownValue !== 'Baseline' &&
         !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
     )
+}
+
+/**
+ * Aggregate "conversion so far" (across all breakdown values) to show alongside a hovered breakdown
+ * variant's own conversion. Returns null unless `series` is a genuine breakdown variant of `step` —
+ * excluding the top-level step itself, compare-only bars, and breakdown+compare (the aggregate spans
+ * periods there and would be ambiguous).
+ */
+export function getFunnelAggregateConversionRate(
+    series: FunnelStepWithConversionMetrics,
+    step: FunnelStepWithConversionMetrics
+): number | null {
+    return series !== step && hasBreakdown(series.breakdown_value) && !series.compare_label
+        ? step.conversionRates.total
+        : null
 }
 
 /** String identifier for breakdowns used when determining visibility. */
@@ -387,10 +502,26 @@ export function stepsWithConversionMetrics(
 ): FunnelStepWithConversionMetrics[] {
     const compareBars = steps[0]?.nested_breakdown
     const isCompare = compareBars?.some((b) => b.compare_label != null) ?? false
-    // Compare bars share one baseline (the larger period's first step) so both periods sit on a
-    // common scale: the previous bar shows its real volume instead of always starting full height,
-    // and the tallest bar never exceeds the column.
-    const compareBasisCount = isCompare ? Math.max(...(compareBars?.map((b) => b.count) ?? [0])) : 0
+    // Compare bars are sized per period, not per breakdown value. Within a period every value keeps its
+    // own conversion from its own first step — so at the first step all of a period's values share one
+    // height — and the whole period is then scaled by its share of the larger period's total entrants.
+    // The larger period fills the bar (100%); the smaller one is proportionally shorter, its missing
+    // volume left as a blank gap above. Applied below as (count * periodTotal) / (firstStep * basis) —
+    // a single division so the exact ratios stay clean. Pure compare has one value whose first step is
+    // the period total, so it collapses to count / max(current, previous).
+    let currentTotal = 0
+    let previousTotal = 0
+    let compareBasis = 0
+    if (isCompare && compareBars) {
+        for (const bar of compareBars) {
+            if (bar.compare_label === 'previous') {
+                previousTotal += bar.count
+            } else {
+                currentTotal += bar.count
+            }
+        }
+        compareBasis = Math.max(currentTotal, previousTotal, 0)
+    }
 
     let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
@@ -416,9 +547,11 @@ export function stepsWithConversionMetrics(
                 conversionRates: {
                     ...conversionRates,
                     fromBasisStep: isCompare
-                        ? compareBasisCount === 0
-                            ? 0
-                            : breakdown.count / compareBasisCount
+                        ? firstBreakdownCount > 0 && compareBasis > 0
+                            ? (breakdown.count *
+                                  (breakdown.compare_label === 'previous' ? previousTotal : currentTotal)) /
+                              (firstBreakdownCount * compareBasis)
+                            : 0
                         : stepReference === FunnelStepReference.total
                           ? conversionRates.total
                           : conversionRates.fromPrevious,
@@ -558,6 +691,126 @@ export function flattenedStepsByBreakdown(
         }
     }
     return flattenedStepsByBreakdown
+}
+
+/**
+ * Build the detailed-results rows for a pure compare STEPS funnel (no breakdown): one baseline row
+ * per period. Rows keep `breakdown_value` undefined so their customization key and color position
+ * match the chart's compare bars — the pair shares one color token and the previous row is dimmed
+ * via its `compare_label`, not a separate token.
+ */
+export function flattenedStepsByCompare(steps: FunnelStepWithConversionMetrics[]): FlattenedFunnelStepByBreakdown[] {
+    const periodCount = steps[0]?.nested_breakdown?.length ?? 0
+    const rows: FlattenedFunnelStepByBreakdown[] = []
+    for (let i = 0; i < periodCount; i++) {
+        const stepsInPeriod = steps
+            .filter((s) => !!s?.nested_breakdown?.[i])
+            .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
+        const compareLabel = stepsInPeriod[0]?.compare_label ?? (i === 0 ? 'current' : 'previous')
+        rows.push({
+            rowKey: `baseline_${compareLabel}`,
+            isBaseline: true,
+            breakdownIndex: i,
+            colorIndex: 0,
+            compare_label: compareLabel,
+            steps: stepsInPeriod,
+            conversionRates: {
+                total: (stepsInPeriod[stepsInPeriod.length - 1]?.count ?? 0) / (stepsInPeriod[0]?.count ?? 1),
+            },
+        })
+    }
+    return rows
+}
+
+/**
+ * Build the detailed-results rows for a breakdown × compare STEPS funnel: interleaved
+ * current/previous row pairs per breakdown value, preceded by a per-period baseline pair when the
+ * baseline is shown (vertical layout with more than one value — the same rule as plain breakdowns).
+ * Both rows of a pair share a `colorIndex` so they resolve to one color token (previous dimmed).
+ */
+export function flattenedStepsByBreakdownCompare(
+    steps: FunnelStepWithConversionMetrics[],
+    layout: FunnelLayout | undefined,
+    disableBaseline: boolean
+): FlattenedFunnelStepByBreakdown[] {
+    const rows: FlattenedFunnelStepByBreakdown[] = []
+    const entries = steps[0]?.nested_breakdown ?? []
+    if (!entries.length) {
+        return rows
+    }
+
+    // Entries of one value share an `order` (see `aggregateBreakdownCompareResult`), so the value
+    // count is the highest order + 1.
+    const valueCount = Math.max(...entries.map((entry) => entry.order ?? 0)) + 1
+    const hasBaseline = (layout || FunnelLayout.vertical) === FunnelLayout.vertical && valueCount > 1
+
+    if (hasBaseline && !disableBaseline) {
+        // Top-level steps already aggregate the current period (see `aggregateBreakdownCompareResult`);
+        // the compare label is inherited from whichever period happened to come first, so set it explicitly.
+        const currentBaselineSteps = steps.map((s) => ({
+            ...s,
+            nested_breakdown: undefined,
+            breakdown_value: 'Baseline',
+            compare_label: 'current' as const,
+        }))
+        // No previous-period aggregate exists upstream — synthesize one from the previous bars and
+        // reuse the standard conversion math. This pass omits optional steps, so with optional steps
+        // the previous baseline's `fromPrevious` references the immediately preceding step rather
+        // than the last non-optional one.
+        const previousBaselineSteps = stepsWithConversionMetrics(
+            steps.map((s) => {
+                const previousEntries = s.nested_breakdown?.filter((b) => b.compare_label === 'previous') ?? []
+                return {
+                    ...s,
+                    count: previousEntries.reduce((sum, b) => sum + b.count, 0),
+                    average_conversion_time: calculateAverageConversionTime(previousEntries),
+                    median_conversion_time: null,
+                    nested_breakdown: undefined,
+                    breakdown_value: 'Baseline',
+                    compare_label: 'previous' as const,
+                }
+            }),
+            FunnelStepReference.total
+        )
+        for (const baselineSteps of [currentBaselineSteps, previousBaselineSteps]) {
+            const compareLabel = baselineSteps[0].compare_label
+            rows.push({
+                ...getBreakdownStepValues(baselineSteps[0], 0, true),
+                rowKey: `baseline_0_${compareLabel}`,
+                isBaseline: true,
+                breakdownIndex: rows.length,
+                colorIndex: 0,
+                compare_label: compareLabel,
+                steps: baselineSteps,
+                conversionRates: {
+                    total: (baselineSteps[baselineSteps.length - 1]?.count ?? 0) / (baselineSteps[0]?.count || 1),
+                },
+            })
+        }
+    }
+
+    // The offset follows `hasBaseline` regardless of `disableBaseline`, mirroring
+    // `flattenedStepsByBreakdown`, so color positions stay stable when the baseline is suppressed.
+    const baselineOffset = hasBaseline ? 1 : 0
+    entries.forEach((entry, entryIndex) => {
+        const stepsInSeries = steps
+            .filter((s) => !!s?.nested_breakdown?.[entryIndex])
+            .map((s) => s.nested_breakdown?.[entryIndex] as FunnelStepWithConversionMetrics)
+        rows.push({
+            ...getBreakdownStepValues(entry, rows.length),
+            isBaseline: false,
+            breakdownIndex: rows.length,
+            colorIndex: (entry.order ?? 0) + baselineOffset,
+            compare_label: entry.compare_label,
+            steps: stepsInSeries,
+            conversionRates: {
+                total: (stepsInSeries[stepsInSeries.length - 1]?.count ?? 0) / (stepsInSeries[0]?.count ?? 1),
+            },
+            significant: stepsInSeries.some((step) => step.significant?.total || step.significant?.fromPrevious),
+        })
+    })
+
+    return rows
 }
 
 /**

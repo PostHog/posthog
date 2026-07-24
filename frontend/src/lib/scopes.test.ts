@@ -1,5 +1,13 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
-import { AGENT_CLI_API_KEY_SCOPES, API_KEY_SCOPE_PRESETS, API_SCOPES } from 'lib/scopes'
+import {
+    AGENT_CLI_API_KEY_SCOPES,
+    API_KEY_SCOPE_PRESETS,
+    API_SCOPES,
+    API_SCOPES_OMITTED_FROM_MODAL,
+    getScopeDescription,
+} from 'lib/scopes'
+
+import { API_SCOPE_OBJECTS } from '~/types'
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -9,6 +17,41 @@ const getRenderableKeyCreationScopes = (): Set<string> =>
                 .map((action) => `${key}:${action}`)
         )
     )
+
+describe('getScopeDescription', () => {
+    it('returns the known description for a recognised scope', () => {
+        expect(getScopeDescription('user:read')).toBe('Read access to users')
+    })
+
+    it('derives a readable label for OAuth-hidden scopes absent from API_SCOPES', () => {
+        expect(getScopeDescription('wizard_session:write')).toBe('Write access to wizard session')
+    })
+
+    it('returns undefined for introspection so list call sites can filter it out', () => {
+        expect(getScopeDescription('introspection')).toBeUndefined()
+    })
+
+    it('returns the bare scope string when there is no colon separator', () => {
+        expect(getScopeDescription('baretoken')).toBe('baretoken')
+    })
+})
+
+describe('API_SCOPES modal coverage', () => {
+    const offered = new Set(API_SCOPES.map(({ key }) => key))
+    const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
+
+    it('offers or explicitly omits every scope object', () => {
+        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
+        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
+        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        expect(uncovered).toEqual([])
+    })
+
+    it('never both offers and omits the same scope', () => {
+        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        expect(overlap).toEqual([])
+    })
+})
 
 describe('API_KEY_SCOPE_PRESETS', () => {
     const findPreset = (value: string): (typeof API_KEY_SCOPE_PRESETS)[number] => {
@@ -25,10 +68,13 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES', () => {
+        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.map(({ key }) => `${key}:read`).sort()
+            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+                .map(({ key }) => `${key}:read`)
+                .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
+            expect(preset.scopes).not.toContain('llm_gateway:read')
         })
     })
 

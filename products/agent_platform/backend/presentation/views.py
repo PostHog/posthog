@@ -53,7 +53,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, AuthenticationFailed, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -62,30 +62,53 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.generated import APPROVAL_REQUEST_STATES, ASSISTANT_STOP_REASONS, TRIGGER_ROUTES
+from ..logic.ingress_client import IngressClient, IngressClientError
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
+from ..logic.posthog_identity_app import provision_posthog_identity_apps
+from ..logic.skill_editing import (
+    LLMSkill,
+    assert_skills_writable,
+    create_store_skill,
+    publish_skill_body,
+    publish_skill_md_edit,
+    store_skill_exists,
+    validate_store_write,
+)
+from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
-from ..models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
+    MAX_SKILL_REFS,
     AgentApplicationSerializer,
+    AgentInvokeRequestSerializer,
     AgentRevisionSerializer,
+    AgentSendRequestSerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
+    DryRunToolRequestSerializer,
+    ImportBundleRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
+    RevisionNotDraftErrorSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
+    SetSkillRefsRequestSerializer,
+    UpdateBundleFileRequestSerializer,
     WriteAgentMdRequestSerializer,
-    WriteSkillRequestSerializer,
     WriteSpecRequestSerializer,
     WriteToolRequestSerializer,
     WriteTypedBundleRequestSerializer,
@@ -93,6 +116,10 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# `TRIGGER_ROUTES` keys are the full trigger-kind enumeration (`Record<TriggerType, …>`,
+# cron included), so help_text can render the list without hand-copying it.
+_TRIGGER_KIND_ENUM = " | ".join(TRIGGER_ROUTES.keys())
 
 
 def _resolve_application(queryset: QuerySet, lookup_value: str | None) -> AgentApplication | None:
@@ -114,6 +141,38 @@ def _resolve_application(queryset: QuerySet, lookup_value: str | None) -> AgentA
 def _janitor() -> JanitorClient:
     """Indirection so tests can monkey-patch."""
     return default_client()
+
+
+def _ingress() -> IngressClient:
+    """Indirection so tests can monkey-patch. The client is stateless, so (unlike
+    `_janitor()`'s singleton) this news up a fresh instance per call."""
+    return IngressClient()
+
+
+def _require_ingress_bearer(request: Request) -> str:
+    authorization = request.headers.get("Authorization")
+    if isinstance(request.successful_authenticator, SessionAuthentication) or not authorization:
+        raise AuthenticationFailed(
+            "Authenticate with a personal API key in the Authorization header to invoke or send messages to an agent."
+        )
+    if re.fullmatch(r"Bearer\s+\S+", authorization) is None:
+        raise AuthenticationFailed("The Authorization header must contain a bearer token.")
+    return authorization
+
+
+# Mirrors `RESOURCE_ID_REGEX` in
+# services/agent-shared/src/storage/typed-bundle.ts. The janitor enforces this
+# regex on every PUT /skills/<id>; pre-checking on the Django side turns a
+# noisy janitor 400 into a clean reject before we make any upstream calls,
+# and is cheap. Keep these two in sync (per agent-shared CLAUDE.md rule 3).
+# Also classifies `skills/<id>/` folders in the freeze sweep, keeping Django's
+# sweep set identical to the set the janitor derives as skills.
+# Always use `.fullmatch()`: Python's `$` matches before a trailing newline
+# (JS's `$` does not), so `.match()` would accept `"abc\n"` and mint a store
+# skill + ref alias the janitor later rejects at freeze.
+_RESOURCE_ID_REGEX = re.compile(r"[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?")
+# Canonical bundle path for one skill's markdown body. Same fullmatch rule.
+_SKILL_BODY_PATH_REGEX = re.compile(r"skills/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)/SKILL\.md")
 
 
 def _decode_env_map(raw: str | None) -> dict[str, str]:
@@ -157,22 +216,50 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
-            # Append structured upstream errors (custom-tool compile failures carry
-            # errors=[{kind, message, line}]) so the caller + concierge model see the
-            # concrete reason, not just the opaque `tool_compile_failed` code.
+            # Append structured upstream errors so the caller + concierge model
+            # see the concrete reason, not just the opaque code. Two shapes:
+            # custom-tool compile -> top-level errors=[{kind, message, line}];
+            # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
+            # invalid_model from the models gate).
             sub_errors = e.body.get("errors")
+            if not sub_errors:
+                report = e.body.get("report")
+                sub_errors = report.get("errors") if isinstance(report, dict) else None
             if isinstance(sub_errors, list) and sub_errors:
                 parts: list[str] = []
                 for er in sub_errors:
                     if not isinstance(er, dict) or not isinstance(er.get("message"), str):
                         continue
-                    kind = er.get("kind")
+                    kind = er.get("kind") or er.get("code")
                     line = er.get("line")
+                    pointer = er.get("pointer")
                     prefix = f"{kind}: " if isinstance(kind, str) else ""
-                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    suffix = (
+                        f" (line {line})"
+                        if isinstance(line, int)
+                        else f" [{pointer}]"
+                        if isinstance(pointer, str)
+                        else ""
+                    )
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
@@ -182,13 +269,132 @@ class JanitorUpstreamError(APIException):
         super().__init__(detail=detail_str)
 
 
+class IngressUpstreamError(APIException):
+    """DRF-friendly wrapper for non-2xx ingress responses. Preserves 4xx (so a
+    caller sees a clean 401/403/404/422), clamps 5xx to a single 502. Mirrors
+    JanitorUpstreamError, minus the janitor's structured sub-error flattening —
+    ingress error bodies are the flat `{ "error": <code>, ... }` shape."""
+
+    status_code: int = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Upstream ingress service error"
+    default_code = "ingress_upstream"
+
+    def __init__(self, e: IngressClientError) -> None:
+        if 400 <= e.status_code < 500:
+            self.status_code = e.status_code
+            # A preserved upstream 4xx is a CLIENT error — label it as such (exceptions_hog
+            # keys `type` off the exception class, and a bare APIException defaults to
+            # `server_error`, which would page on-call and pollute error monitoring). A
+            # clamped 5xx (502) keeps the default `server_error` — that one really is ours.
+            self.exception_type = "invalid_request"
+        if isinstance(e.body, dict):
+            detail_str: str = e.body.get("error") or e.body.get("detail") or e.body.get("message") or json.dumps(e.body)
+        elif isinstance(e.body, str):
+            detail_str = e.body
+        else:
+            detail_str = e.message
+        super().__init__(detail=detail_str)
+
+
+class ElevationRequiredError(APIException):
+    """A non-owner tried to act on someone else's session and must run the elevation
+    flow first. This is an EXPECTED client condition, so it renders a clean
+    `authentication_error`/`elevation_required` (like DRF's own PermissionDenied) rather
+    than the bare-APIException `server_error`/`error` that pages on-call. The actionable
+    fields (which approval request, which session) are carried in the detail message."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "You are not the owner of this session; elevation is required to act on it."
+    default_code = "elevation_required"
+    default_type = "authentication_error"
+
+
+class SessionGoneError(APIException):
+    """The target session is terminal (failed / cancelled / closed-without-restart) and
+    can't accept more messages. A 410 is an EXPECTED client condition, so it renders a
+    clean `invalid_request`/`session_gone` instead of the bare-APIException
+    `server_error`/`error`. Preserves the terminal state in the detail message."""
+
+    status_code = status.HTTP_410_GONE
+    default_detail = "This session is terminal and can't accept more messages."
+    default_code = "session_gone"
+    default_type = "invalid_request"
+
+
+def _map_ingress_error(
+    e: IngressClientError, *, not_found_detail: str = "Session not found in this application"
+) -> APIException:
+    """Map an ingress failure to a clean DRF exception — never a bare 500.
+
+    The slack/cron-only "no chat trigger" 404 is reframed as a 400 (it isn't a
+    missing agent), and the 403 `elevation_required` keeps its actionable fields.
+    The terminal-session 410 passes THROUGH as 410 (preserve 4xx doctrine), and
+    everything else preserves the upstream 4xx or clamps 5xx to 502.
+    `not_found_detail` lets each action phrase a plain 404 for its own context
+    (invoke has no session).
+    """
+    body = e.body if isinstance(e.body, dict) else {}
+    code = body.get("error")
+    # slack/cron-only agent → chat routes 404 `no_chat_trigger` (ingress mount.ts).
+    # Reframe so it doesn't read as "agent not found".
+    if e.status_code == 404 and code == "no_chat_trigger":
+        return ValidationError(
+            "This agent has no chat trigger, so it can't be invoked over run/send/listen. "
+            "It only runs via its configured slack / cron / webhook surfaces."
+        )
+    if e.status_code == 404:
+        return NotFound(not_found_detail)
+    if e.status_code == 410:
+        # Pass the terminal-session 410 THROUGH as 410 (doctrine: preserve 4xx —
+        # 404 stays 404, 409 stays 409). Only truly-terminal states reach here:
+        # ingress re-queues `completed`/`queued`/`running` sessions and 410s only
+        # on failed / cancelled / closed-without-restart, so a 410 means "really
+        # done", not "idle between turns" — surfacing it as 400 would mislabel it.
+        # SessionGoneError carries the client-error type/code (not a bare APIException,
+        # which renders `server_error`/`error` and pages on-call for a normal 410).
+        return SessionGoneError(
+            f"Session is terminal (state={body.get('state', 'unknown')}) and can't accept more messages."
+        )
+    if e.status_code == 403 and code == "elevation_required":
+        # Preserve the actionable elevation fields (which approval request to act
+        # on, which session) instead of collapsing to the opaque code — the
+        # approval flow the agentic caller must follow needs them. Shapes:
+        # buildElevationResponse / runHandler in agent-ingress (chat.ts).
+        # ElevationRequiredError carries the client-error type/code so a normal
+        # non-owner 403 doesn't render as `server_error`/`error`.
+        parts = ["You are not the owner of this session; elevation is required to act on it."]
+        if body.get("elevation_request_id"):
+            parts.append(f"Elevation request: {body['elevation_request_id']}.")
+        if body.get("session_id"):
+            parts.append(f"Session: {body['session_id']}.")
+        return ElevationRequiredError(" ".join(parts))
+    return IngressUpstreamError(e)
+
+
+def _is_sealed_bundle_conflict(e: JanitorClientError) -> bool:
+    """True when a janitor edit was refused because the bundle is already sealed.
+
+    The janitor returns 409 `revision_not_draft` from any authoring edit once the
+    `.frozen` marker exists. During freeze that means a prior attempt sealed the
+    bundle but its HTTP response was lost — the materialization is already done, so
+    we skip ahead to the idempotent freeze rather than failing the retry.
+    """
+    if e.status_code != 409:
+        return False
+    return isinstance(e.body, dict) and e.body.get("error") == "revision_not_draft"
+
+
 # The `log_source` tag the agent runner stamps on every log_entries row.
 # Mirrors `AGENT_SESSION_LOG_SOURCE` in services/agent-shared/src/runtime/
 # log-sink.ts — keep both sides in sync.
 AGENT_SESSION_LOG_SOURCE = "agent_session"
 
 
-def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
+def _mint_preview_jwt(
+    application: AgentApplication,
+    revision: AgentRevision,
+    user: Any,
+) -> tuple[str, int] | None:
     """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
 
     Returns `(token, ttl_seconds)` or `None` when no shared signing key is
@@ -196,11 +402,13 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
 
     Bound to (app, rev) so a captured token can't be replayed against a
     different draft, and to `aud = agent-ingress.preview` so it can't be
-    replayed against any other agent-platform service.
+    replayed against any other agent-platform service. The token only admits
+    the non-live revision through routing; the revision runs against its own
+    `encrypted_env`, so there's no per-session secret payload to carry.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
-    ttl_seconds = 60
+    ttl_seconds = 15 * 60
     payload: dict[str, Any] = {
         "app": str(application.id),
         "rev": str(revision.id),
@@ -215,43 +423,11 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
     return token, ttl_seconds
 
 
-# Per-trigger route catalogue. Mirrors the `path:` arrays in each
-# `services/agent-ingress/src/triggers/<type>.ts` `routes` export — keep
-# these tables in sync (a sibling test validates the chat one). Source of
-# truth is still the ingress; this is here so the preview-token caller
-# doesn't have to grep the ingress source to know which path to hit.
-_TRIGGER_ROUTES: dict[str, dict[str, str]] = {
-    "chat": {
-        "run": "/run",
-        "send": "/send",
-        "cancel": "/cancel",
-        "listen": "/listen",
-        "client_tool_result": "/client_tool_result",
-    },
-    "mcp": {
-        "rpc": "/mcp",
-        "stream": "/mcp/stream",
-        "connect_info": "/mcp/connect-info",
-    },
-    "slack": {
-        "events": "/slack/events",
-        "interactivity": "/slack/interactivity",
-    },
-    "webhook": {
-        "post": "/webhook",
-    },
-    # `cron` triggers have no externally-callable ingress endpoint —
-    # they fire from the janitor's scheduler. Omit from the catalogue
-    # so the preview response doesn't advertise a URL the caller can't
-    # actually hit.
-}
-
-
 def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """Return `{trigger_type: {route_name: absolute_url}}` for every
-    trigger the spec declares that has a public ingress route in
-    `_TRIGGER_ROUTES`. Empty when no public agent-ingress URL is configured
-    for the active routing mode (local dev without `bin/agent-tunnel`)."""
+    """Return `{trigger_type: {route_name: absolute_url}}` for every spec trigger with a
+    public ingress route in `TRIGGER_ROUTES`. `cron` maps to `{}` (no ingress endpoint) and
+    is skipped. Empty when no public agent-ingress URL is configured (local dev without
+    `bin/agent-tunnel`)."""
     triggers = spec.get("triggers") or []
     if not isinstance(triggers, list):
         return {}
@@ -262,7 +438,7 @@ def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[st
         ttype = trigger.get("type")
         if not isinstance(ttype, str):
             continue
-        routes = _TRIGGER_ROUTES.get(ttype)
+        routes = TRIGGER_ROUTES.get(ttype)
         if not routes:
             continue
         # First trigger of a given type wins; spec-side validation
@@ -386,7 +562,8 @@ _AGENT_ASSISTANT_MESSAGE = inline_serializer(
         "model": drf_serializers.CharField(required=False),
         "usage": drf_serializers.DictField(child=drf_serializers.JSONField(), required=False),
         "stopReason": drf_serializers.ChoiceField(
-            choices=["stop", "length", "toolUse", "error", "aborted"],
+            # Imported from the generated artifact (source: spec.ts) so it can't drift from what the runner writes.
+            choices=ASSISTANT_STOP_REASONS,
             required=False,
         ),
         "errorMessage": drf_serializers.CharField(required=False),
@@ -526,25 +703,51 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "approvals_decide",
+        "users_connection_delete",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
         # tools and incurring inference cost. That's a write-class capability,
         # so it lives here even though it targets a non-live revision. The GET
         # `listen` counterpart (read-only SSE tail) stays in read actions.
         "preview_proxy",
+        # Minting a preview JWT is a write-class capability regardless of verb:
+        # the returned token lets a holder call `run`/`send`/`cancel` against a
+        # draft directly, equivalent to `preview_proxy`. BOTH verbs require
+        # `agents:write` — the POST (`preview_token_mint`) and the GET sibling
+        # (`preview_token`, kept only because EventSource can't set headers)
+        # return the identical usable token, so a read token must not be able to
+        # mint one via either path and hit ingress on its own. (The
+        # `preview_proxy*` actions differ: they use the JWT server-side and
+        # never hand it back, so the GET `preview_proxy_get` stays read-scoped.)
+        "preview_token_mint",
+        "preview_token",
+        # `agent_invoke` starts a new LIVE session and `agent_send` appends a
+        # turn — both drive the agent's tools and incur inference cost, so they
+        # are write-class (the read-only `agent_listen` poll is below).
+        "agent_invoke",
+        "agent_send",
     ]
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "users_list",
         "stats",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
         # the mutating POST sibling (`preview_proxy`) is a write action above.
+        # The proxy uses the preview JWT server-side and never returns it, so
+        # this read-scoped GET can't leak a usable credential (unlike
+        # `preview_token`, which is write-scoped above).
         "preview_proxy_get",
-        "preview_token",
+        # `agent_listen` is a read-only digest poll of a live session — it never
+        # mutates, so it is read-scoped (its `agent_invoke`/`agent_send` siblings
+        # are write actions above).
+        "agent_listen",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -567,10 +770,21 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team_id=self.team_id, created_by_id=self.request.user.id)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
-        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
-        instance.archived = True
-        instance.archived_at = timezone.now()
-        instance.save(update_fields=["archived", "archived_at", "updated_at"])
+        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history.
+
+        Also revoke every linked identity credential for the application: archive
+        is terminal (no unarchive), so a retired agent should hold no decryptable
+        bearers. Done in the same transaction via the ORM — Django owns this table,
+        so no janitor round-trip — and `state='active'` keeps it idempotent.
+        """
+        now = timezone.now()
+        with transaction.atomic(using=WRITER_DB):
+            instance.archived = True
+            instance.archived_at = now
+            instance.save(update_fields=["archived", "archived_at", "updated_at"])
+            AgentIdentityCredential.objects.using(WRITER_DB).filter(application_id=instance.id, state="active").update(
+                state="revoked", revoked_at=now, updated_at=now
+            )
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -717,10 +931,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.
@@ -745,6 +959,255 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # `@action`-decorated method confuses mypy about the bound-method signature.
         return self.preview_proxy(request, rest=rest, **kwargs)  # type: ignore[arg-type]
 
+    # ── Live-agent invocation (invoke / send / listen) ────────────────
+    # Runtime counterparts to the authoring surface: talk to a LIVE (promoted)
+    # agent over the ingress runtime endpoints, so an authoring AI can iterate
+    # end-to-end without leaving MCP. invoke/send bridge to the public ingress
+    # run/send routes forwarding the caller's PAT (so the session principal is
+    # the real caller); listen bridges to an internal digest RPC. Draft/non-live
+    # invokes stay on `preview_proxy`.
+    # Tool names use the `agent-applications-` prefix (agent-applications-invoke /
+    # -send / -listen) for consistency with the rest of the surface — the ~60 sibling
+    # tools on this viewset all share it (cf. `agent_applications_preview_proxy`). An
+    # earlier gap doc advertised the short `agent-invoke/send/listen` form, but we chose
+    # namespace consistency over that shorthand — hence the explicit `operation_id=`
+    # overrides pinning the `agent_applications_*` operation ids the codegen derives from.
+
+    def _assert_session_in_application(self, session_id: str, application: AgentApplication) -> None:
+        """Tenant/ownership check run BEFORE any ingress bridge. Django gates
+        tenancy first so the internal read endpoint stays internal-only and a
+        buggy/compromised ingress can't leak cross-tenant; the ingress read
+        re-scopes by `application_id` as an authoritative backstop. `last_n=1`
+        keeps this cheap — we only compare `application_id`, not the transcript."""
+        try:
+            session = _janitor().get_session(session_id, last_n=1)
+        except JanitorClientError as e:
+            # A plain not-found from the janitor IS a not-found for the caller —
+            # surface it as a clean 404 (`invalid_request`/`not_found`), not the
+            # internal `janitor_upstream` label, matching the sibling clean paths.
+            # Everything else (incl. 5xx → 502) still flows through JanitorUpstreamError.
+            if e.status_code == 404:
+                raise NotFound("Session not found in this application") from e
+            raise JanitorUpstreamError(e) from e
+        if session.get("application_id") != str(application.id):
+            raise NotFound("Session not found in this application")
+
+    @extend_schema(
+        operation_id="agent_applications_invoke",
+        request=AgentInvokeRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentInvokeResponse",
+                fields={
+                    "session_id": drf_serializers.UUIDField(
+                        help_text="The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen.",
+                    ),
+                    "state": drf_serializers.ChoiceField(
+                        choices=_AGENT_SESSION_STATE_VALUES,
+                        help_text="Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.",
+                    ),
+                    "resumed": drf_serializers.BooleanField(
+                        help_text="True if an existing session matched `external_key` and was resumed, rather than a new one being created.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="invoke")
+    def agent_invoke(self, request: Request, **kwargs) -> Response:
+        """Start a new session on this agent's LIVE (promoted) revision.
+
+        Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+        so the session principal is the real caller. Returns the new `session_id`;
+        drive the conversation with `agent-applications-send` and read progress with
+        `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        if not application.live_revision_id:
+            raise ValidationError("This agent has no live revision. Freeze + promote a revision before invoking it.")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+            raise ValidationError("Application slug contains unsafe characters")
+
+        payload = AgentInvokeRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        authorization = _require_ingress_bearer(request)
+        try:
+            result = _ingress().run(
+                application.slug,
+                message=payload.validated_data["message"],
+                external_key=payload.validated_data.get("external_key"),
+                authorization=authorization,
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(
+                e,
+                not_found_detail="This agent isn't reachable yet — its live revision may still be propagating. Try again shortly.",
+            ) from e
+        return Response(
+            {"session_id": result.get("session_id"), "state": "queued", "resumed": bool(result.get("resumed", False))}
+        )
+
+    @extend_schema(
+        operation_id="agent_applications_send",
+        request=AgentSendRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentSendResponse",
+                fields={
+                    "state": drf_serializers.ChoiceField(
+                        choices=_AGENT_SESSION_STATE_VALUES,
+                        help_text="Session state after the message was appended — `queued` (a new turn will run).",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="send")
+    def agent_send(self, request: Request, **kwargs) -> Response:
+        """Append a message to an existing LIVE session and re-queue it.
+
+        Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+        so the ACL principal-match passes. A `completed` session is NOT terminal —
+        it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+        another turn; only truly-terminal states (failed / cancelled / closed) 410,
+        which passes through as a 410. A janitor ownership pre-check runs first, but
+        it's redundant defense-in-depth (ingress `/send` already app-scopes the
+        load), kept for a clean early 404.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+            raise ValidationError("Application slug contains unsafe characters")
+
+        payload = AgentSendRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        session_id = str(payload.validated_data["session_id"])
+        authorization = _require_ingress_bearer(request)
+        self._assert_session_in_application(session_id, application)
+        try:
+            _ingress().send(
+                application.slug,
+                session_id=session_id,
+                message=payload.validated_data["message"],
+                authorization=authorization,
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(e) from e
+        return Response({"state": "queued"})
+
+    @extend_schema(
+        operation_id="agent_applications_listen",
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Session to read (must belong to this agent).",
+            ),
+            OpenApiParameter(
+                "cursor",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="`next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.",
+            ),
+            OpenApiParameter(
+                "max_chars",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentListenResponse",
+                fields={
+                    "session_id": drf_serializers.UUIDField(),
+                    "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                    "turns": drf_serializers.IntegerField(help_text="Total messages in the conversation so far."),
+                    "next_cursor": drf_serializers.IntegerField(
+                        help_text="Pass back as `cursor` on the next call to page forward — high-water mark of messages seen.",
+                    ),
+                    "digest": drf_serializers.CharField(
+                        help_text="Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage.",
+                    ),
+                    "truncated": drf_serializers.BooleanField(
+                        help_text="True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`.",
+                    ),
+                    "done": drf_serializers.BooleanField(
+                        help_text="True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="listen")
+    def agent_listen(self, request: Request, **kwargs) -> Response:
+        """Poll a LIVE session's progress as a single JSON digest (non-streaming,
+        MCP-friendly). Bridges to the internal ingress digest RPC — the digest is
+        built node-side (never in Python). Tenancy is enforced by the team-scoped
+        `get_object()` here plus the ingress digest's `application_id` re-scope;
+        there is no janitor pre-check on this polled path (see the comment below).
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+
+        session_id = request.query_params.get("session_id")
+        if not session_id:
+            raise ValidationError("session_id query parameter is required")
+        try:
+            UUID(str(session_id))
+        except (ValueError, TypeError):
+            raise ValidationError("session_id must be a valid UUID")
+        cursor_param = request.query_params.get("cursor")
+        try:
+            cursor = int(cursor_param) if cursor_param is not None else None
+        except ValueError:
+            raise ValidationError("cursor must be an integer")
+        if cursor is not None and cursor < 0:
+            raise ValidationError("cursor must be non-negative")
+        max_chars_param = request.query_params.get("max_chars")
+        try:
+            max_chars = int(max_chars_param) if max_chars_param is not None else None
+        except ValueError:
+            raise ValidationError("max_chars must be an integer")
+        # Range-check here (symmetric with the cursor >= 0 check above and the
+        # ingress zod `.positive().max(20_000)`) so a 0 / negative / oversized value
+        # returns a clean field-level 400 instead of the opaque ingress `invalid_body`.
+        if max_chars is not None and not (1 <= max_chars <= 20000):
+            raise ValidationError("max_chars must be between 1 and 20000")
+
+        # No janitor pre-check here (unlike agent_send): tenancy is still decided
+        # in Django — `get_object()` resolves `application` through the team-scoped
+        # queryset (a cross-team caller 404s above, before any bridge) — and the
+        # ingress digest RPC re-scopes the read by this team-checked `application_id`
+        # (`getForApplication ... WHERE application_id = $2`), returning
+        # `session_not_found` for a foreign session, which `_map_ingress_error`
+        # maps to 404. A janitor `get_session` here would just re-evaluate that same
+        # predicate one hop earlier — an extra round-trip on the polled hot path, not
+        # an independent gate. (agent_send keeps its own janitor pre-check, but that
+        # is redundant defense-in-depth, NOT load-bearing: `/send` already app-scopes
+        # in SQL — sendHandler loads via getOwnedSession → getForApplication (WHERE
+        # application_id) and then ACL-matches the principal (agent-ingress chat.ts).
+        # The Django pre-check is kept there for symmetry / a clean early 404.)
+        try:
+            digest = _ingress().session_digest(
+                application_id=str(application.id),
+                session_id=session_id,
+                cursor=cursor,
+                max_chars=max_chars,
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(e) from e
+        return Response(digest)
+
     # ── Preview token (direct-to-ingress flow) ───────────────────────
     # Alternative to `preview_proxy`: returns a short-lived JWT the
     # browser can attach to direct ingress calls. Console uses this
@@ -754,59 +1217,55 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # server-side mediation. Both share `_mint_preview_jwt` so the
     # JWT payload + secret can't drift between paths.
 
-    @extend_schema(
-        operation_id="agent_applications_preview_token",
-        parameters=[
-            OpenApiParameter(
-                "revision_id",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                required=True,
-                description="Target draft revision. Must belong to this application and not be live.",
-            ),
-        ],
-        request=None,
-        responses=OpenApiResponse(
-            response=inline_serializer(
-                name="AgentApplicationPreviewTokenResponse",
-                fields={
-                    "token": drf_serializers.CharField(
-                        help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
-                    ),
-                    "expires_in": drf_serializers.IntegerField(
-                        help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
-                    ),
-                    "ingress_slug": drf_serializers.CharField(
-                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
-                    ),
-                    "endpoints": drf_serializers.JSONField(
-                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
-                    ),
-                    "auth": drf_serializers.JSONField(
-                        help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
-                    ),
-                    "preview_proxy": drf_serializers.JSONField(
-                        help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
-                    ),
-                },
-            )
+    # Reused by GET + POST so drf-spectacular emits one component and the two
+    # operations stay shape-locked. POST is the contract-faithful verb (minting
+    # is a write); GET stays for `EventSource` callers and back-compat.
+    _PREVIEW_TOKEN_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentApplicationPreviewTokenResponse",
+            fields={
+                "token": drf_serializers.CharField(
+                    help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
+                ),
+                "expires_in": drf_serializers.IntegerField(
+                    help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
+                ),
+                "ingress_slug": drf_serializers.CharField(
+                    help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
+                ),
+                "endpoints": drf_serializers.JSONField(
+                    help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
+                ),
+                "auth": drf_serializers.JSONField(
+                    help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
+                ),
+                "preview_proxy": drf_serializers.JSONField(
+                    help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
+                ),
+            },
         ),
     )
-    @action(detail=True, methods=["get"], url_path="preview-token")
-    def preview_token(self, request: Request, **kwargs) -> Response:
-        """Mint a short-lived JWT for talking to a non-live revision
-        directly via the public ingress URL. The caller attaches it as
-        the `x-agent-preview-token` header (or `?preview_token=` query
-        param for `EventSource`). See `_mint_preview_jwt` for the
-        payload + claim binding.
 
-        The response also includes `endpoints`, `auth`, and
-        `preview_proxy` blocks so the caller can wire a preview
-        invocation without grepping the agent-ingress source for which
-        path each trigger exposes or which header name carries the
-        token. This is the "self-describing" half of preview-mode —
-        every piece of info you need to hit ingress is in one response.
-        """
+    _PREVIEW_TOKEN_PARAMETERS = [
+        OpenApiParameter(
+            "revision_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Target draft revision. Must belong to this application and not be live.",
+        ),
+    ]
+
+    # The two verbs live on separate action methods so DRF resolves them to
+    # distinct `view.action` names — `preview_token` (GET) and
+    # `preview_token_mint` (POST). Both are write-scoped (see the scope lists):
+    # the returned JWT is a usable credential for `run`/`send`/`cancel`, so
+    # minting it requires `agents:write` no matter the verb. The GET sibling
+    # exists only because EventSource can't set headers — it is NOT a
+    # read-only-safe alternative. A shared body keeps the response shape
+    # lock-stepped across both.
+
+    def _build_preview_token_response(self, request: Request) -> Response:
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -820,9 +1279,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(
                 "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
             )
+        spec = revision.spec if isinstance(revision.spec, dict) else {}
         token_pair = _mint_preview_jwt(application, revision, request.user)
         ingress_slug = f"{application.slug}-{revision.id.hex}"
-        spec = revision.spec if isinstance(revision.spec, dict) else {}
         body: dict[str, Any] = {
             "token": token_pair[0] if token_pair is not None else "",
             "expires_in": token_pair[1] if token_pair is not None else 0,
@@ -832,6 +1291,53 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "preview_proxy": _build_preview_proxy_info(request, application),
         }
         return Response(body)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token_mint",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @action(detail=True, methods=["post"], url_path="preview-token")
+    def preview_token_mint(self, request: Request, **kwargs) -> Response:
+        """Mint a short-lived JWT for talking to a non-live revision
+        directly via the public ingress URL. The caller attaches it as
+        the `x-agent-preview-token` header (or `?preview_token=` query
+        param for `EventSource`). See `_mint_preview_jwt` for the
+        payload + claim binding.
+
+        The response also includes `endpoints`, `auth`, and
+        `preview_proxy` blocks so the caller can wire a preview
+        invocation without grepping the agent-ingress source for which
+        path each trigger exposes or which header name carries the
+        token. This is the "self-describing" half of preview-mode —
+        every piece of info you need to hit ingress is in one response.
+
+        POST is the canonical verb — minting credentials for downstream
+        `run`/`send`/`cancel` is a write-class capability. A GET sibling
+        exists at the same URL for `EventSource` callers (which can't set
+        headers); it is also write-scoped, since it returns the same token.
+        """
+        return self._build_preview_token_response(request)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @preview_token_mint.mapping.get
+    def preview_token(self, request: Request, **kwargs) -> Response:
+        """GET sibling of `preview_token_mint`. Same body and response
+        shape — exists because `EventSource` can't set headers, so SSE
+        callers fetch the token via GET and then attach `?preview_token=`
+        to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+        thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+        distinct `view.action`, but it is in `scope_object_write_actions`
+        alongside the POST sibling — both return a usable credential, so
+        both require `agents:write`.
+        """
+        return self._build_preview_token_response(request)
 
     @extend_schema(
         operation_id="agent_applications_stats",
@@ -859,6 +1365,66 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 since=request.query_params.get("since") or None,
             )
         except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_models",
+        description=(
+            "Served-model catalog — each model's id, provider, context window, and "
+            "USD-per-million-token pricing — plus the curated auto-level → model map. "
+            "Project-agnostic; sourced from the AI gateway catalog. Powers the config "
+            "UI model browser and the agent builder's model-choosing skill."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models")
+    def models(self, request: Request, **kwargs) -> Response:
+        """The model catalog. Proxies the janitor, which owns the gateway-catalog
+        client and the level map (single source for runtime + UI + agents)."""
+        try:
+            payload = _janitor().get_models()
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_spec_schema",
+        parameters=[
+            OpenApiParameter(
+                "section",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only this top-level slice of the spec schema to save tokens — one of "
+                    "`models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, "
+                    "`limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema."
+                ),
+            ),
+        ],
+        description=(
+            "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the "
+            "discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. "
+            "Emitted from the same source the runner validates against (fields with a default are optional "
+            "on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of "
+            "guessing the shape. Pass `section` to fetch just one part."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="spec_schema")
+    def spec_schema(self, request: Request, **kwargs) -> Response:
+        """The agent-spec JSON Schema, proxied from the janitor, which emits it
+        from the canonical zod `AgentSpecSchema` (no Python mirror — the schema
+        an author reads can't drift from the one the runner parses). Optional
+        `section` slices one top-level property."""
+        section = request.query_params.get("section") or None
+        try:
+            payload = _janitor().get_spec_schema(section=section)
+        except JanitorClientError as e:
+            # A bad `section` is a client error — the janitor returns 400 with the
+            # valid section list. Surface that as a clean 400, not a 502.
+            if e.status_code == status.HTTP_400_BAD_REQUEST:
+                body = e.body if isinstance(e.body, dict) else {"detail": e.message}
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
             raise JanitorUpstreamError(e) from e
         return Response(payload)
 
@@ -918,11 +1484,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
@@ -947,7 +1514,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions_list(self, request: Request, **kwargs) -> Response:
-        """List sessions for this application, newest first. Strips the
+        """List sessions for this application, most recently active first. Strips the
         conversation transcript from each summary, but includes a `preview`
         (last assistant text, ~120 chars) and `usage_total` (token + cost
         aggregate). Use `agent-applications-sessions-retrieve` for the full
@@ -969,9 +1536,118 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 offset=offset,
                 state=request.query_params.get("state") or None,
                 revision_id=request.query_params.get("revision_id") or None,
+                agent_user_id=request.query_params.get("agent_user_id") or None,
                 created_after=request.query_params.get("created_after") or None,
                 created_before=request.query_params.get("created_before") or None,
+                search=request.query_params.get("search") or None,
             )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_list",
+        description=(
+            "List this agent's end-users (the stable identities behind inbound "
+            "principals) and each user's linked external connections. Connection "
+            "metadata only — credential material is never returned."
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentUsersList",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentUserWithConnections",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "principal_kind": drf_serializers.CharField(
+                                    help_text="Edge-identity kind: slack | jwt | posthog | service | …",
+                                ),
+                                "principal_id": drf_serializers.CharField(),
+                                "metadata": drf_serializers.JSONField(allow_null=True, required=False),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "connections": drf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name="AgentUserConnection",
+                                        fields={
+                                            "id": drf_serializers.UUIDField(),
+                                            "provider": drf_serializers.CharField(),
+                                            "scopes": drf_serializers.ListField(child=drf_serializers.CharField()),
+                                            "state": drf_serializers.CharField(help_text="active | revoked"),
+                                            "subject": drf_serializers.CharField(allow_null=True, required=False),
+                                            "access_expires_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                            "created_at": drf_serializers.DateTimeField(),
+                                            "updated_at": drf_serializers.DateTimeField(),
+                                            "revoked_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                        },
+                                    )
+                                ),
+                            },
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="users")
+    def users_list(self, request: Request, **kwargs) -> Response:
+        """End-users of this agent, each with their linked connections."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().list_users(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_connection_delete",
+        description=(
+            "Revoke one of an end-user's linked connections. The credential is "
+            "marked revoked (kept for audit), so the agent can no longer act as "
+            "that user on the provider."
+        ),
+        parameters=[
+            OpenApiParameter("agent_user_id", OpenApiTypes.UUID, OpenApiParameter.PATH, required=True),
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id (e.g. 'posthog', 'github').",
+            ),
+        ],
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentConnectionDelete",
+                fields={
+                    "provider": drf_serializers.CharField(),
+                    "revoked": drf_serializers.BooleanField(),
+                },
+            )
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"users/(?P<agent_user_id>[^/.]+)/connections/(?P<provider>[^/.]+)",
+    )
+    def users_connection_delete(
+        self, request: Request, agent_user_id: str = "", provider: str = "", **kwargs
+    ) -> Response:
+        """Revoke one linked connection for an end-user."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().delete_connection(int(self.team_id), str(application.id), agent_user_id, provider)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
@@ -1015,11 +1691,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         allow_null=True,
                         required=False,
                         help_text=(
-                            "Trigger-specific metadata stamped at session creation. Shape varies "
-                            "by trigger kind; cron firings carry "
-                            "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                            "Render this on session-detail so the operator can tell at a glance "
-                            "that a session was fired by which cron / when."
+                            "Trigger-specific metadata stamped at session creation. Discriminated on "
+                            f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
+                            "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and "
+                            "strips unknown keys at the persistence boundary, so consumers can trust "
+                            "`kind` and per-kind fields. TODO: narrow this DictField to a polymorphic "
+                            "serializer mirroring the union (needs `hogli build:openapi`)."
                         ),
                     ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
@@ -1168,17 +1845,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ),
         "approver_scope": drf_serializers.DictField(
             child=drf_serializers.JSONField(),
-            help_text="Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.",
+            help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
-            choices=[
-                "queued",
-                "approving",
-                "dispatched",
-                "dispatched_failed",
-                "rejected",
-                "expired",
-            ],
+            # Imported from the generated artifact (source: approval-store.ts) so it can't drift from what the runner writes.
+            choices=APPROVAL_REQUEST_STATES,
             help_text="Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.",
         ),
         "decision_by": drf_serializers.CharField(
@@ -1334,9 +2005,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="approvals/(?P<approval_id>[^/.]+)/decide")
     def approvals_decide(self, request: Request, approval_id: str = "", **kwargs) -> Response:
-        """Approve or reject a queued tool-approval request. Team-admin only
-        (plan §6.1). The runtime side runs the tool platform-side on approve
-        and wakes the session with a synthetic tool_result either way."""
+        """Approve or reject a queued `agent`-type tool-approval request.
+
+        This is the OWNER decision surface — the only PostHog-authoritative one:
+        team admins decide here, in the console. `principal`-type approvals are
+        decided by the session principal at the ingress decision API, not here.
+        The runtime side runs the tool platform-side on approve and wakes the
+        session with a synthetic tool_result either way."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -1347,22 +2022,30 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or a
-        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
-        # human approves in-app) — `is_first_party` is staff-set on the app, so a
-        # third-party OAuth app or a personal API key can't decide a human-only
-        # approval regardless of scope.
+        # Only `agent`-type approvals are decided through the console. A
+        # `principal`-type request is the session owner's to clear at the ingress
+        # decision API; collapse it to not-found here.
+        #
+        # Legacy fallback keeps this decode order-independent across a janitor rollout:
+        # an old janitor may return the pre-resolution `approvers[]` shape (no `type`),
+        # which we still resolve. Transitional.
+        scope = existing.get("approver_scope") or {}
+        approval_type = scope.get("type")
+        if approval_type is None:
+            approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
+        if approval_type != "agent":
+            raise NotFound("Approval not found")
+        # A human acting interactively only: SessionAuthentication, or a bearer
+        # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+        # approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide an owner
+        # approval.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
         is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
             getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
-        if (
-            existing.get("approver_scope", {}).get("allow_agent_approver") is False
-            and not is_session
-            and not is_first_party_oauth
-        ):
+        if not is_session and not is_first_party_oauth:
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(
@@ -1427,10 +2110,15 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "put_bundle",
         "put_agent_md",
         "put_spec",
-        "put_skill",
-        "delete_skill",
+        "set_skill_refs",
         "put_tool",
         "delete_tool",
+        # Dry-run reads the persisted compiled.js but actually executes user
+        # code in a sandbox — treat it as a write-scoped op so the scope
+        # gates arbitrary compute, not just data reads.
+        "dry_run_tool",
+        "update_bundle_file",
+        "import_bundle",
         "cron_fire",
         "set_env",
         # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
@@ -1544,6 +2232,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"Set the value(s) via the env editor then retry."
             )
 
+        # Managed PostHog identity providers: ensure each declared `{kind:posthog}`
+        # provider has a (normal, user-consented) OAuthApplication and inject its
+        # client_id into the spec. Idempotent; runs before the state flip so the
+        # frozen-and-live spec carries the client_id the runner links against.
+        spec_mutated = provision_posthog_identity_apps(
+            # Promote requires auth, so this is always a real User (not Anonymous);
+            # cast to satisfy the `User | None` signature, as elsewhere in this file.
+            application=revision.application,
+            revision=revision,
+            acting_user=cast(User, request.user),
+        )
+
         # All three writes — demote previous live, set this live, point the
         # application — must succeed or fail together. select_for_update on
         # the application row serializes concurrent promotes so two callers
@@ -1558,7 +2258,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 previously_live.state = "archived"
                 previously_live.save(update_fields=["state", "updated_at"])
             revision.state = "live"
-            revision.save(update_fields=["state", "updated_at"])
+            revision.save(update_fields=["state", "spec", "updated_at"] if spec_mutated else ["state", "updated_at"])
             application.live_revision = revision
             application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
@@ -1788,10 +2488,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({**result, "events_url": events_url, "interactivity_url": interactivity_url})
 
     # DRF routes the typed bundle verbs across @action + .mapping.<verb>
-    # chains. Three separate @action decorators with the same url_path
-    # don't merge — the last one registered wins and the others 405. So
-    # GET+PUT under /bundle/, PUT+DELETE under /skills/<id>/ and
-    # /tools/<id>/ share a single @action with mapping chains below.
+    # chains. Separate @action decorators with the same url_path don't merge —
+    # the last one registered wins and the others 405 — so GET+PUT under /bundle/
+    # share a single @action with a mapping chain below.
+    # NOTE: skill folders are deliberately NOT author-writable through Django.
+    # There is no `skills/<id>` author action (only agent_md/spec/skill_refs/tools);
+    # `skills/` is populated only at freeze (resolved store `skill_refs` + injected
+    # platform kernel skills). The janitor's `PUT/DELETE /revisions/:id/skills/:id`
+    # is internal-only, reachable solely via `janitor_client.put_skill`/`delete_skill`
+    # during freeze. Do NOT proxy it through to authors — that re-opens the
+    # store-only boundary kernel skills + skill_refs are built to enforce.
 
     # ── typed bundle authoring API ──────────────────────────────────────
     # Django
@@ -1833,19 +2539,46 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         return Response(self._call(_janitor().put_spec, str(revision.id), body.validated_data["spec"]))
 
-    @extend_schema(request=WriteSkillRequestSerializer)
-    @action(detail=True, methods=["put"], url_path=r"skills/(?P<skill_id>[a-z0-9][a-z0-9_-]*)")
-    def put_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
+    @extend_schema(request=SetSkillRefsRequestSerializer, responses={200: AgentRevisionSerializer})
+    @action(detail=True, methods=["put"], url_path="skill_refs")
+    def set_skill_refs(self, request: Request, **kwargs) -> Response:
+        """Full-replace the draft's store-skill references. They are resolved
+        and materialized into the bundle at freeze, not here — this only records
+        which skills (and pinned versions) the freeze should pull in."""
         revision: AgentRevision = self.get_object()
-        body = WriteSkillRequestSerializer(data=request.data)
+        if revision.state != "draft":
+            raise ValidationError(
+                f"Cannot set skill references on a {revision.state} revision; only 'draft' is mutable."
+            )
+        body = SetSkillRefsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        return Response(self._call(_janitor().put_skill, str(revision.id), skill_id, body.validated_data))
-
-    @extend_schema(request=None)
-    @put_skill.mapping.delete
-    def delete_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
-        revision: AgentRevision = self.get_object()
-        return Response(self._call(_janitor().delete_skill, str(revision.id), skill_id))
+        refs = body.validated_data["skill_refs"]
+        aliases = [r["alias"] for r in refs]
+        if len(set(aliases)) != len(aliases):
+            raise ValidationError("Each skill reference must have a unique 'alias' within the revision.")
+        # Same skill-read authorization the freeze enforces — surfaced early here
+        # so an author setting refs gets the 403 at write time, not at freeze.
+        assert_skill_refs_readable(
+            self.team,
+            [dict(r) for r in refs],
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
+        # Lock the row and re-check state before writing: a concurrent freeze
+        # could have sealed the bundle and flipped this revision to `ready`
+        # between our first read and this write — writing `skill_refs` onto a
+        # frozen revision would leave the column describing skills the sealed
+        # bundle doesn't contain.
+        with transaction.atomic(using=WRITER_DB):
+            locked = AgentRevision.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.pk)
+            if locked.state != "draft":
+                raise ValidationError(
+                    f"Cannot set skill references on a {locked.state} revision; only 'draft' is mutable."
+                )
+            locked.skill_refs = [dict(r) for r in refs]
+            locked.save(update_fields=["skill_refs"])
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision).data)
 
     @extend_schema(request=WriteToolRequestSerializer)
     @action(detail=True, methods=["put"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)")
@@ -1860,6 +2593,314 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().delete_tool, str(revision.id), tool_id))
+
+    # ── editable .md surface: per-file PUT + bulk import ────────────────
+    # Author surface for the configuration-pane editor and the bulk-paste
+    # migration dialog. `agent.md` writes proxy to the draft bundle via the
+    # janitor. Skill writes are store-backed: freeze materializes
+    # `skill_refs` from the skill store and sweeps everything else out of
+    # `skills/`, so a draft-bundle write could never stick — instead an
+    # edit publishes a new version of the referenced store skill and
+    # re-pins the draft's ref to it (see logic/skill_editing.py). Both
+    # endpoints are draft-only — once a revision is frozen
+    # (ready/live/archived) the stamped bundle sha is the source of truth
+    # and neither the bundle nor the refs may move underneath it.
+
+    _BUNDLE_EDIT_409_RESPONSE = OpenApiResponse(
+        response=RevisionNotDraftErrorSerializer,
+        description="The revision is frozen (ready/live/archived); clone a new draft and edit that instead.",
+    )
+
+    def _require_draft_or_409(self, revision: AgentRevision) -> Response | None:
+        if revision.state == "draft":
+            return None
+        return Response(
+            {
+                "error": "revision_not_draft",
+                "state": revision.state,
+                "detail": (
+                    f"Cannot edit the bundle on a '{revision.state}' revision. Clone a new draft and edit it instead."
+                ),
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def _locked_repin_skill_refs(
+        self,
+        revision: AgentRevision,
+        published_by_alias: dict[str, LLMSkill],
+        appended_refs: list[dict[str, Any]] | None = None,
+    ) -> Response | None:
+        """Re-pin edited refs (and append new ones) under a row lock, re-checking
+        draft state — a concurrent freeze could have sealed the revision since
+        the unlocked gate, and writing refs onto a frozen row would desync the
+        column from the sealed bundle (mirrors `set_skill_refs`). Returns the
+        409 response when frozen, None on success. Store versions already
+        published stay valid either way — they're append-only and merely go
+        unreferenced.
+        """
+        with transaction.atomic(using=WRITER_DB):
+            locked = AgentRevision.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.pk)
+            if locked.state != "draft":
+                return self._require_draft_or_409(locked)
+            refs = [dict(r) for r in (locked.skill_refs or [])]
+            for ref in refs:
+                alias = ref.get("alias")
+                if not isinstance(alias, str):
+                    continue
+                published = published_by_alias.get(alias)
+                if published is not None:
+                    ref["version"] = published.version
+                    ref["source_version_id"] = str(published.id)
+            refs.extend(appended_refs or [])
+            locked.skill_refs = refs
+            locked.save(update_fields=["skill_refs"])
+        return None
+
+    def _publish_referenced_skill_edit(
+        self, request: Request, revision: AgentRevision, alias: str, content: str
+    ) -> Response | None:
+        """Publish edited SKILL.md content as a new store version and re-pin the
+        draft's ref to it. Returns the 409 response if the revision froze
+        concurrently, None on success."""
+        if alias in all_kernel_skill_ids():
+            raise ValidationError(
+                f"Skill '{alias}' is a platform kernel skill — its content is code-locked and cannot be edited."
+            )
+        ref = next((r for r in (revision.skill_refs or []) if r.get("alias") == alias), None)
+        name = ref.get("from_template") if ref else None
+        if not isinstance(name, str) or not name:
+            raise ValidationError(
+                f"Skill '{alias}' is not referenced by this revision. Add it via the skill_refs "
+                "endpoint or bundle/import/ first."
+            )
+        assert_skills_writable(
+            [name],
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
+        published = publish_skill_md_edit(self.team, user=cast(User, request.user), skill_name=name, content=content)
+        return self._locked_repin_skill_refs(revision, {alias: published})
+
+    @extend_schema(
+        request=UpdateBundleFileRequestSerializer,
+        responses={200: AgentRevisionSerializer, 409: _BUNDLE_EDIT_409_RESPONSE},
+    )
+    @action(detail=True, methods=["put"], url_path="bundle/file")
+    def update_bundle_file(self, request: Request, **kwargs) -> Response:
+        """Update one `.md` file on a draft revision.
+
+        `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+        writes are store-backed — skills are materialized from the skill
+        store at freeze, so the edit publishes a new version of the
+        referenced store skill and re-pins the draft's `skill_refs` entry
+        to it. `<id>` must be a ref alias on this revision; add new skills
+        via `bundle/import/` or `skill_refs`. Tool source / schema editing
+        is out of scope here — use the per-tool endpoints. Returns the
+        updated revision so the caller can refresh in one round-trip.
+        """
+        revision: AgentRevision = self.get_object()
+        # Gate on draft state before validating the payload so a non-draft
+        # revision always returns 409, never a 400 that hides the real reason
+        # the request can't proceed.
+        if (resp := self._require_draft_or_409(revision)) is not None:
+            return resp
+
+        body = UpdateBundleFileRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        path = body.validated_data["path"]
+        content = body.validated_data["content"]
+
+        if path == "agent.md":
+            self._call(_janitor().put_agent_md, str(revision.id), content)
+        elif (match := _SKILL_BODY_PATH_REGEX.fullmatch(path)) is not None:
+            if (resp := self._publish_referenced_skill_edit(request, revision, match.group(1), content)) is not None:
+                return resp
+        else:
+            raise ValidationError(
+                f"Path '{path}' is not editable through this endpoint. "
+                "Only 'agent.md' and 'skills/<id>/SKILL.md' are supported."
+            )
+
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=ImportBundleRequestSerializer,
+        responses={200: AgentRevisionSerializer, 409: _BUNDLE_EDIT_409_RESPONSE},
+    )
+    @action(detail=True, methods=["post"], url_path="bundle/import")
+    def import_bundle(self, request: Request, **kwargs) -> Response:
+        """Bulk-merge a set of `.md` files into a draft revision.
+
+        Sets `agent_md` on the draft bundle if present. `skills[]` are
+        store-backed and merge by `id`: an id already referenced by the
+        draft publishes a new version of its store skill; an unreferenced
+        id attaches the store skill of that name (publishing the payload's
+        body to it), or creates it when no such skill exists — and each
+        ref is (re-)pinned to the published version. Skills not mentioned
+        are left alone, so the import is safe to retry. Draft-only;
+        non-draft revisions return 409 untouched.
+        """
+        revision: AgentRevision = self.get_object()
+        # Gate on draft state before validating the payload so a non-draft
+        # revision always returns 409, never a 400 that hides the real reason
+        # the request can't proceed.
+        if (resp := self._require_draft_or_409(revision)) is not None:
+            return resp
+
+        body = ImportBundleRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        agent_md = body.validated_data.get("agent_md")
+        skills = body.validated_data.get("skills") or []
+
+        # Validate everything up-front so a single bad entry rejects the whole
+        # request before anything is published — callers expect "all-or-nothing"
+        # semantics for the bulk paste. (Store publishes are append-only, so a
+        # mid-flight failure can't corrupt existing versions, but half an
+        # import is still a state the UI can't easily explain.)
+        seen_ids: set[str] = set()
+        for skill in skills:
+            skill_id = skill["id"]
+            if not _RESOURCE_ID_REGEX.fullmatch(skill_id):
+                raise ValidationError(
+                    f"Skill id '{skill_id}' is invalid. Use lowercase letters, "
+                    "digits, hyphens, or underscores; must start and end with [a-z0-9]."
+                )
+            if skill_id in seen_ids:
+                raise ValidationError(f"Skill id '{skill_id}' appears more than once in the import payload.")
+            seen_ids.add(skill_id)
+        kernel_collisions = sorted(seen_ids & all_kernel_skill_ids())
+        if kernel_collisions:
+            raise ValidationError(
+                f"Skill id(s) {kernel_collisions} collide with platform kernel skills — pick different ids."
+            )
+
+        # Plan each entry against the refs and the store: an id already
+        # referenced by the draft targets its ref's store skill; anything else
+        # targets (or creates) the store skill of the same name and appends a
+        # ref. New store skills must carry a description — there's no current
+        # version to fall back to.
+        refs_by_alias = {r.get("alias"): r for r in (revision.skill_refs or [])}
+        plan: list[tuple[dict[str, Any], str, bool]] = []  # (payload entry, store name, exists in store)
+        for skill in skills:
+            skill_id = skill["id"]
+            ref = refs_by_alias.get(skill_id)
+            name = ref.get("from_template") if ref is not None else skill_id
+            if not isinstance(name, str) or not name:
+                raise ValidationError(f"Skill reference '{skill_id}' on this revision is malformed.")
+            exists = ref is not None or store_skill_exists(self.team, name)
+            if not exists and not skill.get("description"):
+                raise ValidationError(f"Skill '{skill_id}' is new — `description` is required when adding a skill.")
+            # Store-side caps (body size, description length, name format for
+            # creates) checked up-front too, so a bad entry mid-payload can't
+            # leave earlier entries already published.
+            validate_store_write(skill["body"], skill.get("description"), new_skill_name=None if exists else name)
+            plan.append((skill, name, exists))
+
+        appended_count = sum(1 for entry, _, _ in plan if entry["id"] not in refs_by_alias)
+        if len(revision.skill_refs or []) + appended_count > MAX_SKILL_REFS:
+            raise ValidationError(f"A revision may reference at most {MAX_SKILL_REFS} store skills.")
+
+        if plan:
+            assert_skills_writable(
+                [name for _, name, _ in plan],
+                scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+                user_access_control=self.user_access_control,
+            )
+
+        published_by_alias: dict[str, LLMSkill] = {}
+        appended_refs: list[dict[str, Any]] = []
+        user = cast(User, request.user)
+        for skill, name, exists in plan:
+            skill_id = skill["id"]
+            if exists:
+                published = publish_skill_body(
+                    self.team, user=user, skill_name=name, body=skill["body"], description=skill.get("description")
+                )
+            else:
+                published = create_store_skill(
+                    self.team, user=user, name=name, description=skill["description"], body=skill["body"]
+                )
+            published_by_alias[skill_id] = published
+            if skill_id not in refs_by_alias:
+                appended_refs.append(
+                    {
+                        "from_template": name,
+                        "alias": skill_id,
+                        "version": published.version,
+                        "source_version_id": str(published.id),
+                    }
+                )
+
+        if (
+            published_by_alias
+            and (resp := self._locked_repin_skill_refs(revision, published_by_alias, appended_refs)) is not None
+        ):
+            return resp
+
+        if agent_md is not None:
+            self._call(_janitor().put_agent_md, str(revision.id), agent_md)
+
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=DryRunToolRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionDryRunToolResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(
+                        help_text="True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which)."
+                    ),
+                    "tool_id": drf_serializers.CharField(help_text="Echo of the tool id from the URL."),
+                    "result": drf_serializers.JSONField(
+                        required=False,
+                        help_text="Present on success — the value the tool's `actions.default` returned.",
+                    ),
+                    "error": inline_serializer(
+                        name="AgentRevisionDryRunToolError",
+                        fields={
+                            "code": drf_serializers.CharField(
+                                help_text=(
+                                    "Stable error code. `sandbox_acquire_failed` — the platform could not start a "
+                                    "sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the "
+                                    "sandbox started but the invoke threw uncaught (problem in the tool body, or a "
+                                    "runtime error). Dispatcher-side codes come through on `ok:false` invoke results: "
+                                    "`timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`."
+                                )
+                            ),
+                            "message": drf_serializers.CharField(help_text="One-line human-readable detail."),
+                        },
+                        required=False,
+                    ),
+                    "duration_ms": drf_serializers.IntegerField(
+                        help_text=(
+                            "Wall-clock duration in milliseconds, measured from sandbox acquire to after release. "
+                            "Captured consistently across success, tool-throw, and acquire-failure paths so authors "
+                            "can compare timings between calls. Always present."
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)/dry_run")
+    def dry_run_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        """Execute one persisted custom tool in a single-shot sandbox.
+
+        Authoring loop's "test this tool" button. The tool's source must
+        already be PUT (compiled.js is what runs); this just invokes it
+        with the caller-supplied args and a stubbed ctx. No real secrets
+        leave Django — `mock_secrets` is a `{name → placeholder}` map.
+        """
+        revision: AgentRevision = self.get_object()
+        body = DryRunToolRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().dry_run_tool, str(revision.id), tool_id, body.validated_data))
 
     @extend_schema(
         request=None,
@@ -1887,7 +2928,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="validate")
     def validate(self, request: Request, **kwargs) -> Response:
-        """Pre-flight checks before freeze + promote: entrypoint file exists,
+        """Pre-flight checks before freeze + promote: agent.md exists,
         every native tool id is registered, every custom tool has its
         compiled.js + schema.json, every skill path exists, every declared
         secret has a value set in this revision's env block. Returns
@@ -2009,7 +3050,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             "Fully-assembled system prompt the runner would pass "
                             "to pi-ai for a session against this revision. "
                             "Concatenates the platform framework preamble, the "
-                            "bundle's `agent.md` (or `spec.entrypoint`), and the "
+                            "bundle's `agent.md`, and the "
                             "skills index. Inspect before promotion to confirm "
                             "the model will see what you expect."
                         ),
@@ -2055,20 +3096,198 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # promote path doesn't expect. Mirrors the `update()` non-draft guard.
         if revision.state != "draft":
             raise ValidationError(f"Cannot freeze a {revision.state} revision; only 'draft' can be frozen.")
+        skill_refs = revision.skill_refs or []
+        # Re-bound the ref count here too: the serializer cap only guards
+        # `set_skill_refs`, but refs reach the column via fork / raw write, and each
+        # ref is one store fetch + one janitor round-trip, all sequential.
+        if len(skill_refs) > MAX_SKILL_REFS:
+            raise ValidationError(f"A revision may reference at most {MAX_SKILL_REFS} store skills.")
+        # Authorize skill reads before materializing any store content into the
+        # bundle — refs can reach the column via fork or raw write, so the
+        # `set_skill_refs` check alone isn't enough. (Confused-deputy guard:
+        # `agents:write` must not become a backdoor read of private skills.)
+        assert_skill_refs_readable(
+            self.team,
+            skill_refs,
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
         janitor_client = _janitor()
-        # Skill / custom-tool template pinning (freeze_templates_into_bundle) is
-        # disabled pending a registry rethink — see the commented-out template
-        # routes in routes.py.
+        # Resolve every draft skill reference against the llma-skill store at its
+        # pinned version, then materialize each into the bundle (SKILL.md +
+        # companions) BEFORE sealing — so a frozen revision carries the exact
+        # skill bytes and never re-resolves a possibly-changed skill at runtime.
+        # Resolution is pure (no side effects) and runs to completion first, so a
+        # missing/un-exportable/duplicate-alias ref fails the freeze before any
+        # bundle write, never leaving the draft half-materialized. Alias
+        # uniqueness is re-checked here because refs can reach the column via fork
+        # or raw write, bypassing the `skill_refs` endpoint's validation.
+        # (Custom-tool template pinning stays disabled pending a registry rethink
+        # — see the commented-out template routes in routes.py.)
+        resolved_skills = [resolve_skill_ref(self.team, ref) for ref in skill_refs]
+        aliases = {r.alias for r in resolved_skills}
+        if len(aliases) != len(resolved_skills):
+            raise ValidationError("Each skill reference must have a unique 'alias' within the revision.")
+        provenance_by_alias: dict[str, dict] = {
+            r.alias: {"from_template": r.from_template, "version": r.version, "source_version_id": r.source_version_id}
+            for r in resolved_skills
+        }
+        # Platform kernel skills — code-locked operator behaviour injected from
+        # backend code, never authored through the API. The store (`skill_refs`)
+        # is the only author path into `skills/`, so an author can't supply or
+        # forge these; the freeze materializes them alongside the resolved store
+        # skills below and merges both into the derived `spec.skills[]`. Empty for
+        # any agent the platform hasn't designated (see logic/kernel_skills.py).
+        # Per-slug targeting is safe to key on the slug only because human-readable
+        # slugs are gated behind a first-party allowlist
+        # (AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS); a normal team gets an opaque
+        # server-minted slug it can't use to claim e.g. `agent-builder`.
+        kernel_skills = kernel_skills_for(revision.application.slug)
+        kernel_ids = {k.id for k in kernel_skills}
+        collisions = sorted(kernel_ids & aliases)
+        if collisions:
+            raise ValidationError(
+                f"Skill reference alias(es) {collisions} collide with a platform kernel skill id — "
+                "rename the alias in `skill_refs`."
+            )
+        # Migration guard for pre-store agents: a revision forked from one authored
+        # before the store became canonical carries inline skill entries in its
+        # spec with no store provenance. Discriminate on `source_version_id`, NOT
+        # `from_template`: `from_template` is author-writable on a draft spec (via
+        # partial_update), so trusting it lets an author spoof provenance and make
+        # the sweep silently drop the inline content this guard protects.
+        # `source_version_id` is only ever server-stamped at freeze and is rejected
+        # by the write spec schema (`additionalProperties: false`), so it can't be
+        # forged. Detect from the spec (stable record) not the bundle, so a folder
+        # left by a failed prior freeze — absent from the spec — is swept on retry
+        # rather than misclassified as legacy. An unreferenced inline skill is
+        # refused: silently dropping it would lose real content.
+        #
+        # Exempt ANY shipped kernel id (`all_kernel_ids`), not just this agent's
+        # applicable set (`kernel_ids`): an inline entry whose id is a platform
+        # kernel skill is platform-owned content the author can't author or remove
+        # (there is no `skills` write path). It reaches a fork two ways the guard
+        # must not brick — a kernel de-designated for this slug, or a cross-team
+        # `clone_from` that lands an opaque slug no kernel targets. In both the id
+        # is still a shipped kernel, so it's safe to let through: the sweep below
+        # drops it from the bundle when it's no longer applicable, re-injecting only
+        # what `kernel_ids` still designates. Only a genuinely deleted kernel folder
+        # falls through to the legacy path, which is the honest outcome.
+        all_kernel_ids = all_kernel_skill_ids()
+        legacy_orphans = sorted(
+            sid
+            for s in ((revision.spec or {}).get("skills") or [])
+            if (sid := s.get("id"))
+            and not s.get("source_version_id")
+            and sid not in aliases
+            and sid not in all_kernel_ids
+        )
+        if legacy_orphans:
+            raise ValidationError(
+                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference. "
+                "These predate the skill store — recreate them in the store and set `skill_refs` before freezing."
+            )
+        # Materialize the resolved refs into the bundle, then seal. Skills are
+        # store-only — nothing else writes `skills/` — so the frozen bundle must
+        # hold exactly the current refs: sweep any folder not in `aliases`, then
+        # (re-)write each resolved skill. This whole block is skipped if a prior
+        # freeze already sealed the bundle (its HTTP response was lost): the
+        # janitor refuses edits to a sealed bundle, and its `freeze` is idempotent
+        # — it re-derives the sha + spec from what's already sealed.
+        bundle_already_sealed = False
+        try:
+            manifest = janitor_client.manifest(str(revision.id))
+            # Only `skills/<alias>/<file>` paths whose alias matches the janitor's
+            # skill-id regex count — keeps Django's sweep set identical to the set
+            # the janitor derives as skills, so a stray `skills/README.md` can't be
+            # misread as an alias.
+            bundle_aliases = {
+                parts[1]
+                for f in manifest.get("files", [])
+                if len(parts := f["path"].split("/")) >= 3
+                and parts[0] == "skills"
+                and _RESOURCE_ID_REGEX.fullmatch(parts[1])
+            }
+            # Write the resolved skills BEFORE sweeping leftovers: a failure
+            # mid-flight then leaves the bundle with extra folders, never missing a
+            # current ref, and a retry is a clean full replace. Sweeping first would
+            # leave a window where the draft has neither the old nor the new skill.
+            for resolved in resolved_skills:
+                janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
+            # Inject the platform kernel skills the same way — re-written from
+            # backend code every freeze, so the frozen bundle always carries the
+            # current bytes (never a stale DB copy) and stays in lockstep.
+            for kskill in kernel_skills:
+                janitor_client.put_skill(str(revision.id), kskill.id, kskill.put_skill_payload())
+            # Sweep store-orphan folders, but keep the kernel folders just written:
+            # `kernel_ids` are legitimate, not leftovers from a removed ref.
+            for stale in bundle_aliases - aliases - kernel_ids:
+                try:
+                    janitor_client.delete_skill(str(revision.id), stale)
+                except JanitorClientError as e:
+                    # A folder with no `SKILL.md` (e.g. companion-only cruft) 404s on
+                    # delete — it isn't a skill the janitor will remove, so treat it
+                    # as already-swept rather than re-failing the freeze every retry.
+                    if e.status_code != 404:
+                        raise
+        except JanitorClientError as e:
+            # A 409 from an edit means the bundle is already sealed — fall through
+            # to the idempotent freeze below. Any other error is a real failure.
+            if not _is_sealed_bundle_conflict(e):
+                raise JanitorUpstreamError(e) from e
+            bundle_already_sealed = True
         result = self._call(janitor_client.freeze, str(revision.id))
-        revision.state = "ready"
-        revision.bundle_sha256 = result["bundle_sha256"]
+        # Pin resolved versions back into `skill_refs` so an unpinned ref becomes a
+        # concrete pin after its first freeze. A fork copies `skill_refs` verbatim,
+        # so without this an unpinned ref would re-resolve "latest" on the fork's
+        # freeze — drifting away from the bytes the parent shipped. `source_version_id`
+        # makes the pin immortal (resolve_skill_ref prefers it over `version`).
+        pinned_refs = [
+            {**ref, "version": r.version, "source_version_id": r.source_version_id}
+            for ref, r in zip(skill_refs, resolved_skills)
+        ]
+        fields: dict[str, Any] = {
+            "state": "ready",
+            "bundle_sha256": result["bundle_sha256"],
+            "skill_refs": pinned_refs,
+        }
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
-            revision.spec = derived_spec
-            revision.save(update_fields=["state", "bundle_sha256", "spec"])
-        else:
-            revision.save(update_fields=["state", "bundle_sha256"])
-        revision.refresh_from_db()
+            stamp_skill_provenance(derived_spec, provenance_by_alias)
+            # Post-seal invariant: every kernel skill we injected must be present in
+            # the sealed spec. A 2xx `put_skill` whose body didn't materialize (S3
+            # eventual consistency, a future janitor derivation change) would
+            # otherwise flip a `ready` agent live while silently missing a kernel
+            # skill — e.g. `safety-and-boundaries`. Fail before the draft→ready flip
+            # so the revision stays a draft and the freeze is retriable.
+            #
+            # Only enforce it when we actually (re)wrote the bundle this freeze. On
+            # the sealed-bundle fall-through the bytes are immutable and `put_skill`
+            # can no longer touch them — the freeze that sealed them already ran this
+            # check. Re-running it here would permanently wedge the draft whenever
+            # the kernel set drifted (grew/renamed) after that seal, or whenever a
+            # concurrent freeze won the seal first — turning a lost-response retry
+            # into a dead end. The conditional draft→ready UPDATE below is what keeps
+            # concurrent freezes consistent in that case.
+            if not bundle_already_sealed:
+                materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
+                missing_kernel = sorted(kernel_ids - materialized_ids)
+                if missing_kernel:
+                    raise APIException(
+                        detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
+                        "revision left in draft. Retry the freeze."
+                    )
+            fields["spec"] = derived_spec
+        # Conditional draft→ready flip: only the first freeze of a draft wins, so
+        # two concurrent freezes can't both stamp the row, and a `set_skill_refs`
+        # that raced in can't leave `skill_refs` describing skills the sealed
+        # bundle doesn't contain (this write reasserts the materialized set).
+        updated = AgentRevision.all_teams.filter(pk=revision.pk, state="draft").update(**fields)
+        # Read back from the writer: a replica read under lag could still show
+        # `draft` right after our UPDATE and trip the conflict check below.
+        revision.refresh_from_db(using=WRITER_DB)
+        if not updated and revision.state not in ("ready", "live"):
+            raise ValidationError(f"Revision is in state '{revision.state}'; only a 'draft' can be frozen.")
         return Response(
             {
                 **result,
@@ -2120,6 +3339,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             state="draft",
             bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
             spec=source.spec,
+            # Carry store-skill references forward so a forked draft keeps (and can
+            # re-resolve / re-pin) the same skills — they're the only skill source.
+            skill_refs=source.skill_refs,
             # Secrets are per-revision: carry the parent's encrypted env forward
             # so the author isn't forced to re-enter every secret on each new
             # draft. The ciphertext copies verbatim (same EncryptedFields key
@@ -2650,7 +3872,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
     All three endpoints proxy the janitor (which owns the runtime DB). Used
-    by the agent-console "fleet" overview to render the cards on the agents
+    by the "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 
@@ -2721,11 +3943,12 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,

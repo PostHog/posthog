@@ -116,6 +116,42 @@ def billing_multiplier(tier: RunnerTier) -> int:
     return _MULTIPLIER_BY_VCPU.get(tier.vcpu, max(1, tier.vcpu // 2))
 
 
+def runner_descriptor(labels: list[str]) -> tuple[str, str]:
+    """Provider + human tier label for a job's runner, for display badges.
+
+    Returns ``(provider, label)`` where provider is ``'github_hosted'`` (free for open source),
+    ``'self_hosted'`` (billable — currently Depot), or ``'unknown'``. Provider-neutral on purpose so
+    other CI providers slot in. The label is the tier: ``'16-core'`` for self-hosted Linux, the raw
+    ``runs-on`` (e.g. ``'ubuntu-latest'``) for GitHub-hosted, or the OS for non-Linux self-hosted.
+    """
+    tier = classify_runner(labels)
+    if tier is None:
+        return "unknown", (labels[0] if labels else "")
+    if tier.provider is RunnerProvider.GITHUB_HOSTED:
+        return "github_hosted", (labels[0] if labels else tier.os.value)
+    if tier.os is RunnerOS.LINUX:
+        return "self_hosted", f"{tier.vcpu}-core"
+    return "self_hosted", tier.os.value
+
+
+def runner_tier_descriptor(provider: str | None, os: str | None, vcpu: int | None) -> tuple[str, str]:
+    """Provider badge + human tier label from an already-classified ``(provider, os, vcpu)`` tuple — the
+    display form of ``runner_descriptor`` for callers that group by the rendered tier columns (the job
+    cost source's ``provider`` / ``os`` / ``vcpu``) rather than raw labels. Same mapping as
+    ``runner_descriptor``, minus the raw-label fallback: grouped by tier there is no single ``runs-on``
+    to echo, so a github-hosted or unclassified tier reads as its OS (or ``''``) instead of the label.
+    ``provider`` is the ``render_provider`` output — ``'depot'`` / ``'github_hosted'`` / ``None``.
+    """
+    if provider is None:
+        return "unknown", ""
+    if provider == RunnerProvider.GITHUB_HOSTED.value:
+        return "github_hosted", (os or "")
+    # Depot is the only billed provider — it maps to the 'self_hosted' badge; Linux reads as '<vcpu>-core'.
+    if os == RunnerOS.LINUX.value:
+        return "self_hosted", f"{vcpu}-core"
+    return "self_hosted", (os or "")
+
+
 def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
 
@@ -135,3 +171,155 @@ def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> f
     if elapsed_seconds <= 0:
         return 0.0
     return (elapsed_seconds / 60) * REFERENCE_RATE_USD_PER_MIN * billing_multiplier(tier)
+
+
+@dataclass(frozen=True)
+class PRCostAggregate:
+    """One PR's job costs rolled up — billable (self-hosted Linux) runners only.
+
+    ``billable_seconds`` and ``estimated_cost_usd`` cover only the costed jobs (billable Linux,
+    finished). ``unsettled_jobs`` are billable Linux jobs with no elapsed time (still queued/running)
+    — excluded from cost so a not-yet-finished job is never shown as ``$0.00``. ``excluded_jobs`` ran
+    on provider-hosted (GitHub-hosted, free) or non-Linux runners, which carry no billable figure here.
+    ``estimated_cost_usd`` is ``None`` when no job was costable, distinguishing "nothing to cost" from
+    a real ``$0.00``.
+    """
+
+    billable_seconds: float
+    estimated_cost_usd: float | None
+    costed_jobs: int
+    unsettled_jobs: int
+    excluded_jobs: int
+
+
+# --- HogQL renderer -------------------------------------------------------------------
+# The same cost model, rendered as HogQL expression strings so a warehouse view can compute
+# provider / os / vcpu / multiplier / billable_seconds / estimated_cost_usd in ClickHouse
+# without leaving Python as the single source of truth. Every expression is generated from the
+# constants above (never a literal duplicate of a rate, prefix, OS token, or multiplier), so the
+# view SQL can only ever drift from the Python model if these constants change — which the
+# ClickHouse-backed parity test guards against. Each renderer takes SQL expression strings for
+# its inputs and returns a HogQL expression; the caller (logic.views.job_costs) threads them
+# through nested subqueries so the two label picks (``render_depot_label`` / ``render_hosted_label``)
+# and then provider/os/vcpu are each computed once per row and reused. Parity-critical notes mirror
+# classify_runner / _depot_vcpu / billing_multiplier / estimate_job_cost_usd exactly.
+
+
+def _has_os_token_sql(label_sql: str) -> str:
+    """True when the label names a recognized OS — the substring test of ``_os_from_label``."""
+    checks = " OR ".join(f"position(lowerUTF8({label_sql}), '{token}') > 0" for token in _OS_BY_TOKEN)
+    return f"({checks})"
+
+
+def _os_of_label_sql(label_sql: str) -> str:
+    """The OS a label names, in ``_OS_BY_TOKEN`` priority order (ubuntu > macos > windows) — the
+    ``multiIf`` form of ``_os_from_label``'s first-match-wins over the dict."""
+    branches: list[str] = []
+    for token, os_ in _OS_BY_TOKEN.items():
+        branches.append(f"position(lowerUTF8({label_sql}), '{token}') > 0")
+        branches.append(f"'{os_.value}'")
+    return "multiIf(" + ", ".join(branches) + ", NULL)"
+
+
+def _depot_vcpu_sql(label_sql: str) -> str:
+    """vCPU from a Depot label's trailing size segment — the SQL form of ``_depot_vcpu``.
+
+    Split on '-'; only the 4th-or-later segment can be a size, so a bare-integer OS version
+    (``depot-macos-14``) in the version slot is never read as vcpu. ``match(..., '^[0-9]+$')`` is
+    the parity of Python ``str.isdecimal`` (plain ASCII digits — ``isdecimal`` rejects the unicode
+    digits ``int()`` would too, so an ASCII-only regex matches its accept set here).
+    """
+    segments = f"splitByChar('-', {label_sql})"
+    last = f"arrayElement({segments}, length({segments}))"
+    return f"if(length({segments}) >= 4 AND match({last}, '^[0-9]+$'), toInt({last}), {_DEFAULT_DEPOT_VCPU})"
+
+
+def render_depot_label(labels_array_sql: str) -> str:
+    """First label (array order) that is a real Depot runner: ``depot-`` prefixed AND names an OS.
+    Empty string when none — Depot wins over hosted because provider/os/vcpu test this first.
+
+    This is the expensive ``arrayFilter`` label scan, so the caller computes it once as its own
+    column and feeds that column (not the array) into ``render_provider`` / ``render_os`` / ``render_vcpu``.
+    """
+    is_depot = f"(startsWith(lowerUTF8(_label), '{_DEPOT_PREFIX}') AND {_has_os_token_sql('_label')})"
+    return f"arrayElement(arrayFilter(_label -> {is_depot}, {labels_array_sql}), 1)"
+
+
+def render_hosted_label(labels_array_sql: str) -> str:
+    """First label (array order) that names an OS but is NOT ``depot-`` prefixed — the
+    github-hosted fallback (``hosted_os`` in ``classify_runner``). Empty string when none.
+
+    Like ``render_depot_label``, the expensive ``arrayFilter`` scan — computed once as its own
+    column and reused across the provider/os/vcpu renderers.
+    """
+    is_hosted = f"(NOT startsWith(lowerUTF8(_label), '{_DEPOT_PREFIX}') AND {_has_os_token_sql('_label')})"
+    return f"arrayElement(arrayFilter(_label -> {is_hosted}, {labels_array_sql}), 1)"
+
+
+def render_provider(depot_label_sql: str, hosted_label_sql: str) -> str:
+    """RunnerProvider value ('depot' / 'github_hosted') or NULL — the SQL form of
+    ``classify_runner(...).provider`` over the two precomputed label picks (``render_depot_label`` /
+    ``render_hosted_label``). Depot before hosted (Depot is the only billed provider)."""
+    return (
+        f"multiIf({depot_label_sql} != '', '{RunnerProvider.DEPOT.value}', "
+        f"{hosted_label_sql} != '', '{RunnerProvider.GITHUB_HOSTED.value}', NULL)"
+    )
+
+
+def render_os(depot_label_sql: str, hosted_label_sql: str) -> str:
+    """RunnerOS value ('linux' / 'macos' / 'windows') or NULL — the OS of the winning label (the
+    precomputed Depot label if any, else the hosted one), matching ``classify_runner(...).os``. Both
+    inputs are the label-pick columns from ``render_depot_label`` / ``render_hosted_label``, so this is
+    a cheap ``multiIf`` over string columns, not a re-scan of the labels array."""
+    return (
+        f"multiIf({depot_label_sql} != '', {_os_of_label_sql(depot_label_sql)}, "
+        f"{hosted_label_sql} != '', {_os_of_label_sql(hosted_label_sql)}, NULL)"
+    )
+
+
+def render_vcpu(depot_label_sql: str, hosted_label_sql: str) -> str:
+    """vCPU of the winning runner or NULL — Depot reads its size segment, github-hosted is the
+    2-vCPU default (``_DEFAULT_DEPOT_VCPU``), matching ``classify_runner(...).vcpu``. Both inputs are
+    the precomputed label-pick columns (``render_depot_label`` / ``render_hosted_label``)."""
+    return (
+        f"multiIf({depot_label_sql} != '', {_depot_vcpu_sql(depot_label_sql)}, "
+        f"{hosted_label_sql} != '', {_DEFAULT_DEPOT_VCPU}, NULL)"
+    )
+
+
+def render_multiplier(vcpu_sql: str) -> str:
+    """Depot billing multiplier for a vCPU count, or NULL when vcpu is NULL — the SQL form of
+    ``billing_multiplier``: the ``_MULTIPLIER_BY_VCPU`` ladder, else ``max(1, vcpu // 2)``."""
+    branches: list[str] = []
+    for vcpu, multiplier in _MULTIPLIER_BY_VCPU.items():
+        branches.append(f"{vcpu_sql} = {vcpu}")
+        branches.append(f"{multiplier}")
+    ladder = "multiIf(" + ", ".join(branches) + f", greatest(1, intDiv({vcpu_sql}, 2)))"
+    return f"if({vcpu_sql} IS NULL, NULL, {ladder})"
+
+
+def render_is_billable_tier(provider_sql: str, os_sql: str) -> str:
+    """SQL predicate: True when a job's classified tier is billable — self-hosted Linux (Depot Linux,
+    the only modeled billed tier). Generated from the enums so ``'depot'`` / ``'linux'`` never appear
+    as string literals in the query layer. NULL-safe: an unclassified tier (``provider`` NULL) reads as
+    not billable. This is the one place the billable-partition rule is spelled out; the endpoint cost
+    aggregates and the two renderers below all read it, so the three-bucket split can't drift."""
+    return f"ifNull({provider_sql} = '{RunnerProvider.DEPOT.value}' AND {os_sql} = '{RunnerOS.LINUX.value}', 0)"
+
+
+def render_billable_seconds(provider_sql: str, os_sql: str, elapsed_sql: str) -> str:
+    """Raw billable wall-clock seconds (NOT multiplier-weighted): ``greatest(elapsed, 0)`` only for
+    a billable self-hosted Linux job with a known elapsed, else NULL — mirrors the ``max(0, elapsed)``
+    a costed job contributes to a PR's ``billable_seconds``."""
+    billable = render_is_billable_tier(provider_sql, os_sql)
+    return f"if({billable} AND {elapsed_sql} IS NOT NULL, greatest({elapsed_sql}, 0), NULL)"
+
+
+def render_estimated_cost_usd(provider_sql: str, os_sql: str, vcpu_sql: str, elapsed_sql: str) -> str:
+    """Estimated Depot dollar cost for one job — the SQL form of ``estimate_job_cost_usd``:
+    NULL when not billable (non-Depot / non-Linux / unclassified) and NULL for an unsettled job
+    (elapsed unknown, never $0.00), a real 0.0 for non-positive elapsed, else
+    ``(elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * multiplier``."""
+    is_depot_linux = render_is_billable_tier(provider_sql, os_sql)
+    cost = f"({elapsed_sql} / 60) * {REFERENCE_RATE_USD_PER_MIN} * {render_multiplier(vcpu_sql)}"
+    return f"multiIf(NOT {is_depot_linux}, NULL, {elapsed_sql} IS NULL, NULL, {elapsed_sql} <= 0, 0.0, {cost})"

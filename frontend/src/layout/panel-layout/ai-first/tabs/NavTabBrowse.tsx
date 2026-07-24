@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { Fragment } from 'react'
 
 import {
     IconApps,
@@ -12,14 +13,21 @@ import {
     IconNotification,
     IconCheck,
     IconPencil,
+    IconRocket,
+    IconSearch,
     IconStar,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -27,12 +35,10 @@ import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
-import { PromotedProductNavItem } from '~/layout/panel-layout/ai-first/PromotedProductNavItem'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -43,7 +49,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
-import { inlineEditAppsLogic } from './inlineEditAppsLogic'
+import { editToolsLogic } from './editToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -63,7 +69,7 @@ const panelTriggerItems: {
     },
     {
         identifier: 'Products',
-        label: 'Apps',
+        label: 'Tools',
         icon: <IconApps />,
     },
     {
@@ -162,12 +168,14 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
-    const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+    const { isEditMode, checkedTools } = useValues(editToolsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
+    const { toggleCommand } = useActions(commandLogic)
+    const showToolsSearchRow = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'tools-row' && !isLayoutNavCollapsed
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -184,9 +192,7 @@ export function NavTabBrowse(): JSX.Element {
 
     return (
         <ScrollableShadows
-            className={cn('flex-1', {
-                'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
-            })}
+            className="flex-1"
             innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars
@@ -206,6 +212,17 @@ export function NavTabBrowse(): JSX.Element {
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
                 <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
+                    {featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' && (
+                        <NavLink
+                            to={urls.quickstart()}
+                            label="Quickstart"
+                            icon={<IconRocket />}
+                            isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-quickstart"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'quickstart' })}
+                        />
+                    )}
+
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
@@ -220,8 +237,6 @@ export function NavTabBrowse(): JSX.Element {
                         }}
                     />
 
-                    <PromotedProductNavItem isCollapsed={isLayoutNavCollapsed} />
-
                     {isProductAutonomyEnabled && (
                         <NavLink
                             to={urls.inbox()}
@@ -229,6 +244,7 @@ export function NavTabBrowse(): JSX.Element {
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-inbox"
+                            tag="beta"
                             onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
                         />
                     )}
@@ -254,48 +270,70 @@ export function NavTabBrowse(): JSX.Element {
                                 : undefined
 
                             return (
-                                <ButtonPrimitive
-                                    key={item.identifier}
-                                    active={isActive}
-                                    className="group -outline-offset-2"
-                                    menuItem={!isLayoutNavCollapsed}
-                                    iconOnly={isLayoutNavCollapsed}
-                                    tooltip={tooltip}
-                                    tooltipPlacement="right"
-                                    onClick={() => handlePanelTriggerClick(item.identifier)}
-                                    data-attr={`menu-item-${item.identifier.toLowerCase()}`}
-                                >
-                                    <span
-                                        className={cn(
-                                            'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                            isActive && 'text-primary opacity-100'
-                                        )}
+                                <Fragment key={item.identifier}>
+                                    <ButtonPrimitive
+                                        active={isActive}
+                                        className="group -outline-offset-2"
+                                        menuItem={!isLayoutNavCollapsed}
+                                        iconOnly={isLayoutNavCollapsed}
+                                        tooltip={tooltip}
+                                        tooltipPlacement="right"
+                                        onClick={() => handlePanelTriggerClick(item.identifier)}
+                                        data-attr={`menu-item-${item.identifier.toLowerCase()}`}
                                     >
-                                        {item.icon}
+                                        <span
+                                            className={cn(
+                                                'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                isActive && 'text-primary opacity-100'
+                                            )}
+                                        >
+                                            {item.icon}
 
-                                        <PanelIndicatorIcon />
-                                    </span>
-                                    {!isLayoutNavCollapsed && (
-                                        <>
-                                            <span
-                                                className={cn(
-                                                    'truncate text-secondary group-hover:text-primary',
-                                                    isActive && 'text-primary'
-                                                )}
-                                            >
-                                                {item.label}
+                                            <PanelIndicatorIcon />
+                                        </span>
+                                        {!isLayoutNavCollapsed && (
+                                            <>
+                                                <span
+                                                    className={cn(
+                                                        'truncate text-secondary group-hover:text-primary',
+                                                        isActive && 'text-primary'
+                                                    )}
+                                                >
+                                                    {item.label}
+                                                </span>
+                                                <span className="ml-auto pr-1">
+                                                    <IconChevronRight
+                                                        className={cn(
+                                                            'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                            isActive && 'opacity-100'
+                                                        )}
+                                                    />
+                                                </span>
+                                            </>
+                                        )}
+                                    </ButtonPrimitive>
+                                    {item.identifier === 'Products' && showToolsSearchRow && (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            className="group -outline-offset-2"
+                                            data-attr="nav-tools-search-row"
+                                            onClick={() => {
+                                                posthog.capture('nav search clicked')
+                                                toggleCommand('nav-tools-row')
+                                            }}
+                                        >
+                                            <span className="relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
+                                                <IconSearch />
+                                            </span>
+                                            <span className="truncate text-secondary group-hover:text-primary">
+                                                Search
                                             </span>
                                             <span className="ml-auto pr-1">
-                                                <IconChevronRight
-                                                    className={cn(
-                                                        'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                                        isActive && 'opacity-100'
-                                                    )}
-                                                />
+                                                <RenderKeybind keybind={[keyBinds.search]} minimal />
                                             </span>
-                                        </>
+                                        </ButtonPrimitive>
                                     )}
-                                </ButtonPrimitive>
+                                </Fragment>
                             )
                         })}
                     </div>
@@ -368,35 +406,35 @@ export function NavTabBrowse(): JSX.Element {
 
             {!isLayoutNavCollapsed && (
                 <Collapsible
-                    open={expandedNavSections.apps ?? false}
+                    open={expandedNavSections.tools ?? false}
                     onOpenChange={() => {
                         posthog.capture('nav section toggled', {
-                            section: 'apps',
-                            is_open: !expandedNavSections.apps,
+                            section: 'tools',
+                            is_open: !expandedNavSections.tools,
                         })
-                        toggleNavSection('apps')
+                        toggleNavSection('tools')
                     }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
-                    data-attr="nav-section-apps"
+                    data-attr="nav-section-tools"
                 >
                     <div className="relative">
-                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
-                        {expandedNavSections.apps && (
+                        <SectionTrigger icon={<IconApps />} label="My Tools" isCollapsed={isLayoutNavCollapsed} />
+                        {expandedNavSections.tools && (
                             <ButtonPrimitive
                                 iconOnly
                                 size="xs"
-                                tooltip={isEditMode ? 'Save' : 'Choose which apps to show in the sidebar'}
+                                tooltip={isEditMode ? 'Save' : 'Choose which tools to show in the sidebar'}
                                 tooltipPlacement="top"
                                 onClick={() => {
                                     if (isEditMode) {
-                                        posthog.capture('nav apps edit saved')
+                                        posthog.capture('nav tools edit saved')
                                         saveAndExitEditMode()
                                     } else {
-                                        posthog.capture('nav apps edit toggled', { is_editing: true })
+                                        posthog.capture('nav tools edit toggled', { is_editing: true })
                                         enterEditMode()
                                     }
                                 }}
-                                data-attr="nav-apps-edit-button"
+                                data-attr="nav-tools-edit-button"
                                 className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
                             >
                                 {isEditMode ? (
@@ -408,19 +446,19 @@ export function NavTabBrowse(): JSX.Element {
                         )}
                     </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
-                        {(expandedNavSections.apps ?? false) && (
+                        {(expandedNavSections.tools ?? false) && (
                             <ProjectTree
                                 root={isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
                                 selectModeOverride={isEditMode ? 'multi' : undefined}
-                                checkedItemsOverride={isEditMode ? checkedItems : undefined}
+                                checkedItemsOverride={isEditMode ? checkedTools : undefined}
                                 onItemCheckedOverride={
                                     isEditMode
                                         ? (id) => {
                                               // Tree item IDs for products:// are "products/{path}"
-                                              const productPath = id.replace(/^products\//, '')
-                                              toggleProduct(productPath)
+                                              const toolPath = id.replace(/^products\//, '')
+                                              toggleTool(toolPath)
                                           }
                                         : undefined
                                 }

@@ -39,6 +39,7 @@ from posthog.models.instance_setting import get_instance_setting, override_insta
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -2403,7 +2404,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
             interval="month",
-            date_from="2020-6-7",  # should round down to 6-1
+            date_from="2020-6-7",  # rounds labels down to 6-1 but only includes events on or after date_from
             date_to="2020-7-30",
             result=[
                 {
@@ -2420,8 +2421,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 2.0,
-                    "data": [1.0, 1.0],
+                    "count": 1.0,
+                    "data": [0.0, 1.0],
                     "labels": ["Jun 2020", "Jul 2020"],
                     "days": ["2020-06-01", "2020-07-01"],
                 }
@@ -9093,7 +9094,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_by_group_props_with_person_filter(self):
         self._create_groups()
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
 
         self._create_event(
             event="sign up",
@@ -9137,7 +9138,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_filtering_with_group_props(self):
         self._create_groups()
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
         self._create_event(
             event="$pageview",
             distinct_id="person1",
@@ -9190,7 +9191,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_filtering_with_group_props_event_with_no_group_data(self):
         self._create_groups()
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
         self._create_event(
             event="$pageview",
             distinct_id="person1",
@@ -9246,7 +9247,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
         self._create_groups()
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
 
         self._create_event(
             event="sign up",
@@ -9291,7 +9292,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_filtering_with_group_props_person_on_events(self):
         self._create_groups()
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
+        create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
         self._create_event(
             event="$pageview",
             distinct_id="person1",

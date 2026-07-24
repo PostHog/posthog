@@ -82,11 +82,12 @@ class TestAppRuntimeStartApp(BaseTest):
         assert version.snapshot_id is not None
         assert version.snapshot_created_at is not None
 
-        from products.tasks.backend.models import SandboxSnapshot
+        from products.tasks.backend.facade import api as tasks_facade
 
-        snapshot = SandboxSnapshot.objects.get(id=version.snapshot_id)
+        snapshot = tasks_facade.get_sandbox_snapshot(version.snapshot_id)
+        assert snapshot is not None
         assert snapshot.external_id == "snapshot-abc"
-        assert snapshot.status == SandboxSnapshot.Status.COMPLETE
+        assert snapshot.status == tasks_facade.SandboxSnapshotStatus.COMPLETE
 
     def test_cold_start_ignores_requirements_txt_in_zip(self, mock_get_sandbox_class, _mock_wait):
         """requirements.txt support was deleted: a zip with one is accepted but
@@ -505,11 +506,11 @@ class TestResetRestartCountIfStable(BaseTest):
 
 
 class TestSyncSandboxStatus(BaseTest):
-    """_sync_sandbox_status must never promote STARTING → RUNNING — that
+    """sync_sandbox_status must never promote STARTING → RUNNING — that
     path is reserved for start_app after both readiness probes pass."""
 
     def test_sync_does_not_promote_starting_to_running(self):
-        from products.streamlit_apps.backend.logic.app_runtime import _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
@@ -524,17 +525,17 @@ class TestSyncSandboxStatus(BaseTest):
             mock_sandbox = MagicMock()
             mock_sandbox.is_running.return_value = True
             mock_cls.return_value.get_by_id.return_value = mock_sandbox
-            result = _sync_sandbox_status(sandbox_record)
+            result = sync_sandbox_status(sandbox_record)
 
         assert result.status == StreamlitAppSandbox.Status.STARTING
 
     def test_sync_expires_stuck_starting_to_error(self):
-        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
         # Backdate started_at past the startup budget: started_at is the
-        # reference _sync_sandbox_status uses for the STARTING age check,
+        # reference sync_sandbox_status uses for the STARTING age check,
         # and start_app stamps it on every new attempt.
         sandbox_record = StreamlitAppSandbox.objects.create(
             app=app,
@@ -544,7 +545,7 @@ class TestSyncSandboxStatus(BaseTest):
             started_at=timezone.now() - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 10),
         )
 
-        result = _sync_sandbox_status(sandbox_record)
+        result = sync_sandbox_status(sandbox_record)
         assert result.status == StreamlitAppSandbox.Status.ERROR
         assert "timed out" in result.last_error.lower()
 
@@ -555,7 +556,7 @@ class TestSyncSandboxStatus(BaseTest):
         attempt must NOT be marked as timed out — the age check uses
         started_at which tracks this particular attempt.
         """
-        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import STARTING_TIMEOUT_SECONDS, sync_sandbox_status
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
@@ -574,7 +575,7 @@ class TestSyncSandboxStatus(BaseTest):
         )
         sandbox_record.refresh_from_db()
 
-        result = _sync_sandbox_status(sandbox_record)
+        result = sync_sandbox_status(sandbox_record)
 
         assert result.status == StreamlitAppSandbox.Status.STARTING
         assert result.last_error == ""

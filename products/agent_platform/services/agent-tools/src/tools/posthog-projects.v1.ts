@@ -37,6 +37,7 @@ interface MeResponse {
  */
 export const posthogListProjectsV1 = defineNativeTool({
     id: '@posthog/list-projects',
+    approval: 'allow',
     description:
         "List the PostHog projects the connected user can access — id, name, and organization only. Use to resolve which project to act in when `get_context` didn't supply a `project_id` or the user's intent is ambiguous: present the list, ask the user to choose, then pass the chosen `project_id` to the other `@posthog/*` tools. Don't guess a project id.",
     args: Type.Object({}),
@@ -49,7 +50,7 @@ export const posthogListProjectsV1 = defineNativeTool({
             })
         ),
     }),
-    requires: { integrations: [], scopes: [] },
+    requires: { provider: { id: 'posthog', scopes: [] } },
     cost_hint: 'cheap',
     async run(_args, ctx) {
         const me = await callPosthogApi<MeResponse>(ctx, { method: 'GET', path: '/api/users/@me/' })

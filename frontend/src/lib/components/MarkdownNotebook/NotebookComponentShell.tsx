@@ -1,10 +1,21 @@
 import clsx from 'clsx'
-import { KeyboardEvent, ReactNode, memo, useState } from 'react'
+import {
+    KeyboardEvent,
+    MouseEvent as ReactMouseEvent,
+    PointerEvent as ReactPointerEvent,
+    ReactNode,
+    memo,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconTrash } from '@posthog/icons'
+import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
+import { ComponentPanelContext } from './componentPanelContext'
 import {
     ComponentPanel,
     ComponentPanelVisibility,
@@ -81,13 +92,45 @@ export function NotebookComponentShell({
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
-    const showToolbarTitle = !!toolbarTitle && (mode === 'view' || !componentPanels.filters || !showModeActions)
+    // The user-set title (props.title) wins; the computed contextual title is the watermark/fallback.
+    // A title equal to the component's own label (e.g. code blocks default to "Python") is treated
+    // as "no user title" so the field reads as empty by default.
+    const rawTitle = (getNotebookStringProp(node.props.title) ?? '').trim()
+    const userTitle = rawTitle && rawTitle !== titleDisplay.label ? rawTitle : ''
+    const titlePlaceholder = toolbarTitle ?? 'Add a title'
+    const resolvedTitle = userTitle || toolbarTitle || null
     const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'
     const resultsLabel = componentPanels.results ? 'Hide results' : 'Show results'
     const titleClassName = clsx(
         'MarkdownNotebook__component-title',
         `MarkdownNotebook__component-title--${titleDisplay.tone}`
     )
+    const componentPanelState = useMemo(
+        () => ({
+            componentPanels,
+            showEditPanel,
+            showViewPanel,
+        }),
+        [componentPanels, showEditPanel, showViewPanel]
+    )
+    const [titleDraft, setTitleDraft] = useState<string | null>(null)
+    const [isEditingTitle, setIsEditingTitle] = useState(false)
+    // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
+    // (double-click) can cancel it, otherwise renaming would collapse then restore the panels
+    // (a flicker) and persist the node twice.
+    const titleCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    useEffect(
+        () => () => {
+            if (titleCollapseTimerRef.current) {
+                clearTimeout(titleCollapseTimerRef.current)
+            }
+        },
+        []
+    )
+    // Escape blurs the input, which fires commitTitle synchronously before the titleDraft
+    // state update lands — this ref lets commitTitle see the cancel intent in that same tick
+    const cancellingTitleRef = useRef(false)
+    const titleInputValue = titleDraft ?? userTitle
     const titleContent = (
         <>
             {titleDisplay.icon ? (
@@ -159,6 +202,31 @@ export function NotebookComponentShell({
             }
         })
     }
+    const commitTitle = (): void => {
+        if (cancellingTitleRef.current) {
+            cancellingTitleRef.current = false
+            return
+        }
+        if (titleDraft === null) {
+            return
+        }
+        const nextTitle = titleDraft.trim()
+        setTitleDraft(null)
+        if (nextTitle !== userTitle) {
+            updateProps({ title: nextTitle || undefined })
+        }
+    }
+    const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.blur()
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            cancellingTitleRef.current = true
+            setTitleDraft(null)
+            event.currentTarget.blur()
+        }
+    }
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || event.target !== event.currentTarget) {
             return
@@ -188,6 +256,21 @@ export function NotebookComponentShell({
             insertParagraphAfterNode()
         }
     }
+    const handleToolbarPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
+        if (event.button !== 0 || isTitleInputTarget(event.target)) {
+            return
+        }
+
+        event.stopPropagation()
+    }
+    const handleToolbarMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>): void => {
+        if (event.button !== 0 || isTitleInputTarget(event.target)) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+    }
 
     return (
         <div
@@ -201,7 +284,11 @@ export function NotebookComponentShell({
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
         >
-            <div className="MarkdownNotebook__component-toolbar">
+            <div
+                className="MarkdownNotebook__component-toolbar"
+                onPointerDownCapture={handleToolbarPointerDownCapture}
+                onMouseDownCapture={handleToolbarMouseDownCapture}
+            >
                 <div className="MarkdownNotebook__component-toolbar-left">
                     {canToggleComponentPanels ? (
                         <button
@@ -228,7 +315,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label={resultsLabel}
                                 size="xsmall"
-                                icon={<IconEye />}
+                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
                                 active={componentPanels.results}
                                 tooltip={resultsLabel}
                                 onClick={() => toggleComponentPanel('results')}
@@ -236,9 +323,60 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                 </div>
-                {showToolbarTitle ? (
-                    <div className="MarkdownNotebook__component-toolbar-title" title={toolbarTitle}>
-                        {toolbarTitle}
+                {mode === 'edit' ? (
+                    isEditingTitle ? (
+                        <input
+                            className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
+                            value={titleInputValue}
+                            placeholder={titlePlaceholder}
+                            aria-label="Component title"
+                            spellCheck={false}
+                            autoFocus
+                            onChange={(event) => setTitleDraft(event.target.value)}
+                            onBlur={() => {
+                                commitTitle()
+                                setIsEditingTitle(false)
+                            }}
+                            onKeyDown={handleTitleKeyDown}
+                        />
+                    ) : (
+                        // Clicking the title collapses the whole cell (same as hiding both panels);
+                        // double-click renames. No extra control is added to the toolbar.
+                        <button
+                            type="button"
+                            className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
+                            title={resolvedTitle ?? titlePlaceholder}
+                            aria-expanded={hasOpenComponentPanel}
+                            onClick={() => {
+                                if (!canToggleComponentPanels) {
+                                    return
+                                }
+                                if (titleCollapseTimerRef.current) {
+                                    clearTimeout(titleCollapseTimerRef.current)
+                                }
+                                titleCollapseTimerRef.current = setTimeout(() => {
+                                    titleCollapseTimerRef.current = null
+                                    toggleAllComponentPanels()
+                                }, 250)
+                            }}
+                            onDoubleClick={() => {
+                                if (titleCollapseTimerRef.current) {
+                                    clearTimeout(titleCollapseTimerRef.current)
+                                    titleCollapseTimerRef.current = null
+                                }
+                                setIsEditingTitle(true)
+                            }}
+                        >
+                            {resolvedTitle ?? (
+                                <span className="MarkdownNotebook__component-toolbar-title-placeholder">
+                                    {titlePlaceholder}
+                                </span>
+                            )}
+                        </button>
+                    )
+                ) : resolvedTitle ? (
+                    <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
+                        {resolvedTitle}
                     </div>
                 ) : null}
                 {mode === 'edit' ? (
@@ -254,45 +392,51 @@ export function NotebookComponentShell({
                     </div>
                 ) : null}
             </div>
-            {errors.length ? (
-                <div className="MarkdownNotebook__component-errors">
-                    {errors.map((error) => (
-                        <div key={error}>{error}</div>
-                    ))}
-                </div>
-            ) : null}
-            {showEditPanel && EditComponent ? (
-                <div className="MarkdownNotebook__component-panel">
-                    <NotebookComponentPanelErrorBoundary node={node} panel="filters">
-                        <EditComponent
-                            node={node}
-                            mode="edit"
-                            notebookMode={mode}
-                            updateProps={updateProps}
-                            deleteNode={deleteNode}
-                        />
-                    </NotebookComponentPanelErrorBoundary>
-                </div>
-            ) : null}
-            {showViewPanel ? (
-                <div className="MarkdownNotebook__component-panel">
-                    {ViewComponent ? (
-                        <NotebookComponentPanelErrorBoundary node={node} panel="results">
-                            <ViewComponent
+            <ComponentPanelContext.Provider value={componentPanelState}>
+                {errors.length ? (
+                    <div className="MarkdownNotebook__component-errors">
+                        {errors.map((error) => (
+                            <div key={error}>{error}</div>
+                        ))}
+                    </div>
+                ) : null}
+                {showEditPanel && EditComponent ? (
+                    <div className="MarkdownNotebook__component-panel">
+                        <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                            <EditComponent
                                 node={node}
-                                mode="view"
+                                mode="edit"
                                 notebookMode={mode}
                                 updateProps={updateProps}
                                 deleteNode={deleteNode}
                             />
                         </NotebookComponentPanelErrorBoundary>
-                    ) : (
-                        <UnknownComponentView node={node} />
-                    )}
-                </div>
-            ) : null}
+                    </div>
+                ) : null}
+                {showViewPanel ? (
+                    <div className="MarkdownNotebook__component-panel">
+                        {ViewComponent ? (
+                            <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                                <ViewComponent
+                                    node={node}
+                                    mode="view"
+                                    notebookMode={mode}
+                                    updateProps={updateProps}
+                                    deleteNode={deleteNode}
+                                />
+                            </NotebookComponentPanelErrorBoundary>
+                        ) : (
+                            <UnknownComponentView node={node} />
+                        )}
+                    </div>
+                ) : null}
+            </ComponentPanelContext.Provider>
         </div>
     )
+}
+
+function isTitleInputTarget(target: EventTarget | null): boolean {
+    return target instanceof HTMLElement && !!target.closest('.MarkdownNotebook__component-toolbar-title--input')
 }
 
 export function NotebookComponentPanelErrorBoundary({
@@ -397,7 +541,8 @@ export function areNotebookComponentShellPropsEqual(
         previousProps.componentPanels.results === nextProps.componentPanels.results &&
         previousProps.rememberedComponentPanels?.filters === nextProps.rememberedComponentPanels?.filters &&
         previousProps.rememberedComponentPanels?.results === nextProps.rememberedComponentPanels?.results &&
-        getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node)
+        (previousProps.node === nextProps.node ||
+            getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node))
     )
 }
 
@@ -458,6 +603,9 @@ export function getQueryComponentTitleDisplay(
     }
     if (sourceKind === 'EventsQuery') {
         return { label: 'Events', tone: 'data', icon: <IconList /> }
+    }
+    if (sourceKind === 'ActorsQuery') {
+        return { label: 'People', tone: 'data', icon: <IconPeople /> }
     }
 
     return {

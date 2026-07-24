@@ -1,9 +1,11 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema_enums import InCohortVia
+from posthog.schema_enums import InCohortVia, PropertyGroupsMode
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models.team import Team
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -24,37 +26,47 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.redshift import RedshiftPrinter
+from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
-from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
-from posthog.hogql.transforms.geoip_dict_fallback import (
-    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
-    geoip_dict_fallback_enabled_for_team,
-)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_property_pushdown import (
+    has_rewritable_json_extract,
+    rewrite_json_extract_to_property,
+)
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.type_aware_simplification import (
+    simplify_argmax_over_non_nullable,
+    simplify_redundant_type_operations,
+)
+from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.team import Team
-
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "clickhouse": ClickHousePrinter,
     "postgres": PostgresPrinter,
     "duckdb": DuckDBPrinter,
     "mysql": MySQLPrinter,
+    "snowflake": SnowflakePrinter,
+    "redshift": RedshiftPrinter,
     "hogql": HogQLPrinter,
 }
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
+def to_printed_hogql(
+    query: ast.Expr,
+    team: "Team",
+    modifiers: "HogQLQueryModifiers | None" = None,
+    *,
+    bypass_warehouse_access_control: bool = False,
+) -> str:
     """Prints the HogQL query without mutating the node"""
     return prepare_and_print_ast(
         clone_expr(query),
@@ -63,6 +75,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifier
             team_id=team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         ),
         pretty=True,
     )[0]
@@ -141,11 +154,20 @@ def prepare_ast_for_printing(
     # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
+        # Deferred: a Django-side load at the prepare boundary (same seam as Database.create_for and
+        # load_property_metadata) — keeping it behind the call is what lets the printer package import
+        # without django.setup().
+        from products.access_control.backend.property_access_control import (  # noqa: PLC0415
+            get_restricted_properties_for_team,
+        )
+
         with context.timings.measure("load_restricted_properties"):
-            context.restricted_properties = get_restricted_properties_for_team(
-                team_id=context.team_id,
-                user=context.user,
-            )
+            if context.team is not None and context.team.pk == context.team_id:
+                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+            else:
+                context.restricted_properties = get_restricted_properties_for_team(
+                    user=context.user, team_id=context.team_id
+                )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
@@ -160,9 +182,31 @@ def prepare_ast_for_printing(
             resolver_factory=resolver_factory,
         )
 
+    # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
+    # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
+    # property access and re-resolves, so the resolver assigns types rather than us building them.
+    # Must run after type resolution and before lazy-table resolution.
+    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
+        with context.timings.measure("rewrite_json_extract_to_property"):
+            node = rewrite_json_extract_to_property(node, context)
+        with context.timings.measure("resolve_types_after_json_pushdown"):
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
+
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
+
+    # ClickHouse only: must run before predicate pushdown so the bound lands in its
+    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
+    if dialect == "clickhouse":
+        with context.timings.measure("uuid_v7_timestamp_bounds"):
+            node = apply_uuid_v7_timestamp_bounds(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
@@ -170,9 +214,22 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
+    # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
+    # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which
+    # are active under OPTIMIZED. Without OPTIMIZED the read falls back to a subscript on the un-suffixed `attributes`
+    # alias, where the suffixed key never matches — so `is not` filters match every row and `equals` filters match none
+    # (silently wrong, not an error). OPTIMIZED is therefore required for correctness here, not merely a perf mode, so
+    # force it for every logs query regardless of any non-OPTIMIZED value a caller may have set — after workload
+    # detection, before property resolution reads the modifier.
+    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+        context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
+        # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
+        # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
+        context.cte_database_table_cache.clear()
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
@@ -226,23 +283,17 @@ def prepare_ast_for_printing(
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
 
-        # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
-        # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
-        # pass below routes to materialized columns. Operator-controlled via env only, per team. Decided exactly once
-        # per query, on the context, so the printer's `_lookupGeoip*` gate can never disagree with the transform.
-        # Never applies within_non_hogql_query: those fragments splice into DELETE mutations (data deletion requests)
-        # and legacy filters, where the matched row set must not depend on env/probe state and a missing dictionary
-        # would wedge the sticky mutation queue. Remove with the transform.
-        context.geoip_dict_fallback_enabled = (
-            not context.within_non_hogql_query and geoip_dict_fallback_enabled_for_team(context.team_id)
-        )
-        if context.geoip_dict_fallback_enabled:
-            with context.timings.measure("geoip_dict_fallback"):
-                node = (
-                    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
-                        node, context
-                    )
-                )
+        # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
+        # (the per-scan printer hook can't afford the team lookup + flag eval); the printer reads it off the context.
+        # Gated on the backend-only apply_events_retention_floor flag so server-side paths that must bypass the floor
+        # — e.g. the GDPR data-deletion mutation path — can opt out; the flag can't be set from a query, so the
+        # enforcement floor still can't be circumvented by a query-supplied modifier.
+        with context.timings.measure("events_retention_floor"):
+            if context.apply_events_retention_floor:
+                # Deferred: Django-side load at the prepare boundary; see the restricted-properties load above.
+                from posthog.models.team.event_retention import events_retention_months_for_team  # noqa: PLC0415
+
+                context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and
@@ -254,6 +305,13 @@ def prepare_ast_for_printing(
                 node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
+            # Deferred to break the module-level cycle cpr → printer.base → printer package init →
+            # utils → cpr, so clickhouse_property_resolution imports standalone in a bare
+            # interpreter (guarded by test_no_django_imports).
+            from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+                clickhouse_property_resolution,
+            )
+
             node = clickhouse_property_resolution(node, context)
 
         # We support global query settings, and local subquery settings.
@@ -267,6 +325,11 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
+    if dialect == "clickhouse":
+        with context.timings.measure("simplify_argmax_over_non_nullable"):
+            node = simplify_argmax_over_non_nullable(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

@@ -37,10 +37,9 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /*
-        Retries are 3 on CI by default. The nightly flake-audit workflow sets
-        PLAYWRIGHT_RETRIES=0 to surface the true per-test failure rate, which the
-        default retry budget otherwise hides (50%-flaky tests pass 93.75% of the time
-        with 4 attempts).
+        Retries are 3 on CI when PLAYWRIGHT_RETRIES is unset. Normal CI explicitly
+        sets one retry as a flake safety net, while the nightly audit sets zero to
+        preserve raw per-test failure signal.
      */
     retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
     /*
@@ -51,8 +50,11 @@ export default defineConfig({
     workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
+        // Enforces `mode: "run"` quarantine entries — tolerates their failures so
+        // flaky tests can't block CI (schema: .test_quarantine.json). No-op when empty.
+        ['./playwright.quarantine.reporter.ts'],
         ['html', { open: 'never' }],
-        ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml' }] as const] : []),
+        ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml', includeRetries: true }] as const] : []),
         ...(process.env.CI ? [['json', { outputFile: 'results.json' }] as const] : []),
     ],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

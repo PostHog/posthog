@@ -173,7 +173,9 @@ _MATERIALIZED_PROPERTY_RESULTS = {
     "materialized_column",
     "dynamic_materialized_column",
     "property_group",
+    "map_subscript",
     "json",
+    "json_subcolumn",
 }
 
 _RANGE_REWRITE_RESULTS = {"fired_compare", "fired_if_null", "skipped"}

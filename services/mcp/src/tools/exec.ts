@@ -3,14 +3,17 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ToolInputValidationError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
     POSTHOG_META_KEY,
     type Context,
     type Tool,
@@ -19,7 +22,11 @@ import {
 
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 200
+const MAX_SEARCH_PATTERN_LENGTH = 400
+
+/** Ranked (plain-word) search can match loosely on a common token like
+ *  "create"; cap the returned names so a vague query can't dump the catalog. */
+const MAX_RANKED_SEARCH_RESULTS = 25
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -28,6 +35,11 @@ export interface ExecInnerCallProperties {
     success: boolean
     output_format: 'json' | 'text' | 'structured'
     error_message?: string
+    /**
+     * HTTP status when the failure was a typed PostHog API error — value-free,
+     * safe for consumers that must not forward raw error messages.
+     */
+    error_status?: number
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
     /**
@@ -36,12 +48,93 @@ export interface ExecInnerCallProperties {
      */
     input_tokens?: number
     output_tokens?: number
+    input?: Record<string, unknown>
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * Session-scoped skill-usage markers backing the skills-first gate. Product
+ * `call`s in a session that ran no `learn` load are rejected with a retryable
+ * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
+ * which agents demonstrably rationalize their way past when it is advisory only.
+ * `call --no-skills` acknowledges that no skill applies and opens the gate for
+ * the rest of the session.
+ */
+export interface SkillsSessionState {
+    hasLearned(): Promise<boolean>
+    markLearned(): Promise<void>
+    hasAcknowledgedNoSkills(): Promise<boolean>
+    markAcknowledgedNoSkills(): Promise<void>
+}
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    learnCatalog?: ExecLearnCatalog
+    /**
+     * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
+     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * re-homed onto `_meta`. Computed from the client profile at the call site.
+     */
+    isInlineExecUiHost?: boolean
+    /** Present only when skill distribution is enabled and the client has a session. */
+    skillsSession?: SkillsSessionState
+}
+
+const SKILLS_GATE_MESSAGE =
+    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+
+/**
+ * True when a `learn` input loads skill content (a qualified `source:skill` read,
+ * including file reads within a skill). Generic guide reads, listings, searches,
+ * and describes don't count — a guide is not a skill, and opening the gate on
+ * `learn analytics` would restore exactly the bypass the gate exists to catch.
+ *
+ * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
+ * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
+ * a naive whitespace split disagrees on both. An unterminated quote can't be a
+ * skill load (and `execute` would have thrown first), so it returns false.
+ */
+function isSkillLoad(rest: string): boolean {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return false
+    }
+    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
+        return false
+    }
+    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
+}
+
+/**
+ * Returns the gate rejection message, or undefined when the call may proceed.
+ * A session-store hiccup opens the gate — enforcement must never break tools.
+ */
+async function resolveSkillsGate(
+    session: SkillsSessionState | undefined,
+    noSkillsFlag: boolean
+): Promise<string | undefined> {
+    if (!session) {
+        return undefined
+    }
+    try {
+        if (noSkillsFlag) {
+            await session.markAcknowledgedNoSkills()
+            return undefined
+        }
+        if (await session.hasLearned()) {
+            return undefined
+        }
+        if (await session.hasAcknowledgedNoSkills()) {
+            return undefined
+        }
+        return SKILLS_GATE_MESSAGE
+    } catch {
+        return undefined
+    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -59,10 +152,11 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
+    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -76,10 +170,15 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
+        if (parsed.verb === '--no-skills') {
+            noSkills = true
+            rest = parsed.rest
+            continue
+        }
         break
     }
 
-    return { forceJson, confirmed, rest }
+    return { forceJson, confirmed, noSkills, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -120,13 +219,24 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server. When the model attempts to call
-// one, surface a targeted redirect to the replacement instead of dumping the
-// full tool catalog. Keep the redirect text editorial — schemas don't carry
-// "use X instead" guidance.
+// Tools that were removed from the MCP server — or flag-gated out of the active
+// catalog. When the model attempts to call one that isn't present, surface a
+// targeted redirect to the replacement instead of dumping the full tool catalog.
+// Keep the redirect text editorial — schemas don't carry "use X instead"
+// guidance. A redirect only fires when the tool is absent, so an entry for a
+// conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
-    'entity-search': () =>
-        'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+    // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
+    'read-data-warehouse-schema': () =>
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
+    'entity-search': (allTools) => {
+        const base =
+            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
+        const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
+        return hasCatalog
+            ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
+            : base
+    },
     'event-definitions-list': () =>
         'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
@@ -167,20 +277,103 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
         if (issue.code === 'unrecognized_keys') {
             return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}`
         }
+        // A too-long string names the limit and the input's actual length so the
+        // agent knows how much to trim (zod's default names only the limit).
+        // Surfaces the LENGTH only, never the value: the message is returned to
+        // the caller and recorded as the analytics error_message. `issue.input`
+        // is only present under `reportInput: true`; without it, or for
+        // non-string origins, fall through to zod's limit-naming default.
+        if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+        }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
-function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
+/** Caps on what we record so a single failure can't blow up analytics cardinality. */
+const MAX_VALIDATION_DESCRIPTORS = 20
+const MAX_KEY_LENGTH = 64
+
+/**
+ * Derives a value-free descriptor of a validation failure for telemetry, so a
+ * contract regression (agents sending a field name the schema doesn't accept) is
+ * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
+ * request payload.
+ *
+ * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
+ * for a union rejection the path is empty and it reads `(root):invalid_union`, which
+ * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
+ * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ *
+ * Records only structural information (field names, issue codes). It never touches
+ * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
+ * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
+ * input's own key names only.
+ */
+export function describeValidationError(
+    error: z.ZodError,
+    input: Record<string, unknown>
+): { fields: string[]; inputKeys: string[] } {
+    const fields = [
+        ...new Set(
+            error.issues.map((issue) => {
+                const top = issue.path.length ? String(issue.path[0]) : '(root)'
+                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+            })
+        ),
+    ].slice(0, MAX_VALIDATION_DESCRIPTORS)
+    const inputKeys = Object.keys(input)
+        .sort()
+        .slice(0, MAX_VALIDATION_DESCRIPTORS)
+        .map((key) => key.slice(0, MAX_KEY_LENGTH))
+    return { fields, inputKeys }
+}
+
+/** Whether the tool's input schema declares an `output_format` field. Unwraps
+ *  `z.preprocess(...)` pipes (e.g. the id-alias normalization on insight-query)
+ *  to reach the underlying object schema. */
+function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
+    let current: z.ZodType = schema
+    while (current instanceof z.ZodPipe) {
+        current = current.out as z.ZodType
+    }
+    return current instanceof z.ZodObject && 'output_format' in current.shape
+}
+
+/**
+ * Exec mode owns output encoding through the `--json` call flag, so tools must
+ * not also advertise their `output_format` input — an agent passing
+ * `output_format: "json"` would make the handler skip the server-side formatter
+ * only for exec to TOON-encode the raw result anyway. `call` folds the flag back
+ * into the field for tools that have it (see the `call` verb), so hiding it here
+ * loses no capability.
+ */
+function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, unknown> | undefined
+    if (!properties || !('output_format' in properties)) {
+        return jsonSchema
+    }
+    const { output_format: _omitted, ...rest } = properties
+    return { ...jsonSchema, properties: rest }
+}
+
+function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
             throw new Error(redirect(tools))
         }
-        const available = tools.map((t) => t.name).join(', ')
-        throw new Error(`Unknown tool: "${name}". Available tools: ${available}`)
+        const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
+        if (scopeGatedTool) {
+            throw new Error(
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`
+            )
+        }
+        throw new Error(
+            `Unknown tool: "${name}". Run "search ${name}" to find the current tool name before claiming the capability is unavailable.`
+        )
     }
     return tool
 }
@@ -199,7 +392,7 @@ export function createExecTool(
 
     return {
         name: 'exec',
-        title: 'Execute PostHog command',
+        title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
@@ -213,13 +406,27 @@ export function createExecTool(
             const { verb, rest } = parseCommand(params.command)
 
             switch (verb) {
+                case 'learn': {
+                    const learnCatalog = options.learnCatalog
+                    if (!learnCatalog) {
+                        throw new Error('The learn command is not available for this client.')
+                    }
+                    const learnResult = await learnCatalog.execute(rest)
+                    // Only skill loads count as "learned" — a search whose results are
+                    // then ignored is exactly the bypass the gate exists to catch.
+                    if (options.skillsSession && isSkillLoad(rest)) {
+                        await options.skillsSession.markLearned().catch(() => undefined)
+                    }
+                    return learnResult
+                }
+
                 case 'tools': {
                     return JSON.stringify(allTools.map((t) => t.name))
                 }
 
                 case 'search': {
                     if (!rest) {
-                        throw new Error('Usage: search <regex_pattern>')
+                        throw new Error('Usage: search <words or regex_pattern>')
                     }
                     // Bound the user-supplied pattern length to limit the blast
                     // radius of a pathological (catastrophic-backtracking) regex.
@@ -228,18 +435,33 @@ export function createExecTool(
                             `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
                         )
                     }
-                    let regex: RegExp
-                    try {
-                        regex = new RegExp(rest, 'i')
-                    } catch {
-                        throw new Error(`Invalid regex pattern: "${rest}"`)
+
+                    // Route by pattern shape: a pattern with regex metacharacters
+                    // (e.g. `query-`, `feature-flag`) keeps the original regex
+                    // predicate; plain words — including multi-word, natural-
+                    // language queries — use forgiving token ranking.
+                    let matches: string[]
+                    let gatedMatches: ScopeGatedTool[]
+                    let truncatedFrom = 0
+                    if (isRegexPattern(rest)) {
+                        try {
+                            matches = searchToolsRegex(allTools, rest).map((t) => t.name)
+                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
+                        } catch {
+                            throw new Error(`Invalid regex pattern: "${rest}"`)
+                        }
+                    } else {
+                        const ranked = searchToolsRanked(allTools, rest)
+                        truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
+                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        // Preserve ranked order for gated matches too, then map
+                        // each name back to its ScopeGatedTool (for missingScopes).
+                        const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
+                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                            .map((r) => gatedByName.get(r.name))
+                            .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
-                    const matches = allTools
-                        .filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
-                        .map((t) => t.name)
-                    const gatedMatches = scopeGatedTools.filter(
-                        (t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description)
-                    )
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                         return JSON.stringify({
@@ -259,6 +481,13 @@ export function createExecTool(
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
                         })
                     }
+                    if (truncatedFrom > 0) {
+                        return JSON.stringify({
+                            matches,
+                            truncated: true,
+                            hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                        })
+                    }
                     return JSON.stringify(matches)
                 }
 
@@ -271,8 +500,14 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, infoArgs)
-                    const fullSchema = z.toJSONSchema(tool.schema)
+                    const tool = findTool(allTools, scopeGatedTools, infoArgs)
+                    // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
+                    // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
+                    // are optional and auto-filled. The default `io: 'output'` would list them as
+                    // required, misrepresenting them as mandatory input the caller must supply.
+                    const fullSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -308,8 +543,12 @@ export function createExecTool(
                         throw new Error('Usage: schema <tool_name> [field_path]')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, schemaToolName)
-                    const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
+                    // See the `info` command: `io: 'input'` keeps this in sync with the advertised
+                    // schema and validation, so `.default()` fields aren't shown as required.
+                    const fullJsonSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
+                    )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -344,17 +583,21 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
                     }
                     if (!context) {
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(allTools, toolName)
+                    const tool = findTool(allTools, scopeGatedTools, toolName)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
+                    if (gateMessage) {
+                        throw new Error(gateMessage)
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new Error(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
@@ -372,7 +615,25 @@ export function createExecTool(
                         }
                     }
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+                    // letting the handler skip the formatter only for the result to be
+                    // TOON-encoded anyway.
+                    let strayOutputFormat: unknown
+                    if ('output_format' in input) {
+                        ;({ output_format: strayOutputFormat, ...input } = input)
+                    }
+                    const useJson =
+                        forceJson ||
+                        strayOutputFormat === 'json' ||
+                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // Fold the flag back into the tool's own `output_format` field when it has
+                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+                    // JSON, no `__formatted_results_override` duplication), and tools where the
+                    // field is a real backend param (dashboard-insights-run) keep full function.
+                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                        input.output_format = 'json'
+                    }
 
                     // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
                     // otherwise bad input reaches the HTTP layer and builds URLs like
@@ -389,8 +650,10 @@ export function createExecTool(
                             validation_error: true,
                         })
                         // Typed so the executor's catch skips exception capture and
-                        // classifies it as `validation`, not `internal`.
-                        throw new ToolInputValidationError(message)
+                        // classifies it as `validation`, not `internal`. The value-free
+                        // descriptor rides along so the errored `$mcp_tool_call` records
+                        // which field/alias was rejected — without the payload.
+                        throw new ToolInputValidationError(message, describeValidationError(validation.error, input))
                     }
                     input = validation.data as Record<string, unknown>
 
@@ -399,24 +662,52 @@ export function createExecTool(
                     try {
                         result = await tool.handler(context, input)
                     } catch (err) {
+                        // PostHogValidationError is the API's 400 validation_error body.
+                        const apiError = findRecoverableApiError(err)
                         trackInnerCall?.(tool.name, {
                             duration_ms: Date.now() - startedAt,
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            ...(apiError
+                                ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
+                                : {}),
+                            input,
                         })
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    const formattedOverride =
+                        result !== null && typeof result === 'object'
+                            ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                            : undefined
+                    const isInformationalResponse =
+                        result !== null &&
+                        typeof result === 'object' &&
+                        (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+
+                    if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
+                        const outputText = JSON.stringify({ content: formattedOverride })
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'json',
+                            input_tokens: estimateTokens(input),
+                            output_tokens: estimateTokens(outputText),
+                            input,
+                        })
+                        return outputText
+                    }
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
                     // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
-                    // don't render UI apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
+                    // runs, etc.) don't render UI apps — they should see plain text.
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         const payload = markExecPayload(
@@ -425,10 +716,13 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `false` bypasses coding-agent suppression in
-                                // `buildToolResultPayload` because this path explicitly wants it.
-                                suppressStructuredContentForFormattedResults: false,
+                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // surface `structuredContent` to the model in preference to the
+                                // text content, which would bury the compact formatted table
+                                // under the raw JSON. Always re-home the UI app's data onto
+                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
+                                // table (or the TOON text when unformatted) and the chart still renders.
+                                forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })
@@ -439,6 +733,7 @@ export function createExecTool(
                             output_format: 'structured',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
+                            input,
                         })
                         return payload
                     }
@@ -454,10 +749,6 @@ export function createExecTool(
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        const formattedOverride =
-                            result !== null && typeof result === 'object'
-                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                                : undefined
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
                     }
                     trackInnerCall?.(tool.name, {
@@ -466,12 +757,15 @@ export function createExecTool(
                         output_format: useJson ? 'json' : 'text',
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
+                        input,
                     })
                     return outputText
                 }
 
                 default:
-                    throw new Error(`Unknown command: "${verb}". Supported commands: tools, search, info, schema, call`)
+                    throw new Error(
+                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`
+                    )
             }
         },
     }

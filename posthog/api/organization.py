@@ -49,7 +49,6 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_posthog_ai_access_request
-from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
@@ -67,7 +66,7 @@ class PremiumMultiorganizationPermission(permissions.BasePermission):
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
-            and user.organizations.count() >= 1
+            and user.organizations.exists()
         ):
             return False
         return True
@@ -180,6 +179,7 @@ class OrganizationSerializer(
             "members_can_invite",
             "members_can_create_projects",
             "members_can_use_personal_api_keys",
+            "members_can_see_org_members",
             "allow_publicly_shared_resources",
             "member_count",
             "is_ai_data_processing_approved",
@@ -344,6 +344,15 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_members_can_see_org_members(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_see_org_members != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure member list visibility.",
+                    code="payment_required",
+                )
+        return value
+
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
@@ -481,29 +490,16 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         organization.save(update_fields=["is_pending_deletion"])
 
         # Hand off all deletion work (bulky postgres, batch exports, org/team records,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_organization_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_organization_workflow(
-                team_ids=team_ids,
-                organization_id=str(organization_id),
-                user_id=user.id,
-                organization_name=organization_name,
-                project_names=project_names,
-            )
-        else:
-            delete_organization_data_and_notify_task.delay(
-                team_ids=team_ids,
-                organization_id=str(organization_id),
-                user_id=user.id,
-                organization_name=organization_name,
-                project_names=project_names,
-            )
+        start_delete_organization_workflow(
+            team_ids=team_ids,
+            organization_id=str(organization_id),
+            user_id=user.id,
+            organization_name=organization_name,
+            project_names=project_names,
+        )
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {

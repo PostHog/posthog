@@ -30,12 +30,10 @@ from posthog.temporal.common.clickhouse import get_client as get_clickhouse_clie
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models import Node, NodeType
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.services.materialization import prepare_executable_query
+from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.endpoints.backend.facade.temporal import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
@@ -275,76 +273,6 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     return file_uri
 
 
-async def get_query_row_count(
-    query: str, team: Team, logger: FilteringBoundLogger, view_name: str | None = None
-) -> int:
-    """Get the total row count for a HogQL query."""
-    count_query = f"SELECT count() FROM ({query})"
-
-    query_node = parse_select(count_query)
-
-    settings = HogQLGlobalSettings()
-    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
-
-    context = HogQLContext(
-        team=team,
-        enable_select_queries=True,
-        limit_top_select=False,
-    )
-    context.output_format = "TabSeparated"
-    # Userless materialization context; bypass warehouse HogQL access control so the model query
-    # can resolve its source tables/views.
-    context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
-    )
-
-    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
-        query_node,
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-        resolver_factory=bounded_resolver_factory_for_view(view_name),
-    )
-
-    if prepared_hogql_query is None:
-        raise EmptyHogQLResponseColumnsError()
-
-    printed = await database_sync_to_async_pool(print_prepared_ast)(
-        prepared_hogql_query,
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-    )
-
-    await logger.adebug(f"Running count query: {printed}")
-
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=printed,
-            query_parameters=context.values,
-            query_id=str(uuid.uuid4()),
-        ) as response:
-            result = await response.content.read()
-        count = int(result.decode("utf-8").strip())
-        return count
-
-
-async def _read_arrow_schema_from_query(client, query: str, query_parameters: dict) -> pa.Schema:
-    """Fetch just the Arrow schema for a query that returned zero rows.
-
-    The streaming reader hides the schema when there are no batches, so we re-issue the
-    same query and read the schema message that ClickHouse always sends in ArrowStream
-    format. The response for a zero-row result is just the schema + EOS, so reading the
-    full body is cheap.
-    """
-    async with client.apost_query(query=query, query_parameters=query_parameters, query_id=str(uuid.uuid4())) as resp:
-        data = await resp.content.read()
-    reader = pa.ipc.open_stream(pa.BufferReader(data))
-    return reader.schema
-
-
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view_name: str | None = None):
     """Execute a HogQL query and yield batches of results."""
     query_node = parse_select(query)
@@ -470,8 +398,18 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         batches = []
         batches_size = 0
         yielded_results = False
+        arrow_schema: pa.Schema | None = None
         ch_typings_pairs = [(column_name, column_type) for column_name, column_type, _ in query_typings]
-        async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
+
+        def capture_arrow_schema(schema: pa.Schema) -> None:
+            nonlocal arrow_schema
+            arrow_schema = schema
+
+        async for batch in client.astream_query_as_arrow(
+            arrow_printed,
+            query_parameters=context.values,
+            on_schema=capture_arrow_schema,
+        ):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)
 
@@ -494,8 +432,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             await logger.adebug(
                 "Query returned zero batches; yielding empty batch with schema for queryable empty table"
             )
-            schema = await _read_arrow_schema_from_query(client, arrow_printed, context.values)
-            empty_batch = pa.RecordBatch.from_arrays([pa.array([], type=field.type) for field in schema], schema=schema)
+            if arrow_schema is None:
+                raise EmptyHogQLResponseColumnsError()
+            empty_batch = pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in arrow_schema], schema=arrow_schema
+            )
             yield (empty_batch, ch_typings_pairs)
 
 
@@ -549,15 +490,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
 
         hogql_query = typing.cast(dict, saved_query.query)["query"]
-        try:
-            rows_expected = await get_query_row_count(hogql_query, team, logger, view_name=saved_query.name)
-            await logger.ainfo(f"Expected rows: {rows_expected}")
-            job.rows_expected = rows_expected
-            await database_sync_to_async_pool(job.save)()
-        except Exception as e:
-            await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
-            job.rows_expected = None
-            await database_sync_to_async_pool(job.save)()
 
         row_count = 0
         storage_options = _get_aws_storage_options()
@@ -603,14 +535,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             await database_sync_to_async_pool(job.save)()
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
-        # row count validation warning
-        if job.rows_expected is not None:
-            if row_count != job.rows_expected:
-                await logger.awarning(
-                    "Row count mismatch after materialization",
-                    expected=job.rows_expected,
-                    actual=row_count,
-                )
         file_uris = []
         if delta_table is not None:
             await logger.ainfo("Compacting delta table")

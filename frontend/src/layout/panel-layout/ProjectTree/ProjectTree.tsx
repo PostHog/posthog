@@ -3,17 +3,8 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import {
-    IconCheckbox,
-    IconChevronRight,
-    IconEllipsis,
-    IconFolderPlus,
-    IconPencil,
-    IconPlusSmall,
-    IconStar,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -32,15 +23,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { isMobile } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -66,14 +54,14 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
+    isActiveInPanel?: boolean
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal-v2'
-const CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY = 'cmd-k-helper-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
@@ -126,6 +114,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
@@ -167,31 +156,16 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { seed } = useActions(customProductsLogic)
-    const { toggleCommand } = useActions(commandLogic)
-
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
-    const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
-        CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    const [cmdKHelperDismissed, setCmdKHelperDismissed] = useLocalStorage<boolean>(
-        CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    // Capture the original-banner dismissal state once on mount so the Cmd+K hint only appears
-    // on subsequent sessions — dismissing the first banner shouldn't swap in the second immediately.
-    const [originalDismissedOnMount] = useState<boolean>(() => customProductHelperDismissed === true)
 
     const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
@@ -240,77 +214,7 @@ export function ProjectTree({
                 ),
             })
         }
-
-        if (root === 'custom-products://') {
-            const hasRecommendedProducts = customProducts.some(
-                (item) =>
-                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
-                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
-            )
-
-            const showOriginalBanner = fullFileSystemFiltered.length === 0 || !customProductHelperDismissed
-            const showCmdKBanner =
-                !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
-
-            if (showOriginalBanner) {
-                treeData.push({
-                    id: 'products/custom-products-helper-category',
-                    name: 'Example custom products',
-                    type: 'category',
-                    displayName: (
-                        <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                            You can display your preferred apps here. You can configure what items show up in here by
-                            clicking on the{' '}
-                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                            above. We'll automatically suggest new apps to this list as you use them.{' '}
-                            {fullFileSystemFiltered.length > 0 && (
-                                <span
-                                    className="cursor-pointer underline"
-                                    onClick={() => setCustomProductHelperDismissed(true)}
-                                >
-                                    Dismiss.
-                                </span>
-                            )}
-                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    ),
-                })
-            } else if (showCmdKBanner) {
-                treeData.push({
-                    id: 'products/cmd-k-helper-category',
-                    name: 'Quick search tip',
-                    type: 'category',
-                    displayName: (
-                        <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
-                            Want to browse all apps or jump back into something recent? Press{' '}
-                            <span
-                                className="cursor-pointer inline-flex items-center gap-1"
-                                onClick={() => toggleCommand()}
-                            >
-                                <KeyboardShortcut command k />
-                            </span>{' '}
-                            to open search. It's faster than hunting through the sidebar.{' '}
-                            <span className="cursor-pointer underline" onClick={() => setCmdKHelperDismissed(true)}>
-                                Dismiss.
-                            </span>
-                        </div>
-                    ),
-                })
-            }
-        }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -577,7 +481,8 @@ export function ProjectTree({
                         <>
                             {suggestedProductBaseTooltipText}
                             <br />
-                            Right-click to remove from sidebar.
+                            <br />
+                            Open the three-dot menu to remove from the sidebar.
                             <br />
                             <br />
                         </>
@@ -750,7 +655,12 @@ export function ProjectTree({
         <PanelLayoutPanel
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        treeRef={treeRef}
+                        isActive={isActiveInPanel}
+                    />
                 </BindLogic>
             }
             filterDropdown={

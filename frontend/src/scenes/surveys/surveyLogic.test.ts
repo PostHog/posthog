@@ -1582,10 +1582,19 @@ describe('survey filters', () => {
 describe('URL parameter synchronization', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, MULTIPLE_CHOICE_SURVEY],
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
         logic.mount()
+        // loadSurvey fires on mount (with a breakpoint); let it settle inside the test
+        // so it doesn't resolve after the kea context is reset.
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('only includes non-empty filters in URL', async () => {
@@ -1819,10 +1828,20 @@ describe('survey stats calculation', () => {
         total_count_only_seen: totalCountOnlySeen,
     })
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/`]: () => [
+                    200,
+                    { ...MULTIPLE_CHOICE_SURVEY, id: MOCK_SURVEY_ID },
+                ],
+                [`/api/projects/:team/surveys/${MOCK_SURVEY_ID}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
         initKeaTests()
         logic = surveyLogic({ id: MOCK_SURVEY_ID })
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('should return null stats and zero rates when no base stats results', async () => {
@@ -2411,11 +2430,14 @@ describe('mergeResponsesByQuestion', () => {
         expect(result.totalResponses).toBe(100)
     })
 
-    it('merges choice question with open choice: appends "Other" data to aggregate data', () => {
+    it('merges choice question with open choice without duplicating open-choice answers', () => {
         const aggregate: ResponsesByQuestion = {
             'choice-q': {
                 type: SurveyQuestionType.SingleChoice,
-                data: [{ label: 'Yes', value: 5, isPredefined: true }],
+                data: [
+                    { label: 'Yes', value: 5, isPredefined: true },
+                    { label: 'Custom answer', value: 1, isPredefined: false },
+                ],
                 totalResponses: 6,
                 noResponseCount: 0,
             },
@@ -2434,6 +2456,60 @@ describe('mergeResponsesByQuestion', () => {
 
         expect(result.data).toHaveLength(2)
         expect(result.totalResponses).toBe(6)
+
+        const customAnswers = result.data.filter((d) => d.label === 'Custom answer')
+        expect(customAnswers).toHaveLength(1)
+        expect(customAnswers[0]).toEqual({
+            label: 'Custom answer',
+            value: 1,
+            isPredefined: false,
+            distinctId: 'u1',
+            timestamp: 'ts',
+        })
+        expect(result.data.find((d) => d.label === 'Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
+    })
+
+    it('keeps each open-choice answer exactly once while preserving predefined choices', () => {
+        const aggregate: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [
+                    { label: 'Yes', value: 3, isPredefined: true },
+                    { label: 'No', value: 0, isPredefined: true },
+                    { label: 'Airtable', value: 1, isPredefined: false },
+                    { label: 'folk', value: 1, isPredefined: false },
+                    { label: 'Freshsales', value: 1, isPredefined: false },
+                ],
+                totalResponses: 6,
+                noResponseCount: 0,
+            },
+        }
+        const openEnded: ResponsesByQuestion = {
+            'choice-q': {
+                type: SurveyQuestionType.SingleChoice,
+                data: [
+                    { label: 'Airtable', value: 1, isPredefined: false, distinctId: 'u1', timestamp: 't1' },
+                    { label: 'folk', value: 1, isPredefined: false, distinctId: 'u2', timestamp: 't2' },
+                    { label: 'Freshsales', value: 1, isPredefined: false, distinctId: 'u3', timestamp: 't3' },
+                ],
+                totalResponses: 0,
+                noResponseCount: 0,
+            },
+        }
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['choice-q'] as ChoiceQuestionProcessedResponses
+
+        const nonPredefined = result.data.filter((d) => !d.isPredefined)
+        expect(nonPredefined).toHaveLength(3)
+        expect(nonPredefined.every((d) => d.distinctId && d.timestamp)).toBe(true)
+        expect(nonPredefined.map((d) => d.label).sort()).toEqual(['Airtable', 'Freshsales', 'folk'])
+
+        const predefined = result.data.filter((d) => d.isPredefined)
+        expect(predefined).toEqual([
+            { label: 'Yes', value: 3, isPredefined: true },
+            { label: 'No', value: 0, isPredefined: true },
+        ])
     })
 
     it('passes through aggregate-only questions unchanged', () => {

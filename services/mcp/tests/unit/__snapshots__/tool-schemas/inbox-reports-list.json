@@ -5,6 +5,10 @@
             "description": "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.",
             "type": "boolean"
         },
+        "include_all_statuses": {
+            "description": "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -21,6 +25,10 @@
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
             "type": "string"
         },
+        "scout": {
+            "description": "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.",
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive substring match against report title and summary.",
             "type": "string"
@@ -35,6 +43,10 @@
         },
         "suggested_reviewers": {
             "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
+            "type": "string"
+        },
+        "task_id": {
+            "description": "Only reports associated with this task (via the report's task associations).",
             "type": "string"
         }
     },

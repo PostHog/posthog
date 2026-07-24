@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
@@ -183,9 +183,14 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
+        None,             // ai_events_overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        AiRouting::Primary, // ai_routing
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     TestClient::new(app)

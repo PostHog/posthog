@@ -3,12 +3,12 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
-import { PostgresRouter } from '../../utils/db/postgres'
-import { getBlockDecryptor } from '../shared/crypto'
-import { getKeyStore } from '../shared/keystore'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
-import { RetentionService } from '../shared/retention/retention-service'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
+import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
@@ -33,20 +33,20 @@ jest.mock('@aws-sdk/client-s3', () => ({
     GetObjectCommand: jest.fn().mockImplementation((params) => params),
 }))
 
-jest.mock('../shared/keystore', () => ({
+jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('../shared/keystore/cache', () => ({
+jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore/cache', () => ({
     MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('../shared/crypto', () => ({
+jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 
-jest.mock('../../utils/db/redis', () => ({
+jest.mock('~/common/utils/db/redis', () => ({
     createRedisPoolFromConfig: jest.fn().mockReturnValue({
         acquire: jest.fn(),
         release: jest.fn(),
@@ -129,7 +129,7 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(expect.any(RetentionService), 'us-west-2', {
+            expect(getKeyStore).toHaveBeenCalledWith('us-west-2', {
                 kmsEndpoint: undefined,
                 dynamoDBEndpoint: undefined,
             })

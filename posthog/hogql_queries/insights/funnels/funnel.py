@@ -10,8 +10,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 
@@ -244,11 +244,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
         order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
+        # Per-breakdown array of the total time each completer spent in the entire funnel. The global
+        # median is computed once in the outer query (bounded by the breakdown limit) rather than here,
+        # where the number of breakdown groups is unbounded.
+        total_conversion_times = (
+            f"groupArrayIf(arraySum(timings), step_reached >= {self.context.max_steps - 1}) AS total_conversion_times"
+        )
+
         s = parse_select(
             f"""
             SELECT
                 {step_results},
                 {conversion_time_arrays},
+                {total_conversion_times},
                 rowNumberInAllBlocks() as row_number,
                 {final_prop} as final_prop
             FROM
@@ -267,6 +275,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 ast.Alias(alias=f"step_{i}_conversion_times", expr=ast.Array(exprs=[]))
                 for i in range(1, self.context.max_steps)
             )
+            columns.append(ast.Alias(alias="total_conversion_times", expr=ast.Array(exprs=[])))
             columns.append(ast.Alias(alias="row_number", expr=ast.Constant(value=0)))
             columns.append(ast.Alias(alias="final_prop", expr=ast.Constant(value=NOT_IN_COHORT_ID)))
             synthetic_row = ast.SelectQuery(select=columns)
@@ -285,6 +294,16 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
+        # Global median of every completer's total funnel time, breakdown-agnostic (a single header number).
+        # Computed here, where rows are bounded by the breakdown limit: each final_prop group flattens its
+        # completer times, the window over () spans all groups, and arrayReduce keeps it a scalar (medianArray
+        # is an aggregate and can't wrap the windowed aggregate). An empty array yields NaN, coerced to NULL.
+        total_median_conversion_time = (
+            "arrayMap(x -> if(isNaN(x), NULL, x), "
+            "[arrayReduce('median', arrayFlatten(groupArray(arrayFlatten(groupArray(total_conversion_times))) OVER ()))])[1] "
+            "AS total_median_conversion_time"
+        )
+
         order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = cast(
@@ -295,6 +314,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 {step_results2},
                 {mean_conversion_times},
                 {median_conversion_times},
+                {total_median_conversion_time},
                 groupArray(row_number) as row_number,
                 final_prop
             FROM
@@ -432,6 +452,17 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             where=where,
             settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
+
+    def _extract_total_median_conversion_time(self, results, columns) -> Optional[float]:
+        # Identical across every output row (windowed over all breakdowns); read it off the first row.
+        # Looked up by column name so it's robust to changes in the outer SELECT's column order.
+        if not results or not columns:
+            return None
+        try:
+            index = columns.index("total_median_conversion_time")
+        except ValueError:
+            return None
+        return results[0][index]
 
     def _format_single_funnel(self, results, with_breakdown=False):
         max_steps = self.context.max_steps

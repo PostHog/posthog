@@ -18,6 +18,7 @@ FeatureFlagStatusReason = str
 class FeatureFlagStatus(StrEnum):
     ACTIVE = "active"
     STALE = "stale"
+    ARCHIVED = "archived"
     DELETED = "deleted"
     UNKNOWN = "unknown"
 
@@ -32,6 +33,19 @@ class FeatureFlagRolloutSummary:
     max_rollout_percentage: int | None
     # Whether the flag serves multiple variants.
     is_multivariate: bool
+
+
+def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) -> QuerySet:
+    """Hide archived flags unless the caller explicitly asked for them.
+
+    This is the API's default for the list, `matching_ids`, and filter-based `bulk_delete`
+    paths — archived flags stay out of "select all" / bulk-delete sets unless `archived` is
+    passed. `requested` is whether the caller provided an `archived` param (the value filter
+    itself is applied separately). The frontend `flagMatchesFilters` keeps its own mirror.
+    """
+    if not requested:
+        return queryset.filter(archived=False)
+    return queryset
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
@@ -98,8 +112,8 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
         )
         return queryset.filter(usage_based_stale) | config_based_queryset
 
-    # Handle both string "true"/"false" and boolean True/False
-    is_active = value == "true" or value is True
+    # Handle both string "true"/"false" (any casing) and boolean True/False
+    is_active = str(value).lower() == "true"
     return queryset.filter(active=is_active)
 
 
@@ -111,6 +125,7 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
 # - STALE: The feature flag is likely safe to remove. Detection uses the best available signal:
 #       1. If last_called_at exists: flag hasn't been called in 30+ days (usage-based)
 #       2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old (config-based)
+# - ARCHIVED: The feature flag has been archived (done for good, kept for historical data).
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
 #
@@ -142,6 +157,9 @@ class FeatureFlagStatusChecker:
 
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
+
+        if flag.archived:
+            return FeatureFlagStatus.ARCHIVED, "Flag has been archived"
 
         # Disabled flags are not evaluated for staleness
         if not flag.active:

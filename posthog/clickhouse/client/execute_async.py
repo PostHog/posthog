@@ -16,8 +16,10 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 
@@ -143,7 +145,10 @@ class QueryStatusManager:
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        query_status = QueryStatus(**json.loads(byte_results))
+        loaded = json.loads(byte_results)
+        # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
+        # validation here — QueryStatus forbids extra fields.
+        query_status = QueryStatus(**{k: v for k, v in loaded.items() if k in QueryStatus.model_fields})
 
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
@@ -237,20 +242,37 @@ def execute_process_query(
             seconds=1
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except CHQueryErrorTooManySimultaneousQueries:
+    except (ClickHouseAtCapacity, ConcurrencyLimitExceeded):
+        # Capacity/concurrency errors are transient — let them propagate so the enclosing
+        # Celery task (process_query_task) retries with backoff instead of being swallowed
+        # below as a "user-safe" APIException that never retries. Clear the assumed-complete
+        # flags stored in the finally below, or the retry would short-circuit at the
+        # `if query_status.complete: return` guard above and never re-run the query.
+        # If retries are exhausted, process_query_task's on_failure marks the status errored.
+        query_status.complete = False
+        query_status.error = False
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
-        if (
-            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
-            or is_staff_user
-        ):
+        is_user_safe_error = isinstance(
+            err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
+        )
+        if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
+            if isinstance(err, APIException):
+                # get_codes() returns a list/dict for compound validation errors; only scalar codes
+                # are meaningful to the frontend, which matches on specific code strings.
+                codes = err.get_codes()
+                if isinstance(codes, str):
+                    query_status.error_code = codes
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        if not is_user_safe_error:
+            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
+            # so don't report them to error tracking — only genuine server-side failures belong there.
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

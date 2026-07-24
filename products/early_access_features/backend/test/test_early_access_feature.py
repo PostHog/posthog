@@ -1,9 +1,11 @@
 import json
+from typing import TYPE_CHECKING, cast
 
 import unittest
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.test.client import Client
 
@@ -11,11 +13,20 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.user import User
+from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.access_control import AccessControl
+
+if TYPE_CHECKING:
+    from products.surveys.backend.models import Survey as SurveyModel
+
+# Runtime lookup: early_access_features may not import products.surveys directly (tach boundary).
+Survey = cast("type[SurveyModel]", apps.get_model("surveys", "Survey"))
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -655,6 +666,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     "name": "Click counter",
                     "payload": {},
                     "stage": "beta",
+                    "user_access_level": "editor",
                 },
             ],
         }
@@ -875,7 +887,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -932,7 +944,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_pre_env_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -989,7 +1001,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1034,7 +1046,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             )
 
     def test_early_access_features_beta_only(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1153,7 +1165,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1413,3 +1425,366 @@ class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTes
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
+    """Resource- and object-level access control for early access features."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "eaf-member@posthog.com", "password")
+        self.client.force_login(self.member)
+
+    def _set_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="early_access_feature", team=self.team, access_level=access_level)
+
+    def _create_feature(self) -> EarlyAccessFeature:
+        return EarlyAccessFeature.objects.create(team=self.team, name="Example feature", stage="concept")
+
+    def _create_feature_with_flag(self) -> EarlyAccessFeature:
+        # Flag created by the admin so the member is not the flag creator (creators get manager).
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="eaf-linked-flag",
+            name="EAF linked flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+        )
+        return EarlyAccessFeature.objects.create(
+            team=self.team, name="Linked feature", stage="concept", feature_flag=flag
+        )
+
+    def _restrict_feature_flag_access(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="feature_flag", team=self.team, access_level=access_level)
+
+    @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
+    def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_create_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": f"Feature {access_level}", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_204_NO_CONTENT)])
+    def test_delete_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_user_access_level_reflects_resource_level(self) -> None:
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # No creator concept on this model, so the effective level is the resource-level floor.
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_user_access_level_reflects_object_level(self) -> None:
+        # An object-level grant for one feature should win over the lower resource-level floor.
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="editor",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "editor")
+
+    def test_access_controls_endpoint_route_exists(self) -> None:
+        feature = self._create_feature()
+        # Grant the member viewer so the read still exercises the access_control:read gate as a non-admin.
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_manager_member_cannot_modify_object_access_controls(self) -> None:
+        # Editor resource access passes write checks but does not grant manager on the object.
+        feature = self._create_feature()
+        self._set_resource_level("editor")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_can_modify_object_access_controls(self) -> None:
+        # A member with manager access to the object can change its access controls.
+        feature = self._create_feature()
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="manager",
+        )
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_create_flag(self) -> None:
+        # early_access_feature editor must not bypass feature_flag access control when creating a flag.
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": "Bypass attempt", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_activate_stage(self) -> None:
+        # Promoting to an active stage mutates the linked flag, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_delete_with_linked_flag(self) -> None:
+        # Deleting clears the linked flag's enrollment, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_eaf_editor_with_feature_flag_access_can_activate_stage(self) -> None:
+        # With the default feature_flag editor access, the linked-flag write is allowed.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+
+class TestComingSoonWaitlistSurvey(APIBaseTest):
+    def _concept_feature(self, name: str = "Sloppy joes") -> EarlyAccessFeature:
+        flag = FeatureFlag.objects.create(team=self.team, key=name.lower().replace(" ", "-"), created_by=self.user)
+        return EarlyAccessFeature.objects.create(
+            team=self.team,
+            name=name,
+            stage=EarlyAccessFeature.Stage.CONCEPT,
+            feature_flag=flag,
+        )
+
+    def test_ensure_creates_api_survey_linked_to_flag_and_sets_payload(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature()
+        survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.type == Survey.SurveyType.API
+        assert survey.linked_flag_id == feature.feature_flag_id
+        assert survey.questions and survey.questions[0]["type"] == "open"
+        question_id = survey.questions[0]["id"]
+
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(survey.id)
+        assert feature.payload["survey_question_id"] == question_id
+
+    def test_ensure_is_idempotent(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature()
+        first = ensure_waitlist_survey_for_feature(feature)
+        feature.refresh_from_db()
+        second = ensure_waitlist_survey_for_feature(feature)
+
+        assert second is None  # already has survey_id, nothing to do
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        assert first is not None
+
+    def test_ensure_skips_non_concept_features(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name="Beta thing")
+        feature.stage = EarlyAccessFeature.Stage.BETA
+        feature.save()
+
+        assert ensure_waitlist_survey_for_feature(feature) is None
+        assert Survey.objects.filter(team=self.team).count() == 0
+
+    def test_ensure_appends_flag_key_when_waitlist_name_is_taken(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        Survey.objects.create(
+            team=self.team, name="Sloppy joes waitlist", type=Survey.SurveyType.POPOVER, created_by=self.user
+        )
+        feature = self._concept_feature(name="Sloppy joes")
+
+        survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.name == "Sloppy joes waitlist (sloppy-joes)"
+        assert survey.linked_flag_id == feature.feature_flag_id
+
+    def test_ensure_adopts_survey_created_by_concurrent_task(self):
+        # Covers only the adopt-on-IntegrityError control flow: `transaction` is mocked (a
+        # TestCase already wraps the whole test in one transaction, so real savepoint and
+        # advisory-lock semantics can't be exercised here) and the IntegrityError is raised
+        # by the mock, not by a real constraint violation.
+        from django.db import IntegrityError
+
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name="Racy")
+        real_create = Survey.objects.create
+
+        def concurrent_create(**kwargs):
+            # Simulate another worker winning the race: its survey exists by the time our
+            # insert fails on the (team, name) unique constraint.
+            real_create(**kwargs)
+            raise IntegrityError("duplicate key value violates unique constraint")
+
+        with (
+            patch("posthog.tasks.early_access_feature.transaction"),
+            patch.object(Survey.objects, "create", side_effect=concurrent_create),
+        ):
+            survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(survey.id)
+
+    def test_ensure_recheck_under_lock_adopts_survey_committed_after_first_check(self):
+        # The divergent-name race: the initial linked-survey check misses, another task's
+        # survey for the same flag commits before the advisory lock is taken, and without
+        # the re-check under the lock this task would create a second survey under the
+        # "(flag-key)" suffixed name. Simulate the stale first read and assert the re-check
+        # adopts the committed survey instead of creating a duplicate.
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name="Racy")
+        existing = Survey.objects.create(
+            team=self.team,
+            name="Racy waitlist",
+            type=Survey.SurveyType.API,
+            linked_flag=feature.feature_flag,
+            questions=[{"type": "open", "question": "q"}],
+            created_by=self.user,
+        )
+
+        real_filter = Survey.objects.filter
+        first_check = {"done": False}
+
+        def stale_first_read(*args, **kwargs):
+            if not first_check["done"]:
+                first_check["done"] = True
+                return Survey.objects.none()
+            return real_filter(*args, **kwargs)
+
+        with patch.object(Survey.objects, "filter", side_effect=stale_first_read):
+            survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.id == existing.id
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(existing.id)
+
+    @patch("posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature.delay")
+    def test_post_save_enqueues_task_for_concept_feature(self, mock_delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            feature = self._concept_feature(name="Signal me")
+
+        mock_delay.assert_called_once_with(str(feature.id))
+
+    @parameterized.expand(
+        [
+            ("beta_stage", EarlyAccessFeature.Stage.BETA, {}),
+            ("already_has_survey", EarlyAccessFeature.Stage.CONCEPT, {"survey_id": "some-survey-id"}),
+        ]
+    )
+    @patch("posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature.delay")
+    def test_post_save_does_not_enqueue_task(self, _name, stage, payload, mock_delay):
+        flag = FeatureFlag.objects.create(team=self.team, key=f"no-enqueue-{_name}", created_by=self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            EarlyAccessFeature.objects.create(
+                team=self.team, name=f"No enqueue {_name}", stage=stage, feature_flag=flag, payload=payload
+            )
+
+        mock_delay.assert_not_called()
+
+    @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=False)
+    def test_task_does_nothing_when_flag_disabled(self, _mock_enabled):
+        from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
+
+        feature = self._concept_feature(name="Gated off")
+        create_waitlist_survey_for_concept_feature(str(feature.id))
+
+        feature.refresh_from_db()
+        assert not (feature.payload or {}).get("survey_id")
+        assert Survey.objects.filter(team=self.team).count() == 0
+
+    @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=True)
+    def test_task_creates_survey_when_flag_enabled(self, _mock_enabled):
+        from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
+
+        feature = self._concept_feature(name="Gated on")
+        create_waitlist_survey_for_concept_feature(str(feature.id))
+
+        feature.refresh_from_db()
+        assert feature.payload.get("survey_id")
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+
+    @patch("posthog.tasks.early_access_feature.capture_event")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_migrate_command_skips_already_responded_emails(self, mock_query, mock_capture):
+        from django.core.management import call_command
+
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name="Migrate me")
+        survey = ensure_waitlist_survey_for_feature(feature)
+        assert survey is not None
+
+        mock_query.side_effect = [
+            # Legacy registrations: one new sign-up, one who already responded (case differs).
+            MagicMock(results=[("new@example.com", "did-new"), ("Already@Example.com", "did-already")]),
+            # Emails that already responded to the survey (lowercased by the query).
+            MagicMock(results=[("already@example.com",)]),
+        ]
+
+        call_command("migrate_enrollments_to_waitlist_surveys", team_id=self.team.id, really_run=True)
+
+        assert mock_capture.call_count == 1
+        assert mock_capture.call_args.kwargs["distinct_id"] == "did-new"
+        assert mock_capture.call_args.kwargs["properties"]["$survey_response"] == "new@example.com"
+        assert mock_capture.call_args.kwargs["properties"]["$survey_id"] == str(survey.id)

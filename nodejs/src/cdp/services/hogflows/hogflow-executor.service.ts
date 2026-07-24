@@ -1,9 +1,11 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { logger } from '../../../utils/logger'
-import { UUIDT } from '../../../utils/utils'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
@@ -12,6 +14,7 @@ import {
     HogFunctionInvocationGlobals,
     LogEntry,
     LogEntryLevel,
+    MessageAssetRow,
     MinimalAppMetric,
     MinimalLogEntry,
     WarehouseWebhookPayload,
@@ -19,6 +22,7 @@ import {
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
+import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -31,6 +35,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
+    WorkflowChangedError,
     actionIdForLogging,
     ensureCurrentAction,
     findContinueAction,
@@ -39,6 +44,19 @@ import {
 } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+// Deliberately unlabelled: fleet-wide volume is the signal; which flow/step redirected where is in
+// the run's log line, where unbounded cardinality belongs.
+const counterRedirectApplied = new Counter({
+    name: 'cdp_hogflow_redirect_applied',
+    help: 'A run parked on a deleted step was redirected to its surviving successor',
+})
+// The API guarantees redirect targets exist in the same flow row; nonzero means that invariant broke
+// (the affected runs still exit gracefully rather than follow the bad entry).
+const counterRedirectTargetMissing = new Counter({
+    name: 'cdp_hogflow_redirect_target_missing',
+    help: 'A redirect map entry pointed at an action missing from the live graph',
+})
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -71,6 +89,7 @@ export function createHogFlowInvocation(
         functionId: hogFlow.id, // TODO: Include version?
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
+        groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
         queuePriority: 1,
@@ -84,14 +103,27 @@ export class HogFlowExecutorService {
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
+        emailValidationService: EmailValidationService,
         duplicateObserver?: HogFlowDuplicateObserverService
     ) {
         this.duplicateObserver = duplicateObserver ?? null
-        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
+        const hogFunctionHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'fetch'
+        )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
+            emailValidationService,
             'email'
+        )
+        const hogFunctionPushHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'push'
         )
 
         this.actionHandlers = {
@@ -103,6 +135,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
+            function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
@@ -123,13 +156,20 @@ export class HogFlowExecutorService {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (see
+        // HogFlowInvocationPipeline). Flows that reach this loop are assumed to be source-compatible
+        // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
-            if (hogFlow.trigger.type !== 'event') {
+            const trigger = hogFlow.trigger
+
+            // Defensive: only the trigger types that carry `filters` make it through eligibility.
+            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
                 continue
             }
+
             const filterResults = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: hogFlow.trigger.filters,
+                filters: trigger.filters,
                 filterGlobals,
             })
 
@@ -167,13 +207,23 @@ export class HogFlowExecutorService {
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
+        const emailAssets: MessageAssetRow[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation)
+        const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
             return earlyExitResult
         }
 
-        logs.push(this.logExecutionTriggerInfo(invocation))
+        // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
+        // (e.g. 'email' for SES rate-limit gating) and is continuing the same action. Suppress
+        // the redundant trigger log — the customer-visible story should be one Resuming line
+        // per real wake (delay, wait_until_condition, throttle retry), not a second one for
+        // an internal queue transition. The flag stays set so executeCurrentAction can also
+        // suppress its "Executing action..." debug log on this same continuation; it clears
+        // the flag itself after reading so subsequent actions on this dequeue log normally.
+        if (!invocation.state.currentAction?.routingOnlyReschedule) {
+            logs.push(this.logExecutionTriggerInfo(invocation))
+        }
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
@@ -195,6 +245,7 @@ export class HogFlowExecutorService {
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
+            emailAssets.push(...result.emailAssets)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -205,6 +256,7 @@ export class HogFlowExecutorService {
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
+        result.emailAssets = emailAssets
 
         return result
     }
@@ -247,7 +299,9 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        metrics: MinimalAppMetric[],
+        capturedPostHogEvents: HogFunctionCapturedEvent[]
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -282,6 +336,41 @@ export class HogFlowExecutorService {
                     'HogFlowExecutorService: Conversion filters are set but no bytecode is provided. This means we cannot evaluate the conversion filters to determine if we should exit the flow.',
                     { hogFlowId: hogFlow.id }
                 )
+            }
+        }
+        // Count property-based conversions here, regardless of exit condition, so the metric is
+        // meaningful even for flows that don't exit on conversion. Captured before the event-flag
+        // override below: event-based conversions are counted by the subscription matcher, so the
+        // executor must only emit for the property path or exit-on-conversion event flows double-count.
+        // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
+        const propertyConversionMatched = conversionMatch === true
+        let conversionMetric: MinimalAppMetric | null = null
+        let conversionEvent: HogFunctionCapturedEvent | null = null
+        if (propertyConversionMatched && !invocation.state.conversionCounted) {
+            invocation.state.conversionCounted = true
+            conversionMetric = {
+                team_id: hogFlow.team_id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                instance_id: hogFlow.id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+            }
+            // Also surface the conversion as a billable PostHog event so it can power insights and
+            // cohorts (mirrors the $workflows_email_* engagement events). Event-based conversions are
+            // emitted by the subscription matcher, so this only fires for the property path.
+            const distinctId = invocation.state.event?.distinct_id
+            if (distinctId) {
+                conversionEvent = {
+                    team_id: hogFlow.team_id,
+                    event: '$workflows_conversion',
+                    distinct_id: distinctId,
+                    timestamp: new Date().toISOString(),
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        $workflow_conversion_type: 'property',
+                    },
+                }
             }
         }
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
@@ -336,6 +425,16 @@ export class HogFlowExecutorService {
             })
         }
 
+        // Route the conversion metric/event onto whichever result is actually flushed: the early-exit
+        // result when we exit, otherwise the caller's arrays (which become result.metrics /
+        // result.capturedPostHogEvents once the run continues and finishes).
+        if (conversionMetric) {
+            ;(earlyExitResult?.metrics ?? metrics).push(conversionMetric)
+        }
+        if (conversionEvent) {
+            ;(earlyExitResult?.capturedPostHogEvents ?? capturedPostHogEvents).push(conversionEvent)
+        }
+
         return earlyExitResult
     }
 
@@ -360,11 +459,20 @@ export class HogFlowExecutorService {
 
             await this.observeDuplicateInvocation(invocation, currentAction)
 
-            result.logs.push({
-                level: 'debug',
-                message: `Executing action ${actionIdForLogging(currentAction)}`,
-                timestamp: DateTime.now(),
-            })
+            // Routing-only reschedule continuation (see hog_function.ts): the previous dequeue
+            // set this flag so the executor knows the current call is just resuming an action
+            // that was momentarily parked to switch queues — not the start of a fresh action
+            // step. Suppress the redundant "Executing action..." log and consume the flag so
+            // subsequent actions (next handler returns nextAction → loop continues) log normally.
+            if (invocation.state.currentAction?.routingOnlyReschedule) {
+                invocation.state.currentAction.routingOnlyReschedule = false
+            } else {
+                result.logs.push({
+                    level: 'debug',
+                    message: `Executing action ${actionIdForLogging(currentAction)}`,
+                    timestamp: DateTime.now(),
+                })
+            }
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
                 action: currentAction,
                 invocation,
@@ -406,16 +514,51 @@ export class HogFlowExecutorService {
                     this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
-                // Add logs and metric specifically for this action
-                this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.trackActionMetric(result, currentAction, 'failed')
+                // A live-edit WorkflowChangedError is not this action failing - the graph moved
+                // underneath the run - so it skips the failure log/metric and is classified by the
+                // outer catch. The same error from an untouched flow is a malformed definition and
+                // keeps the failure treatment.
+                if (!this.isLiveEditWorkflowChange(err, invocation)) {
+                    // Add logs and metric specifically for this action
+                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                    this.trackActionMetric(result, currentAction, 'failed')
+                }
 
                 throw err
             }
         } catch (err) {
+            // The workflow was edited underneath this run and its current step (or that step's next
+            // edge) no longer exists. That's a user action, not a defect: skip the run forward to the
+            // deleted step's surviving successor when the edit recorded one, otherwise finish the run
+            // as a deliberate exit - no result.error, so it doesn't count towards the workflow's
+            // failure rate - with its own metric so exits are attributable per workflow.
+            if (this.isLiveEditWorkflowChange(err, invocation)) {
+                if (this.maybeRedirectDeletedAction(result, invocation)) {
+                    return result
+                }
+                result.finished = true
+                this.log(
+                    result,
+                    'info',
+                    `Workflow exited: the workflow was edited and this run's current step no longer exists (${err.message})`
+                )
+                result.metrics.push({
+                    team_id: invocation.hogFlow.team_id,
+                    app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+                    instance_id: invocation.state.currentAction?.id,
+                    metric_kind: 'other',
+                    metric_name: 'exited_workflow_changed',
+                    count: 1,
+                })
+
+                return result
+            }
+
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // (a WorkflowChangedError from an untouched flow lands here too: the graph was malformed
+            // all along, so it stays a failure the author can see rather than a quiet exit)
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -427,6 +570,73 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    // Skip-forward for deleted steps: when a live edit deleted the run's current action, the API
+    // recorded its next surviving successor in the flow's action_redirects map. Move the run there
+    // with a fresh step entry (so a delay/wait at the target parks from redirect time) and let the
+    // execute() loop enter it; the caller falls back to the graceful exit when there's no entry (a
+    // true dead end). Only ever reached behind isLiveEditWorkflowChange: the run's position is dead,
+    // so entries keyed by a *surviving* action id can't match, and after the redirect the fresh
+    // startedAtTimestamp means a second structural miss classifies as a plain failure, not a loop.
+    private maybeRedirectDeletedAction(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        invocation: CyclotronJobInvocationHogFlow
+    ): boolean {
+        const deletedActionId = invocation.state.currentAction?.id
+        const redirectId = deletedActionId ? invocation.hogFlow.action_redirects?.[deletedActionId] : undefined
+        if (!deletedActionId || !redirectId) {
+            return false
+        }
+
+        // The API keeps every map value present in the same row's actions, so a miss here means a
+        // compute bug or torn data - don't trust the map, let the run exit gracefully instead.
+        const target = invocation.hogFlow.actions.find((action) => action.id === redirectId)
+        if (!target) {
+            counterRedirectTargetMissing.inc()
+            logger.warn('[HogFlowExecutor] Redirect target missing from live graph', {
+                hogFlowId: invocation.hogFlow.id,
+                deletedActionId,
+                redirectId,
+            })
+            return false
+        }
+
+        result.finished = false
+        result.invocation.state.actionStepCount++
+        result.invocation.state.currentAction = {
+            id: target.id,
+            startedAtTimestamp: DateTime.now().toMillis(),
+        }
+        this.log(
+            result,
+            'info',
+            `Workflow was edited and this run's current step was removed - continuing at ${actionIdForLogging(target)}`
+        )
+        result.metrics.push({
+            team_id: invocation.hogFlow.team_id,
+            app_source_id: invocation.parentRunId ?? invocation.hogFlow.id,
+            instance_id: deletedActionId,
+            metric_kind: 'other',
+            metric_name: 'redirected_workflow_changed',
+            count: 1,
+        })
+        counterRedirectApplied.inc()
+
+        return true
+    }
+
+    // A structural lookup miss only counts as a live edit when the flow was actually updated after
+    // the run arrived at its current step. Otherwise the graph was malformed from the start (a bad
+    // save, a lenient draft in a test run) and hiding it as a deliberate exit would bury the defect.
+    private isLiveEditWorkflowChange(err: unknown, invocation: CyclotronJobInvocationHogFlow): boolean {
+        if (!(err instanceof WorkflowChangedError)) {
+            return false
+        }
+        const stepStartedAt = invocation.state.currentAction?.startedAtTimestamp
+        // updated_at is a Date from pg in production and epoch millis in fixtures - normalize
+        const updatedAt = invocation.hogFlow.updated_at ? new Date(invocation.hogFlow.updated_at).getTime() : null
+        return Boolean(stepStartedAt && updatedAt && updatedAt > stepStartedAt)
     }
 
     private goToNextAction(
@@ -497,11 +707,18 @@ export class HogFlowExecutorService {
         // If the result has scheduled for the future then we return that triggering a push back to the queue
         result.invocation.queueScheduledAt = scheduledAt
         result.finished = false
-        result.logs.push({
-            level: 'info',
-            timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
-        })
+        // Routing-only reschedules (hog function moving the job onto a dedicated queue) don't
+        // represent a workflow-author-visible pause — the next dequeue fires almost
+        // immediately and continues the same action. Skip the "Workflow will pause until..."
+        // log in that case so it doesn't surface as a pause the workflow never actually took.
+        // Real pauses (delays, wait_until_condition, throttle retries) still log normally.
+        if (!result.invocation.state.currentAction?.routingOnlyReschedule) {
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
+            })
+        }
 
         return result
     }

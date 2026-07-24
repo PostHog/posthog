@@ -1,8 +1,8 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
@@ -88,14 +88,38 @@ export class CdpCyclotronWorker<
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
 
+                // Guard against malformed invocation state (globals present but missing
+                // project/event). Without this the unguarded derefs below throw an unhandled
+                // rejection that crash-loops the worker on a single poison-pill message,
+                // stalling the whole partition. Drop it instead so the batch can make progress.
+                if (!hogFuncState.globals?.project || !hogFuncState.globals?.event) {
+                    logger.error('⚠️', 'Skipping invocation with malformed globals (missing project or event)', {
+                        id: item.functionId,
+                    })
+                    captureException(new Error('Malformed hog function invocation globals: missing project or event'), {
+                        tags: { functionId: item.functionId, teamId: String(item.teamId) },
+                    })
+
+                    failedInvocations.push(item)
+
+                    return
+                }
+
                 await Promise.all([
                     this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
                     !hogFuncState.globals.person
                         ? this.personsManager
                               .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
                               .then((person) => {
-                                  if (person) {
-                                      hogFuncState.globals.person = person
+                                  // Stub when the lookup misses (cookieless events don't persist to
+                                  // posthog_persondistinctid; reruns may race with person deletes).
+                                  // Leaving undefined would halt any bytecode dereferencing
+                                  // person.properties.* with "Could not execute bytecode".
+                                  hogFuncState.globals.person = person ?? {
+                                      id: '',
+                                      name: '',
+                                      url: '',
+                                      properties: {},
                                   }
                               })
                         : undefined,
@@ -125,12 +149,36 @@ export class CdpCyclotronWorker<
             size: invocations.length,
         })
 
-        const invocationResults = await this.processInvocations(invocations)
+        // Heartbeat until the background task settles — the tail includes
+        // queueInvocationResults' terminal DB writes, which is where a slow
+        // batch would otherwise blow past stallTimeoutMs and get poisoned.
+        const stopHeartbeat = this.startPeriodicHeartbeat(invocations)
+
+        let invocationResults: CyclotronJobInvocationResult[]
+        try {
+            invocationResults = await this.processInvocations(invocations)
+        } catch (e) {
+            stopHeartbeat()
+            throw e
+        }
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.runBackgroundTasks(invocationResults)
+        const backgroundTask = this.runBackgroundTasks(invocationResults).finally(stopHeartbeat)
 
         return { backgroundTask, invocationResults }
+    }
+
+    private startPeriodicHeartbeat(invocations: CyclotronJobInvocation[]): () => void {
+        const intervalMs = this.config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS
+        if (intervalMs <= 0) {
+            return () => {}
+        }
+        const handle = setInterval(() => {
+            void this.cyclotronJobQueue.heartbeatInvocations(invocations).catch((err) => {
+                logger.warn('⚠️', `${this.name} - heartbeat tick failed`, { error: String(err) })
+            })
+        }, intervalMs)
+        return () => clearInterval(handle)
     }
 
     @instrumented({ key: 'cdpConsumer.backgroundTask', timeoutMs: 30_000, sendException: false })

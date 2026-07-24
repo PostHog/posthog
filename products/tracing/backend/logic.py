@@ -59,6 +59,18 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
 
+# Hard cap on number of rows returned per period by the span aggregation runners. Keeps
+# payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
+# graph collapses long tails anyway so the lower-ranked rows aren't visible.
+_ROW_LIMIT = 5000
+
+# Default row cap for the flat aggregation when a caller does not pass an explicit `limit`.
+# Kept small because this endpoint feeds agent/MCP callers, where the full 5000-row tail can
+# push a single response past a million tokens once name cardinality blows up. Rows are
+# ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
+# callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
+DEFAULT_AGGREGATION_ROW_LIMIT = 100
+
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
 # don't trigger an expensive scan.
@@ -167,10 +179,10 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
         span_filter.key = "duration_nano"
         if isinstance(span_filter.value, list):
             span_filter.value = [
-                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+                str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value if _is_number(str(v))
             ]
         elif _is_number(str(span_filter.value)):
-            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+            span_filter.value = str(int(decimal.Decimal(str(span_filter.value)) * 1000000))
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
@@ -1069,10 +1081,11 @@ def run_aggregation_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
-    # noqa-justified: the runners import `translate_span_filter` from this module, so a
-    # module-level import here is circular and only resolves when this module loads first.
+    # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
     from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
 
     query = TraceSpansAggregationQuery(
@@ -1081,7 +1094,7 @@ def run_aggregation_query(
         filterGroup=filter_group,
         serviceNames=service_names,
     )
-    runner = TraceSpansAggregationQueryRunner(query, team)
+    runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response
@@ -1098,7 +1111,7 @@ def run_tree_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
     """Facade-friendly entry point for running a span call-tree aggregation query."""
-    # noqa-justified: same circular import as run_aggregation_query above.
+    # Same circular import as run_aggregation_query above.
     from .aggregation_query_runner import TraceSpansTreeQueryRunner  # noqa: PLC0415
 
     query = TraceSpansTreeQuery(

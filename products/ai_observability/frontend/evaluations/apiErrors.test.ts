@@ -7,9 +7,9 @@ describe('evaluationErrorMessage', () => {
         [
             'extracts a DRF field-level validation error',
             new ApiError('Non-OK response', 400, undefined, {
-                enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                enabled: ['Add a provider API key to enable this evaluation.'],
             }),
-            'Trial evaluation limit reached. Add a provider API key to re-enable.',
+            'Add a provider API key to enable this evaluation.',
         ],
         [
             'extracts a nested field error from a model_configuration-style payload',

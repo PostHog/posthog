@@ -315,7 +315,7 @@ class TestGetV2ScheduledDagIds:
         action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow=workflow)
         return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
 
-    def test_lists_client_side_without_workflowtype_query(self):
+    def test_full_sweep_scopes_by_schedule_type_server_side(self):
         captured: dict = {}
         listings = [
             self._listing("dag-on-v2", "data-modeling-execute-dag"),
@@ -323,7 +323,6 @@ class TestGetV2ScheduledDagIds:
         ]
 
         async def fake_list_schedules(*args, **kwargs):
-            captured["args"] = args
             captured["kwargs"] = kwargs
 
             async def gen():
@@ -340,8 +339,69 @@ class TestGetV2ScheduledDagIds:
         ):
             result = get_v2_scheduled_dag_ids()
 
-        # The schedule visibility store rejects filtering on WorkflowType, so we must not pass a
-        # server-side query and must filter the listings client-side instead.
-        assert captured["args"] == ()
-        assert "query" not in captured["kwargs"]
+        # WorkflowType isn't queryable on schedules, so the full sweep scopes server-side on the
+        # PostHogScheduleType tag instead of paginating the whole namespace.
+        assert captured["kwargs"]["query"] == 'PostHogScheduleType = "data-modeling-execute-dag"'
         assert result == {"dag-on-v2"}
+
+    def test_scopes_listing_by_posthog_dag_id_when_candidates_given(self):
+        captured: dict = {}
+        listings = [
+            self._listing("dag-on-v2", "data-modeling-execute-dag"),
+            self._listing("sq-on-v1", "data-modeling-run"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids({"dag-on-v2"})
+
+        # Server-side filtering on the PostHogDagId search attribute (allowed, unlike WorkflowType)
+        # keeps us from paginating the whole namespace.
+        assert captured["kwargs"]["query"] == "PostHogDagId IN ('dag-on-v2')"
+        assert result == {"dag-on-v2"}
+
+    def test_tiered_schedule_ids_resolve_to_the_dag_id(self):
+        # cadence-tier schedules are "{dag_id}:{seconds}"; returning them raw would make every
+        # v2-detection consumer treat migrated DAGs as v1 and recreate v1 schedules
+        listings = [
+            self._listing("dag-a:900", "data-modeling-execute-dag"),
+            self._listing("dag-a:86400", "data-modeling-execute-dag"),
+            self._listing("dag-b", "data-modeling-execute-dag"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids()
+
+        assert result == {"dag-a", "dag-b"}
+
+    def test_empty_candidates_skips_temporal(self):
+        connect = mock.AsyncMock()
+        with mock.patch("products.data_modeling.backend.schedule.async_connect", new=connect):
+            result = get_v2_scheduled_dag_ids(set())
+        assert result == set()
+        connect.assert_not_called()

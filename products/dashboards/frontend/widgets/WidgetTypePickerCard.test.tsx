@@ -21,7 +21,7 @@ describe('WidgetTypePickerCard', () => {
             />
         )
 
-        let checkbox = screen.getByRole('checkbox', { name: 'Error tracking' })
+        let checkbox = screen.getByLabelText('Error tracking')
         expect(checkbox).toHaveAttribute('aria-checked', 'false')
 
         let indicator = checkbox.querySelector('[aria-hidden="true"]')
@@ -38,7 +38,7 @@ describe('WidgetTypePickerCard', () => {
             />
         )
 
-        checkbox = screen.getByRole('checkbox', { name: 'Error tracking' })
+        checkbox = screen.getByLabelText('Error tracking')
         expect(checkbox).toHaveAttribute('aria-checked', 'true')
         indicator = checkbox.querySelector('[aria-hidden="true"]')
         expect(indicator?.querySelector('svg')).toBeInTheDocument()
@@ -64,12 +64,12 @@ describe('WidgetTypePickerCard', () => {
 
         render(<TogglePicker />)
 
-        expect(screen.getByRole('checkbox', { name: 'Logs widget' })).toHaveAttribute('aria-checked', 'true')
+        expect(screen.getByLabelText('Logs widget')).toHaveAttribute('aria-checked', 'true')
         expect(screen.getByTestId('selected-state')).toHaveTextContent('selected')
 
-        await userEvent.click(screen.getByRole('checkbox', { name: 'Logs widget' }))
+        await userEvent.click(screen.getByLabelText('Logs widget'))
 
-        expect(screen.getByRole('checkbox', { name: 'Logs widget' })).toHaveAttribute('aria-checked', 'false')
+        expect(screen.getByLabelText('Logs widget')).toHaveAttribute('aria-checked', 'false')
         expect(screen.getByTestId('selected-state')).toHaveTextContent('deselected')
     })
 
@@ -85,7 +85,7 @@ describe('WidgetTypePickerCard', () => {
             />
         )
 
-        const checkbox = screen.getByRole('checkbox', { name: 'Logs widget' })
+        const checkbox = screen.getByLabelText('Logs widget')
         await userEvent.click(checkbox)
         expect(onSelect).toHaveBeenCalledTimes(1)
 

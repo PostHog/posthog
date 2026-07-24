@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import type { AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
@@ -28,6 +28,7 @@ const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
 const testScenes: Record<string, () => any> = {
+    [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
@@ -46,8 +47,6 @@ describe('sceneLogic', () => {
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
         logic = sceneLogic.build({ scenes: testScenes })
-        // Simulate a fresh mount so that stored tabs are read from localStorage.
-        logic.cache.tabsLoaded = false
         logic.mount()
         await expectLogic(logic).delay(1)
     })
@@ -70,6 +69,16 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
         })
+    })
+
+    it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
+        router.actions.push('/feature-flags')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlags())
+
+        router.actions.push('/feature-flags/123')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
     it('persists the loaded scenes', async () => {
@@ -97,6 +106,28 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('does not blanket deny the combined alerts scene without insight access', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                effective_resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.effective_resource_access_control,
+                    [AccessControlResourceType.Insight]: AccessControlLevel.None,
+                },
+            } as AppContext
+
+            logic.actions.setScene(Scene.Alerts, 'alerts', { params: {}, searchParams: {}, hashParams: {} })
+
+            await expectLogic(logic).toMatchValues({
+                sceneId: Scene.Alerts,
+                activeSceneId: Scene.Alerts,
+            })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
@@ -105,8 +136,6 @@ describe('sceneLogic', () => {
             hash: '',
             title: 'Default dashboard',
             iconType: 'dashboard' as const,
-            active: false,
-            pinned: true,
             sceneId: Scene.Dashboard,
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
@@ -143,8 +172,6 @@ describe('sceneLogic', () => {
                 featureFlagLogic.mount()
                 router.actions.push(urls.eventDefinitions())
                 const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
-                // Simulate a fresh mount the same way the suite's beforeEach does.
-                bootstrappedLogic.cache.tabsLoaded = false
                 bootstrappedLogic.mount()
                 // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
                 bootstrappedHomepagePathname = removeProjectIdIfPresent(
@@ -179,5 +206,36 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
             expect(router.values.searchParams).toEqual({ modal: 'feature' })
         })
+
+        // Regression guard: `/#panel=max:<prompt>` pre-fills the Max side panel, but only if the
+        // hash survives the `/` → homepage redirect. It used to be dropped, so the prompt was lost
+        // on the Home scene (yet worked everywhere else, which have no such redirect).
+        it.each([
+            ['no homepage is configured', null, urls.projectHomepage()],
+            ['a dashboard homepage is configured', dashboardHomepage, urls.dashboard(42)],
+        ])('preserves the #panel hash across the / redirect when %s', async (_desc, homepage, expectedPathname) => {
+            logic.actions.setHomepage(homepage)
+            router.actions.push('/', {}, { panel: 'max:what is my dau' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
+            expect(router.values.hashParams).toEqual({ panel: 'max:what is my dau' })
+        })
+
+        // A configured homepage can carry its own hash (e.g. a dashboard tab). Forwarding the
+        // incoming hash must merge over that, not replace it — so an empty incoming hash keeps the
+        // configured one, and a `#panel` hash is added alongside it.
+        it.each([
+            ['no incoming hash', {}, { tab: 'configured' }],
+            ['an incoming #panel hash', { panel: 'max:hi' }, { tab: 'configured', panel: 'max:hi' }],
+        ])(
+            'keeps a configured homepage hash across the / redirect with %s',
+            async (_desc, incomingHash, expectedHash) => {
+                logic.actions.setHomepage({ ...dashboardHomepage, hash: '#tab=configured' })
+                router.actions.push('/', {}, incomingHash)
+                await expectLogic(logic).delay(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+                expect(router.values.hashParams).toEqual(expectedHash)
+            }
+        )
     })
 })

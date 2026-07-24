@@ -3,19 +3,18 @@ import importlib.util
 
 from django.apps import apps
 
-from rest_framework import decorators, exceptions, viewsets
-from rest_framework_extensions.routers import NestedRegistryItem
+from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
-from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -39,7 +38,9 @@ from . import (
     event_schema,
     health_issue,
     hog,
+    identity_provider_config,
     ingestion_warnings,
+    ingestion_warnings_v2,
     instance_settings,
     instance_status,
     integration,
@@ -74,7 +75,7 @@ from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
@@ -96,48 +97,6 @@ routers.set_root(router)
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
-environments_router = routers.add(
-    "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
-)
-
-
-def register_legacy_dual_route_team_nested_viewset(
-    prefix: str, viewset: type[viewsets.GenericViewSet], basename: str, parents_query_lookups: list[str]
-) -> tuple[NestedRegistryItem, NestedRegistryItem]:
-    """
-    Register a team-nested viewset under BOTH /api/projects/:team_id/ and
-    /api/environments/:team_id/, for endpoints whose dual-route surface needs
-    to be preserved for existing clients.
-
-    Background: PostHog briefly split projects and environments as separate
-    concepts then rolled the split back. /api/projects/ is the canonical path;
-    /api/environments/ is preserved only for clients that integrated against it
-    during the split (SDKs, customer integrations), and gets auto-marked
-    `deprecated: true` in the generated OpenAPI schema by the postprocess hook
-    in posthog.api.documentation whenever a matching /api/projects/ route
-    exists. That deprecation flag is what makes Orval pick the project route
-    as canonical for the generated TypeScript client.
-
-    The `basename` argument encodes which side was the original canonical one,
-    which matters for stable URL-reverse names:
-      • `project_<X>`     — project is canonical; env is a back-compat alias.
-                            Pass this for endpoints that were (re-)introduced
-                            env-only after the rollback by mistake.
-      • `environment_<X>` — env was the canonical surface from the split era;
-                            project alias is back-filled. Pass this for legacy
-                            env-canonical endpoints.
-    Either way, the project URL ends up with basename `project_<X>` and the env
-    URL with `environment_<X>`.
-
-    DO NOT USE FOR NEW ENDPOINTS. New team-nested endpoints should register
-    directly under projects_router with no env alias — `# nosemgrep` markers
-    around env registrations are the smell to look for in code review; this
-    helper is the smell to look for in PRs that *add* registrations.
-
-    Returns (project_nested, environment_nested).
-    """
-    return routers.register_legacy_dual_route(prefix, viewset, basename, parents_query_lookups)
-
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
@@ -172,29 +131,37 @@ projects_router.register(
     "project_quota_limits",
     ["team_id"],
 )
+# Self-driving turns products ON (via the `products-enable` MCP tool) before enabling their
+# signal sources. Gated by the narrow `product_enablement` scope, never `project:write`.
+projects_router.register(
+    r"product_enablement",
+    ProductEnablementViewSet,
+    "project_product_enablement",
+    ["team_id"],
+)
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "project_column_configurations",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"event_filter",
     EventFilterConfigViewSet,
     "project_event_filter",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"health_issues",
     health_issue.HealthIssueViewSet,
     "project_health_issues",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"llm_prompts",
     LLMPromptViewSet,
     "project_llm_prompts",
@@ -202,13 +169,18 @@ register_legacy_dual_route_team_nested_viewset(
 )
 
 
-register_legacy_dual_route_team_nested_viewset(
-    r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(r"integrations", integration.IntegrationViewSet, "project_integrations", ["team_id"])
+projects_router.register(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
-    "environment_ingestion_warnings",
+    "project_ingestion_warnings",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"ingestion_warnings_v2",
+    ingestion_warnings_v2.IngestionWarningsV2ViewSet,
+    "project_ingestion_warnings_v2",
     ["team_id"],
 )
 
@@ -220,7 +192,7 @@ projects_router.register(
     ["project_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"materialized_column_slots",
     materialized_column_slot.MaterializedColumnSlotViewSet,
     "project_materialized_column_slots",
@@ -228,9 +200,7 @@ register_legacy_dual_route_team_nested_viewset(
 )
 
 
-register_legacy_dual_route_team_nested_viewset(
-    r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
-)
+projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["team_id"])
 
 projects_router.register(
     r"desktop_file_system",
@@ -239,10 +209,10 @@ projects_router.register(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
-    "environment_file_system_shortcut",
+    "project_file_system_shortcut",
     ["team_id"],
 )
 
@@ -253,24 +223,11 @@ projects_router.register(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"persisted_folder",
-    persisted_folder.PersistedFolderViewSet,
-    "environment_persisted_folder",
-    ["team_id"],
-)
 
 projects_router.register(
-    r"desktop_persisted_folder",
-    persisted_folder.DesktopPersistedFolderViewSet,
-    "project_desktop_persisted_folder",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
     r"user_product_list",
     user_product_list.UserProductListViewSet,
-    "environment_user_product_list",
+    "project_user_product_list",
     ["team_id"],
 )
 
@@ -309,7 +266,7 @@ projects_router.register(
 )
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
-register_legacy_dual_route_team_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
+projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 
 
 # Organizations nested endpoints
@@ -345,6 +302,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"identity_provider_configs",
+    identity_provider_config.IdentityProviderConfigViewSet,
+    "organization_identity_provider_configs",
     ["organization_id"],
 )
 organizations_router.register(
@@ -395,7 +358,9 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
-router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
+router.register(
+    r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
+)
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
@@ -441,56 +406,52 @@ router.register(r"element", LegacyElementViewSet, basename="element")
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
-register_legacy_dual_route_team_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
+projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"elements",
     ElementViewSet,
-    "environment_elements",
+    "project_elements",
     ["team_id"],  # TODO: Can be removed?
 )
 
-legacy_project_session_recordings_router, environment_sessions_recordings_router = (
-    register_legacy_dual_route_team_nested_viewset(
-        r"session_recordings",
-        SessionRecordingViewSet,
-        "environment_session_recordings",
-        ["team_id"],
-    )
+legacy_project_session_recordings_router = projects_router.register(
+    r"session_recordings",
+    SessionRecordingViewSet,
+    "project_session_recordings",
+    ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"session_recording_external_references",
     SessionRecordingExternalReferenceViewSet,
     "project_session_recording_external_references",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"session_recording_playlists",
     SessionRecordingPlaylistViewSet,
-    "environment_session_recording_playlist",
+    "project_session_recording_playlist",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
+projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    register_legacy_dual_route_team_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
+    projects_router.register(r"groups", GroupsViewSet, "project_groups", ["team_id"])
     group_types_router = projects_router.register(
         r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
     )
     group_types_router.register(
         r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
     )
-    register_legacy_dual_route_team_nested_viewset(
-        r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
-    )
+    projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
     vercel_installations_router = router.register(
         r"vercel/v1/installations",
@@ -515,17 +476,11 @@ if EE_AVAILABLE:
     )
 
 else:
-    register_legacy_dual_route_team_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
+    projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, "persons")
 
 # session_recordings sharing nest stays central — the session_recordings viewsets
 # still live under posthog/session_recordings/ rather than in a product folder.
-environment_sessions_recordings_router.register(
-    r"sharing",
-    sharing.SharingConfigurationViewSet,
-    "environment_recording_sharing",
-    ["team_id", "recording_id"],
-)
 legacy_project_session_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -547,7 +502,7 @@ projects_router.register(
     ["project_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
@@ -570,27 +525,27 @@ projects_router.register(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"metalytics",
     metalytics.MetalyticsViewSet,
-    "environment_metalytics",
+    "project_metalytics",
     ["team_id"],
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"project_secret_api_keys",
     project_secret_api_key.ProjectSecretAPIKeyViewSet,
-    "environment_project_secret_api_keys",
+    "project_project_secret_api_keys",
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+projects_router.register(
+    r"data_color_themes", data_color_theme.DataColorThemeViewSet, "project_data_color_themes", ["team_id"]
 )
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"web_vitals",
     web_vitals.WebVitalsViewSet,
     "project_web_vitals",
@@ -600,7 +555,7 @@ register_legacy_dual_route_team_nested_viewset(
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
 
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
     "project_csp_reporting",
@@ -611,21 +566,7 @@ register_legacy_dual_route_team_nested_viewset(
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 
-register_legacy_dual_route_team_nested_viewset(
-    r"change_requests",
-    approval_api.ChangeRequestViewSet,
-    "project_change_requests",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"approval_policies",
-    approval_api.ApprovalPolicyViewSet,
-    "project_approval_policies",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
+projects_router.register(
     r"core_events",
     CoreEventViewSet,
     "project_core_events",
@@ -634,7 +575,7 @@ register_legacy_dual_route_team_nested_viewset(
 
 
 # --- Product route auto-discovery -----------------------------------------------------
-# Every parent above (root + projects + environments + organizations) and all of core's
+# Every parent above (root + projects + organizations) and all of core's
 # own routes are registered before this loop. Migrated products then register themselves
 # by exposing `register_routes(routers)` in `products/<name>/backend/routes.py`; the loop
 # finds them via INSTALLED_APPS, so adding a product needs no edit here.

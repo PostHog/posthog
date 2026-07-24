@@ -1399,17 +1399,19 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         version = EndpointVersion.objects.get(endpoint__name="clear-bucket", endpoint__team=self.team, version=1)
         assert version.bucket_overrides == {"timestamp": "hour"}
 
-        # Disable materialization
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
-            {"is_materialized": False},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK
+        # Disabling reverts the saved query, whose schedule teardown talks to Temporal —
+        # mock the facade call so the test doesn't require a running Temporal dev server.
+        with mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
+                {"is_materialized": False},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Re-enable without bucket_overrides
         response = self.client.patch(
@@ -1417,7 +1419,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             {"is_materialized": True},
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         version.refresh_from_db()
         assert version.bucket_overrides is None
 
@@ -1473,7 +1475,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.services.crud.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.trigger_saved_query_schedule") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
@@ -1498,7 +1500,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
         with mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.trigger_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
         ) as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",
@@ -1609,3 +1611,278 @@ class TestClickhouseTypeMapping(TestCase):
         from products.endpoints.backend.models import _clickhouse_type_to_serialized_type
 
         self.assertEqual(_clickhouse_type_to_serialized_type(ch_type), expected)
+
+
+class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
+    """PR 1: pure additive plumbing — round-trip, inheritance, validation. No runtime semantics yet."""
+
+    ENDPOINT = "endpoints"
+
+    def setUp(self):
+        super().setUp()
+        self.trends_with_breakdown = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "$os", "type": "event"},
+                ],
+            },
+        }
+
+    def _create(self, name: str, query: dict, **extra: Any) -> dict:
+        payload: dict[str, Any] = {"name": name, "query": query, **extra}
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        return response.json()
+
+    def test_defaults_to_empty_list_on_create(self):
+        data = self._create("ep_default", self.trends_with_breakdown)
+        self.assertEqual(data["optional_breakdown_properties"], [])
+
+        endpoint = Endpoint.objects.get(name="ep_default", team=self.team)
+        self.assertEqual(endpoint.get_version().optional_breakdown_properties, [])
+
+    def test_round_trip_on_create(self):
+        data = self._create(
+            "ep_optional",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser"],
+        )
+        self.assertEqual(data["optional_breakdown_properties"], ["$browser"])
+
+        endpoint = Endpoint.objects.get(name="ep_optional", team=self.team)
+        self.assertEqual(endpoint.get_version().optional_breakdown_properties, ["$browser"])
+
+    def test_accepts_names_from_legacy_list_breakdown(self):
+        legacy_list_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {"breakdown": ["$browser", "$os"], "breakdown_type": "event"},
+        }
+        data = self._create(
+            "ep_legacy_list",
+            legacy_list_query,
+            optional_breakdown_properties=["$os"],
+        )
+        self.assertEqual(data["optional_breakdown_properties"], ["$os"])
+
+    def test_round_trip_on_patch(self):
+        self._create("ep_patch", self.trends_with_breakdown)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_patch/",
+            {"optional_breakdown_properties": ["$os"]},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["optional_breakdown_properties"], ["$os"])
+
+        endpoint = Endpoint.objects.get(name="ep_patch", team=self.team)
+        self.assertEqual(endpoint.get_version().optional_breakdown_properties, ["$os"])
+
+    def test_version_targeted_patch_validates_against_targeted_version(self):
+        browser_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+        }
+        os_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {"breakdowns": [{"property": "$os", "type": "event"}]},
+        }
+        self._create("ep_target_version", browser_query)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_target_version/",
+            {"query": os_query},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        # $browser is valid for targeted v1 even though the current (v2) query dropped it.
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_target_version/?version=1",
+            {"optional_breakdown_properties": ["$browser"]},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        endpoint = Endpoint.objects.get(name="ep_target_version", team=self.team)
+        self.assertEqual(endpoint.get_version(1).optional_breakdown_properties, ["$browser"])
+
+        # $os is valid for the current version but not for targeted v1.
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_target_version/?version=1",
+            {"optional_breakdown_properties": ["$os"]},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_patch_can_clear(self):
+        self._create(
+            "ep_clear",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_clear/",
+            {"optional_breakdown_properties": []},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["optional_breakdown_properties"], [])
+
+    def test_patch_without_field_keeps_value(self):
+        self._create(
+            "ep_keep",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_keep/",
+            {"description": "updated"},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["optional_breakdown_properties"], ["$browser"])
+
+    def test_rejects_unknown_property_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "ep_bad_prop",
+                "query": self.trends_with_breakdown,
+                "optional_breakdown_properties": ["$does_not_exist"],
+            },
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
+
+    def test_rejects_for_hogql_query(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "ep_hogql",
+                "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                "optional_breakdown_properties": ["$browser"],
+            },
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
+
+    def test_rejects_for_query_kind_without_breakdown_support(self):
+        # LifecycleQuery has no breakdown support
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "ep_lifecycle",
+                "query": {"kind": "LifecycleQuery", "series": [{"kind": "EventsNode"}]},
+                "optional_breakdown_properties": ["$browser"],
+            },
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
+
+    def test_inheritance_on_query_change_prunes_to_existing_breakdowns(self):
+        self._create(
+            "ep_inherit",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser", "$os"],
+        )
+
+        # New query drops $os from the breakdown list
+        new_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_inherit/",
+            {"query": new_query},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        endpoint = Endpoint.objects.get(name="ep_inherit", team=self.team)
+        self.assertEqual(endpoint.current_version, 2)
+        v2 = endpoint.get_version(2)
+        # $os was pruned because it isn't in the new query's breakdownFilter
+        self.assertEqual(v2.optional_breakdown_properties, ["$browser"])
+
+    def test_inheritance_drops_to_empty_when_no_breakdowns_in_new_query(self):
+        self._create(
+            "ep_inherit_drop",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser"],
+        )
+
+        # New query has no breakdownFilter at all
+        new_query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode"}]}
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_inherit_drop/",
+            {"query": new_query},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        v2 = Endpoint.objects.get(name="ep_inherit_drop", team=self.team).get_version(2)
+        self.assertEqual(v2.optional_breakdown_properties, [])
+
+    def test_version_detail_includes_optional_breakdown_properties(self):
+        """`_serialize` is shared between the endpoint and version-detail paths — make sure the
+        field surfaces on GET /endpoints/{name}/?version=N too, not just /endpoints/{name}/."""
+        self._create(
+            "ep_version_detail",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser"],
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/ep_version_detail/?version=1",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        body = response.json()
+        self.assertEqual(body["version"], 1)
+        self.assertEqual(body["optional_breakdown_properties"], ["$browser"])
+
+    def test_explicit_list_overrides_pruned_inheritance_on_query_change(self):
+        """When PATCH carries both a new query AND an explicit optional_breakdown_properties,
+        the explicit value wins — it doesn't get clobbered by the inheritance pruning that
+        runs as part of create_new_version()."""
+        self._create(
+            "ep_explicit_override",
+            self.trends_with_breakdown,
+            optional_breakdown_properties=["$browser", "$os"],
+        )
+
+        # New query keeps both breakdowns but bumps breakdown_limit so has_query_changed() trips
+        # and create_new_version() actually runs (the path whose pruning we're testing against).
+        new_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+            "breakdownFilter": {
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "$os", "type": "event"},
+                ],
+                "breakdown_limit": 10,
+            },
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_explicit_override/",
+            {"query": new_query, "optional_breakdown_properties": ["$os"]},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        endpoint = Endpoint.objects.get(name="ep_explicit_override", team=self.team)
+        self.assertEqual(endpoint.current_version, 2)
+        v2 = endpoint.get_version(2)
+        # Explicit list wins — NOT the inherited ["$browser", "$os"].
+        self.assertEqual(v2.optional_breakdown_properties, ["$os"])

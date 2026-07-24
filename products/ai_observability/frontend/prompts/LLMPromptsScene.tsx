@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -6,16 +6,17 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
-import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
@@ -23,7 +24,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openArchivePromptDialog } from './utils'
+import { PromptLabelChip } from './PromptLabelChip'
+import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -32,9 +34,13 @@ export const scene: SceneExport = {
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
-    const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
+    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptsLogic)
+    const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, shouldShowEmptyState } =
+        useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
     const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
@@ -85,6 +91,26 @@ export function LLMPromptsScene(): JSX.Element {
                 return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
+        ...(labelsEnabled
+            ? ([
+                  {
+                      title: 'Labels',
+                      key: 'labels',
+                      render: function renderLabels(_, prompt) {
+                          if (!prompt.all_labels?.length) {
+                              return <span className="text-muted-alt">–</span>
+                          }
+                          return (
+                              <div className="flex flex-wrap gap-1">
+                                  {prompt.all_labels.map((label) => (
+                                      <PromptLabelChip key={label.name} label={`${label.name}: v${label.version}`} />
+                                  ))}
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<LLMPrompt>)
+            : []),
         atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
@@ -106,34 +132,11 @@ export function LLMPromptsScene(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
-                                        onClick={() => {
-                                            LemonDialog.openForm({
-                                                title: 'Duplicate prompt',
-                                                initialValues: {
-                                                    newName: `${prompt.name}-copy`,
-                                                },
-                                                content: (
-                                                    <LemonField name="newName" label="New prompt name">
-                                                        <LemonInput
-                                                            data-attr="llma-prompt-duplicate-name"
-                                                            placeholder="my-prompt-copy"
-                                                            autoFocus
-                                                        />
-                                                    </LemonField>
-                                                ),
-                                                errors: {
-                                                    newName: (name: string) =>
-                                                        !name
-                                                            ? 'You must enter a name'
-                                                            : !/^[a-zA-Z0-9_-]+$/.test(name)
-                                                              ? 'Only letters, numbers, hyphens, and underscores allowed'
-                                                              : undefined,
-                                                },
-                                                onSubmit: async ({ newName }) => {
-                                                    duplicatePrompt(prompt.name, newName)
-                                                },
-                                            })
-                                        }}
+                                        onClick={() =>
+                                            openDuplicatePromptDialog(prompt.name, (newName) =>
+                                                duplicatePrompt(prompt.name, newName)
+                                            )
+                                        }
                                         data-attr="llma-prompt-dropdown-duplicate"
                                         fullWidth
                                     >
@@ -185,48 +188,74 @@ export function LLMPromptsScene(): JSX.Element {
                 }
             />
 
-            <div className="space-y-4">
-                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search prompts..."
-                        value={filters.search}
-                        data-attr="prompts-search-input"
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                    />
-                    <div className="text-muted-alt">{promptCountLabel}</div>
-                    <div className="flex-1" />
-                    <span>
-                        <b>Created by</b>
-                    </span>
-                    <MemberSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
-                        size="xsmall"
-                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+            {shouldShowEmptyState ? (
+                <ProductIntroduction
+                    productName="Prompt management"
+                    productKey={ProductKey.LLM_PROMPTS}
+                    thingName="prompt"
+                    description="Create and version LLM prompts in PostHog, then fetch them from your code at runtime — update prompts without deploying. Every change is an immutable version you can compare, restore, and A/B test."
+                    docsURL="https://posthog.com/docs/prompt-management"
+                    isEmpty
+                    actionElementOverride={
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                to={promptUrl('new')}
+                                icon={<IconPlusSmall />}
+                                data-attr="llma-prompts-empty-state-new-prompt"
+                            >
+                                New prompt
+                            </LemonButton>
+                        </AccessControlAction>
+                    }
+                />
+            ) : (
+                <div className="space-y-4">
+                    <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search prompts..."
+                            value={filters.search}
+                            data-attr="prompts-search-input"
+                            onChange={(value) => setFilters({ search: value })}
+                            className="max-w-md"
+                        />
+                        <div className="text-muted-alt">{promptCountLabel}</div>
+                        <div className="flex-1" />
+                        <span>
+                            <b>Created by</b>
+                        </span>
+                        <MemberSelect
+                            defaultLabel="Any user"
+                            value={filters.created_by_id ?? null}
+                            size="xsmall"
+                            onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+                        />
+                    </div>
+
+                    <LemonTable
+                        loading={promptsLoading}
+                        columns={columns}
+                        dataSource={prompts.results}
+                        pagination={pagination}
+                        noSortingCancellation
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setFilters({
+                                order_by: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={PROMPTS_PER_PAGE}
+                        nouns={['prompt', 'prompts']}
                     />
                 </div>
-
-                <LemonTable
-                    loading={promptsLoading}
-                    columns={columns}
-                    dataSource={prompts.results}
-                    pagination={pagination}
-                    noSortingCancellation
-                    sorting={sorting}
-                    onSort={(newSorting) =>
-                        setFilters({
-                            order_by: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                        })
-                    }
-                    rowKey="id"
-                    loadingSkeletonRows={PROMPTS_PER_PAGE}
-                    nouns={['prompt', 'prompts']}
-                />
-            </div>
+            )}
         </SceneContent>
     )
 }

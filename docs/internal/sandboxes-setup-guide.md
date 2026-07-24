@@ -51,7 +51,7 @@ Steps:
    this is required (added a couple of releases back). If your local setup
    stopped working recently, this is most likely what's missing.
 7. Generate a private key
-8. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+8. Install the app on your test repositories by going to `http://localhost:8010/project/1/integrations/github` and installing the GitHub Integration
 9. Add to your `.env`:
 
 ```bash
@@ -177,15 +177,30 @@ SANDBOX_MCP_URL=https://<mcp-8787-subdomain>.ngrok-free.app/mcp
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
 
-### MCP server `.dev.vars`
+### Agent run telemetry (optional)
 
-`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP Worker running at `localhost:8787`. The Worker reads its config from `services/mcp/.dev.vars` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the Worker will either refuse to start or return broken responses to the sandbox.
+To ship agent-server run metadata to PostHog Logs, set both of the first two; the third additionally produces one APM trace per run (root `task_run` span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call) with trace/span ids stamped on the log records:
 
 ```bash
-cd services/mcp && cp .dev.vars.example .dev.vars
+SANDBOX_AGENT_OTEL_LOGS_URL=http://localhost:8000/i/v1/logs  # or https://us.i.posthog.com/i/v1/logs
+SANDBOX_AGENT_OTEL_LOGS_TOKEN=<project API key of the telemetry project>
+SANDBOX_AGENT_OTEL_TRACES_URL=http://localhost:8000/i/v1/traces  # optional, enables APM spans
 ```
 
-Then fill in the secrets. `INKEEP_API_KEY` (for the `docs-search` tool) lives in 1Password under **"Inkeep API key - mcp"**. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.dev.vars`.
+In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-telemetry` feature flag (org-targeted, stamped into run state at dispatch; it also gates the scout run-log mirror). `DEBUG` bypasses the flag, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
+The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
+Telemetry stays off when either of the first two vars is unset.
+For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
+
+### MCP server `.env`
+
+`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
+
+```bash
+cd services/mcp && cp .env.example .env
+```
+
+Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
 ### Local agent packages
 
@@ -203,11 +218,11 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 
 ### Sandbox providers
 
-| Provider          | `.env` value                    | When to use                                                                                                                                                                                                                                                                            |
-| ----------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                       |
-| `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
-| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. This is the recommended option for local development.                                                                                                                                                   |
+| Provider          | `.env` value                    | When to use                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                                                                                      |
+| `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, each local package's external runtime dependencies are installed and its compiled output is overlaid onto the image. |
+| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. This is the recommended option for local development.                                                                                                                                                                                                                  |
 
 ### Sandbox templates
 
@@ -237,14 +252,48 @@ repositories.
 
 > **Note:** This only works with `SANDBOX_PROVIDER=docker`.
 
+### Task-run log mirroring to PostHog Logs (dogfooding)
+
+Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) are also mirrored into the PostHog Logs product,
+so runs can be browsed and sampled in the Logs UI instead of fetching S3 blobs.
+
+In production there is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
+and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up.
+The collector parses each JSON key into a queryable attribute and turns the emitted `request_id` (the run uuid) into a trace id,
+so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
+
+```bash
+# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Set empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
+```
+
+The mirror also has a **direct OTLP leg** that ships each batch straight to a logs ingest endpoint:
+
+```bash
+TASK_RUN_LOGS_MIRROR_OTLP_URL=http://localhost:8000/i/v1/logs  # prod: https://us.i.posthog.com/i/v1/logs
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=<project API key of the internal logs project>
+```
+
+The token pins the destination: scout runs execute for customer teams,
+but their mirrored transcripts must only ever land in — and bill — PostHog's own internal logs project, never the customer's.
+Records arrive under `service.name=task-run-log-mirror` with the run uuid as the trace id.
+
+Locally the direct leg is the only delivery path: `append_log` runs in the host Django process,
+and the dev collector (`otel-collector-config.dev.yaml`) only tails docker-compose container stdout,
+so without these settings the mirrored lines only show up in the Django phrocs pane.
+
+Mirroring failures are logged and never break the run's log write.
+
 ### How `MODAL_DOCKER` works
 
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
 
-1. The Dockerfile is built in a temp context with your local `packages/agent`, `packages/shared`, and `packages/git` copied in
-2. `pnpm pack` + `pnpm install` replaces the published npm package with your local build
-3. The image is pushed to a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
-4. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
+1. The selected sandbox Dockerfile is built in a temporary context
+2. External runtime dependencies from local `packages/agent`, `packages/shared`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
+3. Each local package's built `dist/` directory is mounted over the published package's compiled output
+4. The image runs in a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
+5. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
 
 After changing agent-server code, rebuild and restart the worker:
 
@@ -257,18 +306,19 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 
 ## Troubleshooting
 
-| Problem                                  | Solution                                                                                                                                                                                                                                                                   |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker not running                       | Start Docker Desktop or the Docker daemon                                                                                                                                                                                                                                  |
-| Temporal not reachable                   | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                                                                                                     |
-| Feature flag not enabled                 | Re-run `python manage.py setup_background_agents` to (re-)create the `tasks` flag at 100% rollout                                                                                                                                                                          |
-| Array OAuth app missing                  | Re-run `python manage.py setup_background_agents`                                                                                                                                                                                                                          |
-| GitHub token expired                     | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                                                                                                            |
-| "Task workflow execution blocked"        | The `tasks` feature flag is not enabled for this user/org                                                                                                                                                                                                                  |
-| Sandbox image build fails                | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                                                                                                           |
-| Agent server health check fails          | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                                                                                                 |
-| `SANDBOX_JWT_PRIVATE_KEY` missing        | Re-run `python manage.py setup_background_agents` — it will auto-fill from `.env.example`                                                                                                                                                                                  |
-| Port conflict on sandbox host port       | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker                                                                                 |
-| Sandbox can't reach PostHog API          | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                                                                                                             |
-| `DEBUG` not set                          | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                                                                                                |
-| `git commit is disabled in PostHog Code` | A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) blocks `git commit` and `git push` so unsigned commits can't leave the sandbox. Stage changes with `git add`, then use the `git_signed_commit` tool. To bypass during debugging, set `POSTHOG_ALLOW_UNSIGNED_GIT=1` |
+| Problem                                                              | Solution                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker not running                                                   | Start Docker Desktop or the Docker daemon                                                                                                                                                                                                                                                                                                                                                                              |
+| Temporal not reachable                                               | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                                                                                                                                                                                                                                                 |
+| Feature flag not enabled                                             | Re-run `python manage.py setup_background_agents` to (re-)create the `tasks` flag at 100% rollout                                                                                                                                                                                                                                                                                                                      |
+| Array OAuth app missing                                              | Re-run `python manage.py setup_background_agents`                                                                                                                                                                                                                                                                                                                                                                      |
+| GitHub token expired                                                 | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                                                                                                                                                                                                                                                        |
+| "Task workflow execution blocked"                                    | The `tasks` feature flag is not enabled for this user/org                                                                                                                                                                                                                                                                                                                                                              |
+| Sandbox image build fails                                            | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                                                                                                                                                                                                                                                       |
+| Agent server health check fails                                      | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                                                                                                                                                                                                                                             |
+| `SANDBOX_JWT_PRIVATE_KEY` missing                                    | Re-run `python manage.py setup_background_agents` — it will auto-fill from `.env.example`                                                                                                                                                                                                                                                                                                                              |
+| Port conflict on sandbox host port                                   | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker                                                                                                                                                                                                                             |
+| Sandbox can't reach PostHog API                                      | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                                                                                                                                                                                                                                                         |
+| `DEBUG` not set                                                      | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                                                                                                                                                                                                                                            |
+| `... sandbox is for local development only` (RuntimeError at import) | The `docker` / `MODAL_DOCKER` providers require `DEBUG=1` (or `TEST=1`, which pytest sets). `DEBUG=1` is normally injected by the flox env (`.flox/env/manifest.toml` `[vars]`) — this fires when you're outside `flox activate` or explicitly unset `DEBUG` (e.g. to escape the cloud-DEBUG guard). Keep `DEBUG` on and use `CLOUD_DEPLOYMENT=E2E` for cloud-mode dev instead. See [dev-env-vars.md](dev-env-vars.md) |
+| `git commit is disabled in PostHog Code`                             | A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) blocks `git commit` and `git push` so unsigned commits can't leave the sandbox. Stage changes with `git add`, then use the `git_signed_commit` tool. To bypass during debugging, set `POSTHOG_ALLOW_UNSIGNED_GIT=1`                                                                                                                                             |

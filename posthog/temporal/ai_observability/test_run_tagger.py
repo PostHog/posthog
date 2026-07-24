@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
@@ -39,6 +40,12 @@ def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
         "distinct_id": "test-user",
     }
     return {**defaults, **overrides}
+
+
+def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
+    """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
+    key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
+    return MagicMock(active_provider_key=key)
 
 
 def make_tagger_config():
@@ -178,10 +185,8 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=100, output_tokens=20, total_tokens=120)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -219,10 +224,8 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -261,10 +264,8 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -274,7 +275,7 @@ class TestRunTaggerWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_trial_limit_reached(self, setup_data):
+    async def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -287,14 +288,15 @@ class TestRunTaggerWorkflow:
 
         event_data = create_mock_event_data(team.id)
 
-        with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
+        with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
             mock_config = MagicMock()
-            mock_config.trial_evals_used = 100
-            mock_config.trial_eval_limit = 100
+            mock_config.active_provider_key = None
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-            with pytest.raises(ApplicationError, match="Trial limit"):
+            with pytest.raises(ApplicationError) as exc_info:
                 await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert exc_info.value.details[0]["error_type"] == "provider_key_required"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -380,7 +382,7 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id, properties={})
 
         with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal_routed") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 

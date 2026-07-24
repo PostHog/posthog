@@ -1014,6 +1014,20 @@ class PropertyAccess(Expr):
 
 
 @dataclass(kw_only=True, slots=True)
+class JsonSubcolumnAccess(Expr):
+    """ClickHouse JSON subcolumn read emitted after property lowering.
+
+    This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
+    `PropertyAccess` node stays dialect-neutral; this node exists so the ClickHouse printer can emit
+    `events.properties.`foo`` rather than pretending `properties.foo` is one escaped column name.
+    """
+
+    expr: Expr
+    keys: list[str]
+    access_type: Literal["path", "sub_object"] = "path"
+
+
+@dataclass(kw_only=True, slots=True)
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block
@@ -1022,6 +1036,11 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # When True, the SQL printer routes this constant through
+    # ``HogQLContext.add_sensitive_value`` so the placeholder key gets the
+    # ``_sensitive`` suffix and ``substitute_params_for_display`` redacts the
+    # value to ``[HIDDEN]``
+    is_sensitive: bool | None = None
     # Internal ClickHouse-printer hint, not part of the logical AST. Set True only by the physical pass, only for its
     # fixed scrubbing sentinels (the nullIf ''/'null' literals, the quote-trim regex, the 'true'/'false' the property
     # group stores booleans as), to render them inline instead of as a bound parameter — matching the inline string the

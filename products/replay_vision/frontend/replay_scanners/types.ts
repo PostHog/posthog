@@ -1,11 +1,20 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel } from '~/types'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
-import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
+import type {
+    PatchedReplayScannerApi,
+    ReplayObservationApi,
+    ReplayScannerApi,
+    ScannerTypeEnumApi,
+    UserBasicApi,
+    VisionObservationsRetrieveParams,
+} from '../generated/api.schemas'
+import { formatCredits } from '../utils/credits'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+export type ScannerType = ScannerTypeEnumApi
 
 export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     monitor: 'primary',
@@ -13,6 +22,27 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     scorer: 'warning',
     summarizer: 'success',
 }
+
+export const OBSERVATION_TRIGGER_TAG: Record<
+    ReplayObservationApi['triggered_by'],
+    { label: string; type: LemonTagType }
+> = {
+    schedule: { label: 'Schedule', type: 'default' },
+    on_demand: { label: 'On demand', type: 'highlight' },
+    retry: { label: 'Retry', type: 'completion' },
+}
+
+// Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
+export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRetrieveParams)[] = [
+    'status',
+    'triggered_by',
+    'verdict',
+    'tags',
+    'session_id',
+    'recording_subject',
+    'labeled',
+    'order_by',
+]
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -32,6 +62,7 @@ export type FailureKind =
     | 'rasterization_failed'
     | 'validation_failed'
     | 'internal_error'
+    | 'orphaned'
 
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
@@ -56,6 +87,11 @@ const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }>
     internal_error: {
         label: 'Internal error',
         description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+    orphaned: {
+        label: 'Interrupted',
+        description:
+            'The analysis was interrupted before finishing and has been cleaned up. Run the scanner on this recording again if needed.',
     },
 }
 
@@ -105,11 +141,28 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'disabled', label: 'Disabled' },
 ]
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = [
-    { value: ScannerModelEnumApi.Gemini3FlashPreview, label: 'Gemini 3 Flash' },
-    { value: ScannerModelEnumApi.Gemini31FlashLitePreview, label: 'Gemini 3 Flash Lite' },
-]
+// Mirrors the backend `OBSERVATION_CREDITS_BY_MODEL` table (the scanner/estimate API responses are authoritative);
+// the picker needs a price per model before anything is saved, so it can't come from a per-instance response.
+export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
+    [ScannerModelEnumApi.Gemini35FlashLite]: 2,
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
+    [ScannerModelEnumApi.Gemini36Flash]: 15,
+}
 
+const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
+    [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
+    [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
+}
+
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
+    (value) => ({
+        value,
+        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+    })
+)
+
+// Falls back to the raw id for retired models frozen in old observation snapshots.
 export function modelLabel(model: string | null | undefined): string {
     if (!model) {
         return '—'
@@ -124,9 +177,7 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
-export function createdByLabel(
-    user: { id: number; first_name?: string; last_name?: string; email?: string } | null
-): string {
+export function createdByLabel(user: ScannerCreatedBy | null): string {
     if (!user) {
         return ''
     }
@@ -185,24 +236,40 @@ export type ScannerConfig =
     | ClassifierScannerConfig
     | ScorerScannerConfig
 
-export interface BaseReplayScanner {
-    id: string
-    name: string
-    description?: string
-    enabled: boolean
-    sampling_rate: number
-    query: RecordingsQuery | null
-    provider: string
-    model: string
-    emits_signals: boolean
-    scanner_version: number
-    estimated_monthly_observations?: number | null
-    last_swept_at: string
-    created_at: string
-    updated_at: string
-    created_by: { id: number; first_name: string; last_name?: string; email?: string } | null
-    deleted?: boolean
-}
+export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
+
+export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
+    {
+        value: 'focused',
+        label: 'Highest activity only',
+        description: 'Only scans the recordings with the most going on.',
+    },
+    {
+        value: 'balanced',
+        label: 'Skip lowest activity',
+        description: 'Skips the lowest-activity recordings, scans everything else.',
+    },
+    {
+        value: 'comprehensive',
+        label: 'All recordings',
+        description: 'Scans every recording that matches your filters, regardless of activity.',
+    },
+]
+
+// hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
+export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
+
+// Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
+export type BaseReplayScanner = Omit<
+    ReplayScannerApi,
+    'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
+> &
+    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+        query: RecordingsQuery | null
+        created_by: ScannerCreatedBy | null
+        sampling_mode: SamplingMode
+        user_access_level: AccessControlLevel | null
+    }
 
 export interface MonitorScanner extends BaseReplayScanner {
     scanner_type: 'monitor'
@@ -226,8 +293,13 @@ export interface ScorerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
-// The API exposes scanner_config and query as `unknown`. The client narrows them via
-// the scanner_type discriminator, so conversion is contained to this single boundary.
+/** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
+export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {
+    const config = snapshot?.scanner_config
+    return config && typeof config === 'object' ? (config as ScannerConfig) : null
+}
+
+// The API types scanner_config and query as `unknown`; the scanner_type discriminator narrows them here only.
 export function scannerFromApi(api: ReplayScannerApi): ReplayScanner {
     return api as unknown as ReplayScanner
 }

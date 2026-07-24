@@ -18,20 +18,23 @@
  */
 
 import type { Request, Response } from 'express'
-import type { Pool } from 'pg'
 import type { z } from 'zod'
 
 import type {
+    ApprovalStore,
     AuthConfig,
     CredentialBroker,
     CredentialMap,
+    EncryptedFields,
     HttpFetcher,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
     IdentityStore,
-    IntegrationStore,
     SecretResolver,
     SessionEventBus,
     SessionPrincipal,
     SessionQueue,
+    TransportBindingStore,
     Trigger,
 } from '@posthog/agent-shared'
 
@@ -46,32 +49,39 @@ export interface TriggerDeps {
     authProvider?: AuthProvider
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SecretResolver
-    identities?: IdentityStore
+    identities: IdentityStore
     /**
-     * Per-session credential broker. Chat trigger consumes it on /run + /send;
+     * Approval store — the Slack interactivity handler drives `principal`-type
+     * tool-approval decisions through it (markApproving/markRejected + wake) via
+     * the shared `applyApprovalDecision` helper. Optional: triggers that never
+     * decide approvals ignore it.
+     */
+    approvals?: ApprovalStore
+    /**
+     * Per-session credential broker. Chat and MCP triggers persist caller credentials before queueing;
      * other triggers ignore it. Required — prod wires `PgCredentialBroker`,
      * tests wire the same against the test DB.
      */
     broker: CredentialBroker
     /**
-     * Read-only access to PostHog's integration table. Slack trigger uses it
-     * to fetch a workspace bot token for the Slack → PostHog user bridge.
-     * Optional — when absent, the bridge is skipped.
+     * Outbound HTTP — the slack trigger consumes it for its bot-token Slack
+     * calls (ack reaction, owner-only thread replies). Wired at the ingress
+     * entrypoint so the call dispatches through smokescreen in prod alongside
+     * every other fetch.
      */
-    integrations?: IntegrationStore | null
-    /** Direct posthog DB pool for the Slack → PostHog user bridge's email lookup. */
-    posthogDb?: Pool | null
-    /**
-     * Outbound HTTP — currently only the slack trigger consumes it (for
-     * the identity bridge's Slack `users.info` call). Wired at the
-     * ingress entrypoint so the call dispatches through smokescreen in
-     * prod alongside every other fetch.
-     */
-    http?: HttpFetcher
+    http: HttpFetcher
     /** Routing mode + URL inputs the MCP connect-info endpoint advertises. */
     routingMode?: RoutingMode
     domainSuffix?: string
     publicBaseUrl?: string
+    /** Edge-admission stores (Slack + chat triggers). When the agent declares an
+     *  authoritative_provider, an unauthenticated claim gets an auth link instead
+     *  of a session. See `enqueue/admission-gate.ts`. */
+    identityLinks: IdentityLinkStateStore
+    identityCredentials: IdentityCredentialStore
+    transportBindings: TransportBindingStore
+    envEncryption: EncryptedFields
+    posthogApiBaseUrl?: string
 }
 
 /** Pulled from the `Trigger` discriminator in `@posthog/agent-shared` so this

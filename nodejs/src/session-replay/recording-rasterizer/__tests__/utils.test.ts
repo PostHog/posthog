@@ -1,4 +1,4 @@
-import { elapsed } from '../utils'
+import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 describe('elapsed', () => {
     it('returns a non-negative number', () => {

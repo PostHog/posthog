@@ -2,28 +2,22 @@ import json
 import asyncio
 from typing import Any
 
-import temporalio
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
-from posthog.temporal.ai_observability.sentiment.extraction import (
-    extract_user_messages_individually,
-    truncate_to_token_limit,
-)
+from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
 
 
-def _neutral_sentiment_activity_result(reasoning: str) -> EvaluationActivityResult:
+def _skipped_sentiment_activity_result(skip_reason: str, reasoning: str) -> EvaluationActivityResult:
     return {
         "result_type": "sentiment",
         "reasoning": reasoning,
-        "sentiment_label": "neutral",
-        "sentiment_score": 0.0,
-        "sentiment_scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
-        "sentiment_messages": {},
-        "sentiment_message_count": 0,
+        "skipped": True,
+        "skip_reason": skip_reason,
     }
 
 
@@ -34,10 +28,12 @@ def _build_sentiment_activity_result(
     classification_results: list[SentimentResult],
 ) -> EvaluationActivityResult:
     if not user_messages:
-        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+        return _skipped_sentiment_activity_result(
+            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        )
     if not classification_results:
-        return _neutral_sentiment_activity_result(
-            "No sentiment classifications produced; sentiment defaults to neutral."
+        return _skipped_sentiment_activity_result(
+            "no_classifications", "No sentiment classifications produced; sentiment evaluation skipped."
         )
 
     pending = [
@@ -64,7 +60,7 @@ def _build_sentiment_activity_result(
     }
 
 
-@temporalio.activity.defn
+@activity.defn
 async def execute_sentiment_eval_activity(
     evaluation: dict[str, Any], event_data: dict[str, Any]
 ) -> EvaluationActivityResult:
@@ -97,11 +93,13 @@ async def execute_sentiment_eval_activity(
     input_raw, _output_raw = extract_event_io(event_data["event"], properties)
     event_uuid = event_data["uuid"]
     trace_id = properties.get("$ai_trace_id", event_uuid)
-    user_messages = extract_user_messages_individually(input_raw)
+    user_messages = extract_sentiment_eval_messages(input_raw)
     if not user_messages:
-        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+        return _skipped_sentiment_activity_result(
+            "no_user_messages", "No user messages found; sentiment evaluation skipped."
+        )
 
-    texts = [truncate_to_token_limit(text) for _message_index, text in user_messages]
+    texts = [text for _message_index, text in user_messages]
 
     from posthog.temporal.ai_observability.sentiment.model import classify  # noqa: PLC0415 -- loads ONNX deps lazily
 

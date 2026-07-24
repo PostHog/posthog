@@ -9,7 +9,6 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
-from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
@@ -26,6 +25,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 
 MISSING_COHORT_ID = 12345
 
@@ -51,8 +51,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people.count(), 1)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
@@ -83,8 +82,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people.count(), 1)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
 
         def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
             """Test that calculate_cohort_from_list works correctly with person UUIDs"""
@@ -103,13 +101,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people_in_cohort.count(), 2)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
             # Verify specific persons are in the cohort
-            person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+            member_ids = set(list_cohort_member_ids(team_id=cohort.team_id, cohort_id=cohort.pk))
+            self.assertIn(person1.id, member_ids)
+            self.assertIn(person2.id, member_ids)
 
         def test_calculate_cohort_from_list_with_distinct_id_type(self) -> None:
             """Test that calculate_cohort_from_list works correctly with distinct IDs"""
@@ -128,13 +125,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-            self.assertEqual(people_in_cohort.count(), 2)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
             # Verify specific persons are in the cohort
-            person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
-            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
-            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+            member_ids = set(list_cohort_member_ids(team_id=cohort.team_id, cohort_id=cohort.pk))
+            self.assertIn(person1.id, member_ids)
+            self.assertIn(person2.id, member_ids)
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         def test_exponential_backoff(self, patch_increment_version_and_enqueue_calculate_cohort: MagicMock) -> None:
@@ -1236,3 +1232,46 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         mock_chain.assert_called_once()
         mock_chain_instance.apply_async.assert_called_once()
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_increment_version_and_enqueue_resets_is_calculating_when_delay_fails(
+        self, mock_calculate_cohort_ch_delay: MagicMock
+    ) -> None:
+        # A broker outage shouldn't strand the cohort looking "in flight": nothing was actually
+        # enqueued, so is_calculating must go back to False rather than wait an hour for the
+        # stuck-cohort reset to notice.
+        cohort = Cohort.objects.create(team=self.team, name="Standalone Cohort", is_static=False)
+        mock_calculate_cohort_ch_delay.side_effect = Exception("broker unavailable")
+
+        with self.assertRaises(Exception):
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.pending_version, 1)
+
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+    def test_increment_version_and_enqueue_resets_is_calculating_for_chain_when_apply_async_fails(
+        self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+    ) -> None:
+        # Same as above, but for the dependency-chain path: a mid-chain broker failure must not
+        # strand any cohort in the chain, not just the one the caller passed in.
+        cohort_a = Cohort.objects.create(team=self.team, name="Cohort A", is_static=False)
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="Cohort B (references A)",
+            filters={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort_a.id, "type": "cohort"}]}},
+            is_static=False,
+        )
+
+        mock_chain.return_value.apply_async.side_effect = Exception("broker unavailable")
+        mock_calculate_cohort_ch_si.return_value = MagicMock()
+
+        with self.assertRaises(Exception):
+            increment_version_and_enqueue_calculate_cohort(cohort_b, initiating_user=None)
+
+        cohort_a.refresh_from_db()
+        cohort_b.refresh_from_db()
+        self.assertFalse(cohort_a.is_calculating)
+        self.assertFalse(cohort_b.is_calculating)

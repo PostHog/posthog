@@ -48,7 +48,8 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
     """Celery entry point for both start and restart."""
     from posthog.storage import object_storage
 
-    from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeConcurrencyError, AppRuntimeService
+    from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError
+    from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService
     from products.streamlit_apps.backend.models import StreamlitApp
 
     try:
@@ -237,7 +238,7 @@ def stop_idle_streamlit_sandboxes() -> int:
 def auto_restart_crashed_streamlit_sandboxes() -> int:
     """Restart sandboxes that died on their own (Modal TTL timeout), respecting
     the MAX_RESTART_COUNT cap. Only acts on the exact `last_error` set by
-    `_sync_sandbox_status` — user-initiated stops, idle stops, and startup
+    `sync_sandbox_status` — user-initiated stops, idle stops, and startup
     failures leave a different string and are not restarted."""
     from products.streamlit_apps.backend.logic.app_runtime import MAX_RESTART_COUNT, TTL_TIMEOUT_LAST_ERROR
     from products.streamlit_apps.backend.models import StreamlitAppSandbox

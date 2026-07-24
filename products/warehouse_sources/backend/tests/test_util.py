@@ -1,91 +1,38 @@
-from typing import Any
-
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import (
-    columns_in_position_order,
-    get_view_or_table_by_name,
-    stamp_column_positions,
-)
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name, reconstruct_ordered_columns
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-class TestColumnPositions(BaseTest):
+class TestReconstructOrderedColumns(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "assigns_positions_in_insertion_order",
-                {
-                    "content": {"clickhouse": "String"},
-                    "id": {"clickhouse": "String"},
-                    "source_product": {"clickhouse": "String"},
-                },
-                {"content": 0, "id": 1, "source_product": 2},
-            ),
-            (
-                "preserves_existing_positions_and_appends_new",
-                {
-                    "new_column": {"clickhouse": "String"},
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                },
-                {"new_column": 2, "id": 1, "content": 0},
-            ),
-            (
-                "leaves_old_style_string_columns_untouched",
-                {
-                    "id": "String",
-                    "content": {"clickhouse": "String"},
-                },
-                {"id": None, "content": 0},
-            ),
+            # (name, columns, column_order, expected_order)
+            # Legacy rows have no recorded order: fall back to the stored jsonb key order.
+            ("legacy_null", {"b": 1, "a": 2}, None, ["b", "a"]),
+            ("legacy_empty", {"b": 1, "a": 2}, [], ["b", "a"]),
+            # Recorded order is honored even when the jsonb key order differs.
+            ("exact", {"a": 1, "z": 2, "m": 3}, ["z", "m", "a"], ["z", "m", "a"]),
+            # A recorded name no longer present in columns (dropped column) is skipped.
+            ("removed_skipped", {"a": 1, "m": 3}, ["z", "m", "a"], ["m", "a"]),
+            # A column absent from the recorded order (newly discovered) is appended after the rest.
+            ("appended_at_end", {"z": 1, "a": 2, "new": 3}, ["z", "a"], ["z", "a", "new"]),
+            # Duplicate recorded names do not duplicate the column.
+            ("dedup_recorded", {"a": 1, "b": 2}, ["a", "a", "b"], ["a", "b"]),
         ]
     )
-    def test_stamp_column_positions(self, _name, columns: dict[str, Any], expected_positions: dict[str, int | None]):
-        stamp_column_positions(columns)
-
-        assert {
-            name: (value.get("position") if isinstance(value, dict) else None) for name, value in columns.items()
-        } == expected_positions
-
-    @parameterized.expand(
-        [
-            (
-                "scrambled_positions",
-                {
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                    "source_product": {"clickhouse": "String", "position": 2},
-                },
-                ["content", "id", "source_product"],
-            ),
-            (
-                "no_positions_keeps_dict_order",
-                {
-                    "id": "String",
-                    "content": {"clickhouse": "String"},
-                    "source_product": "String",
-                },
-                ["id", "content", "source_product"],
-            ),
-            (
-                "partially_stamped_keeps_dict_order",
-                {
-                    "legacy": "String",
-                    "id": {"clickhouse": "String", "position": 1},
-                    "content": {"clickhouse": "String", "position": 0},
-                },
-                ["legacy", "id", "content"],
-            ),
-        ]
-    )
-    def test_columns_in_position_order(self, _name, columns, expected_order):
-        assert [name for name, _ in columns_in_position_order(columns)] == expected_order
+    def test_reconstruct_ordered_columns(self, _name, columns, column_order, expected_order):
+        result = reconstruct_ordered_columns(columns, column_order)
+        assert [name for name, _value in result] == expected_order
+        # values stay paired with their names
+        assert dict(result) == columns
 
 
 class TestGetViewOrTableByName(BaseTest):

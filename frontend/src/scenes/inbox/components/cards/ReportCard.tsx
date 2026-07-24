@@ -5,9 +5,11 @@ import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { ScoutLink } from 'lib/signals/ScoutLink'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
+import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
@@ -17,9 +19,15 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
+import {
+    hasKnownSourceProduct,
+    knownSourceProductEntries,
+    SourceProductIconRow,
+    sourceProductsTooltipTitle,
+} from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -37,19 +45,39 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 }
 
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
-export function InboxCardSourceMeta({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+export function InboxCardSourceMeta({
+    sourceProducts,
+    scoutSkillName,
+}: {
+    sourceProducts?: string[] | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
+    scoutSkillName?: string | null
+}): JSX.Element | null {
+    const entries = knownSourceProductEntries(sourceProducts)
+    const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
-        <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none">
-            <SourceProductIconRow entries={[primary, ...overflow]} className="flex items-center gap-1.5 shrink-0" />
-            <span>
-                {primary.meta.label}
-                {overflow.length > 0 ? ` + ${overflow.length}` : null}
-            </span>
-        </div>
+        <Tooltip title={sourceProductsTooltipTitle(entries)}>
+            <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
+                <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
+                <span>
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
+                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
+                </span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -57,9 +85,9 @@ export function InboxCardSourceMeta({ sourceProducts }: { sourceProducts?: strin
 
 /**
  * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). We have no real PR status from GitHub on the report, so it's inferred from the
- * report status: a resolved report means its implementation PR merged (webhook-driven on merge),
- * a failed one means the PR never landed, everything else is still an open PR.
+ * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
+ * merge — report status can't stand in for it, since a report can be resolved directly without its
+ * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
  */
 const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
     open: { label: 'open', type: 'success' },
@@ -69,8 +97,8 @@ const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type
 
 type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-function derivePrState(status: SignalReportStatus): PrBadgeState {
-    if (status === SignalReportStatus.RESOLVED) {
+function derivePrState(status: SignalReportStatus, prMerged: boolean): PrBadgeState {
+    if (prMerged) {
         return 'merged'
     }
     if (status === SignalReportStatus.FAILED) {
@@ -141,7 +169,7 @@ export function ReportCard({
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab but with no row action: they can't be restored or re-archived.
+    // Archive tab. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -164,28 +192,39 @@ export function ReportCard({
         onArchive,
     })
 
+    const isRefunded = !!report.refund
+
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
     // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    // The dedicated billing badge already marks refunded reports, so skip the duplicate chip there.
     const dismissalLabel =
-        isArchived && report.status === SignalReportStatus.SUPPRESSED
+        isArchived && report.status === SignalReportStatus.SUPPRESSED && !isRefunded
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
+    // Permanent billing marker (Refunded / Free) — shown on both PR cards and plain reports.
+    const showBillingBadge = isRefunded || !!report.billing_exempt_reason
+
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
-        ? repoSlug != null || hasSource
+        ? repoSlug != null || hasSource || showBillingBadge
         : hasSource ||
           !isReady ||
           report.actionability != null ||
           report.is_suggested_reviewer === true ||
-          !!dismissalLabel
+          !!dismissalLabel ||
+          showBillingBadge
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
             {hasPr && prNumber != null ? (
                 <div className="absolute right-4 top-3 z-10">
-                    <PrBadge prNumber={prNumber} prUrl={prUrl} state={derivePrState(report.status)} />
+                    <PrBadge
+                        prNumber={prNumber}
+                        prUrl={prUrl}
+                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                    />
                 </div>
             ) : null}
 
@@ -200,7 +239,7 @@ export function ReportCard({
                     {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
                     <div
                         className={clsx(
-                            'min-w-0 break-words font-semibold text-sm leading-snug',
+                            'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                             hasPr && 'pr-14 @lg:pr-0'
                         )}
                     >
@@ -211,23 +250,34 @@ export function ReportCard({
                     </div>
 
                     {headline ? (
-                        <div className={clsx('mt-0.5 min-w-0', !hasPr && !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-secondary leading-snug m-0">
-                                {headline}
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !hasPr && !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            )}
+                        >
+                            {headline}
+                        </p>
                     ) : !hasPr ? (
-                        <div className={clsx('mt-0.5 min-w-0', !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0">
-                                No summary yet – still collecting context.
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            )}
+                        >
+                            No summary yet – still collecting context.
+                        </p>
                     ) : null}
 
                     {showMeta ? (
                         <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
                             {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                            <InboxCardSourceMeta sourceProducts={report.source_products} />
+                            <InboxCardSourceMeta
+                                sourceProducts={report.source_products}
+                                scoutSkillName={report.scout_name}
+                            />
                             {!hasPr && (!isReady || !report.actionability) && (
                                 <SignalReportStatusBadge status={report.status} />
                             )}
@@ -241,6 +291,7 @@ export function ReportCard({
                                     </LemonTag>
                                 </Tooltip>
                             )}
+                            <SignalReportBillingBadge report={report} />
                         </div>
                     ) : null}
 
@@ -255,24 +306,30 @@ export function ReportCard({
                 </div>
             </Link>
 
-            {/* Terminal resolved reports carry no row action – skip the action column (and its divider). */}
-            {!isResolved && (
+            {/* Refund deliberately isn't offered at the card level – it lives in the report detail
+                pane, where the consequences are in view. Resolved reports are terminal and a refunded
+                archived report can't be restored, so neither carries actions – skip the column (and
+                divider) for both. */}
+            {!isResolved && !(isArchived && isRefunded) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isArchived ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconUndo />}
-                            tooltip="Restore this report to the inbox"
-                            aria-label="Restore this report to the inbox"
-                            onClick={(event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                                onRestore?.()
-                            }}
-                        >
-                            Restore
-                        </LemonButton>
+                        // A refunded report can't be restored (its PR can never be billed again).
+                        !isRefunded && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconUndo />}
+                                tooltip="Restore this report to the inbox"
+                                aria-label="Restore this report to the inbox"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    onRestore?.()
+                                }}
+                            >
+                                Restore
+                            </LemonButton>
+                        )
                     ) : (
                         <>
                             <LemonButton
@@ -289,6 +346,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
+                                tooltip="Open the full report – summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()

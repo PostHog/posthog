@@ -4,10 +4,17 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { experimentsLogic } from './experimentsLogic'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 const web_experiments = [{ id: 1, name: 'Test Experiment 1', variants: {} }]
 
@@ -16,6 +23,11 @@ function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown>
 }
 
 describe('experimentsLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof experimentsLogic.build>
     const savedFetch = global.fetch
 
@@ -66,35 +78,26 @@ describe('experimentsLogic', () => {
     })
 
     it.each([
-        [
-            'a non-2xx response',
-            { ok: false, status: 404, json: () => Promise.resolve({}) },
-            ['HTTP 404', '/api/projects/@current/web_experiments/'],
-        ],
+        ['a non-2xx response', { ok: false, status: 404, json: () => Promise.resolve({}) }],
         [
             'the body is not valid JSON',
             { ok: true, status: 200, json: () => Promise.reject(new Error('Unexpected token')) },
-            ['not valid JSON'],
         ],
         [
             'results is not an array',
             { ok: true, status: 200, json: () => Promise.resolve({ results: { unexpected: true } }) },
-            ['expected an array', 'got object'],
         ],
-    ] as [string, Partial<Response> & { json?: () => Promise<unknown> }, string[]][])(
-        'throws a descriptive error when %s',
-        async (_name, fetchResponse, expectedSubstrings) => {
+    ] as [string, Partial<Response> & { json?: () => Promise<unknown> }][])(
+        'soft-fails to an empty list when %s',
+        async (_name, fetchResponse) => {
             mockFetch(fetchResponse)
             mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.getExperiments()
-            }).toDispatchActions([
-                'getExperiments',
-                (action) =>
-                    action.type === logic.actionTypes.getExperimentsFailure &&
-                    expectedSubstrings.every((s) => action.payload.error.includes(s)),
-            ])
+            })
+                .toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
+                .toMatchValues({ allExperiments: [] })
         }
     )
 })

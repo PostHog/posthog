@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
-use cymbal::stages::pipeline::ExceptionEventPipelineItem;
+use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -30,8 +30,12 @@ use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
-    batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
-    Exception, ExceptionList, Stacktrace,
+    batch::Batch,
+    event::AnyEvent,
+    exception_event::{ExceptionEvent, Parsed, Resolved},
+    operator::TeamId,
+    stage::Stage,
+    Exception, Stacktrace,
 };
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::{
     CymbalResolution, CymbalResolutionServer,
@@ -109,7 +113,7 @@ impl CymbalResolution for StubServer {
     type ResolveStream = ResolveStream;
     type SubscribeStream = SubscribeStream;
 
-    /// Default Subscribe behaviour: emit freshness/draining-only `LoadEvent`s
+    /// Default Subscribe behaviour: emit freshness/draining/load `LoadEvent`s
     /// on a fast tick so snapshot-required routing can warm up quickly.
     async fn subscribe(
         &self,
@@ -129,6 +133,8 @@ impl CymbalResolution for StubServer {
                     draining: false,
                     sequence,
                     message: String::new(),
+                    in_flight: 0,
+                    max_in_flight: 64,
                 };
                 if tx.send(Ok(event)).await.is_err() {
                     return;
@@ -459,16 +465,25 @@ pub fn local_stage() -> ResolutionStage {
 
 pub async fn process_one(
     stage: ResolutionStage,
-    evt: ExceptionProperties,
-) -> Result<ExceptionProperties, UnhandledError> {
-    let batch: Batch<ExceptionEventPipelineItem> = Batch::from(vec![Ok(evt)]);
+    evt: ExceptionEvent<Parsed>,
+) -> Result<ExceptionEvent<Resolved>, UnhandledError> {
+    let batch: Batch<ParsedPipelineItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await?;
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
     Ok(items.remove(0).expect("event must not be EventError"))
 }
 
-pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
+pub fn build_event(num_exceptions: usize) -> ExceptionEvent<Parsed> {
+    build_event_with(num_exceptions, 7, Uuid::now_v7(), Vec::new())
+}
+
+pub fn build_event_with(
+    num_exceptions: usize,
+    team_id: i32,
+    uuid: Uuid,
+    debug_images: Vec<DebugImage>,
+) -> ExceptionEvent<Parsed> {
     let exceptions: Vec<Exception> = (0..num_exceptions)
         .map(|i| Exception {
             exception_id: None,
@@ -480,25 +495,17 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
             stack: Some(Stacktrace::Raw { frames: vec![] }),
         })
         .collect();
-    ExceptionProperties {
-        exception_list: ExceptionList::from(exceptions),
-        exception_sources: None,
-        exception_types: None,
-        exception_messages: None,
-        exception_functions: None,
-        exception_handled: None,
-        exception_releases: Default::default(),
-        fingerprint: None,
-        proposed_fingerprint: None,
-        fingerprint_record: None,
-        issue_id: None,
-        proposed_issue_name: None,
-        proposed_issue_description: None,
-        debug_images: Vec::new(),
-        props: Default::default(),
-        uuid: Uuid::now_v7(),
+    AnyEvent {
+        uuid,
+        event: "$exception".to_string(),
+        properties: serde_json::json!({
+            "$exception_list": exceptions,
+            "$debug_images": debug_images,
+        }),
         timestamp: String::new(),
-        team_id: 7,
-        issue: None,
+        team_id,
+        others: Default::default(),
     }
+    .try_into()
+    .expect("test event is valid")
 }

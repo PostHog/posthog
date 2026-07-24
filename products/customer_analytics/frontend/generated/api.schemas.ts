@@ -7,6 +7,193 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface ExternalAccountListAssignmentApi {
+    /** PostHog user id of the assigned user. */
+    user_id: number
+    /** Current email address of the assigned user. */
+    email: string
+    /**
+     * Current display name of the assigned user, or null when the user has no name set.
+     * @nullable
+     */
+    name: string | null
+}
+
+/**
+ * Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted.
+ */
+export type ExternalAccountListItemApiRelationships = { [key: string]: ExternalAccountListAssignmentApi[] }
+
+export interface ExternalAccountListItemApi {
+    /** External account key used by downstream systems. */
+    external_id: string
+    /** Human-readable account name. */
+    name: string
+    /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
+    relationships: ExternalAccountListItemApiRelationships
+}
+
+export interface ExternalAccountListPageApi {
+    /** Accounts in this page, ordered by account id. */
+    results: ExternalAccountListItemApi[]
+    /**
+     * Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+/**
+ * Validation errors keyed by query parameter.
+ */
+export type ExternalAccountListValidationErrorApiError = { [key: string]: string[] }
+
+export interface ExternalAccountListValidationErrorApi {
+    /** Validation errors keyed by query parameter. */
+    error: ExternalAccountListValidationErrorApiError
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
+ * A team-wide account note — an internal notebook linked to a Customer analytics account.
+ */
+export interface AccountNoteApi {
+    /** URL-safe short ID of the notebook. */
+    readonly short_id: string
+    /**
+     * Title of the note.
+     * @nullable
+     */
+    readonly title: string | null
+    /** When the note was created. */
+    readonly created_at: string
+    /** When the note was last modified. */
+    readonly last_modified_at: string
+    /** UUID of the account this note is linked to. */
+    readonly account_id: string
+    /** Name of the account this note is linked to. */
+    readonly account_name: string
+    /** User who created the note, if known. */
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedAccountNoteListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountNoteApi[]
+}
+
+/**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface AccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
+export interface PaginatedAccountRelationshipDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountRelationshipDefinitionApi[]
+}
+
+/**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface PatchedAccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id?: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
 /**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
@@ -85,58 +272,31 @@ export interface PaginatedAccountListApi {
 }
 
 /**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `other` - Other
+ * An account's current value for a custom property (read shape).
  */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
+export interface CustomPropertyValueApi {
+    /** Unique id of this value record. */
+    readonly id: string
+    /** Account the value belongs to. */
+    readonly account_id: string
+    /** Custom property definition the value is for. */
+    readonly definition_id: string
+    /** The stored value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When this value was set. */
+    readonly created_at: string
     /**
-     * @maxLength 200
+     * Id of the user who set this value, if known.
      * @nullable
      */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+    readonly created_by_id: number | null
+}
+
+export interface CustomPropertyValueWriteApi {
+    /** UUID of the custom property definition whose value to set for this account. */
+    definition: string
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+    value: string | number | boolean
 }
 
 export interface AccountNotebookApi {
@@ -168,6 +328,45 @@ export interface PaginatedAccountNotebookListApi {
     /** @nullable */
     previous?: string | null
     results: AccountNotebookApi[]
+}
+
+/**
+ * A user assigned to an account relationship (read shape).
+ */
+export interface AccountAssignmentApi {
+    /** PostHog user id of the assignee. */
+    readonly id: number
+    /** Email of the assignee. */
+    readonly email: string
+}
+
+/**
+ * One assignment of a user to an account relationship, with its effective range.
+ */
+export interface AccountRelationshipApi {
+    /** Unique id of this assignment row. */
+    readonly id: string
+    /** The relationship type this assignment belongs to. */
+    readonly definition: AccountRelationshipDefinitionApi
+    /** The assigned user; null when their account was deleted. */
+    readonly user: AccountAssignmentApi | null
+    /** When this assignment became effective. */
+    readonly started_at: string
+    /**
+     * When this assignment ended; null while it is active.
+     * @nullable
+     */
+    readonly ended_at: string | null
+}
+
+/**
+ * Input for assigning a user to an account relationship.
+ */
+export interface AccountRelationshipWriteApi {
+    /** Id of the relationship definition to assign. */
+    definition: string
+    /** PostHog user id of the assignee. Must be a member of the account's organization. */
+    user: number
 }
 
 /**
@@ -236,6 +435,564 @@ export interface PatchedAccountApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `sending` - Sending
+ * * `sent` - Sent
+ * * `partially_failed` - Partially failed
+ * * `failed` - Failed
+ */
+export type AnnouncementStatusEnumApi = (typeof AnnouncementStatusEnumApi)[keyof typeof AnnouncementStatusEnumApi]
+
+export const AnnouncementStatusEnumApi = {
+    Pending: 'pending',
+    Sending: 'sending',
+    Sent: 'sent',
+    PartiallyFailed: 'partially_failed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `sent` - Sent
+ * * `failed` - Failed
+ */
+export type AnnouncementDeliveryStatusEnumApi =
+    (typeof AnnouncementDeliveryStatusEnumApi)[keyof typeof AnnouncementDeliveryStatusEnumApi]
+
+export const AnnouncementDeliveryStatusEnumApi = {
+    Pending: 'pending',
+    Sent: 'sent',
+    Failed: 'failed',
+} as const
+
+export interface AnnouncementDeliveryApi {
+    readonly id: string
+    /** Slack channel ID the message was sent to (e.g. C0123ABCD). */
+    readonly slack_channel_id: string
+    /** Slack channel display name at send time (without the leading #). */
+    readonly slack_channel_name: string
+    /** Per-channel delivery status: pending, sent, or failed.
+     *
+     * * `pending` - Pending
+     * * `sent` - Sent
+     * * `failed` - Failed */
+    readonly status: AnnouncementDeliveryStatusEnumApi
+    /** Slack error code when delivery to this channel failed; empty otherwise. */
+    readonly error: string
+    /** Timestamp ID of the posted Slack message, when delivery succeeded. */
+    readonly slack_message_ts: string
+    /**
+     * When the message was delivered to this channel. Null until sent.
+     * @nullable
+     */
+    readonly sent_at: string | null
+}
+
+export interface AnnouncementApi {
+    readonly id: string
+    /** Short human-friendly identifier for the announcement. */
+    readonly short_id: string
+    /** Message body to send, rendered as Slack mrkdwn. */
+    message: string
+    /** Overall status: pending, sending, sent, partially_failed, or failed.
+     *
+     * * `pending` - Pending
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `partially_failed` - Partially failed
+     * * `failed` - Failed */
+    readonly status: AnnouncementStatusEnumApi
+    /** Number of channels this announcement targets. */
+    readonly total_channels: number
+    /** Number of channels the message was successfully delivered to. */
+    readonly sent_count: number
+    /** Number of channels delivery failed for. */
+    readonly failed_count: number
+    /**
+     * When delivery finished (all channels resolved). Null while pending/sending.
+     * @nullable
+     */
+    readonly sent_at: string | null
+    /** When the announcement was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Per-channel delivery rows, one per selected Slack channel. */
+    readonly deliveries: readonly AnnouncementDeliveryApi[]
+    /** Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side. */
+    channels: string[]
+}
+
+export interface PaginatedAnnouncementListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AnnouncementApi[]
+}
+
+export interface AnnouncementChannelApi {
+    /** Slack channel ID (e.g. C0123ABCD). */
+    id: string
+    /** Slack channel display name (without the leading #). */
+    name: string
+    /** Whether the SupportHog bot is a member of this channel. */
+    is_member: boolean
+    /**
+     * Name of the customer account whose slack_channel_id points at this channel, or null if unmapped.
+     * @nullable
+     */
+    customer_name: string | null
+}
+
+/**
+ * * `text` - text
+ * * `number` - number
+ * * `currency` - currency
+ * * `percent` - percent
+ * * `date` - date
+ * * `datetime` - datetime
+ * * `boolean` - boolean
+ * * `select` - select
+ */
+export type CustomPropertyDisplayTypeEnumApi =
+    (typeof CustomPropertyDisplayTypeEnumApi)[keyof typeof CustomPropertyDisplayTypeEnumApi]
+
+export const CustomPropertyDisplayTypeEnumApi = {
+    Text: 'text',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+/**
+ * * `account` - account
+ * * `person` - person
+ * * `group` - group
+ */
+export type CustomPropertyDefinitionTargetTypeEnumApi =
+    (typeof CustomPropertyDefinitionTargetTypeEnumApi)[keyof typeof CustomPropertyDefinitionTargetTypeEnumApi]
+
+export const CustomPropertyDefinitionTargetTypeEnumApi = {
+    Account: 'account',
+    Person: 'person',
+    Group: 'group',
+} as const
+
+/**
+ * * `preset-1` - preset-1
+ * * `preset-2` - preset-2
+ * * `preset-3` - preset-3
+ * * `preset-4` - preset-4
+ * * `preset-5` - preset-5
+ * * `preset-6` - preset-6
+ * * `preset-7` - preset-7
+ * * `preset-8` - preset-8
+ * * `preset-9` - preset-9
+ * * `preset-10` - preset-10
+ */
+export type CustomPropertyOptionColorEnumApi =
+    (typeof CustomPropertyOptionColorEnumApi)[keyof typeof CustomPropertyOptionColorEnumApi]
+
+export const CustomPropertyOptionColorEnumApi = {
+    Preset1: 'preset-1',
+    Preset2: 'preset-2',
+    Preset3: 'preset-3',
+    Preset4: 'preset-4',
+    Preset5: 'preset-5',
+    Preset6: 'preset-6',
+    Preset7: 'preset-7',
+    Preset8: 'preset-8',
+    Preset9: 'preset-9',
+    Preset10: 'preset-10',
+} as const
+
+/**
+ * An allowed value of a select custom property.
+ */
+export interface CustomPropertyOptionApi {
+    /**
+     * Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.
+     * @nullable
+     */
+    id?: string | null
+    /**
+     * Display label of the option. Stored as the account's value when picked.
+     * @maxLength 400
+     */
+    label: string
+    /** Preset color token used to render the option ('preset-1' through 'preset-10').
+     *
+     * * `preset-1` - preset-1
+     * * `preset-2` - preset-2
+     * * `preset-3` - preset-3
+     * * `preset-4` - preset-4
+     * * `preset-5` - preset-5
+     * * `preset-6` - preset-6
+     * * `preset-7` - preset-7
+     * * `preset-8` - preset-8
+     * * `preset-9` - preset-9
+     * * `preset-10` - preset-10 */
+    color: CustomPropertyOptionColorEnumApi
+}
+
+/**
+ * One person- or group-property sync or backfill run. Read-only: runs are created by the
+ * sync/backfill pipeline, never through the API.
+ */
+export interface CustomPropertySyncRunApi {
+    readonly id: string
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    readonly trigger: string
+    /** Run status: 'running', 'completed', or 'failed'. */
+    readonly status: string
+    /**
+     * When the run began.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the run ended, or null while running.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /** Warehouse rows scanned this run. */
+    readonly rows_read: number
+    /** Rows whose mapped values changed since the last run. */
+    readonly changed: number
+    /** Person or group profiles updated (changed rows that matched an existing person/group). */
+    readonly existing: number
+    /** Property-update intents produced to the ingestion pipeline. */
+    readonly produced: number
+    /** Changed rows dropped because no existing person/group matched the key column value. */
+    readonly skipped_missing_person: number
+    /**
+     * Error summary if the run failed, else null.
+     * @nullable
+     */
+    readonly error: string | null
+    /** When the run row was recorded. */
+    readonly created_at: string
+}
+
+/**
+ * Binds a data-warehouse source to a custom property definition. Account sources read a
+ * materialized view column and sync onto matching accounts; person and group sources read a
+ * warehouse schema and sync onto matching persons or groups on each warehouse sync.
+ */
+export interface CustomPropertySourceApi {
+    readonly id: string
+    /** UUID of the custom property definition this source feeds. One source per definition. */
+    definition: string
+    /**
+     * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+     * @nullable
+     */
+    saved_query?: string | null
+    /**
+     * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * @nullable
+     */
+    external_data_schema?: string | null
+    /**
+     * Account sources only: column in the view whose value is written to the property.
+     * @maxLength 400
+     * @nullable
+     */
+    source_column?: string | null
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /**
+     * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
+     * @maxLength 400
+     */
+    key_column: string
+    /** Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count. */
+    is_enabled?: boolean
+    /** Consecutive failed sync runs; the source auto-disables at the cap. */
+    readonly consecutive_failures: number
+    /**
+     * When the most recent sync run finished.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /**
+     * Error summary from the last run, or null if it succeeded.
+     * @nullable
+     */
+    readonly last_sync_error: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+    /**
+     * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly sync_frequency_interval_seconds: number | null
+    /**
+     * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * @nullable
+     */
+    readonly next_sync_at: string | null
+    /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
+    readonly latest_run: CustomPropertySyncRunApi | null
+}
+
+/**
+ * A place that uses a custom property definition (read-only).
+ */
+export interface CustomPropertyReferenceApi {
+    /** Id of the referring entity (e.g. the workflow id). */
+    readonly id: string
+    /** Display name of the referring entity. */
+    readonly name: string
+    /** Status of the referring entity (e.g. workflow status). */
+    readonly status: string
+    /** Kind of reference. Currently always 'workflow'. */
+    readonly type: string
+}
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values.
+ */
+export interface CustomPropertyDefinitionApi {
+    readonly id: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean
+     * * `select` - select */
+    display_type: CustomPropertyDisplayTypeEnumApi
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
+     *
+     * * `account` - account
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
+    /**
+     * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+     * @nullable
+     */
+    options?: CustomPropertyOptionApi[] | null
+    /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+    readonly source: CustomPropertySourceApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references: readonly CustomPropertyReferenceApi[]
+}
+
+export interface PaginatedCustomPropertyDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertyDefinitionApi[]
+}
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values.
+ */
+export interface PatchedCustomPropertyDefinitionApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean
+     * * `select` - select */
+    display_type?: CustomPropertyDisplayTypeEnumApi
+    /** What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person/group property (feature flags, cohorts, insights).
+     *
+     * * `account` - account
+     * * `person` - person
+     * * `group` - group */
+    target_type?: CustomPropertyDefinitionTargetTypeEnumApi
+    /**
+     * For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
+    /**
+     * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
+     * @nullable
+     */
+    options?: CustomPropertyOptionApi[] | null
+    /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+    readonly source?: CustomPropertySourceApi | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** Workflows that use this property, resolved by definition id. */
+    readonly references?: readonly CustomPropertyReferenceApi[]
+}
+
+/**
+ * One suggested filter value for a custom property.
+ */
+export interface CustomPropertyValueSuggestionApi {
+    /** A suggested value for the custom property. */
+    readonly name: string
+}
+
+/**
+ * Response shape of the custom property value-suggestions endpoint.
+ *
+ * Matches the contract of the shared property-values picker (``propertyDefinitionsModel``
+ * on the frontend), which expects ``{results: [{name}], refreshing}``.
+ */
+export interface CustomPropertyValueSuggestionsResponseApi {
+    /** Suggested values matching the search input. */
+    readonly results: readonly CustomPropertyValueSuggestionApi[]
+    /** Always false — present for compatibility with the property-values consumer. */
+    readonly refreshing: boolean
+}
+
+export interface PaginatedCustomPropertySourceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertySourceApi[]
+}
+
+/**
+ * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+ * they are intentionally absent — only these reach the facade's update.
+ */
+export interface CustomPropertySourceUpdateApi {
+    /**
+     * Column in the view whose value is written to the property.
+     * @maxLength 400
+     */
+    source_column?: string
+    /**
+     * Column in the view whose value matches an account's external_id.
+     * @maxLength 400
+     */
+    key_column?: string
+    /** Whether the source syncs; re-enabling it resets the failure count. */
+    is_enabled?: boolean
+}
+
+/**
+ * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+ * they are intentionally absent — only these reach the facade's update.
+ */
+export interface PatchedCustomPropertySourceUpdateApi {
+    /**
+     * Column in the view whose value is written to the property.
+     * @maxLength 400
+     */
+    source_column?: string
+    /**
+     * Column in the view whose value matches an account's external_id.
+     * @maxLength 400
+     */
+    key_column?: string
+    /** Whether the source syncs; re-enabling it resets the failure count. */
+    is_enabled?: boolean
+}
+
+/**
+ * * `triggered` - triggered
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CustomPropertySyncTriggerResponseStatusEnumApi =
+    (typeof CustomPropertySyncTriggerResponseStatusEnumApi)[keyof typeof CustomPropertySyncTriggerResponseStatusEnumApi]
+
+export const CustomPropertySyncTriggerResponseStatusEnumApi = {
+    Triggered: 'triggered',
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the person/group-property sync/backfill trigger actions.
+ */
+export interface CustomPropertySyncTriggerResponseApi {
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+     *
+     * * `triggered` - triggered
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CustomPropertySyncTriggerResponseStatusEnumApi
+    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    already_running?: boolean
+}
+
+export interface PaginatedCustomPropertySyncRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertySyncRunApi[]
 }
 
 export interface CustomerJourneyApi {
@@ -462,6 +1219,59 @@ export interface PatchedGroupUsageMetricApi {
     math_property?: string | null
 }
 
+export type CustomerAnalyticsExternalAccountsRetrieveParams = {
+    /**
+     * When true, return only accounts with at least one active relationship assignment to a current member of the project's organization.
+     */
+    assigned_only?: boolean
+    /**
+     * Account UUID from `next_cursor` to continue listing from. Omit for the first page.
+     */
+    cursor?: string
+    /**
+     * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
+     */
+    limit?: number
+}
+
+export type AccountNotesListParams = {
+    /**
+     * Only return notes linked to this account.
+     */
+    account_id?: string
+    /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[]
+    /**
+     * Only return notes created by these user IDs (repeat the param per user).
+     */
+    created_by?: number[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Full-text search across note title and content, plus substring match on account name.
+     */
+    search?: string
+}
+
+export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AccountsListParams = {
     /**
      * Filter by account executive. Use 'unassigned' or an integer user id.
@@ -502,6 +1312,76 @@ export type AccountsListParams = {
 }
 
 export type AccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string
+}
+
+export type AccountsRelationshipsListParams = {
+    /**
+     * Include ended assignments (the full timeline), not just active ones.
+     */
+    include_history?: boolean
+}
+
+export type AnnouncementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertyDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string
+}
+
+export type CustomPropertySourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
      */

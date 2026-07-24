@@ -1,6 +1,6 @@
 """Repository selection for Signals reports.
 
-Thin wrapper around `products.tasks.backend.repo_selection.select_repository`.
+Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
@@ -14,8 +14,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from products.tasks.backend.models import Task
-from products.tasks.backend.repo_selection import (
+from posthog.sync import database_sync_to_async
+
+from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,
@@ -29,7 +32,7 @@ if TYPE_CHECKING:
     # __init__ (agentic -> back into report_generation), a circular import. SignalData is
     # annotation-only here (module uses `from __future__ import annotations`).
     from products.signals.backend.temporal.types import SignalData
-    from products.tasks.backend.services.custom_prompt_internals import OutputFn
+    from products.tasks.backend.facade.agents import OutputFn
 
 logger = logging.getLogger(__name__)
 
@@ -62,17 +65,25 @@ async def select_repository_for_team(
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
     """
+    # Resolved at the single repo-selection chokepoint so both callers (custom agent +
+    # report flow) pick it up.
+    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+        team_id, STEP_REPO_SELECTION
+    )
     try:
         return await select_repository(
             team_id=team_id,
             user_id=user_id,
             context=request_section,
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             step_name=step_name,
             signal_report_id=signal_report_id,
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
+            model=agent_runtime.model,
+            runtime_adapter=agent_runtime.runtime_adapter,
+            reasoning_effort=agent_runtime.reasoning_effort,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'

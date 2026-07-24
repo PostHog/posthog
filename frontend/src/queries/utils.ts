@@ -15,6 +15,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
     DateRange,
     EndpointsUsageOverviewQuery,
@@ -45,6 +46,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsQuery,
     Node,
     NodeKind,
     NonIntegratedConversionsTableQuery,
@@ -57,15 +59,9 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsTopCustomersQuery,
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionQuery,
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
@@ -78,7 +74,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -224,32 +220,8 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isRevenueAnalyticsGrossRevenueQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsGrossRevenueQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
-}
-
-export function isRevenueAnalyticsMetricsQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsMetricsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsMetricsQuery
-}
-
-export function isRevenueAnalyticsMRRQuery(node?: Record<string, any> | null): node is RevenueAnalyticsMRRQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsMRRQuery
-}
-
-export function isRevenueAnalyticsOverviewQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsOverviewQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export function isRevenueAnalyticsTopCustomersQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsTopCustomersQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
+    return node?.kind === NodeKind.MetricsQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
@@ -318,6 +290,10 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
     return node?.kind === NodeKind.TracesQuery
 }
 
+export function isSessionQuery(node?: Record<string, any> | null): node is SessionQuery {
+    return node?.kind === NodeKind.SessionQuery
+}
+
 export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
     return node?.kind === NodeKind.WebVitalsQuery
 }
@@ -330,16 +306,6 @@ export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
-}
-
-export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): node is RevenueExampleEventsQuery {
-    return node?.kind === NodeKind.RevenueExampleEventsQuery
-}
-
-export function isRevenueExampleDataWarehouseTablesQuery(
-    node?: Record<string, any> | null
-): node is RevenueExampleDataWarehouseTablesQuery {
-    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
@@ -439,8 +405,11 @@ export function shouldQueryBeAsync(query: Node): boolean {
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         isTracesQuery(query) ||
-        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
-        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
+        isSessionQuery(query) ||
+        (isDataTableNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source))) ||
+        (isDataVisualizationNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source)))
     )
 }
 
@@ -491,13 +460,80 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
     return undefined
 }
 
+// For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
+// the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
+// selectors derive from — makes such insights behave exactly like their UI-created equivalents.
+const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+    display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
+
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
     if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.display
+        return normalizeDisplay(query.stickinessFilter?.display)
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.display
+        return normalizeDisplay(query.trendsFilter?.display)
     }
     return undefined
+}
+
+// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
+// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
+const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.Metric,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.TwoDimensionalHeatmap,
+])
+
+type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
+
+function classifyQueryVizCanvas(query?: Node | null): QueryVizCanvasClassification {
+    if (isDataTableNode(query)) {
+        return 'non-canvas'
+    }
+    if (isDataVisualizationNode(query)) {
+        if (!query.display) {
+            return 'non-canvas'
+        }
+        if (query.display === ChartDisplayType.Auto) {
+            return 'unknown'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(query.display) ? 'canvas' : 'non-canvas'
+    }
+    if (isInsightVizNode(query)) {
+        const source = query.source
+        if (isRetentionQuery(source) || isPathsQuery(source)) {
+            return 'non-canvas'
+        }
+        if (isFunnelsQuery(source)) {
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert ? 'canvas' : 'non-canvas'
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto) ? 'canvas' : 'non-canvas'
+    }
+    return 'unknown'
+}
+
+/**
+ * Whether an insight's viz may paint to a <canvas>. Unknown visualizations count as canvas so resize throttling
+ * remains conservative.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) !== 'non-canvas'
+}
+
+/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
+export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
+    return classifyQueryVizCanvas(query) === 'canvas'
 }
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
@@ -540,6 +576,29 @@ export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWareho
     return undefined
 }
 
+/** Client-side check: does this query have a data-warehouse-backed series (insight surface)?
+ * For raw SQL / HogQL queries the client can't know without the backend — use
+ * `dataWarehouseSourcesFromResponse` on the query response instead. */
+export function queryUsesDataWarehouse(query?: Record<string, any> | null): boolean {
+    if (!query) {
+        return false
+    }
+    const source = isInsightVizNode(query) ? query.source : query
+    if (isInsightQueryNode(source)) {
+        return !!getSeries(source)?.some((entity) => isAnyDataWarehouseNode(entity))
+    }
+    return false
+}
+
+/** Extract the connector-synced warehouse sources a query touched from its response, if the
+ * backend populated them (currently HogQL / SQL-editor responses). Always returns an array. */
+export function dataWarehouseSourcesFromResponse(response: unknown): DataWarehouseSourceUsage[] {
+    if (response && typeof response === 'object' && Array.isArray((response as any).used_data_warehouse_sources)) {
+        return (response as any).used_data_warehouse_sources
+    }
+    return []
+}
+
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdownFilter
@@ -579,6 +638,12 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.legendPosition
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.legendPosition
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.legendPosition
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.legendPosition
     }
     return undefined
 }
@@ -727,6 +792,19 @@ export function trimQuotes(identifier: string): string {
     return identifier
 }
 
+// Mirrors escape_chars_map in posthog/hogql/escape_sql.py: backslash and control chars must be escaped so a quoted identifier round-trips losslessly through the HogQL parser.
+const HOGQL_IDENTIFIER_ESCAPE_MAP: Record<string, string> = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\r': '\\r',
+    '\n': '\\n',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\x07': '\\a',
+    '\v': '\\v',
+    '\\': '\\\\',
+}
+
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
 export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
@@ -736,7 +814,9 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
     }
-    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+    // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
+    const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
+    return !identifier.includes('"') ? `"${escaped}"` : `\`${escaped.replaceAll('`', '``')}\``
 }
 
 /** Quote each segment of a dotted HogQL reference independently. */
@@ -1012,7 +1092,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     return cloned as T
 }
 
-/** Checks wether a given query node satisfies all latest versions of the query schema. */
+/** Checks whether a given query node satisfies all latest versions of the query schema. */
 export function checkLatestVersionsOnQuery(node: any): boolean {
     if (node === null || typeof node !== 'object') {
         return true

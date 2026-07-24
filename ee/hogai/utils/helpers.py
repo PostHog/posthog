@@ -40,7 +40,8 @@ from posthog.schema import (
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
@@ -68,6 +69,27 @@ def strip_bk_drilldown_handles(text: str) -> str:
 
 def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
+
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# Descriptions are an unbounded TextField; cap each one so a single oversized description can't
+# blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
+MAX_EVENT_DESCRIPTION_LENGTH = 500
+
+
+def sanitize_event_description(text: str) -> str:
+    """Neutralize an untrusted event description before it goes into the model's context.
+
+    Event definition descriptions (and per-conversation context descriptions) are user-controlled
+    project metadata, so they're treated as untrusted data: an editor could embed instructions that
+    reach another user's agent session verbatim. Collapse control characters and whitespace so the
+    text can't break out of its line, cap the length, and neutralize system_reminder framing.
+    """
+    collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
+    if len(collapsed) > MAX_EVENT_DESCRIPTION_LENGTH:
+        collapsed = collapsed[:MAX_EVENT_DESCRIPTION_LENGTH].rstrip() + "…"
+    return sanitize_for_system_reminder(collapsed)
 
 
 def filter_and_merge_messages(
@@ -173,12 +195,13 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
 def _process_events_data(
     events_in_context: list[MaxEventContext],
     team: Team,
+    user: User,
     limit: int | None = None,
     offset: int | None = None,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
-    response = TeamTaxonomyQueryRunner(query, team).run(
+    response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
         analytics_props={"source": EventSource.POSTHOG_AI},
     )
@@ -208,6 +231,10 @@ def _process_events_data(
     # Create a set of event names from context for efficient lookup
     context_event_names = {event.name for event in events_in_context if event.name}
 
+    # Fall back to the user-authored descriptions stored on event definitions for any custom
+    # events that aren't covered by the core taxonomy or the conversation context.
+    db_event_descriptions = _get_event_definition_descriptions(team, events, event_to_description)
+
     processed_events = []
     for event_name in events:
         event_data = {"name": event_name}
@@ -218,22 +245,80 @@ def _process_events_data(
                 event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
             ):
                 continue  # Skip irrelevant events but keep events the user has added to the context
-            if description := event_core_definition.get("description"):
-                if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                    event_data["description"] = f"{label}. {description}"
-                else:
-                    event_data["description"] = description
-                event_data["description"] = remove_line_breaks(event_data["description"])
+            if core_description := _format_core_event_description(event_core_definition):
+                event_data["description"] = core_description
         elif event_name in event_to_description:
-            event_data["description"] = remove_line_breaks(event_to_description[event_name])
+            event_data["description"] = sanitize_event_description(event_to_description[event_name])
+        elif event_name in db_event_descriptions:
+            event_data["description"] = sanitize_event_description(db_event_descriptions[event_name])
 
         processed_events.append(event_data)
 
     return processed_events, event_to_description, has_more
 
 
-def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _, _ = _process_events_data(events_in_context, team)
+def _format_core_event_description(event_core_definition: Mapping[str, Any]) -> str | None:
+    """Build a single-line description for a core taxonomy event, prefixed with its label."""
+    description = event_core_definition.get("description")
+    if not description:
+        return None
+    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
+        description = f"{label}. {description}"
+    return remove_line_breaks(description)
+
+
+def get_event_description(team: Team, event_name: str) -> str | None:
+    """Return a human-readable description for a single event, or None if none is known.
+
+    Mirrors the precedence used when listing events: the built-in core taxonomy description wins,
+    otherwise fall back to the user-authored description stored on the event definition (EE only).
+    Used to surface a description on the single-event properties path so the agent doesn't have to
+    list every event to learn what one event means.
+    """
+    if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
+        return _format_core_event_description(event_core_definition)
+    if description := _get_event_definition_descriptions(team, [event_name], {}).get(event_name):
+        return sanitize_event_description(description)
+    return None
+
+
+def _get_event_definition_descriptions(
+    team: Team, event_names: list[str], already_described: dict[str, str]
+) -> dict[str, str]:
+    """Map event name -> user-authored description from the team's event definitions.
+
+    Only the enterprise `EventDefinition` model carries a `description` field, so this is a no-op
+    on non-EE builds. Skips core taxonomy events and events already described via context, and
+    runs a single batched query rather than one per event.
+    """
+    if not EE_AVAILABLE:
+        return {}
+
+    from ee.models.event_definition import (
+        EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+    )
+
+    names_to_fetch = [
+        name
+        for name in event_names
+        if name not in already_described
+        and name != "All events"
+        and name not in CORE_FILTER_DEFINITIONS_BY_GROUP["events"]
+    ]
+    if not names_to_fetch:
+        return {}
+
+    rows = (
+        EnterpriseEventDefinition.objects.filter(team_id=team.pk, name__in=names_to_fetch)
+        .exclude(description__isnull=True)
+        .exclude(description="")
+        .values_list("name", "description")
+    )
+    return {name: description for name, description in rows if description}
+
+
+def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
+    processed_events, _, _ = _process_events_data(events_in_context, team, user)
 
     root = ET.Element("defined_events")
     for event_data in processed_events:
@@ -250,10 +335,11 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> s
 def format_events_yaml(
     events_in_context: list[MaxEventContext],
     team: Team,
+    user: User,
     limit: int | None = None,
     offset: int | None = None,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
 
     formatted_events = ["events:"]
     for event_data in processed_events:

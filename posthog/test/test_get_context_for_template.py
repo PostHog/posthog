@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory
@@ -22,14 +23,13 @@ class TestGetContextForTemplate(APIBaseTest):
                 MagicMock(),
             )
 
-        # the current team has an api_token
+        # Under self-capture, posthog-js evaluates PostHog's own flags with the dogfood-flags team's
+        # token (first team by PK), which in this test is self.team — not the PH Cloud key.
         assert self.team.api_token != "sTMFPsFhdP1Ssg"
-        # but we use the posthog cloud api_token for the context
         assert actual == {
             "git_rev": mock.ANY,
             "js_capture_time_to_see_data": False,
-            # NB: we default to the PH Cloud key
-            "js_posthog_api_key": "sTMFPsFhdP1Ssg",
+            "js_posthog_api_key": self.team.api_token,
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
@@ -68,3 +68,25 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert app_context["homepage"] == (stored_homepage or None)
+
+    @parameterized.expand(
+        [
+            ("anonymous_is_always_light", None, "light"),
+            ("missing_theme_mode_means_light", "", "light"),
+            ("dark", "dark", "dark"),
+            ("system_defers_to_the_os", "system", "system"),
+        ]
+    )
+    def test_boot_theme_mirrors_theme_logic(self, _name, theme_mode, expected):
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        if theme_mode is None:
+            request.user = AnonymousUser()
+        else:
+            self.user.theme_mode = theme_mode or None
+            self.user.save()
+            request.user = self.user
+
+        actual = get_context_for_template("index.html", request)
+
+        assert actual["boot_theme"] == expected

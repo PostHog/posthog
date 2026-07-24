@@ -1,10 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -13,27 +12,24 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, SessionRecordingType } from '~/types'
+import { SessionRecordingType } from '~/types'
 
 import { ObservationStatusTag } from '../../components/ObservationCard'
-import { visionScannersObservationsList } from '../../generated/api'
-import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-
-type RowObservation = { id: string; status: ReplayObservationApi['status'] }
-const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
+import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
 /** Manual entry: scan one session by pasting its recording ID. */
 function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
-    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
+    const { scanner, triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
     const [sessionId, setSessionId] = useState('')
     const lastSeenSuccessCount = useRef(onDemandObservationSuccessCount)
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     useEffect(() => {
         if (onDemandObservationSuccessCount > lastSeenSuccessCount.current) {
@@ -68,21 +64,16 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                     fullWidth
                     data-attr="vision-scanner-scan-session-input"
                 />
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlay />}
+                    onClick={submit}
+                    loading={triggeringOnDemandObservation}
+                    disabledReason={editDisabledReason ?? (!trimmed ? 'Paste a session ID first' : undefined)}
+                    data-attr="vision-scanner-scan-session-submit"
                 >
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlay />}
-                        onClick={submit}
-                        loading={triggeringOnDemandObservation}
-                        disabledReason={!trimmed ? 'Paste a session ID first' : undefined}
-                        data-attr="vision-scanner-scan-session-submit"
-                    >
-                        Scan recording
-                    </LemonButton>
-                </AccessControlAction>
+                    Scan recording
+                </LemonButton>
             </div>
         </div>
     )
@@ -92,104 +83,18 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
-        replayScannerLogic({ id: scannerId })
+    const { observationBySession, pendingId, refreshingObservations, bulkScanning } = useValues(
+        scannerRunTabLogic({ scannerId })
     )
-    const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
+    const { setVisibleSessionIds, startScan, startBulkScan } = useActions(scannerRunTabLogic({ scannerId }))
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
-    // `pendingId` bridges the gap between clicking Scan and its observation showing up in the fetch below — it
-    // stays set until the observation lands (so the spinner never flickers back to the button), and is released
-    // on trigger failure. `pendingStartCount` lets us tell a queued scan from a failed one.
-    const [pendingId, setPendingId] = useState<string | null>(null)
-    const pendingStartCount = useRef(0)
-
-    // A scanner observes each session at most once. Look up each visible recording's observation (id + status):
-    // in-progress rows show a spinner, settled rows link to the result. Refetch after each scan and poll while
-    // anything visible is still running (or queued), so a row swaps spinner → "View observation" on its own.
-    const [observationBySession, setObservationBySession] = useState<Map<string, RowObservation>>(new Map())
-    // Drives the table's loading bar on each status refetch so the user sees the periodic refresh.
-    const [refreshingObservations, setRefreshingObservations] = useState(false)
+    // Sync the playlist's visible rows into the logic, which owns the observation lookup and polling.
     const visibleIdsKey = sessionRecordings.map((recording) => recording.id).join(',')
-
-    const refetchObservations = useCallback(async () => {
-        const ids = visibleIdsKey ? visibleIdsKey.split(',') : []
-        if (!currentTeamId || ids.length === 0) {
-            return
-        }
-        setRefreshingObservations(true)
-        try {
-            const response = await visionScannersObservationsList(String(currentTeamId), scannerId, {
-                session_id: visibleIdsKey,
-                limit: ids.length,
-            })
-            setObservationBySession((prev) => {
-                const next = new Map(prev)
-                for (const observation of response.results ?? []) {
-                    next.set(observation.session_id, { id: observation.id, status: observation.status })
-                }
-                return next
-            })
-        } catch {
-            // Best-effort enrichment — on failure we just leave the rows scannable.
-        } finally {
-            setRefreshingObservations(false)
-        }
-    }, [visibleIdsKey, currentTeamId, scannerId])
-
-    // Initial load + whenever a scan is triggered (which creates a new pending observation to pick up).
     useEffect(() => {
-        void refetchObservations()
-    }, [refetchObservations, onDemandObservationSuccessCount])
-
-    // Release the bridge if the trigger failed (no new observation was queued) — on success we keep it until the
-    // observation appears in the fetch, avoiding a one-frame flicker back to the button.
-    useEffect(() => {
-        if (triggeringOnDemandObservation || !pendingId) {
-            return
-        }
-        const failed = onDemandObservationSuccessCount <= pendingStartCount.current
-        if (failed) {
-            setPendingId(null)
-        }
-    }, [triggeringOnDemandObservation, onDemandObservationSuccessCount, pendingId])
-
-    // Once the queued observation lands, the bridge is no longer needed (its in-progress status drives the spinner).
-    useEffect(() => {
-        if (pendingId && observationBySession.has(pendingId)) {
-            setPendingId(null)
-        }
-    }, [observationBySession, pendingId])
-
-    const visibleIds = visibleIdsKey ? visibleIdsKey.split(',') : []
-    const anyInProgress = visibleIds.some((id) => {
-        const observation = observationBySession.get(id)
-        return !!observation && IN_PROGRESS_STATUSES.has(observation.status)
-    })
-
-    // Poll while a visible row is running or a scan is queued, so the spinner settles into the result button.
-    const shouldPoll = anyInProgress || pendingId !== null
-    useEffect(() => {
-        if (!shouldPoll) {
-            return
-        }
-        const interval = setInterval(() => {
-            // Skip polling while the browser tab is backgrounded; it resumes on the next tick when visible again.
-            if (document.visibilityState === 'visible') {
-                void refetchObservations()
-            }
-        }, 4000)
-        return () => clearInterval(interval)
-    }, [shouldPoll, refetchObservations])
-
-    const startScan = (sessionId: string): void => {
-        if (triggeringOnDemandObservation || pendingId) {
-            return
-        }
-        pendingStartCount.current = onDemandObservationSuccessCount
-        setPendingId(sessionId)
-        triggerOnDemandObservation(sessionId, true)
-    }
+        setVisibleSessionIds(visibleIdsKey ? visibleIdsKey.split(',') : [])
+    }, [visibleIdsKey, setVisibleSessionIds])
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -218,16 +123,12 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, recording) => {
-                const observation = observationBySession.get(recording.id)
+                const observation = observationBySession[recording.id]
                 if (observation) {
                     return <ObservationStatusTag status={observation.status} />
                 }
                 if (pendingId === recording.id) {
-                    return (
-                        <LemonTag type="warning">
-                            <Spinner className="mr-1" /> Scanning
-                        </LemonTag>
-                    )
+                    return <ObservationStatusTag status="running" />
                 }
                 return <span className="text-muted italic">Not scanned</span>
             },
@@ -238,7 +139,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             // Fixed width so Scan recording / View observation occupy the same width as the cell swaps.
             width: 184,
             render: (_, recording) => {
-                const observation = observationBySession.get(recording.id)
+                const observation = observationBySession[recording.id]
                 const settled = observation && !IN_PROGRESS_STATUSES.has(observation.status)
                 // In-flight or queued — the Status pill carries the spinner, so here we just disable the button.
                 const scanning =
@@ -261,29 +162,25 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     )
                 } else {
                     content = (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
+                        <LemonButton
+                            fullWidth
+                            center
+                            size="small"
+                            type="secondary"
+                            icon={<IconPlay />}
+                            disabledReason={
+                                editDisabledReason ??
+                                (scanning
+                                    ? 'Scan in progress…'
+                                    : pendingId && pendingId !== recording.id
+                                      ? 'Another scan is starting…'
+                                      : undefined)
+                            }
+                            onClick={() => startScan(recording.id)}
+                            data-attr="vision-run-scan-recording"
                         >
-                            <LemonButton
-                                fullWidth
-                                center
-                                size="small"
-                                type="secondary"
-                                icon={<IconPlay />}
-                                disabledReason={
-                                    scanning
-                                        ? 'Scan in progress…'
-                                        : pendingId && pendingId !== recording.id
-                                          ? 'Another scan is starting…'
-                                          : undefined
-                                }
-                                onClick={() => startScan(recording.id)}
-                                data-attr="vision-run-scan-recording"
-                            >
-                                Scan recording
-                            </LemonButton>
-                        </AccessControlAction>
+                            Scan recording
+                        </LemonButton>
                     )
                 }
                 return <div className="w-44">{content}</div>
@@ -310,6 +207,31 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 rowKey="id"
                 emptyState="No recordings match these filters."
                 data-attr="vision-run-recordings-table"
+                bulkSelection={{
+                    noun: ['recording', 'recordings'],
+                    // Only not-yet-scanned rows are selectable — a scanned or in-flight session has nothing
+                    // to (re)scan, matching the per-row button that swaps to "View observation".
+                    isRowSelectable: (recording) =>
+                        observationBySession[recording.id] || pendingId === recording.id
+                            ? { disabledReason: 'Already scanned' }
+                            : true,
+                    renderActions: ({ selectedKeys, selectedCount, clearSelection }) => (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlay />}
+                            loading={bulkScanning}
+                            disabledReason={editDisabledReason}
+                            onClick={() => {
+                                startBulkScan(selectedKeys as string[])
+                                clearSelection()
+                            }}
+                            data-attr="vision-run-bulk-scan"
+                        >
+                            Scan {selectedCount} selected
+                        </LemonButton>
+                    ),
+                }}
             />
             {hasNext && (
                 <div className="flex justify-center">
@@ -338,8 +260,8 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
             <div>
                 <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
                 <p className="text-muted text-sm m-0">
-                    Filter your session recordings and run this scanner against any of them. Each scan produces one
-                    observation.
+                    Filter your session recordings and run this scanner against any of them. Scan one at a time, or
+                    select several and scan them together. Each scan produces one observation.
                 </p>
             </div>
             <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>

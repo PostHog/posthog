@@ -26,7 +26,7 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 LabelPath = list[str]
 
@@ -160,8 +160,11 @@ class BoundedResolver(Resolver):
     ):
         super().__init__(*args, **kwargs)
         self.initial_view_name = initial_view_name
-        # seeded with the current view name so it counts as "visited" for cycle detection
+        # views whose bodies are currently being visited; seeded with the current view name so
+        # it counts as "visited" for cycle detection
         self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
+        # set by visit_join_expr, consumed by the body visit it triggers
+        self._pending_view_name: str | None = None
         self.max_view_depth = max_view_depth
         self.deadline_seconds = deadline_seconds
         self.enforce_bounds = enforce_bounds
@@ -236,13 +239,49 @@ class BoundedResolver(Resolver):
                         # soft mode: still expand, but record the overshoot via max_view_depth_observed
                     if next_depth > self.max_view_depth_observed:
                         self.max_view_depth_observed = next_depth
-                    self.resolving_views.add(view_name)
+                    # Hand the name to the body visit rather than marking it resolving here: the
+                    # base resolver walks node.next_join from inside visit_join_expr, so anything
+                    # marked around super() stays marked while later tables in the same FROM
+                    # resolve, and siblings would read as cycles.
+                    previous_pending = self._pending_view_name
+                    self._pending_view_name = view_name
                     try:
                         return super().visit_join_expr(node)
                     finally:
-                        self.resolving_views.discard(view_name)
+                        self._pending_view_name = previous_pending
 
         return super().visit_join_expr(node)
+
+    def _enter_view_body(self, stamped_view_name: str | None) -> str | None:
+        """Mark the view whose body is about to be visited, returning the name to pop after.
+
+        The base resolver inlines a view by replacing the table with its parsed body and
+        visiting that body before it walks `next_join`, so the body visit — not the JoinExpr
+        subtree — is what "on the current path" means for cycle detection. It stamps
+        `view_name` on `ast.SelectQuery` bodies only, so union-bodied views rely on the name
+        `visit_join_expr` left in `_pending_view_name`.
+        """
+        view_name = stamped_view_name or self._pending_view_name
+        self._pending_view_name = None
+        if view_name is not None:
+            self.resolving_views.add(view_name)
+        return view_name
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        view_name = self._enter_view_body(node.view_name)
+        try:
+            return super().visit_select_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        view_name = self._enter_view_body(None)
+        try:
+            return super().visit_select_set_query(node)
+        finally:
+            if view_name is not None:
+                self.resolving_views.discard(view_name)
 
 
 def bounded_resolver_factory_for_view(
@@ -356,6 +395,34 @@ LabelTreeField.register_lookup(LabelQuery)
 LabelTreeField.register_lookup(LabelQueryArray)
 
 
+# enclosing WITH clauses, innermost first — a name resolves against the closest one
+CteScope = tuple[dict[str, ast.CTE], ...]
+
+
+def _scope_for_union_branches(select_set: ast.SelectSetQuery, scope: CteScope) -> CteScope:
+    """Extend `scope` with the WITH that precedes a union.
+
+    A leading WITH covers every branch of the union, but HogQL parses it onto the first
+    branch's `ctes`. The branches are walked independently, so hoist it first or later
+    branches resolve their CTE references as though they were tables.
+    """
+    leading: ast.SelectQuery | ast.SelectSetQuery = select_set.initial_select_query
+    while isinstance(leading, ast.SelectSetQuery):
+        leading = leading.initial_select_query
+
+    if leading.ctes:
+        return (leading.ctes, *scope)
+    return scope
+
+
+def _lookup_cte(name: str, scope: CteScope) -> ast.CTE | None:
+    for ctes in scope:
+        cte = ctes.get(name)
+        if cte is not None:
+            return cte
+    return None
+
+
 def get_parents_from_model_query(team: Team, model_name: str, model_query: str) -> set[str]:
     """Get parents from a given query.
 
@@ -393,32 +460,29 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     if prepared_ast is None:
         return set()
 
+    # each query is walked with the CTE scopes it can actually see, so a name defined in
+    # one query's WITH never resolves a reference in an unrelated one
+    queries: list[tuple[ast.SelectQuery, CteScope]]
     if isinstance(prepared_ast, ast.SelectSetQuery):
-        queries = list(extract_select_queries(prepared_ast))
+        queries = [
+            (query, _scope_for_union_branches(prepared_ast, ())) for query in extract_select_queries(prepared_ast)
+        ]
     else:
-        queries = [prepared_ast]
-
-    # collect CTE definitions so we can resolve through them to find real tables
-    ctes: dict[str, ast.CTE] = {}
-    for q in queries:
-        if q.ctes:
-            ctes.update(q.ctes)
+        queries = [(prepared_ast, ())]
 
     parents: set[str] = set()
 
     # track by object id so that a recursive CTE (same object) is only
     # expanded once, while an inner CTE that shadows an outer name (different
-    # object) is still expanded. The CTE dict holds a strong reference for the
+    # object) is still expanded. The AST holds a strong reference for the
     # lifetime of this function, so the id() identity is stable.
     expanded_ctes: set[int] = set()
 
     while queries:
-        query = queries.pop()
+        query, scope = queries.pop()
 
-        # collect CTEs from each query as it's processed so that nested CTEs
-        # (inner WITH clauses resolved through from outer CTEs) are available
         if query.ctes:
-            ctes.update(query.ctes)
+            scope = (query.ctes, *scope)
 
         join = query.select_from
 
@@ -426,16 +490,21 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
             continue
 
         while join is not None:
+            # every table in the FROM is a parent, so keep walking next_join past
+            # subqueries and expanded views rather than stopping at the first one
             if isinstance(join.table, ast.SelectQuery):
                 if join.table.view_name is not None:
                     parents.add(join.table.view_name)
-                    break
+                else:
+                    queries.append((join.table, scope))
 
-                queries.append(join.table)
-                break
+                join = join.next_join
+                continue
             elif isinstance(join.table, ast.SelectSetQuery):
-                queries.extend(list(extract_select_queries(join.table)))
-                break
+                branch_scope = _scope_for_union_branches(join.table, scope)
+                queries.extend((branch, branch_scope) for branch in extract_select_queries(join.table))
+                join = join.next_join
+                continue
 
             if join.table_args is not None:
                 # Table functions like numbers(), s3(), etc. are not real parents
@@ -449,15 +518,16 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if isinstance(parent_name, str):
-                if parent_name in ctes and id(ctes[parent_name]) not in expanded_ctes:
-                    expanded_ctes.add(id(ctes[parent_name]))
-                    cte_expr = ctes[parent_name].expr
-                    if isinstance(cte_expr, ast.SelectSetQuery):
-                        queries.extend(list(extract_select_queries(cte_expr)))
-                    elif isinstance(cte_expr, ast.SelectQuery):
-                        queries.append(cte_expr)
-                elif parent_name not in ctes:
+                cte = _lookup_cte(parent_name, scope)
+                if cte is None:
                     parents.add(parent_name)
+                elif id(cte) not in expanded_ctes:
+                    expanded_ctes.add(id(cte))
+                    if isinstance(cte.expr, ast.SelectSetQuery):
+                        branch_scope = _scope_for_union_branches(cte.expr, scope)
+                        queries.extend((branch, branch_scope) for branch in extract_select_queries(cte.expr))
+                    elif isinstance(cte.expr, ast.SelectQuery):
+                        queries.append((cte.expr, scope))
 
             join = join.next_join
 

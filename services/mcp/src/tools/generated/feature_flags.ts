@@ -35,7 +35,7 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
+const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
         'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
     ),
@@ -134,10 +134,14 @@ const featureFlagGetAll = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             query: {
                 active: params.active,
+                archived: params.archived,
                 created_by_id: params.created_by_id,
+                eligible_for_experiment: params.eligible_for_experiment,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
+                excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                key: params.key,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -312,6 +316,9 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.disable_copied_flag !== undefined) {
             body['disable_copied_flag'] = params.disable_copied_flag
         }
+        if (params.copy_dependencies !== undefined) {
+            body['copy_dependencies'] = params.copy_dependencies
+        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
@@ -356,6 +363,7 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
                 distinct_id: params.distinct_id,
+                flag_keys: params.flag_keys,
                 groups: params.groups,
             },
         })
@@ -646,6 +654,9 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
         }
         if (params.active !== undefined) {
             body['active'] = params.active
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags

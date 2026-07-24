@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import copy
 import uuid
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
 from django.utils import timezone
 
 import structlog
@@ -34,6 +36,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -43,6 +46,7 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_migrations.upgrade import upgrade
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -145,6 +149,30 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+    """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
+
+    A long recalculation can outlive its connection (the server closes it unexpectedly); the first
+    write afterwards then raises a connection error. Left unguarded on the error/finally recovery
+    path, that cascades into "the connection is closed" - burying the real root-cause error and
+    leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
+    still lands and the original error is what propagates; if the retry fails too, swallow it (a
+    recovery write must never mask the failure it is recording).
+    """
+    try:
+        save_fn()
+    except (InterfaceError, OperationalError):
+        connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
+        try:
+            save_fn()
+        except Exception as retry_error:
+            # A swallowed retry means the cohort is stuck with is_calculating=True and no bookkeeping
+            # recorded. Surface it to error tracking, matching how other swallowed cohort-calculation
+            # errors are captured, so it alerts rather than only living in structured logs.
+            logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
+            capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
 def run_cohort_query(
@@ -297,8 +325,11 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
 
     Cohort population only needs person IDs, so we remove recordings data
     (which can use complex UDFs like aggregate_funnel_array that may not
-    be available or are needlessly expensive) and search terms (the cohort
-    should include all matching persons, not just those matching a search).
+    be available or are needlessly expensive).
+
+    Insight-derived actor queries may include ad-hoc modal search terms that
+    should not narrow the saved cohort; direct Persons list queries use
+    search as the primary filter and must keep it.
     """
     query_dict = copy.deepcopy(query_dict)
 
@@ -308,13 +339,12 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
         if not query_dict["select"]:
             query_dict["select"] = ["actor"]
 
-        # Intentionally strip search: the cohort should capture all persons matching
-        # the query, not just those matching an ad-hoc search in the persons modal.
-        query_dict.pop("search", None)
-
-        source = query_dict.get("source", {})
-        if isinstance(source, dict) and source.get("includeRecordings"):
-            source["includeRecordings"] = False
+        source = query_dict.get("source")
+        if isinstance(source, dict):
+            # Modal search while inspecting insight actors is UI-only.
+            query_dict.pop("search", None)
+            if source.get("includeRecordings"):
+                source["includeRecordings"] = False
 
     return query_dict
 
@@ -325,7 +355,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+    # The stored query (and any insight query nested in its source) may predate the current schema
+    query_dict = upgrade(_sanitize_query_for_cohort(cast(dict, cohort.query)))
 
     query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
@@ -333,6 +364,18 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
+        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
+        # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
+        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
+        # survive, so dropping it would silently make membership a non-deterministic subset;
+        # keep both so a bounded "top N" cohort stays deterministic.
+        is_bounded = (
+            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+        )
+        if not is_bounded:
+            select_query.order_by = None
+
         columns: dict[str, ast.Expr] = {}
 
         for expr in select_query.select:
@@ -609,7 +652,7 @@ def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
 
 def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
     distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
-    # The leading `SELECT distinct_id` is load-bearing: breakdown_props rewrites it via string replace.
+    # Callers embed this in `distinct_id IN (...)`, so it must select exactly distinct_id.
     return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
 
 
@@ -624,7 +667,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
     return person_query, params
 
 
-def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
         cohort_id=cohort_id,
@@ -734,7 +777,14 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         history.finished_at = timezone.now()
         history.error = str(e)
         history.error_code = parse_error_code(e)
-        history.save(update_fields=["finished_at", "error", "error_code"])
+        # The recalculation may have died because Postgres dropped the connection; record the
+        # failure resiliently so it reconnects instead of re-raising "connection is closed" and
+        # masking the real error e.
+        save_recovery_bookkeeping(
+            lambda: history.save(update_fields=["finished_at", "error", "error_code"]),
+            cohort_id=cohort.pk,
+            team_id=team.id,
+        )
         raise
 
 
@@ -956,9 +1006,20 @@ def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    stop_traversal_at_static: bool = False,
 ) -> list[Cohort]:
+    """
+    Return cohorts referenced by this cohort, recursively.
+
+    When stop_traversal_at_static is True, a static root cohort returns no dependencies.
+    Static nested cohorts are still returned, but their own dependencies are not traversed.
+    """
+
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
+
+    if stop_traversal_at_static and cohort.is_static:
+        return []
 
     cohorts = []
     seen_cohort_ids = set()
@@ -982,7 +1043,8 @@ def get_all_cohort_dependencies(
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                queue.extend(get_nested_cohort_ids(current_cohort))
+                if not (stop_traversal_at_static and current_cohort.is_static):
+                    queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:
             seen_cohorts_cache[cohort_id] = ""
@@ -1174,47 +1236,30 @@ def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]
 
 
 def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
-    """Return ``{cohort_id: is_member}`` for the given person.
+    """Return ``{cohort_id: is_member}`` for the given person via personhog.
 
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     Membership for cohorts the person is not in is returned as ``False`` rather
     than being omitted, so callers can index directly by cohort_id.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not cohort_ids:
         return {}
 
-    # Local import to avoid circulars (cohort → person via CohortPeople FK).
-    from posthog.models.person.person import READ_DB_FOR_PERSONS
-
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     # Scope cohort_ids to the team via Cohort on the default DB before querying
-    # either the personhog RPC or the persons-DB CohortPeople table. Neither
-    # downstream path enforces team ownership (posthog_cohortpeople has no
-    # team_id column; the RPC just filters by person_id + cohort_id), so the
-    # tenant boundary has to be applied here. Cohorts belonging to a different
-    # team are reported as ``False`` rather than looked up. Same pattern as
-    # `posthog.models.team.util.delete_bulky_postgres_data`.
+    # the personhog RPC. The RPC just filters by person_id + cohort_id and does
+    # not enforce team ownership, so the tenant boundary has to be applied here.
+    # Cohorts belonging to a different team are reported as ``False`` rather than
+    # looked up. Same pattern as `posthog.models.team.util.delete_bulky_postgres_data`.
     scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
     if not scoped_cohort_ids:
         return dict.fromkeys(cohort_ids, False)
 
-    def orm_fn() -> dict[int, bool]:
-        member_ids = set(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
-            .values_list("cohort_id", flat=True)
-        )
-        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
-
-    scoped_result = _personhog_routed(
+    scoped_result = personhog_call(
         "check_cohort_membership",
         lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
-        orm_fn,
-        team_id=team_id,
     )
     # Expand back to the caller's original cohort_ids; cohorts that were scoped
     # out (not owned by this team) register as non-member.
@@ -1251,35 +1296,20 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
 
 
 def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
-    """Return all person IDs belonging to a static cohort.
+    """Return all person IDs belonging to a static cohort via personhog."""
+    from posthog.personhog_client.client import personhog_call
 
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
-    """
-    from posthog.models.person.person import READ_DB_FOR_PERSONS
-    from posthog.models.person.util import _personhog_routed
+    from products.cohorts.backend.models.cohort import Cohort
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-
-    # Validate cohort ownership on the default DB before querying the persons DB
-    # or the personhog RPC — neither downstream path enforces team isolation
-    # (posthog_cohortpeople has no team_id column; the proto has no team_id field).
+    # Validate cohort ownership on the default DB before querying the personhog
+    # RPC — the proto has no team_id field, so the tenant boundary is applied here.
     # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return []
 
-    def orm_fn() -> list[int]:
-        return list(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(cohort_id=cohort_id)
-            .values_list("person_id", flat=True)
-        )
-
-    return _personhog_routed(
+    return personhog_call(
         "list_cohort_member_ids",
         lambda: _list_cohort_member_ids_via_personhog(cohort_id),
-        orm_fn,
-        team_id=team_id,
     )
 
 
@@ -1314,46 +1344,22 @@ def insert_cohort_members(
 ) -> int:
     """Insert person IDs into a static cohort's PG membership table.
 
-    Routes through personhog when the gate is enabled, falling back to a raw
-    SQL INSERT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
-    Returns the number of newly inserted rows (duplicates are skipped).
+    Routes through personhog. Returns the number of newly inserted rows
+    (duplicates are skipped).
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not person_ids:
         return 0
 
-    from posthog.models.person import Person
-
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
-    def orm_fn() -> int:
-        from django.db import connections, router
-
-        db_write = router.db_for_write(Person) or "default"
-        cursor = connections[db_write].cursor()
-        table = CohortPeople._meta.db_table
-        placeholders = ",".join(["%s"] * len(person_ids))
-        query = f"""
-            INSERT INTO "{table}" ("person_id", "cohort_id", "version")
-            SELECT pid, %s, %s
-            FROM UNNEST(ARRAY[{placeholders}]) AS t(pid)
-            WHERE NOT EXISTS (
-                SELECT 1 FROM "{table}" AS cp
-                WHERE cp."person_id" = pid AND cp."cohort_id" = %s
-            )
-        """
-        cursor.execute(query, [cohort_id, version, *person_ids, cohort_id])
-        return cursor.rowcount
-
-    return _personhog_routed(
+    return personhog_call(
         "insert_cohort_members",
         lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
-        orm_fn,
-        team_id=team_id,
     )
 
 
@@ -1370,37 +1376,29 @@ def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
 
 
 def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
-    """Remove a single person from a static cohort's PG membership table.
+    """Remove a single person from a static cohort's membership via personhog.
 
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM DELETE against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     Returns ``True`` if a row was deleted, ``False`` otherwise.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return False
 
-    def orm_fn() -> bool:
-        deleted_count, _ = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort_id, person_id=person_id
-        ).delete()  # nosemgrep: no-direct-persons-db-orm
-        return deleted_count > 0
-
-    return _personhog_routed(
+    return personhog_call(
         "delete_cohort_member",
         lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
-        orm_fn,
-        team_id=team_id,
     )
 
 
 _DELETE_BULK_MAX_ITERATIONS = 10_000
 
 
-def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+def _delete_cohort_members_bulk_via_personhog(
+    cohort_ids: list[int], batch_size: int, timeout: float | None = None
+) -> int:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
@@ -1411,7 +1409,8 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     total_deleted = 0
     for _ in range(_DELETE_BULK_MAX_ITERATIONS):
         resp = client.delete_cohort_members_bulk(
-            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size),
+            timeout=timeout,
         )
         total_deleted += resp.deleted_count
         if resp.deleted_count < batch_size:
@@ -1426,32 +1425,21 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     return total_deleted
 
 
-def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
-    """Delete all PG cohort membership rows for the given cohort IDs.
+def delete_cohort_members_bulk(
+    team_id: int, cohort_ids: list[int], batch_size: int = 10_000, timeout: float | None = None
+) -> int:
+    """Delete all cohort membership rows for the given cohort IDs via personhog.
 
-    Routes through personhog when the gate is enabled, falling back to the
-    Django ORM ``_raw_delete`` against ``posthog_cohortpeople`` otherwise.
     Returns the total number of deleted rows.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not cohort_ids:
         return 0
 
-    from products.cohorts.backend.models.cohort import CohortPeople
-
-    def orm_fn() -> int:
-        from django.db import router
-
-        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)  # nosemgrep: no-direct-persons-db-orm
-        db_alias = router.db_for_write(CohortPeople)
-        return qs._raw_delete(db_alias)
-
-    return _personhog_routed(
+    return personhog_call(
         "delete_cohort_members_bulk",
-        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
-        orm_fn,
-        team_id=team_id,
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size, timeout),
     )
 
 
@@ -1476,31 +1464,20 @@ def _count_cohort_members_via_personhog(cohort_ids: list[int], consistency: Read
 def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsistency = "eventual") -> int:
     """Return the number of persons in a static cohort.
 
-    Routes through personhog when the gate is enabled, falling back to a Django
-    ORM COUNT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Routes through personhog.
 
     Use ``consistency="strong"`` when reading immediately after a write
     (e.g. after inserting or deleting cohort members) to avoid stale counts
-    from replication lag (ORM) or eventual consistency (personhog).
+    from personhog's eventual consistency.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
-    def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
-        if consistency == "strong":
-            from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-            qs = qs.using(PERSONS_DB_FOR_WRITE)
-        return qs.count()
-
-    return _personhog_routed(
+    return personhog_call(
         "count_cohort_members",
         lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
-        orm_fn,
-        team_id=team_id,
     )

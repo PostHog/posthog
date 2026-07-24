@@ -18,6 +18,10 @@ describe('warehouseProvisioningLogic', () => {
             name: '',
             available: true,
         } as any)
+        jest.spyOn(dwApi, 'dataWarehouseCheckSchemaNameRetrieve').mockResolvedValue({
+            name: '',
+            available: true,
+        } as any)
     })
 
     afterEach(() => {
@@ -62,6 +66,90 @@ describe('warehouseProvisioningLogic', () => {
         }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
     })
 
+    it('removes the org record once teardown reports the warehouse deleted, then stops polling', async () => {
+        // Teardown reports `deleted` once; after delete-org the record is gone so status 404s.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete', 'stopPolling'])
+        expect(deleteOrg).toHaveBeenCalledTimes(1)
+        expect(logic.values.pollingActive).toBe(false)
+    })
+
+    it('retries removing the org record when the first delete-org attempt fails', async () => {
+        // First status read is `deleted`; the successful retry then 404s, stopping the poll loop.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest
+            .spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy')
+            .mockRejectedValueOnce({ message: 'boom' })
+            .mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        // First attempt fails and settles, clearing the in-flight guard.
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete'])
+        expect(logic.values.isDeletingOrg).toBe(false)
+
+        // The next poll re-observing `deleted` re-fires delete-org rather than staying stuck.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleted' } as any)
+        }).toDispatchActions(['deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not re-delete the org when a stale `deleted` status arrives after a successful delete', async () => {
+        // A single `deleted` read triggers the delete; the retry mock returns null thereafter.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        // First `deleted` read deletes the org; success latches the guard.
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete'])
+        expect(logic.values.orgDeletionSucceeded).toBe(true)
+
+        // Provisioner propagation lag can still report `deleted` after the record is gone; the latch
+        // must stop that from firing a second delete against an already-deleted org.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleted' } as any)
+        }).toNotHaveDispatchedActions(['deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(1)
+    })
+
+    it('flags a stuck teardown once it sits in `deleting` past the warn threshold', async () => {
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        // One `deleting` read is still "in progress", not yet "taking long".
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+
+        // 18 consecutive `deleting` reads (~3 min of polling) trips the affordance.
+        await expectLogic(logic, () => {
+            for (let i = 0; i < 17; i++) {
+                logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+            }
+        }).toMatchValues({ deprovisionTakingLong: true })
+
+        // A non-`deleting` read resets the counter.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'ready' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+    })
+
     it('surfaces an info message instead of an error when a sibling project already provisioned (409)', async () => {
         jest.spyOn(dwApi, 'dataWarehouseProvisionCreate').mockRejectedValueOnce({ status: 409 })
         const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue(undefined as any)
@@ -71,10 +159,77 @@ describe('warehouseProvisioningLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse' })
+            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse', schemaName: 'shared' })
         }).toDispatchActions(['provisionWarehouse', 'loadWarehouseStatus', 'provisionWarehouseComplete'])
 
         expect(infoToast).toHaveBeenCalledTimes(1)
         expect(errorToast).not.toHaveBeenCalled()
+    })
+
+    it('flags a ready warehouse without team onboarding as needing onboarding', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
+            state: 'ready',
+            team_onboarded: false,
+            schema_name: null,
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+        expect(logic.values.needsTeamOnboarding).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({
+                state: 'ready',
+                team_onboarded: true,
+                schema_name: 'mine',
+            } as any)
+        }).toMatchValues({ needsTeamOnboarding: false, teamOnboarded: true, teamSchemaName: 'mine' })
+    })
+
+    it('onboards the project and refreshes status', async () => {
+        const onboard = jest.spyOn(dwApi, 'dataWarehouseOnboardTeamCreate').mockResolvedValue({
+            onboarded: true,
+            schema_name: 'my_schema',
+        } as any)
+        // After onboarding, the refreshed status reports the project as onboarded.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
+            state: 'ready',
+            team_onboarded: true,
+            schema_name: 'my_schema',
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.onboardTeam({ schemaName: 'my_schema' })
+        }).toDispatchActions([
+            'onboardTeam',
+            'onboardTeamComplete',
+            'loadWarehouseStatus',
+            'loadWarehouseStatusSuccess',
+        ])
+
+        expect(onboard).toHaveBeenCalledWith(expect.any(String), { schema_name: 'my_schema' })
+        expect(logic.values.teamOnboarded).toBe(true)
+        expect(logic.values.teamSchemaName).toBe('my_schema')
+    })
+
+    it('marks the schema name unavailable when onboarding hits a schema conflict (409)', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseOnboardTeamCreate').mockRejectedValueOnce({ status: 409 })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.onboardTeam({ schemaName: 'taken' })
+        }).toDispatchActions(['onboardTeam', 'onboardTeamComplete'])
+
+        expect(errorToast).toHaveBeenCalledTimes(1)
+        expect(logic.values.teamOnboarded).toBe(false)
+        expect(logic.values.schemaNameAvailable).toBe(false)
     })
 })

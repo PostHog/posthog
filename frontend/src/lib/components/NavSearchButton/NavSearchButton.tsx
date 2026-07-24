@@ -1,25 +1,20 @@
-import { useValues } from 'kea'
-
 import { IconSearch } from '@posthog/icons'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { CommandOpenSource } from 'lib/components/Command/commandLogic'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { searchButtonLogic } from './searchButtonLogic'
-
 interface NavSearchButtonProps {
     isLayoutNavCollapsed: boolean
-    toggleCommand: () => void
+    toggleCommand: (source: CommandOpenSource) => void
 }
 
 export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSearchButtonProps): JSX.Element {
-    const { showHint } = useValues(searchButtonLogic)
-
     return (
         <ButtonPrimitive
-            iconOnly={!showHint}
+            iconOnly
             data-attr="nav-search"
             tooltip={
                 <div className="flex items-center gap-2">
@@ -29,20 +24,31 @@ export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSear
             tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
             onClick={() => {
                 posthog.capture('nav search clicked')
-                toggleCommand()
+                toggleCommand('nav-search-button')
             }}
-            className="gap-0"
         >
             <IconSearch className="size-4 shrink-0 text-secondary" />
-            <div
-                className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-300 ease-in-out ${
-                    showHint ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
-                }`}
-            >
-                <span className="flex items-center gap-1 pl-1 text-xs text-secondary">
-                    <RenderKeybind keybind={[keyBinds.search]} minimal />
-                </span>
-            </div>
+        </ButtonPrimitive>
+    )
+}
+
+/** Input-styled full-width search trigger shown below the nav header in the `search-bar` variant of the Cmd+K nav experiment. */
+export function NavSearchBar({ toggleCommand }: { toggleCommand: (source: CommandOpenSource) => void }): JSX.Element {
+    return (
+        <ButtonPrimitive
+            fullWidth
+            data-attr="nav-search-bar"
+            className="justify-between border border-primary bg-surface-primary rounded-md px-2"
+            onClick={() => {
+                posthog.capture('nav search clicked')
+                toggleCommand('nav-search-bar')
+            }}
+        >
+            <span className="flex items-center gap-1.5 text-secondary">
+                <IconSearch className="size-4 shrink-0" />
+                <span className="text-xs">Search</span>
+            </span>
+            <RenderKeybind keybind={[keyBinds.search]} />
         </ButtonPrimitive>
     )
 }

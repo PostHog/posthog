@@ -3,18 +3,25 @@ import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
 
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    IntegrationType,
+    MessageAssetRow,
+} from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const sesThrottleResponsesTotal = new Counter({
@@ -86,6 +93,23 @@ export function sanitizeEmailSubject(subject: string): string {
         .trim()
 }
 
+// Splits a comma-separated address list and extracts the bare email from any RFC-822
+// `"Name" <email@x>` entries. Used by the pre-send suppression check to normalize cc/bcc entries
+// before matching against the suppression list (which stores bare, lower-cased addresses).
+export function extractEmailsFromAddressList(value: string | undefined): string[] {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        return []
+    }
+    return value
+        .split(',')
+        .map((raw) => {
+            const trimmed = raw.trim()
+            const bracketed = trimmed.match(/<([^>]+)>/)
+            return (bracketed ? bracketed[1] : trimmed).trim()
+        })
+        .filter((addr) => addr.length > 0)
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -108,7 +132,9 @@ export class EmailService {
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private emailSuppressionService: EmailSuppressionService,
+        private messageAssetsService?: MessageAssetsService
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -143,6 +169,7 @@ export class EmailService {
 
         let success: boolean = false
         let throttled: boolean = false
+        let assetRow: MessageAssetRow | null = null
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -159,6 +186,27 @@ export class EmailService {
 
             const from = this.resolveFromSender(integration)
 
+            // Single choke point for the suppression check — every send path lands here regardless
+            // of whether the invocation came from a workflow action or an email destination hog
+            // function. Checking here means callers can't bypass it by taking a different upstream
+            // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
+            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
+            if (skipReason) {
+                addLog('info', skipReason)
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suppressed',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, params, from, isTest)
@@ -171,7 +219,15 @@ export class EmailService {
                     throw new Error('Email delivery mode not supported')
             }
 
-            addLog('info', `Email sent to ${params.to.email}`)
+            // Emit the `[Email:…]` token in the success log only when an asset row
+            // will actually be captured; `renderWorkflowLogMessage` renders it as the
+            // "View email" chip, so suppressing it for skipped captures keeps the chip
+            // from 404-ing on click.
+            if (!isTest && this.messageAssetsService) {
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+            }
+            const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
+            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
@@ -213,6 +269,10 @@ export class EmailService {
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
             })
+
+            if (success && assetRow) {
+                result.emailAssets.push(assetRow)
+            }
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)
@@ -236,6 +296,38 @@ export class EmailService {
         }
 
         return result
+    }
+
+    // Returns a human-readable log string when any destination address is suppressed for the team,
+    // or null when the send should proceed. Scans to + cc + bcc — SES delivers to every list, so a
+    // suppressed address anywhere blocks the whole send. `cc` and `bcc` can be comma-separated
+    // lists with RFC-822 `"Name" <email>` entries; we strip the angle-bracketed address before
+    // matching against the normalized suppression identifier.
+    private async buildSuppressionSkipReason(
+        teamId: number,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<string | null> {
+        const recipients: string[] = []
+        if (params.to?.email && params.to.email.trim()) {
+            recipients.push(params.to.email.trim())
+        }
+        recipients.push(...extractEmailsFromAddressList(params.cc))
+        recipients.push(...extractEmailsFromAddressList(params.bcc))
+        if (recipients.length === 0) {
+            return null
+        }
+
+        const results = await Promise.all(
+            recipients.map(async (email) => ({
+                email,
+                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email),
+            }))
+        )
+        const suppressed = results.filter((r) => r.suppressed).map((r) => r.email)
+        if (suppressed.length === 0) {
+            return null
+        }
+        return `Skipping send: recipient(s) on the suppression list — ${suppressed.join(', ')}`
     }
 
     private resolveFromSender(integration: IntegrationType): { email: string; name: string } {

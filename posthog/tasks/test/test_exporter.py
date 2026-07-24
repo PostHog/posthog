@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -40,7 +40,6 @@ class TestIsUserQueryErrorType(TestCase):
             ("TimeoutError", False),
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
-            ("CHQueryErrorTooManySimultaneousQueries", False),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
             (None, False),
@@ -114,7 +113,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
-        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        mock_export_direct.side_effect = ClickHouseAtCapacity()
 
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -127,6 +126,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert mock_export_direct.call_count == 1
 
         asset.refresh_from_db()
-        assert asset.exception == "Code: None.\nToo many queries"
-        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
+        assert asset.exception == ClickHouseAtCapacity.default_detail
+        assert asset.exception_type == "ClickHouseAtCapacity"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM

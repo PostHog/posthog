@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -50,6 +52,8 @@ describe('apiStatusLogic', () => {
         })
 
         it('triggers auto-logout on 401 for non-impersonated users', async () => {
+            // The real logout listener submits a <form>, which jsdom doesn't implement
+            const submitSpy = jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation()
             useMocks({
                 get: {
                     '/api/users/@me/': () => [401, {}],
@@ -72,6 +76,51 @@ describe('apiStatusLogic', () => {
 
             expect(logoutSpy).toHaveBeenCalled()
             logoutSpy.mockRestore()
+            submitSpy.mockRestore()
+        })
+    })
+
+    describe('read-only impersonation 403 handling', () => {
+        const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
+
+        it('surfaces the block reason as a toast', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const mockResponse = {
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ code: 'impersonation_read_only', detail: READ_ONLY_DETAIL }),
+            } as unknown as Response
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(mockResponse)
+            }).toFinishAllListeners()
+
+            expect(errorSpy).toHaveBeenCalledWith(READ_ONLY_DETAIL, { hideButton: true })
+            errorSpy.mockRestore()
+        })
+
+        it('does not toast for unrelated 403s', async () => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const mockResponse = {
+                status: 403,
+                ok: false,
+                json: () => Promise.resolve({ code: 'permission_denied', detail: 'Nope' }),
+            } as unknown as Response
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(mockResponse)
+            }).toFinishAllListeners()
+
+            expect(errorSpy).not.toHaveBeenCalled()
+            errorSpy.mockRestore()
         })
     })
 })

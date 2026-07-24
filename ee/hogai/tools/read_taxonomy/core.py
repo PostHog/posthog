@@ -2,10 +2,10 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import format_events_yaml
+from ee.hogai.utils.helpers import format_events_yaml, get_event_description
 
 
 class ReadEvents(BaseModel):
@@ -17,7 +17,7 @@ class ReadEvents(BaseModel):
 
 
 class ReadEventProperties(BaseModel):
-    """Returns the properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
+    """Returns the description (if one is set) and properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
 
     kind: Literal["event_properties"] = "event_properties"
     event_name: str = Field(description="The name of the event that you want to retrieve properties for.")
@@ -94,7 +94,7 @@ If the user's question involves feature flags, construct the property name using
 """.strip()
 
 
-def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolkit, team: Team) -> str:
+def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolkit, team: Team, user: User) -> str:
     """
     Execute a taxonomy query and return the result.
 
@@ -102,10 +102,12 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
     """
     match query:
         case ReadEvents():
-            return format_events_yaml([], team, limit=query.limit, offset=query.offset)
+            return format_events_yaml([], team, user, limit=query.limit, offset=query.offset)
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
-            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
+            description = get_event_description(team, query.event_name)
+            prefix = f"Description of `{query.event_name}`: {description}\n\n" if description else ""
+            return f"{prefix}{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
         case ReadActionProperties():

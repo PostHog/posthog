@@ -51,6 +51,12 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
+    block_consent_modals: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+        ),
 })
 
 /**
@@ -100,6 +106,29 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
+    block_consent_modals: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+        ),
+})
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreateBodyBlockConsentModalsDefault = false
+
+export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .describe('Exact page URL to speculatively render ahead of heatmap creation. Wildcards are not allowed.'),
+    block_consent_modals: zod
+        .boolean()
+        .default(savedPrewarmCreateBodyBlockConsentModalsDefault)
+        .describe(
+            'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
+        ),
 })
 
 /**
@@ -115,6 +144,18 @@ export const WebAnalyticsAchievementsAcknowledgeCelebrationBody = /* @__PURE__ *
         .min(1)
         .max(webAnalyticsAchievementsAcknowledgeCelebrationBodyStageMax)
         .describe('Stage number being acknowledged, 1-5.'),
+})
+
+/**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const WebAnalyticsAchievementsUpdatePreferencesBody = /* @__PURE__ */ zod.object({
+    achievements_opt_out: zod
+        .boolean()
+        .describe(
+            'When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user).'
+        ),
 })
 
 /**

@@ -23,6 +23,7 @@ from posthog.api.signup import _save_session_with_recovery, process_social_invit
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -603,14 +604,9 @@ class TestSignupAPI(APIBaseTest):
                 "attr": "password",
             }, [password, res.json()]
 
-    @mock.patch(
-        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-        return_value="test",
-    )
-    def test_default_dashboard_is_created_on_signup(self, _mock_variant):
+    def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
-        Note: This feature is currently behind a feature flag.
         """
 
         response = self.client.post(
@@ -860,59 +856,6 @@ class TestSignupAPI(APIBaseTest):
     def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud_with_existing_invite(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud_with_existing_expired_invite(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(
-                mock_sso_providers, mock_request, mock_capture, use_invite=True, expired_invite=True
-            )
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
@@ -997,13 +940,16 @@ class TestSignupAPI(APIBaseTest):
         with self.is_cloud(True):
             mock_sso_providers.return_value = {"google-oauth2": True}
             new_org = Organization.objects.create(name="Test org")
-            OrganizationDomain.objects.create(
+            domain = OrganizationDomain.objects.create(
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
                 organization=new_org,
             )
+            domain.identity_provider_config = IdentityProviderConfig.objects.create(
+                organization=new_org, scim_enabled=True
+            )
+            domain.save()
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1040,13 +986,16 @@ class TestSignupAPI(APIBaseTest):
 
             mock_sso_providers.return_value = {"google-oauth2": True}
             new_org = Organization.objects.create(name="Test org")
-            OrganizationDomain.objects.create(
+            domain = OrganizationDomain.objects.create(
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
                 organization=new_org,
             )
+            domain.identity_provider_config = IdentityProviderConfig.objects.create(
+                organization=new_org, scim_enabled=True
+            )
+            domain.save()
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1583,8 +1532,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a user signs up with a passkey, the UUID generated during passkey registration
         should become the user's actual UUID.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1592,6 +1539,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Generate a UUID that would be created during passkey registration
         expected_uuid = uuid.uuid4()
@@ -1644,8 +1592,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         """
         After successful passkey signup, the session data should be cleared.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1653,6 +1599,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         expected_uuid = uuid.uuid4()
 
@@ -1696,8 +1643,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         # Self-created passkeys count as already-acknowledged: otherwise the user lands
         # on the credential review interstitial after signup and could revoke their only
         # login credential.
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1705,6 +1650,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         session = SessionStore()
         session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "reviewed_passkey@posthog.com"
@@ -1833,8 +1779,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a password is provided, password signup should work even if passkey data exists in session.
         This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1842,6 +1786,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
         session = SessionStore()
@@ -1894,8 +1839,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a password is provided, password signup should work even if passkey data exists in session,
         even when using the same email that was used for passkey registration.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1903,6 +1846,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         passkey_email = "same_email@posthog.com"
 
@@ -2865,8 +2809,6 @@ class TestInviteSignupAPI(APIBaseTest):
         When a password is provided for invite signup, it should work even if passkey data exists in session.
         This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2874,6 +2816,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Create an invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -2936,8 +2879,6 @@ class TestInviteSignupAPI(APIBaseTest):
         Otherwise the user lands behind the undismissable 2FA setup modal that only offers TOTP —
         which platform passkeys (macOS/iOS) cannot accept.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2945,6 +2886,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         suffix = "enforced" if org_enforce_2fa else "unenforced"
         target_email = f"passkey_invite_{suffix}@posthog.com"
@@ -2986,8 +2928,6 @@ class TestInviteSignupAPI(APIBaseTest):
         # Self-created passkeys via invite signup count as already-acknowledged: otherwise
         # the user lands on the credential review interstitial after signup and could revoke
         # their only login credential.
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2995,6 +2935,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="reviewed_invite_passkey@posthog.com", organization=self.organization

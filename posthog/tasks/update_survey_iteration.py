@@ -1,5 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
+
+from django.utils import timezone
+
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -10,16 +14,58 @@ def _update_survey_iteration(survey: Survey) -> None:
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
+    if _has_final_iteration_ended(survey):
+        survey.end_date = timezone.now()
+        survey.save(update_fields=["end_date"])
+        _log_survey_closed_by_schedule(survey)
+        return
+
     current_iteration = _get_current_iteration(survey)
     if (
-        current_iteration != survey.current_iteration
+        current_iteration > 0
+        and current_iteration != survey.current_iteration
         and survey.iteration_start_dates is not None
         and 0 < len(survey.iteration_start_dates)
     ):
-        survey.current_iteration = max(_get_current_iteration(survey), 1)
+        survey.current_iteration = current_iteration
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
+
+
+def _log_survey_closed_by_schedule(survey: Survey) -> None:
+    # Record a system activity-log entry so the survey's history explains why it stopped.
+    # Without this, the scheduler's direct save() leaves no trace, and a user who removes
+    # the end date only ever sees their own removals logged — never the automatic close.
+    log_activity(
+        organization_id=survey.team.organization_id,
+        team_id=survey.team_id,
+        user=None,  # system action: renders as PostHog in the activity log
+        was_impersonated=False,
+        item_id=survey.id,
+        scope="Survey",
+        activity="updated",
+        detail=Detail(
+            name=survey.name,
+            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
+        ),
+    )
+
+
+def _has_final_iteration_ended(survey: Survey) -> bool:
+    if not survey.iteration_start_dates or not survey.iteration_frequency_days:
+        return False
+
+    last_iteration_start = survey.iteration_start_dates[-1]
+    if last_iteration_start is None:
+        return False
+
+    try:
+        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
+    except OverflowError:
+        # iteration_frequency_days is not capped by the API; a huge value must not crash the task
+        return False
+    return date.today() > final_iteration_end
 
 
 def _get_targeting_flag(survey: Survey) -> FeatureFlag | Any:

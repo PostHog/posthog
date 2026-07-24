@@ -1,4 +1,4 @@
-import { uploadToS3 } from '../storage'
+import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
 
 const mockDone = jest.fn().mockResolvedValue({})
 const mockOn = jest.fn()
@@ -137,7 +137,7 @@ describe('S3 client proxy routing', () => {
             jest.doMock('@aws-sdk/credential-provider-node', () => ({
                 defaultProvider: (init: unknown) => mockDefaultProvider(init),
             }))
-            const { uploadToS3: fresh } = require('../storage')
+            const { uploadToS3: fresh } = require('~/session-replay/recording-rasterizer/storage')
             await fresh('/tmp/v.mp4', 'b', 'p', 'i')
             mock = require('@aws-sdk/client-s3').S3Client as jest.Mock
         })
@@ -150,7 +150,6 @@ describe('S3 client proxy routing', () => {
         expect(config).not.toHaveProperty('requestHandler')
         expect(config).not.toHaveProperty('credentials')
         expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
-        expect(mockDefaultProvider).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -158,36 +157,23 @@ describe('S3 client proxy routing', () => {
         { source: 'HTTP_PROXY fallback', env: 'HTTP_PROXY' as const },
         { source: 'lowercase https_proxy', env: 'https_proxy' as const },
         { source: 'lowercase http_proxy', env: 'http_proxy' as const },
-    ])('routes both S3 and STS credential refresh through the proxy when $source is set', async ({ env }) => {
+    ])('routes S3 through the proxy but leaves credential refresh direct when $source is set', async ({ env }) => {
         process.env[env] = 'http://smokescreen.smokescreen.svc.cluster.local:4750'
         const s3Client = await triggerS3Client()
         const [config] = s3Client.mock.calls[0]
         expect(HttpsProxyAgentMock).toHaveBeenCalledWith('http://smokescreen.smokescreen.svc.cluster.local:4750')
-        // S3 client requests
+        // S3 requests go through smokescreen
         expect(config.requestHandler).toEqual({
             httpsAgent: { __proxyAgent: 'http://smokescreen.smokescreen.svc.cluster.local:4750' },
         })
-        // Internal STS / IRSA credential refresh
-        expect(mockDefaultProvider).toHaveBeenCalledWith({
-            clientConfig: {
-                requestHandler: {
-                    httpsAgent: { __proxyAgent: 'http://smokescreen.smokescreen.svc.cluster.local:4750' },
-                },
-            },
-        })
-        expect(config.credentials).toEqual({
-            __credentialsProvider: {
-                clientConfig: {
-                    requestHandler: {
-                        httpsAgent: { __proxyAgent: 'http://smokescreen.smokescreen.svc.cluster.local:4750' },
-                    },
-                },
-            },
-        })
+        // IRSA credential refresh must NOT be routed through the proxy: we don't
+        // override credentials, so the SDK default provider dials STS direct.
+        expect(config).not.toHaveProperty('credentials')
+        expect(mockDefaultProvider).not.toHaveBeenCalled()
     })
 
     it.each(['false', 'False', 'FALSE', '0', 'no', 'off', ' false '])(
-        'RASTERIZER_USE_PROXY=%j keeps both S3 and STS direct even when HTTPS_PROXY is set',
+        'RASTERIZER_USE_PROXY=%j keeps S3 direct even when HTTPS_PROXY is set',
         async (value) => {
             process.env.HTTPS_PROXY = 'http://smokescreen:4750'
             process.env.RASTERIZER_USE_PROXY = value
@@ -196,21 +182,19 @@ describe('S3 client proxy routing', () => {
             expect(config).not.toHaveProperty('requestHandler')
             expect(config).not.toHaveProperty('credentials')
             expect(HttpsProxyAgentMock).not.toHaveBeenCalled()
-            expect(mockDefaultProvider).not.toHaveBeenCalled()
         }
     )
 
     it.each(['true', '1', 'enabled', 'yes', 'disabled'])(
-        'RASTERIZER_USE_PROXY=%j leaves both S3 and STS routed via proxy (only known falsy values disable)',
+        'RASTERIZER_USE_PROXY=%j routes S3 via the proxy (only known falsy values disable)',
         async (value) => {
             process.env.HTTPS_PROXY = 'http://smokescreen:4750'
             process.env.RASTERIZER_USE_PROXY = value
             const s3Client = await triggerS3Client()
             const [config] = s3Client.mock.calls[0]
             expect(config.requestHandler).toBeDefined()
-            expect(config.credentials).toBeDefined()
+            expect(config).not.toHaveProperty('credentials')
             expect(HttpsProxyAgentMock).toHaveBeenCalledWith('http://smokescreen:4750')
-            expect(mockDefaultProvider).toHaveBeenCalledTimes(1)
         }
     )
 })

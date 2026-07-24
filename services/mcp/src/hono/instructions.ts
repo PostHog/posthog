@@ -2,12 +2,20 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
+import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
-import type { RequestProperties } from '@/lib/request-properties'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
+import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
+import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -17,6 +25,9 @@ import {
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
+import { trackSkillInvoked } from './analytics'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
@@ -29,27 +40,13 @@ export class InstructionsBuilder {
         this.formatter = formatter ?? new InstructionsFormatter()
     }
 
-    async build(props: RequestProperties, state: ResolvedState): Promise<string> {
+    build(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         if (!supportsInstructions) {
             return ''
         }
 
-        const { projectId } = props
-        const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId && hasScope(state.apiKeyScopes, 'group:read')
-                ? state.context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : undefined,
-            state.context.stateManager.getEnvironmentPrompt(),
-        ])
-
-        const ctx: InstructionsContext = {
-            ...this.buildContext(state),
-            groupTypes,
-            metadata,
-        }
-
+        const ctx = this.buildContext(state)
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
@@ -73,17 +70,15 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
-            featureFlags: state.toolFeatureFlags,
             renderUiEnabled: state.renderUiEnabled,
+            metadata: state.metadata,
+            groupTypes: state.groupTypes,
+            dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         }
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
-        const commandReference = this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-        })
+        const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
@@ -118,21 +113,97 @@ export class InstructionsBuilder {
 
     buildExecCommandReference(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        // Claude web/desktop report `supportsInstructions` but never surface the
+        // `instructions` payload to the model, so its env-context (tool domains,
+        // project metadata, group types) would be lost. Keep it on the exec command
+        // description for those chat hosts only — Cowork surfaces instructions
+        // normally and gets env-context through them. (Codex, which reports
+        // `supportsInstructions: false`, already gets the full env-context via the
+        // un-stripped path.)
+        const keepEnvContext = state.clientProfile.isClaudeChatHost()
+        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
+        if (keepEnvContext) {
+            return this.formatter.buildClaudeExecCommandReference(ctx, {
+                learnEnabled: guidesEnabled || skillsEnabled,
+                skillsEnabled,
+            })
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            learnEnabled: skillsEnabled,
         })
     }
 
-    buildExecToolDescription(): string {
-        return this.formatter.buildExecToolDescription()
+    buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
+        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
+        if (!guidesEnabled && !skillsEnabled) {
+            return undefined
+        }
+        const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
+        const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
+        // The catalog (and this closure) is rebuilt per request, so this Set dedupes
+        // within one exec command — a 5-file batch of one skill fires a single event,
+        // while separate commands each still count.
+        const invokedIdentifiers = new Set<string>()
+        return new ExecLearnCatalog(
+            guides,
+            skillsEnabled
+                ? {
+                      posthog: skills,
+                      project: canReadProjectSkills ? new ProjectSkillCatalog(state.context) : undefined,
+                      projectUnavailableReason: canReadProjectSkills
+                          ? undefined
+                          : 'This connection is missing the llm_skill:read scope. Reconnect with that scope to read project skills.',
+                  }
+                : undefined,
+            (invocation) => {
+                const identifier = `${invocation.source}:${invocation.skill}`
+                if (invokedIdentifiers.has(identifier)) {
+                    return
+                }
+                invokedIdentifiers.add(identifier)
+                void trackSkillInvoked(state, invocation)
+            }
+        )
+    }
+
+    buildExecToolDescription(state?: ResolvedState): string {
+        const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
+        return this.formatter.buildExecToolDescription({ skillsEnabled })
+    }
+
+    execSkillsEnabled(state: ResolvedState): boolean {
+        return this.getExecLearnCapabilities(state).skillsEnabled
     }
 
     getGuidelines(): string {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
-        return formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: this.guidelines.trim() })
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Metric discovery leads the splice so catalog-first routing still precedes
+        // raw schema discovery, without displacing the tool's own intro line.
+        const schemaDiscovery = dataCatalogEnabled
+            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
+        return formatPrompt(EXECUTE_SQL_PROMPT, {
+            guidelines: this.guidelines.trim(),
+            schema_discovery: schemaDiscovery,
+        })
+    }
+
+    private getExecLearnCapabilities(state: ResolvedState): { guidesEnabled: boolean; skillsEnabled: boolean } {
+        const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        // The plugin and PostHog Code sandboxes bundle their own skill context, so
+        // learn stays off for them regardless of the feature flag.
+        if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
+            return { guidesEnabled: false, skillsEnabled: false }
+        }
+        return {
+            guidesEnabled: state.clientProfile.isClaudeChatHost(),
+            skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
+        }
     }
 }

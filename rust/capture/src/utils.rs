@@ -1,5 +1,6 @@
 use axum::http::HeaderMap;
 use base64::Engine;
+use chrono::{DateTime, TimeZone};
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
@@ -58,25 +59,15 @@ const fn encode_unix_timestamp_millis(millis: u64, random_bytes: &[u8; 10]) -> U
     Uuid::from_fields(millis_high, millis_low, random_and_version, &d4)
 }
 
-pub fn uuid_v7() -> Uuid {
+/// Builds a UUIDv7 whose time component is the given Unix-ms timestamp.
+pub fn uuid_v7(unix_millis: u64) -> Uuid {
     let bytes = random_bytes();
-    let now = time::OffsetDateTime::now_utc();
-    let now_millis: u64 = now.unix_timestamp() as u64 * 1_000 + now.millisecond() as u64;
-
-    encode_unix_timestamp_millis(now_millis, &bytes)
+    encode_unix_timestamp_millis(unix_millis, &bytes)
 }
 
-pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
-    let form_lv = form.lib_version.as_ref();
-    let params_lv = params.lib_version.as_ref();
-    if form_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(form_lv.unwrap().clone());
-    }
-    if params_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(params_lv.unwrap().clone());
-    }
-
-    None
+/// Builds a UUIDv7 whose time component is the given instant. Pre-epoch datetimes are floored to the epoch, since the unsigned time field can't represent negatives.
+pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
+    uuid_v7(datetime.timestamp_millis().max(0) as u64)
 }
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
@@ -109,15 +100,16 @@ pub fn extract_compression(
 
 // have we decoded sufficiently have a urlencoded data payload of the expected form yet?
 pub fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
-    [
-        &b"data="[..],
-        &b"ver="[..],
-        &b"_="[..],
-        &b"ip="[..],
-        &b"compression="[..],
-    ]
-    .iter()
-    .any(|target: &&[u8]| payload.starts_with(target))
+    let prefix = &payload[..std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK)];
+
+    [&b"data="[..], &b"_="[..], &b"ip="[..], &b"compression="[..]]
+        .iter()
+        .any(|target: &&[u8]| {
+            prefix.starts_with(target)
+                || prefix
+                    .windows(target.len() + 1)
+                    .any(|window| window[0] == b'&' && &window[1..] == *target)
+        })
 }
 
 // relatively cheap check for base64 encoded payload since these can show up at
@@ -257,5 +249,30 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
             _ => Err(CaptureError::NoTokenError),
         },
         _ => Err(CaptureError::MultipleTokensError),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+    fn uuid_time_millis(uuid: Uuid) -> u128 {
+        uuid.as_u128() >> 80
+    }
+
+    #[test]
+    fn uuid_v7_from_datetime_encodes_the_instant() {
+        // A non-UTC offset still yields the same absolute instant in the UUID.
+        let ts = DateTime::parse_from_rfc3339("2020-06-15T00:00:00Z").unwrap();
+        let uuid = uuid_v7_from_datetime(ts);
+        assert_eq!(uuid_time_millis(uuid), ts.timestamp_millis() as u128);
+        assert_eq!(uuid.get_version_num(), 7);
+    }
+
+    #[test]
+    fn uuid_v7_from_datetime_floors_pre_epoch_to_zero() {
+        let ts = DateTime::parse_from_rfc3339("1969-06-15T00:00:00Z").unwrap();
+        assert_eq!(uuid_time_millis(uuid_v7_from_datetime(ts)), 0);
     }
 }

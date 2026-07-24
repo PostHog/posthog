@@ -15,10 +15,12 @@ import {
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -39,9 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
+    maxButtonLabel,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
+    maxButtonLabel?: string
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -49,6 +53,9 @@ export function SceneTitlePanelButton({
 
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
     const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -59,44 +66,46 @@ export function SceneTitlePanelButton({
 
     return (
         <>
-            <ButtonPrimitive
-                className={buttonClassName}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    if (openMax) {
-                        openMax()
-                    } else {
-                        openSidePanel(SidePanelTab.Max)
+            {!sceneMenuBarEnabled && (
+                <ButtonPrimitive
+                    className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        if (openMax) {
+                            openMax()
+                        } else {
+                            openSidePanel(SidePanelTab.Max)
+                        }
+                    }}
+                    tooltip={
+                        definition ? (
+                            <>
+                                Open PostHog AI
+                                <br />
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
+                            </>
+                        ) : (
+                            'Open PostHog AI'
+                        )
                     }
-                }}
-                tooltip={
-                    definition ? (
-                        <>
-                            Open PostHog AI
-                            <br />
-                            <div className="flex items-center">
-                                {definition.icon || <IconWrench />}
-                                <i className="ml-1.5">{definition.name}</i>
-                            </div>
-                        </>
-                    ) : (
-                        'Open PostHog AI'
-                    )
-                }
-                tooltipPlacement="bottom-end"
-                tooltipCloseDelayMs={0}
-                iconOnly
-                data-attr="open-context-panel-ai-button"
-            >
-                <div className="relative">
-                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                    {maxToolProps && (
-                        <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
-                    )}
-                </div>
-            </ButtonPrimitive>
-
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly={!maxButtonLabel}
+                    data-attr="open-context-panel-ai-button"
+                >
+                    <div className="relative">
+                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                        {maxToolProps && (
+                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                        )}
+                    </div>
+                    {maxButtonLabel}
+                </ButtonPrimitive>
+            )}
             {/* Size to mimic lemon button small */}
             <ButtonPrimitive
                 className={cn(buttonClassName, 'group -mr-[2px]')}
@@ -137,6 +146,10 @@ type SceneMainTitleProps = {
      * undefined to show the default name
      */
     name?: string | null
+    /**
+     * Optional node rendered inline immediately after the name (e.g. a status tag)
+     */
+    nameSuffix?: React.ReactNode
     /**
      * null to hide the description,
      * undefined to show the default description
@@ -206,12 +219,15 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Optional label for the PostHog AI button. */
+    maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
     name,
+    nameSuffix,
     description,
     resourceType,
     markdown = false,
@@ -230,6 +246,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
+    maxButtonLabel,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -241,7 +258,6 @@ export function SceneTitleSection({
     const sentinelRef = useRef<HTMLDivElement>(null)
     const effectiveDescription = description
     const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
-
     // Always include ProductSetupButton alongside other actions
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (
@@ -340,27 +356,30 @@ export function SceneTitleSection({
                                     onGenerateMetadata={onGenerateMetadata}
                                     isGeneratingMetadata={isGeneratingMetadata}
                                     suffix={
-                                        hasDescription ? (
-                                            <ButtonPrimitive
-                                                className={cn(
-                                                    'size-[var(--button-height-sm)] shrink-0',
-                                                    isScrolled
-                                                        ? 'animate-fade-out-subtle pointer-events-none'
-                                                        : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
-                                                )}
-                                                onClick={toggleShowDescription}
-                                                tooltip={showDescription ? 'Hide description' : 'Show description'}
-                                                tooltipPlacement="bottom"
-                                                iconOnly
-                                                data-attr={
-                                                    showDescription
-                                                        ? 'toggle-description-button-collapse'
-                                                        : 'toggle-description-button-expand'
-                                                }
-                                            >
-                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
-                                            </ButtonPrimitive>
-                                        ) : undefined
+                                        <>
+                                            {nameSuffix}
+                                            {hasDescription ? (
+                                                <ButtonPrimitive
+                                                    className={cn(
+                                                        'size-[var(--button-height-sm)] shrink-0',
+                                                        isScrolled
+                                                            ? 'animate-fade-out-subtle pointer-events-none'
+                                                            : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                    )}
+                                                    onClick={toggleShowDescription}
+                                                    tooltip={showDescription ? 'Hide description' : 'Show description'}
+                                                    tooltipPlacement="bottom"
+                                                    iconOnly
+                                                    data-attr={
+                                                        showDescription
+                                                            ? 'toggle-description-button-collapse'
+                                                            : 'toggle-description-button-expand'
+                                                    }
+                                                >
+                                                    {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
+                                                </ButtonPrimitive>
+                                            ) : undefined}
+                                        </>
                                     }
                                 />
                             </>
@@ -369,12 +388,15 @@ export function SceneTitleSection({
                     {effectiveActions && (
                         <div
                             className={cn(
-                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                // relative z-30 keeps the corner actions above the focus-elevated name/description
+                                // editors (z-20) so focusing an edit field can never overlap and swallow their clicks,
+                                // notably on mobile where this container reflows into the corner via order-first.
+                                'relative z-30 flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
                                 'gap-1 self-start @max-2xl:self-end flex-wrap'
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                         </div>
                     )}
                 </div>
@@ -552,7 +574,7 @@ export function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
                             )}
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
@@ -574,13 +596,13 @@ export function SceneName({
                     buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses} min-w-0 truncate` })
                 )}
             >
-                <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                <span className="truncate min-w-0">{name || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1 focus-within:z-50">
+            <div className="w-full flex-1 focus-within:z-20">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
@@ -590,7 +612,7 @@ export function SceneName({
         <div
             data-attr="scene-name"
             className={cn(
-                'scene-name flex items-center flex-1 max-w-full',
+                'scene-name flex items-center flex-1 min-w-0 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
             )}
         >
@@ -724,7 +746,7 @@ function SceneDescription({
                                 }
                             }}
                             disabled={isGeneratingMetadata}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-20"
                             autoHeight
                             size="base"
                         >
@@ -772,7 +794,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description relative focus-within:z-50">
+        <div className="scene-description relative focus-within:z-20">
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )

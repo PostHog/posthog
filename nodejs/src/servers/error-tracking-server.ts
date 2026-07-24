@@ -1,6 +1,40 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { ServerCommands } from '~/common/utils/commands'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
+import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    ProducerName,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/outputs/producers'
+import {
+    ErrorTrackingConsumerConfig,
+    ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingConsumerConfig,
+    getDefaultErrorTrackingOutputsConfig,
+} from '~/ingestion/pipelines/errortracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
-import { initializePrometheusLabels } from '../api/router'
 import {
     HogTransformerServiceConfig,
     HogTransformerServiceDeps,
@@ -8,45 +42,14 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
 } from '../ingestion/config'
-import { CookielessManager, CookielessServerConfig } from '../ingestion/cookieless/cookieless-manager'
-import {
-    ErrorTrackingConsumerConfig,
-    ErrorTrackingOutputsConfig,
-    getDefaultErrorTrackingOutputsConfig,
-} from '../ingestion/error-tracking/config'
-import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { createPersonHogClient } from '../ingestion/personhog'
-import { PersonHogGroupReadRepository } from '../ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '../ingestion/personhog/personhog-person-read-repository'
 import { PluginServerService, RedisPool } from '../types'
-import { ServerCommands } from '../utils/commands'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { ErrorTrackingSettingsManager } from '../utils/error-tracking-settings-manager'
-import { GeoIPService } from '../utils/geoip'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
-import { ReadOnlyGroupTypeManager } from '../worker/ingestion/readonly-group-type-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -96,6 +99,8 @@ export class ErrorTrackingServer implements NodeServer {
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultErrorTrackingConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
@@ -154,9 +159,6 @@ export class ErrorTrackingServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
-        const errorTrackingSettingsManager = this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED
-            ? new ErrorTrackingSettingsManager(this.postgres)
-            : undefined
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -198,35 +200,18 @@ export class ErrorTrackingServer implements NodeServer {
                     cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
                     cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
                     lane: this.config.INGESTION_LANE ?? 'main',
-                    overflowEnabled:
-                        !!this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                        this.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                            this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+                    overflowMode: this.config.INGESTION_OVERFLOW_MODE,
                     overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
                     overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                    statefulOverflowEnabled: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                     preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
                     pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
-                    rateLimiterEnabled: this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
-                    rateLimiterReportingMode: this.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
-                    rateLimiterRedisHost: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
-                    rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
-                    rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-                    rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-                    perIssueGuardThreshold: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-                    perIssueGuardWindowTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-                    perIssueGuardCooldownTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
-                    fallbackRedisUrl: this.config.REDIS_URL,
-                    rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-                    rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 },
                 {
                     outputs,
                     teamManager,
-                    errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
                     cookielessManager: this.cookielessManager!,

@@ -10,10 +10,11 @@ from __future__ import annotations
 import re
 import html
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
@@ -28,10 +29,19 @@ from django.utils import timezone
 import structlog
 
 if TYPE_CHECKING:
+    import requests
+
     from posthog.models.integration import GitHubIntegration
 
-from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
-from posthog.models.integration import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.helpers.trigram_search import (
+    TrigramSearchField,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+    normalize_search_term,
+)
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.ph_client import ph_scoped_capture
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -50,6 +60,19 @@ from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
 logger = structlog.get_logger(__name__)
+
+ARTIFACT_HASH_BATCH_SIZE = 500
+
+
+def _iter_batches(values: Iterable[str], batch_size: int) -> Iterator[list[str]]:
+    batch: list[str] = []
+    for value in values:
+        batch.append(value)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 class RepoNotFoundError(Exception):
@@ -167,7 +190,7 @@ def get_or_create_artifact(
 ) -> tuple[Artifact, bool]:
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     return Artifact.objects.get_or_create(
@@ -185,9 +208,11 @@ def get_or_create_artifact(
 
 def find_missing_hashes(repo_id: UUID, hashes: list[str]) -> list[str]:
     """Return hashes that don't exist as artifacts in the repo."""
-    existing = set(
-        Artifact.objects.filter(repo_id=repo_id, content_hash__in=hashes).values_list("content_hash", flat=True)
-    )
+    existing: set[str] = set()
+    for hash_batch in _iter_batches(hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
+        )
     return [h for h in hashes if h not in existing]
 
 
@@ -224,7 +249,7 @@ def write_artifact_bytes(
 
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
@@ -299,13 +324,15 @@ def list_runs_for_team(
         extra_exact_q = Q(commit_sha__istartswith=term)
         if term.isdigit():
             extra_exact_q |= Q(pr_number=int(term))
-        return apply_trigram_search(
-            qs,
-            term,
-            span_prefix="visual_review.runs.search",
-            fields=RUN_SEARCH_FIELDS,
-            extra_exact_q=extra_exact_q,
-            tiebreakers=("-created_at",),
+        return drop_similar_when_exact_exists(
+            apply_trigram_search(
+                qs,
+                term,
+                span_prefix="visual_review.runs.search",
+                fields=RUN_SEARCH_FIELDS,
+                extra_exact_q=extra_exact_q,
+                tiebreakers=("-created_at",),
+            )
         )
     return qs.order_by("-created_at")
 
@@ -422,21 +449,12 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
-    from urllib.parse import quote
-
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
     try:
-        response = github_request(
+        response = github.api_request(
             "GET",
-            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            access_token=access_token,
-            timeout=10,
+            f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
         )
-    except requests.RequestException:
+    except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
         return None
 
@@ -462,31 +480,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
-    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
+    """The repo's default branch via the integration's cached verb. Falls back to 'master'."""
     try:
-        response = github_request(
-            "GET",
-            f"https://api.github.com/repos/{repo_full_name}",
-            access_token=access_token,
-            timeout=10,
-        )
-    except requests.RequestException:
+        return github.get_default_branch(repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
-
-    if response.status_code == 200:
-        return response.json().get("default_branch", "master")
-    logger.warning(
-        "visual_review.default_branch_fetch_failed",
-        repo=repo_full_name,
-        status=response.status_code,
-    )
-    return "master"
 
 
 def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
@@ -501,8 +502,6 @@ def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return False
@@ -518,8 +517,6 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}
@@ -550,8 +547,6 @@ def _resolve_baselines_with_merge_base(
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
@@ -955,13 +950,17 @@ def complete_run(run_id: UUID) -> Run:
     # recorded — leaving every future run requesting the same upload while
     # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
+        from .tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
         try:
             verify_uploads_and_create_artifacts(run_id)
         except HashIntegrityError as e:
             logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
             finish_processing(run_id, error_message=str(e))
+            emit_run_processing_metrics.delay(run.team_id, str(run_id), "hash_integrity_failed", 0)
             return get_run(run_id)
         finish_processing(run_id)
+        emit_run_processing_metrics.delay(run.team_id, str(run_id), "completed", 0)
         return get_run(run_id)
 
     mark_run_processing(run_id)
@@ -992,32 +991,39 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
     from .hashing import ImageTooLargeError, hash_image
 
-    run = get_run_with_snapshots(run_id)
+    run = get_run(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
 
     # Collect all unique hashes we expect, keyed by the CLI-claimed value.
     # The claim is treated as a lookup key only — verification below produces
     # the server-computed hash that becomes authoritative.
-    expected_hashes: dict[str, dict] = {}
-    for snapshot in run.snapshots.all():
-        if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
-            expected_hashes[snapshot.current_hash] = {
-                "width": snapshot.current_width,
-                "height": snapshot.current_height,
+    expected_hashes: dict[str, dict[str, int | None]] = {}
+    snapshots = run.snapshots.values_list("current_hash", "current_width", "current_height", "baseline_hash")
+    for current_hash, current_width, current_height, baseline_hash in snapshots.iterator(chunk_size=1000):
+        if current_hash and current_hash not in expected_hashes:
+            expected_hashes[current_hash] = {
+                "width": current_width,
+                "height": current_height,
             }
-        if snapshot.baseline_hash and snapshot.baseline_hash not in expected_hashes:
-            expected_hashes[snapshot.baseline_hash] = {
+        if baseline_hash and baseline_hash not in expected_hashes:
+            expected_hashes[baseline_hash] = {
                 "width": None,
                 "height": None,
             }
 
+    existing_hashes: set[str] = set()
+    for hash_batch in _iter_batches(expected_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        existing_hashes.update(
+            Artifact.objects.filter(repo_id=repo_id, content_hash__in=hash_batch).values_list("content_hash", flat=True)
+        )
+
     # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
     # on any hash mismatch, decode error, or missing upload before any Artifact
     # row is written.
-    verified: list[tuple[str, bytes, dict]] = []
+    verified: list[tuple[str, int, dict[str, int | None]]] = []
     for claimed_hash, metadata in expected_hashes.items():
-        if get_artifact(repo_id, claimed_hash):
+        if claimed_hash in existing_hashes:
             continue
 
         png_bytes = storage.read(claimed_hash)
@@ -1072,28 +1078,26 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 f"Upload integrity check failed: claimed {claimed_hash[:16]}… but image hashes to {actual_hash[:16]}…"
             )
 
-        verified.append((actual_hash, png_bytes, metadata))
+        verified.append((actual_hash, len(png_bytes), metadata))
 
     # Pass 2: create Artifact rows from verified server-computed hashes only.
     # The claimed hash isn't used past this point.
-    created_count = 0
-    for actual_hash, png_bytes, metadata in verified:
-        storage_path = storage._key(actual_hash)
-        artifact, created = get_or_create_artifact(
+    artifacts = [
+        Artifact(
             repo_id=repo_id,
             content_hash=actual_hash,
-            storage_path=storage_path,
+            storage_path=storage._key(actual_hash),
             width=metadata.get("width"),
             height=metadata.get("height"),
-            size_bytes=len(png_bytes),
+            size_bytes=size_bytes,
             team_id=run.team_id,
         )
+        for actual_hash, size_bytes, metadata in verified
+    ]
+    Artifact.objects.bulk_create(artifacts, batch_size=ARTIFACT_HASH_BATCH_SIZE, ignore_conflicts=True)
+    link_artifacts_to_snapshots(repo_id, set(expected_hashes), run_id=run_id)
 
-        if created:
-            created_count += 1
-            link_artifact_to_snapshots(repo_id, actual_hash)
-
-    return created_count
+    return len(artifacts)
 
 
 def _stamp_quarantine(run: Run) -> None:
@@ -1141,6 +1145,23 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
+def _format_change_counts(changed: int, new: int, removed: int) -> str:
+    """'N changed, M new, K removed', omitting zero counts; '' when all are zero."""
+    parts = []
+    if changed:
+        parts.append(f"{changed} changed")
+    if new:
+        parts.append(f"{new} new")
+    if removed:
+        parts.append(f"{removed} removed")
+    return ", ".join(parts)
+
+
+def _changes_summary(run: Run) -> str:
+    """Change summary from the run's denormalized (quarantine-excluded) counts."""
+    return _format_change_counts(run.changed_count, run.new_count, run.removed_count)
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1182,15 +1203,15 @@ def _update_counts_and_post_status(run: Run) -> int:
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.purpose == RunPurpose.OBSERVE:
+        # Default-branch (tracking-only) runs never gate — there's no PR to approve.
+        # Report any changes as a green, informational status instead of a blocking
+        # failure; the per-snapshot detail lives in the VR UI (linked via target_url).
+        summary = _changes_summary(run)
+        description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
+        _post_commit_status(run, repo, "success", description)
     elif unresolved > 0:
-        parts = []
-        if run.changed_count:
-            parts.append(f"{run.changed_count} changed")
-        if run.new_count:
-            parts.append(f"{run.new_count} new")
-        if run.removed_count:
-            parts.append(f"{run.removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {_changes_summary(run)}")
         _post_review_prompt_comment(run, repo)
     elif pending_commit > 0:
         _post_commit_status(
@@ -1216,6 +1237,56 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     _update_counts_and_post_status(run)
 
     return run
+
+
+def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:
+    """Emit a product-analytics event for a finished diff-processing run.
+
+    Records run volume and how many snapshots actually needed a pixel
+    comparison (changed / new / removed vs. unchanged / tolerated). That's the
+    signal to tell a snapshot-determinism regression — where the changed rate
+    climbs because images stop being byte-stable, so the content-hash dedup and
+    tolerance cache stop absorbing work — apart from plain run-volume growth.
+    Where the time goes is captured separately as OTel spans in the task.
+
+    Best-effort: instrumentation must never fail or slow the task, so every
+    error is swallowed — including so it can't mask a real exception when
+    called from the task's ``finally``.
+    """
+    try:
+        try:
+            run = Run.objects.using(WRITER_DB).select_related("repo").get(id=run_id)
+        except Run.DoesNotExist:
+            return
+
+        properties = {
+            "run_id": str(run.id),
+            "run_type": run.run_type,
+            "outcome": outcome,
+            "status": run.status,
+            "repo": run.repo.repo_full_name,
+            "branch": run.branch,
+            "pr_number": run.pr_number,
+            "team_id": run.team_id,
+            "is_partial": run.is_partial,
+            "total_snapshots": run.total_snapshots,
+            "changed_count": run.changed_count,
+            "new_count": run.new_count,
+            "removed_count": run.removed_count,
+            "tolerated_match_count": run.tolerated_match_count,
+            "diffed_count": diffed_count,
+            "reviewable_count": run.changed_count + run.new_count + run.removed_count,
+        }
+
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=run.repo.repo_full_name or str(run.repo_id),
+                event="vr_run_processed",
+                properties=properties,
+                uuid=run.id,
+            )
+    except Exception:
+        logger.warning("visual_review.metrics_capture_failed", run_id=str(run_id), exc_info=True)
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -1282,12 +1353,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
     # gives us head_sha and the owning workflow run (run_id) in one call.
     try:
-        job_response = _github_api_request(
-            "GET",
-            repo,
-            f"actions/jobs/{check_run_id}",
-            timeout=10,
-        )
+        job_response = _github_api_request("GET", repo, f"actions/jobs/{check_run_id}")
     except Exception:
         return False, "Failed to verify CI job ownership"
 
@@ -1320,12 +1386,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
         return False, "CI job does not belong to this run's workflow"
 
     try:
-        response = _github_api_request(
-            "POST",
-            repo,
-            f"actions/jobs/{check_run_id}/rerun",
-            timeout=10,
-        )
+        response = _github_api_request("POST", repo, f"actions/jobs/{check_run_id}/rerun")
     except Exception:
         return False, "Failed to trigger job rerun"
 
@@ -1349,7 +1410,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration)
+    return GitHubIntegration(integration, source="visual_review")
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
@@ -1360,15 +1421,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repositories/{repo_external_id}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repositories/{repo_external_id}")
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1378,8 +1431,10 @@ def _github_api_request(
     method: str,
     repo: Repo,
     path: str,
-    **kwargs,
-):
+    *,
+    json: Mapping[str, object] | None = None,
+    timeout: int = 10,
+) -> requests.Response:
     """
     Make a GitHub API request, auto-resolving renamed repos on 404.
 
@@ -1387,18 +1442,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    from urllib.parse import quote
-
-    from .github import github_request
-
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    access_token = github.get_access_token()
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = github_request(method, url, access_token=access_token, **kwargs)
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1412,8 +1461,9 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = github_request(method, url, access_token=access_token, **kwargs)
+            response = github.api_request(
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+            )
 
     return response
 
@@ -1424,16 +1474,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1455,33 +1496,21 @@ def _fetch_baseline_file(
     identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
     If the file doesn't exist, returns ``({}, None)``.
     """
-    import base64
-
     import yaml
 
-    from .github import github_request
+    try:
+        result = github.get_file_contents(repo_full_name, file_path, ref=branch)
+    except GitHubRateLimitError:
+        raise
+    except GitHubIntegrationError as e:
+        raise GitHubCommitError(f"Failed to fetch baseline file: {e}") from e
 
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
-        access_token=access_token,
-        params={"ref": branch},
-        timeout=10,
-    )
-
-    if response.status_code == 404:
+    if result is None:
         return {}, None
 
-    if response.status_code != 200:
-        raise GitHubCommitError(f"Failed to fetch baseline file: {response.status_code} {response.text}")
+    file_sha = result["sha"]
 
-    data = response.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    file_sha = data["sha"]
-
-    parsed = yaml.safe_load(content)
+    parsed = yaml.safe_load(result["content"])
     if not parsed or parsed.get("version") != 1:
         return {}, file_sha
 
@@ -1562,36 +1591,35 @@ def _post_commit_status(
     if not repo.repo_full_name:
         return
 
-    from .github import github_request
-
     context = f"PostHog Visual Review / {run.run_type}"
-    if run.is_partial:
+    # Tracking-only (observe) and partial runs must never satisfy the gating context that
+    # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
+    # observe run posted to the gating context could green a PR head SHA's required check
+    # without review. Route them to a distinct, non-gating context instead.
+    if run.purpose == RunPurpose.OBSERVE:
+        context = f"{context} (tracking)"
+    elif run.is_partial:
         context = f"{context} (partial)"
         description = f"{description} (partial run)"
 
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.get_access_token()
     target_url = _run_url(run, repo)
 
     try:
-        response = github_request(
+        response = github.api_request(
             "POST",
-            f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
-            access_token=access_token,
-            json={
+            f"/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            json_body={
                 "state": state,
                 "description": description[:140],
                 "context": context,
                 "target_url": target_url,
             },
-            timeout=10,
         )
 
         if response.status_code != 201:
@@ -1640,9 +1668,6 @@ def _commit_baseline_to_github(
         raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
 
     github = get_github_integration_for_repo(repo)
-
-    if github.access_token_expired():
-        github.refresh_access_token()
 
     if run.pr_number is None:
         raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
@@ -1754,7 +1779,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
                 repo=repo,
                 path=f"issues/comments/{existing_comment_id}",
                 json={"body": comment_body},
-                timeout=10,
             )
             if response.status_code == 200:
                 run.metadata["github_comment_id"] = existing_comment_id
@@ -1773,7 +1797,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             repo=repo,
             path=f"issues/{run.pr_number}/comments",
             json={"body": comment_body},
-            timeout=10,
         )
         if response.status_code == 201:
             comment_id = response.json().get("id")
@@ -1818,17 +1841,17 @@ _MAX_COMMENT_IMAGES = 8
 
 
 def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
-    """Presigned URL for embedding a snapshot image in a PR comment.
+    """Presigned URL for the full-resolution snapshot image in a PR comment.
 
-    Prefers the thumbnail to keep the comment lightweight. Returns None when the
-    artifact is missing or object storage is disabled — the caller renders an
-    empty cell in that case.
+    Serves the original artifact (not the thumbnail) so the embedded image opens at full
+    resolution when clicked — GitHub constrains the rendered size via the ``<img width>``
+    attribute but links the original. Returns None when the artifact is missing or object
+    storage is disabled — the caller renders an empty cell in that case.
     """
     if artifact is None:
         return None
-    display = artifact.thumbnail or artifact
     storage = ArtifactStorage(str(repo.id))
-    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    return storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
 
 
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -1864,7 +1887,12 @@ def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str
 
 
 def _image_cell(url: str | None, alt: str) -> str:
-    """Render an image (or an empty placeholder) for a before/after table cell."""
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    The image is constrained to ``_COMMENT_IMAGE_WIDTH`` so the table stays compact, but
+    ``src`` points at the full-resolution original — GitHub opens that original when the
+    image is clicked.
+    """
     if not url:
         return "_(none)_"
     # Escape both attributes — a URL containing a quote would otherwise break out of src.
@@ -1904,9 +1932,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
         _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
-            "current_artifact__thumbnail",
             "baseline_artifact",
-            "baseline_artifact__thumbnail",
         )
         .order_by("identifier")
     )
@@ -1973,14 +1999,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    summary = ", ".join(
-        f"{counts[result]} {label}"
-        for result, label in (
-            (SnapshotResult.CHANGED, "changed"),
-            (SnapshotResult.NEW, "new"),
-            (SnapshotResult.REMOVED, "removed"),
-        )
-        if counts.get(result)
+    summary = _format_change_counts(
+        counts[SnapshotResult.CHANGED], counts[SnapshotResult.NEW], counts[SnapshotResult.REMOVED]
     )
 
     sections = [
@@ -2259,8 +2279,6 @@ def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
     current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
 
     snapshots = list(run.snapshots.all())
@@ -2981,28 +2999,45 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+def link_artifacts_to_snapshots(repo_id: UUID, content_hashes: set[str], *, run_id: UUID | None = None) -> int:
     """
-    After an artifact is uploaded, link it to any pending snapshots.
+    After artifacts are uploaded, link them to any pending snapshots.
 
     Returns number of snapshots updated.
     """
-    artifact = get_artifact(repo_id, content_hash)
-    if not artifact:
+    if not content_hashes:
         return 0
 
-    # Link as current artifact where hash matches but artifact not linked
-    current_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        current_hash=content_hash,
-        current_artifact__isnull=True,
-    ).update(current_artifact=artifact)
+    updated = 0
+    for hash_batch in _iter_batches(content_hashes, ARTIFACT_HASH_BATCH_SIZE):
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("current_hash"),
+        ).values("id")[:1]
+        current_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            current_hash__in=hash_batch,
+            current_artifact__isnull=True,
+        )
+        if run_id is not None:
+            current_snapshots = current_snapshots.filter(run_id=run_id)
+        updated += current_snapshots.update(current_artifact_id=db_models.Subquery(artifact_id))
 
-    # Link as baseline artifact where hash matches but artifact not linked
-    baseline_updated = RunSnapshot.objects.filter(
-        run__repo_id=repo_id,
-        baseline_hash=content_hash,
-        baseline_artifact__isnull=True,
-    ).update(baseline_artifact=artifact)
+        artifact_id = Artifact.objects.filter(
+            repo_id=repo_id,
+            content_hash=db_models.OuterRef("baseline_hash"),
+        ).values("id")[:1]
+        baseline_snapshots = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            baseline_hash__in=hash_batch,
+            baseline_artifact__isnull=True,
+        )
+        if run_id is not None:
+            baseline_snapshots = baseline_snapshots.filter(run_id=run_id)
+        updated += baseline_snapshots.update(baseline_artifact_id=db_models.Subquery(artifact_id))
 
-    return current_updated + baseline_updated
+    return updated
+
+
+def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
+    return link_artifacts_to_snapshots(repo_id, {content_hash})

@@ -1,3 +1,4 @@
+import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils/datetime'
 
@@ -13,10 +14,16 @@ import {
 } from '~/types'
 
 import {
+    aggregateBreakdownCompareResult,
     aggregateBreakdownResult,
+    aggregateFunnelCompareResult,
     dimPreviousPeriodColor,
     EMPTY_BREAKDOWN_VALUES,
+    flattenedStepsByBreakdownCompare,
+    flattenedStepsByCompare,
     funnelComparePeriodDateRange,
+    funnelTooltipHeaderLabel,
+    isFunnelStepsBreakdownCompareResult,
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
@@ -477,6 +484,228 @@ describe('aggregateBreakdownResult', () => {
     })
 })
 
+describe('isFunnelStepsBreakdownCompareResult', () => {
+    it('true for list-of-lists whose inner steps carry compare_label', () => {
+        const results: FunnelStep[][] = [
+            [makeStep({ count: 10, order: 0, breakdown_value: 'Chrome', compare_label: 'current' })],
+            [makeStep({ count: 8, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' })],
+        ]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(true)
+    })
+
+    it('false for a plain breakdown result (no compare_label)', () => {
+        const results: FunnelStep[][] = [[makeStep({ count: 10, order: 0, breakdown_value: 'Chrome' })]]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(false)
+    })
+
+    it('false for a flat (non-breakdown) compare result', () => {
+        const results: FunnelStep[] = [makeStep({ count: 10, order: 0, compare_label: 'current' })]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(false)
+    })
+
+    it('false for empty results', () => {
+        expect(isFunnelStepsBreakdownCompareResult([])).toBe(false)
+    })
+})
+
+describe('aggregateBreakdownCompareResult', () => {
+    // 2 breakdown values × 2 periods = 4 inner funnels, the shape the runner emits for breakdown +
+    // compare. Safari is listed before Chrome to prove the aggregator sorts by current count.
+    const build = (): FunnelStep[][] => [
+        [
+            makeStep({ count: 30, order: 0, breakdown_value: 'Safari', compare_label: 'current' }),
+            makeStep({ count: 10, order: 1, breakdown_value: 'Safari', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 70, order: 0, breakdown_value: 'Chrome', compare_label: 'current' }),
+            makeStep({ count: 40, order: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 25, order: 0, breakdown_value: 'Safari', compare_label: 'previous' }),
+            makeStep({ count: 5, order: 1, breakdown_value: 'Safari', compare_label: 'previous' }),
+        ],
+        [
+            makeStep({ count: 50, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' }),
+            makeStep({ count: 20, order: 1, breakdown_value: 'Chrome', compare_label: 'previous' }),
+        ],
+    ]
+
+    it('returns empty array for empty input', () => {
+        expect(aggregateBreakdownCompareResult([], 'browser')).toEqual([])
+    })
+
+    it('returns one step per order, each pairing current+previous bars per breakdown value', () => {
+        const result = aggregateBreakdownCompareResult(build(), 'browser')
+
+        expect(result).toHaveLength(2)
+        // Ordered by current first-step count desc (Chrome 70 before Safari 30), current before
+        // previous within each value.
+        expect(result[0].nested_breakdown!.map((b) => [b.breakdown_value, b.compare_label])).toEqual([
+            ['Chrome', 'current'],
+            ['Chrome', 'previous'],
+            ['Safari', 'current'],
+            ['Safari', 'previous'],
+        ])
+    })
+
+    it('gives current+previous of one value the same order, distinct across values', () => {
+        const [chromeCur, chromePrev, safariCur, safariPrev] = aggregateBreakdownCompareResult(build(), 'browser')[0]
+            .nested_breakdown!
+
+        expect(chromeCur.order).toBe(chromePrev.order)
+        expect(safariCur.order).toBe(safariPrev.order)
+        expect(chromeCur.order).not.toBe(safariCur.order)
+    })
+
+    it('preserves each variant count', () => {
+        const result = aggregateBreakdownCompareResult(build(), 'browser')
+        expect(result[0].nested_breakdown!.map((b) => b.count)).toEqual([70, 50, 30, 25])
+        expect(result[1].nested_breakdown!.map((b) => b.count)).toEqual([40, 20, 10, 5])
+    })
+})
+
+describe('flattenedStepsByCompare', () => {
+    it('emits no previous row when the result carries only the current period', () => {
+        const flat: FunnelStep[] = [
+            makeStep({
+                count: 200,
+                order: 0,
+                breakdown: undefined,
+                breakdown_value: undefined,
+                compare_label: 'current',
+            }),
+            makeStep({
+                count: 100,
+                order: 1,
+                breakdown: undefined,
+                breakdown_value: undefined,
+                compare_label: 'current',
+            }),
+        ]
+        const steps = stepsWithConversionMetrics(aggregateFunnelCompareResult(flat), FunnelStepReference.total)
+
+        expect(flattenedStepsByCompare(steps).map((r) => [r.rowKey, r.compare_label])).toEqual([
+            ['baseline_current', 'current'],
+        ])
+    })
+})
+
+describe('flattenedStepsByBreakdownCompare', () => {
+    const build = (): FunnelStep[][] => [
+        [
+            makeStep({ count: 70, order: 0, breakdown_value: 'Chrome', compare_label: 'current' }),
+            makeStep({ count: 40, order: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 30, order: 0, breakdown_value: 'Safari', compare_label: 'current' }),
+            makeStep({ count: 10, order: 1, breakdown_value: 'Safari', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 50, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' }),
+            makeStep({ count: 20, order: 1, breakdown_value: 'Chrome', compare_label: 'previous' }),
+        ],
+        [
+            makeStep({ count: 25, order: 0, breakdown_value: 'Safari', compare_label: 'previous' }),
+            makeStep({ count: 5, order: 1, breakdown_value: 'Safari', compare_label: 'previous' }),
+        ],
+    ]
+    const toSteps = (results: FunnelStep[][]): ReturnType<typeof stepsWithConversionMetrics> =>
+        stepsWithConversionMetrics(aggregateBreakdownCompareResult(results, 'browser'), FunnelStepReference.total)
+
+    // The baseline pair must key off the number of values, not nested entries — compare doubles the
+    // entries, so a single value would otherwise wrongly count as "more than one breakdown".
+    it.each([
+        {
+            scenario: 'horizontal layout: no baseline pair, color positions unshifted',
+            groups: build(),
+            layout: FunnelLayout.horizontal,
+            disableBaseline: false,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ],
+            expectedColorIndexes: [0, 0, 1, 1],
+        },
+        {
+            scenario: 'disabled baseline (experiments): no baseline rows, color positions keep the offset',
+            groups: build(),
+            layout: FunnelLayout.vertical,
+            disableBaseline: true,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ],
+            expectedColorIndexes: [1, 1, 2, 2],
+        },
+        {
+            scenario: 'single breakdown value: two period rows but no baseline pair',
+            groups: build().filter((group) => group[0].breakdown_value === 'Chrome'),
+            layout: FunnelLayout.vertical,
+            disableBaseline: false,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+            ],
+            expectedColorIndexes: [0, 0],
+        },
+    ])('$scenario', ({ groups, layout, disableBaseline, expectedKeys, expectedColorIndexes }) => {
+        const rows = flattenedStepsByBreakdownCompare(toSteps(groups), layout, disableBaseline)
+
+        expect(rows.map((r) => [getVisibilityKey(r.breakdown_value), r.compare_label])).toEqual(expectedKeys)
+        expect(rows.map((r) => r.colorIndex)).toEqual(expectedColorIndexes)
+    })
+
+    it('keeps a value present in only one period as a single row', () => {
+        const withoutSafariPrevious = build().filter(
+            (group) => !(group[0].breakdown_value === 'Safari' && group[0].compare_label === 'previous')
+        )
+        const rows = flattenedStepsByBreakdownCompare(toSteps(withoutSafariPrevious), FunnelLayout.vertical, false)
+
+        expect(rows.map((r) => [getVisibilityKey(r.breakdown_value), r.compare_label])).toEqual([
+            ['Baseline', 'current'],
+            ['Baseline', 'previous'],
+            ['Chrome', 'current'],
+            ['Chrome', 'previous'],
+            ['Safari', 'current'],
+        ])
+    })
+})
+
+describe('funnelTooltipHeaderLabel', () => {
+    it('shows the breakdown value alone when there is no compare', () => {
+        expect(funnelTooltipHeaderLabel({ breakdownLabel: 'Chrome' })).toBe('Chrome')
+    })
+
+    it('shows the period alone when there is no breakdown', () => {
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'current' })).toBe('Current')
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'previous' })).toBe('Previous')
+    })
+
+    it('appends the date range to the period when provided', () => {
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'previous', comparePeriodDateRange: 'Mar 1 – Mar 7' })).toBe(
+            'Previous (Mar 1 – Mar 7)'
+        )
+    })
+
+    it('shows both breakdown value and period when both are present', () => {
+        expect(
+            funnelTooltipHeaderLabel({
+                breakdownLabel: 'Chrome',
+                compareLabel: 'current',
+                comparePeriodDateRange: 'Mar 8 – Mar 15',
+            })
+        ).toBe('Chrome • Current (Mar 8 – Mar 15)')
+    })
+
+    it('is empty when neither is present', () => {
+        expect(funnelTooltipHeaderLabel({})).toBe('')
+    })
+})
+
 describe('stepsWithConversionMetrics', () => {
     const makeNestedStep = (
         overrides: Partial<FunnelStepWithNestedBreakdown> & { count: number; order: number }
@@ -641,6 +870,57 @@ describe('stepsWithConversionMetrics', () => {
         expect(result[1].nested_breakdown![1].conversionRates.total).toBe(0)
         expect(Number.isNaN(result[0].nested_breakdown![1].conversionRates.total)).toBe(false)
         expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
+    })
+
+    it('breakdown + compare — every value shares its period’s height at the first step (larger period fills)', () => {
+        // Chrome current 100 / previous 80; Safari current 40 / previous 25. nested_breakdown pairs
+        // current+previous per value: [Chrome-cur, Chrome-prev, Safari-cur, Safari-prev].
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 140,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({
+                        count: 100,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 80,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'previous',
+                    }),
+                    makeStep({
+                        count: 40,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 25,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'previous',
+                    }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+        const nb = result[0].nested_breakdown!
+
+        // At the first step every value converts 100% of its own entrants, so within a period all values
+        // share one height: the period's share of the larger baseline. Current is larger (140 vs 105) →
+        // 100%; previous → 105/140. Chrome and Safari read the same height within each period.
+        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current
+        expect(nb[1].conversionRates.fromBasisStep).toBe(105 / 140) // Chrome previous
+        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current — same as Chrome current
+        expect(nb[3].conversionRates.fromBasisStep).toBe(105 / 140) // Safari previous — same as Chrome previous
     })
 
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {

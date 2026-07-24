@@ -16,6 +16,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface LogAttributesProps {
@@ -27,6 +28,7 @@ export interface LogAttributesProps {
 
 export function LogAttributes({ attributes, type, logUuid, title }: LogAttributesProps): JSX.Element {
     const { expandedAttributeBreakdowns, id, isAttributeColumn } = useValues(logsViewerLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn, toggleAttributeBreakdown } = useActions(logsViewerLogic)
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[logUuid] || []
@@ -134,11 +136,11 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                     selectable
                                     className="gap-1 font-mono text-xs"
                                 >
-                                    {isDistinctIdKey(record.key) ? (
+                                    {isDistinctIdKey(record.key, configuredDistinctIdKeys) ? (
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
                                         </span>
-                                    ) : isSessionIdKey(record.key) ? (
+                                    ) : isSessionIdKey(record.key, configuredSessionIdKeys) && record.value ? (
                                         <ViewRecordingButton
                                             sessionId={record.value}
                                             openPlayerIn={RecordingPlayerType.Modal}

@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -11,8 +12,21 @@ sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
 import review_pr  # noqa: E402
-from github import PRData  # noqa: E402
+from familiarity import AuthorFamiliarity  # noqa: E402
+from github import CommitProvenance, PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ownership resolves against the real repo tree, so fixture paths can match
+    # a real owning team and _summarize_ownership would then shell out to
+    # `gh api` mid-test - slow, network-dependent, and it trips tests that
+    # assert the pipeline never sleeps (subprocess waits sleep internally).
+    monkeypatch.setattr(review_pr, "check_team_membership", lambda *_a, **_k: False)
+    # Familiarity computes on every LLM-reviewed run and shells out to
+    # `gh pr list` / `git blame`; stub it for the same reasons as above.
+    monkeypatch.setattr(review_pr, "compute_familiarity", lambda **_k: None)
 
 
 def _fake_pr(head_sha: str) -> PRData:
@@ -32,6 +46,39 @@ def _fake_pr(head_sha: str) -> PRData:
         review_comments=[],
         check_runs=[],
     )
+
+
+def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
+    # A single unresolved thread with three replies must read as one unresolved
+    # thread, not four: replies inherit the thread's resolution state, and the
+    # assurance line the reviewer trusts would otherwise overstate open feedback.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.review_comments = [
+        {"in_reply_to_id": None, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+    ]
+    pipeline.pr = pr
+
+    assert pipeline._summarize_assurance()["unresolved_threads"] == 1
+
+
+def test_summarize_assurance_excludes_author_self_review() -> None:
+    # An author replying within their own PR records a COMMENTED review at head.
+    # That self-review must not read as a vouch — otherwise the review body and
+    # the trusted assurance block both claim "<author> reviewed the current head."
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")  # _fake_pr author is "alice"
+    pr.reviews = [
+        {"user": "alice", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+        {"user": "bob", "state": "COMMENTED", "is_current_head": True, "commit_id": "abc123"},
+    ]
+    pipeline.pr = pr
+
+    assurance = pipeline._summarize_assurance()
+    assert assurance["head_commented_users"] == ["bob"]
 
 
 def test_to_dict_includes_head_sha() -> None:
@@ -176,3 +223,343 @@ def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatc
     assert output["final_verdict"] == "REFUSED"
     assert output["classification"]["tier"] == ""
     assert output["classification"]["breadth"] == ""
+
+
+# ── In-flight bot review handling ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "reactions",
+    [
+        pytest.param([], id="no-reactions"),
+        pytest.param([{"user": "greptile-apps[bot]", "emoji": "👍"}], id="bot-verdict-reaction"),
+        pytest.param([{"user": "alice", "emoji": "👀"}], id="human-eyes-not-waited-on"),
+        pytest.param(
+            [{"user": "greptile-apps[bot]", "emoji": "👀", "created_at": "2020-01-01T00:00:00Z"}],
+            id="stale-bot-eyes-from-crashed-reviewer-ignored",
+        ),
+    ],
+)
+def test_no_wait_without_in_flight_bot_review(monkeypatch: pytest.MonkeyPatch, reactions: list[dict]) -> None:
+    # Waiting on a human 👀 would block for longer than any polling budget —
+    # the LLM refuses over those instead — and waiting with nothing in flight
+    # would slow every review down.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("must not poll"))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = reactions
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_waits_out_bot_eyes_race_then_proceeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reviewer bots swap 👀 for a verdict reaction within minutes; refusing
+    # during that window was ~26% of all denials in the week this landed.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+    pipeline.pr = pr
+
+    def fake_refetch() -> None:
+        pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👍"}]
+
+    monkeypatch.setattr(pipeline, "_fetch", fake_refetch)
+
+    assert pipeline._handle_in_flight_bot_reviews() is None
+    assert pipeline.final_verdict == ""
+
+
+def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WAIT keeps the stamphog label (workflow skips the label-strip for it),
+    # so a slow bot review retries on the next push instead of demanding a
+    # human re-label — a REFUSE here would reintroduce the race friction.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "BOT_REVIEW_WAIT_BUDGET_SECONDS", 0)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.pr_reactions = [{"user": "hex-security-app[bot]", "emoji": "👀"}]
+
+    assert pipeline._handle_in_flight_bot_reviews() == "WAIT"
+    assert pipeline.final_verdict == "WAIT"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["verdict"] == "WAIT"
+    assert "hex-security-app[bot]" in pipeline.reviewer_output["reasoning"]
+
+    output = pipeline.to_dict()
+    assert output["final_verdict"] == "WAIT"
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        pytest.param("frontend/package.json", id="package-json"),
+        pytest.param("common/esbuilder/tsconfig.json", id="tsconfig"),
+        pytest.param("setup.cfg", id="setup-cfg"),
+    ],
+)
+def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch, manifest: str) -> None:
+    # Manifests are .json/.cfg so the allow-list would classify them T0 and
+    # skip the reviewer entirely — making the scripts/hooks REFUSE guard dead
+    # code for exactly the files it exists to check. They must land T1.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda *a: [])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": manifest, "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T1-agent"
+    assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
+
+
+def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The deterministic scan is the first line against scripts/hook edits —
+    # when it fires, the PR must land T2-never rather than the LLM-only path.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda paths, *a: list(paths))
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": "frontend/package.json", "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T2-never"
+    assert "deps_toolchain" in pipeline.classification["deny_categories"]
+    assert pipeline.classification["manifest_script_changes"] == ["frontend/package.json"]
+
+
+@pytest.mark.parametrize(
+    "files, expected_flags",
+    [
+        pytest.param(
+            ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py"],
+            [],
+            id="connector-only-pr-not-flagged",
+        ),
+        pytest.param(
+            [
+                "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py",
+                "posthog/api/foo.py",
+            ],
+            ["auth", "billing"],
+            id="mixed-pr-keeps-flags",
+        ),
+    ],
+)
+def test_title_flags_respect_exempt_paths(
+    monkeypatch: pytest.MonkeyPatch, files: list[str], expected_flags: list[str]
+) -> None:
+    # A connector-only PR legitimately says "stripe"/"oauth" in its title;
+    # flagging it re-creates the friction the connector path exemption
+    # exists to remove.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.title = "fix(stripe): refresh oauth token before sync"
+    pr.files = [{"filename": f, "additions": 2, "deletions": 1, "status": "M"} for f in files]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["title_scrutiny_flags"] == expected_flags
+
+
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A deny-listed PR can't be approved over an in-flight review, so waiting
+    # 5 minutes before the inevitable REFUSE is pure runner cost.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # Stub the diff production: the review path would otherwise shell out to a real
+    # `git diff` here, whose internal waiting trips the sleep trap below.
+    diff_path = tmp_path / "diff.patch"
+    diff_path.write_text("")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
+
+    class _RefusingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "REFUSE", "reasoning": "gates denied", "risk": "high", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _RefusingReviewer)
+
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    pr.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", pr))
+
+    assert pipeline.run() == "REFUSED"
+
+
+def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The wait loop refetches the PR; if the author pushed during the wait,
+    # gates must run against the new file set, not the pre-wait snapshot.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+
+    class _ApprovingReviewer:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def review(self, *args: object, **kwargs: object) -> dict:
+            return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(review_pr, "Reviewer", _ApprovingReviewer)
+
+    initial = _fake_pr(head_sha="abc123")
+    initial.files = [{"filename": "docs/readme.md", "additions": 1, "deletions": 0, "status": "M"}]
+    initial.pr_reactions = [{"user": "greptile-apps[bot]", "emoji": "👀"}]
+
+    refetched = _fake_pr(head_sha="def456")
+    refetched.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
+    refetched.pr_reactions = []
+
+    fetches = iter([initial, refetched])
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", next(fetches)))
+
+    verdict = pipeline.run()
+
+    assert verdict == "REFUSED"
+    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+
+
+@pytest.mark.parametrize(
+    "tier, expect_in_prompt",
+    [
+        pytest.param("T0-deterministic", False, id="t0-telemetry-only"),
+        pytest.param("T2-never", False, id="t2-telemetry-only"),
+        pytest.param("T1-agent", True, id="t1-prompt-and-telemetry"),
+    ],
+)
+def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
+    monkeypatch: pytest.MonkeyPatch, tier: str, expect_in_prompt: bool
+) -> None:
+    # Reintroducing the old T1-only guard would silently zero the familiarity
+    # telemetry on T0/T2 runs — the per-subsystem trend data it exists for —
+    # while attaching it to non-T1 classifications would change those prompts.
+    fam = AuthorFamiliarity(
+        band="STRONG",
+        blame_overlap_pct=61.5,
+        modified_lines_owned=8,
+        modified_lines_total=13,
+        prior_prs_in_paths=4,
+        days_since_last_touch=12,
+        files_prev_count=2,
+        files_total=3,
+        capped=False,
+        top_prior_authors=(),
+    )
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.classification = {"tier": tier, "familiarity": None}
+    monkeypatch.setattr(pipeline, "_compute_familiarity", lambda: fam)
+
+    pipeline._maybe_compute_familiarity()
+
+    assert pipeline.familiarity is fam
+    assert pipeline.classification["familiarity"] == (fam if expect_in_prompt else None)
+
+
+@pytest.mark.parametrize(
+    "populated",
+    [
+        pytest.param(True, id="signals-present"),
+        pytest.param(False, id="signals-absent-on-early-exit-paths"),
+    ],
+)
+def test_capture_review_completed_includes_familiarity_and_provenance(
+    monkeypatch: pytest.MonkeyPatch, populated: bool
+) -> None:
+    # Downstream HogQL queries key on these property names and null/empty
+    # defaults; a rename or a crash on the early-exit paths (bot author, WAIT —
+    # familiarity and provenance still None) breaks the provenance and
+    # knowledge-trend dimensions silently.
+    fake_posthog = MagicMock()
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    if populated:
+        pipeline.classification = {
+            "ownership": {"teams": ["@PostHog/team-devex"], "team_count": 1, "individuals": [], "cross_team": False}
+        }
+        pipeline.familiarity = AuthorFamiliarity(
+            band="MODERATE",
+            blame_overlap_pct=12.34,
+            modified_lines_owned=2,
+            modified_lines_total=16,
+            prior_prs_in_paths=2,
+            days_since_last_touch=30,
+            files_prev_count=1,
+            files_total=3,
+            capped=False,
+            top_prior_authors=("Alice",),
+        )
+        pipeline.provenance = CommitProvenance(
+            commit_count=3,
+            agent_commit_count=2,
+            generated_by=("PostHog Code",),
+            task_ids=("task-1", "task-2"),
+        )
+
+    pipeline._capture_review_completed("PASSED", "APPROVE")
+
+    props = fake_posthog.capture.call_args.kwargs["properties"]
+    if populated:
+        assert props["stamphog_owner_teams"] == ["@PostHog/team-devex"]
+        assert props["stamphog_familiarity_band"] == "MODERATE"
+        assert props["stamphog_familiarity_blame_overlap_pct"] == 12.3
+        assert props["stamphog_familiarity_prior_prs_in_paths"] == 2
+        assert props["stamphog_familiarity_days_since_last_touch"] == 30
+        assert props["stamphog_agent_authored"] is True
+        assert props["stamphog_agent_commit_count"] == 2
+        assert props["stamphog_commit_count"] == 3
+        assert props["stamphog_generated_by"] == ["PostHog Code"]
+        assert props["stamphog_task_ids"] == ["task-1", "task-2"]
+    else:
+        assert props["stamphog_owner_teams"] == []
+        assert props["stamphog_familiarity_band"] == ""
+        assert props["stamphog_familiarity_blame_overlap_pct"] is None
+        assert props["stamphog_agent_authored"] is None
+        assert props["stamphog_generated_by"] == []
+        assert props["stamphog_task_ids"] == []
+
+
+def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted server stamps runtime/team context through STAMPHOG_EXTRA_PROPERTIES; the event's
+    # own props must win on collision so a stamped extra can never spoof e.g. the repo.
+    monkeypatch.setenv(
+        "STAMPHOG_EXTRA_PROPERTIES",
+        '{"stamphog_runtime":"hosted","stamphog_repo":"spoofed/repo"}',
+    )
+    fake_posthog = MagicMock()
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
+    monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline._capture_review_completed("PASSED", "APPROVE")
+
+    props = fake_posthog.capture.call_args.kwargs["properties"]
+    assert props["stamphog_runtime"] == "hosted"
+    assert props["stamphog_repo"] == "PostHog/posthog"

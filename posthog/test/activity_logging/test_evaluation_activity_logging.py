@@ -4,6 +4,7 @@ from rest_framework import status
 
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -15,6 +16,11 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
         "description": "Initial",
         "enabled": True,
         "evaluation_type": "llm_judge",
+        "model_configuration": {
+            "provider": "openai",
+            "model": "gpt-5-mini",
+            "provider_key_id": None,
+        },
         "evaluation_config": {"prompt": "Test prompt"},
         "output_type": "boolean",
         "output_config": {},
@@ -26,7 +32,14 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+# The create payloads are keyless llm_judge with enabled=True, which only validates when the
+# team's active provider key covers them.
 class TestEvaluationActivityLogging(ActivityLogTestHelper):
+    def setUp(self) -> None:
+        super().setUp()
+        active_key = self._create_provider_key(name="Active key")
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+
     def _create_evaluation(self, **overrides: Any) -> dict[str, Any]:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
@@ -191,35 +204,6 @@ class TestEvaluationActivityLogging(ActivityLogTestHelper):
         }
         defaults.update(overrides)
         return Evaluation.objects.create(**defaults)
-
-    def test_assigning_provider_key_clears_error_status_in_activity_log(self):
-        # An errored eval cleared via provider-key assignment goes through QuerySet.update(), which
-        # bypasses ModelActivityMixin.save(). The viewset must log the status transition explicitly.
-        key = self._create_provider_key()
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
-        evaluation = self._create_evaluation_orm(
-            model_configuration=mc,
-            enabled=False,
-            status="error",
-            status_reason="provider_key_deleted",
-        )
-        self.clear_activity_logs()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(evaluation.id)]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        logs = self.get_activity_logs_for_item("Evaluation", str(evaluation.id))
-        self.assertEqual(len(logs), 1)
-        fields = {c["field"]: c for c in logs[0].detail["changes"]}
-        self.assertEqual(fields["status"]["before"], "error")
-        self.assertEqual(fields["status"]["after"], "paused")
-        self.assertEqual(fields["status_reason"]["before"], "provider_key_deleted")
-        self.assertIsNone(fields["status_reason"]["after"])
-        self.assertNotIn("enabled", fields)  # error -> paused both have enabled=False
 
     def test_deleting_provider_key_logs_active_to_error_transition(self):
         key = self._create_provider_key()

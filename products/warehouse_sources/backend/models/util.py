@@ -1,7 +1,8 @@
 import re
 import socket
+from collections.abc import Mapping
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Any, Protocol, Union
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
 from urllib.parse import urlparse
 
 from posthog.hogql.database.models import (
@@ -17,10 +18,11 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     StructDatabaseField,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -31,7 +33,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -54,44 +56,6 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
     if table is None:
         table = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=name).first()
     return table
-
-
-def stamp_column_positions(columns: dict[str, Any]) -> None:
-    """Persist each dict-style column's position (in place) so its order survives a database
-    round-trip.
-
-    Postgres stores the ``columns`` JSONField as jsonb, which does not preserve object key
-    order (keys come back sorted by length, then bytewise). Entries that already carry a
-    position keep it; unstamped entries are appended in iteration order after the highest
-    existing position. Old-style string entries cannot carry a position and are left as-is.
-
-    A legacy row saved without its columns being recomputed gets positions stamped in its
-    current (jsonb) iteration order — output-identical to the unstamped behavior, and the
-    next columns refresh builds a fresh dict and restamps the true order.
-    """
-    existing_positions = [
-        value["position"]
-        for value in columns.values()
-        if isinstance(value, dict) and isinstance(value.get("position"), int)
-    ]
-    next_position = max(existing_positions, default=-1) + 1
-    for value in columns.values():
-        if isinstance(value, dict) and not isinstance(value.get("position"), int):
-            value["position"] = next_position
-            next_position += 1
-
-
-def columns_in_position_order(columns: dict[str, Any]) -> list[tuple[str, Any]]:
-    """Return column items sorted by their stamped position.
-
-    Sorting only applies when every column carries a position — partially stamped dicts
-    (legacy rows, old-style string columns mixed in) keep their current order unchanged,
-    since reordering just the stamped subset would scramble the relative order.
-    """
-    items = list(columns.items())
-    if items and all(isinstance(value, dict) and isinstance(value.get("position"), int) for _, value in items):
-        return sorted(items, key=lambda item: item[1]["position"])
-    return items
 
 
 def validate_source_prefix(prefix: str | None) -> tuple[bool, str]:
@@ -188,8 +152,37 @@ def clean_type(column_type: str) -> str:
     return column_type
 
 
+_ColumnT = TypeVar("_ColumnT")
+
+
+def reconstruct_ordered_columns(
+    columns: Mapping[str, _ColumnT], column_order: list[str] | None
+) -> list[tuple[str, _ColumnT]]:
+    """Return ``(name, value)`` column pairs in the recorded SELECT order.
+
+    Column metadata originates as an ordered list (SELECT / DESCRIBE order) but is stored in a
+    Postgres ``jsonb`` object, which does not preserve key insertion order. ``column_order``
+    carries the order captured at write time. Apply it first (skipping names that no longer
+    exist), then append any columns discovered since that were never recorded. Rows written
+    before ``column_order`` existed have ``None`` and fall back to the stored jsonb key order.
+    """
+    if not column_order:
+        return list(columns.items())
+
+    ordered: list[tuple[str, _ColumnT]] = []
+    seen: set[str] = set()
+    for name in column_order:
+        if name in columns and name not in seen:
+            ordered.append((name, columns[name]))
+            seen.add(name)
+    for name, value in columns.items():
+        if name not in seen:
+            ordered.append((name, value))
+    return ordered
+
+
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -218,6 +211,15 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Enum8": StringDatabaseField,
 }
 
+# Old-style column metadata stores only the ClickHouse type string and resolves through a
+# mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
+# legacy column at once on deploy. Pin those to their historical String typing — UUID typing
+# reaches a table only when a sync or materialization regenerates its column metadata.
+LEGACY_CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
+    **CLICKHOUSE_HOGQL_MAPPING,
+    "UUID": StringDatabaseField,
+}
+
 STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
@@ -228,6 +230,7 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UUIDDatabaseField": UUIDDatabaseField,
     "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
@@ -509,6 +512,41 @@ def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[s
     return {
         column_name: mysql_column_to_dwh_column(column_name, mysql_type, nullable)
         for column_name, mysql_type, nullable in columns
+    }
+
+
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    else:
+        # variant/object/array (and anything unrecognized) map to String.
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
     }
 
 

@@ -1,21 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import {
-    IconBolt,
-    IconCheckCircle,
-    IconChevronRight,
-    IconCompass,
-    IconGithub,
-    IconPullRequest,
-    IconServer,
-} from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -23,11 +17,12 @@ import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { AutoStartThresholdSection } from '../config/AutoStartThresholdSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
+import { InboxUsageWidget } from './InboxUsageWidget'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -50,7 +45,18 @@ interface SetupWidgetCardProps {
     children?: React.ReactNode
 }
 
-function TrailingAffordance({ tone, to }: { tone: WidgetTone; to?: string }): JSX.Element | null {
+function TrailingAffordance({
+    tone,
+    to,
+    loading,
+}: {
+    tone: WidgetTone
+    to?: string
+    loading?: boolean
+}): JSX.Element | null {
+    if (loading) {
+        return <LemonSkeleton className="h-4 w-12 rounded" />
+    }
     if (tone === 'todo') {
         return (
             <LemonTag type="warning" size="small">
@@ -113,7 +119,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                     ) : (
                         <span className="text-xs text-secondary">{status}</span>
                     )}
-                    <TrailingAffordance tone={tone} to={to} />
+                    <TrailingAffordance tone={tone} to={to} loading={loading} />
                 </div>
             </>
         ) : (
@@ -129,7 +135,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
                         <span className={cn('text-default truncate', TITLE_CLASS[size])}>{title}</span>
-                        <TrailingAffordance tone={tone} to={to} />
+                        <TrailingAffordance tone={tone} to={to} loading={loading} />
                     </div>
                     {loading ? (
                         <LemonSkeleton className="h-3 w-20" />
@@ -228,7 +234,12 @@ function McpServersWidget(): JSX.Element {
             {count > 0 && (
                 <div className="flex items-center gap-1 pt-1">
                     {installations.slice(0, 6).map((installation) => (
-                        <ServerIcon key={installation.id} iconKey={installation.icon_key} size={16} />
+                        <ServerIcon
+                            key={installation.id}
+                            iconDomain={installation.icon_domain}
+                            serverUrl={installation.url}
+                            size={16}
+                        />
                     ))}
                     {count > 6 && <span className="text-[11px] text-muted">+{count - 6}</span>}
                 </div>
@@ -241,10 +252,18 @@ function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { autonomyConfig } = useValues(userAutonomyLogic)
+    const { teamConfig } = useValues(signalTeamConfigLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
 
-    const channel = autonomyConfig?.slack_notification_channel ?? null
-    const notifying = (slackIntegrations?.length ?? 0) > 0 && !!channel
+    // Either target counts as set up: the team-wide channel catches every actionable report,
+    // the personal channel pings the suggested reviewer. The status names each configured one.
+    const teamChannel = teamConfig?.default_slack_notification_channel ?? null
+    const userChannel = autonomyConfig?.slack_notification_channel ?? null
+    const channelLabels = [
+        teamChannel ? `Team ${slackChannelDisplayName(teamChannel)}` : null,
+        userChannel ? `You ${slackChannelDisplayName(userChannel)}` : null,
+    ].filter(Boolean)
+    const notifying = (slackIntegrations?.length ?? 0) > 0 && channelLabels.length > 0
     return (
         <SetupWidgetCard
             icon={<IconSlack className="grayscale" />}
@@ -252,27 +271,8 @@ function NotificationsWidget(): JSX.Element {
             size="md"
             tone={notifying ? 'done' : 'todo'}
             loading={integrationsLoading && slackIntegrations === undefined}
-            status={notifying && channel ? `Slack ${slackChannelDisplayName(channel)}` : 'Not connected'}
+            status={notifying ? channelLabels.join(' · ') : 'Not connected'}
             onClick={() => openSetupModal('slack')}
-        />
-    )
-}
-
-function AutoStartWidget(): JSX.Element {
-    useMountedLogic(signalTeamConfigLogic)
-    const { autonomyConfig, autonomyConfigLoading } = useValues(userAutonomyLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-
-    const userPriority = autonomyConfig?.autostart_priority ?? null
-    return (
-        <SetupWidgetCard
-            icon={<IconPullRequest />}
-            title="Auto-create PR"
-            size="sm"
-            tone="neutral"
-            loading={autonomyConfigLoading && autonomyConfig === null}
-            status={userPriority ? `${userPriority}+` : 'Off for you'}
-            onClick={() => openSetupModal('auto-start')}
         />
     )
 }
@@ -310,13 +310,6 @@ const SETUP_MODALS: Record<
         width: 560,
         body: <SlackNotificationsSection />,
     },
-    'auto-start': {
-        title: 'Auto-create PR',
-        description:
-            'Automatically open a pull request for an actionable report at or above a priority threshold – set the team default and your personal override.',
-        width: 560,
-        body: <AutoStartThresholdSection />,
-    },
 }
 
 function SetupModal(): JSX.Element {
@@ -337,9 +330,9 @@ function SetupModal(): JSX.Element {
 }
 
 /**
- * The agent-setup widgets, grouped into Agents / Connections / Preferences. Each widget shows
+ * The agent-setup widgets, grouped into Agents / Connections. Each widget shows
  * status and nudges the user to finish that part of the setup. Signal sources and Scout troop
- * (most edited) are largest; connections medium; Auto-create PR compact. Code access and MCP link
+ * (most edited) are largest; connections medium. Code access and MCP link
  * out to settings; the rest open a management modal.
  *
  * Rendered two ways: `rail` (a column to the right of the tabs on wide viewports) and
@@ -348,6 +341,7 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -359,14 +353,15 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingSection />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                <McpServersWidget />
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
-            <SetupSection title="Preferences">
-                <AutoStartWidget />
+            <SetupSection title="Usage">
+                <InboxUsageWidget />
             </SetupSection>
             <SetupModal />
         </div>

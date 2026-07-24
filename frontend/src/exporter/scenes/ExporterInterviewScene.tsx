@@ -1,13 +1,57 @@
 import Vapi from '@vapi-ai/web'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
-import { RobotHog } from 'lib/components/hedgehogs'
+import { Logo } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { uuid } from 'lib/utils/dom'
+import { fromParams } from 'lib/utils/url'
 
 import { InterviewExportPayload } from '../types'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
+
+// Fields a shared-link respondent sends to /start_call/. Empty {} for personalised links.
+interface StartCallBody {
+    name?: string
+    respondent_key?: string
+    distinct_id?: string
+    session_id?: string
+    _hp?: string
+}
+
+// Stable per-browser id for a shared-link respondent, scoped per share token so two topics in the
+// same browser stay distinct. Persisting it means a refresh mid-call re-attaches to the same
+// respondent instead of creating a duplicate. Best-effort: falls back to an in-memory id if
+// localStorage is unavailable (private mode, blocked storage).
+function getOrCreateRespondentKey(accessToken: string): string {
+    const storageKey = `ph-interview-respondent:${accessToken}`
+    try {
+        const existing = window.localStorage.getItem(storageKey)
+        if (existing) {
+            return existing
+        }
+        const created = uuid()
+        window.localStorage.setItem(storageKey, created)
+        return created
+    } catch {
+        return uuid()
+    }
+}
+
+// Best-effort person/session linkage: whoever built the shared link can append ?distinct_id=…&session_id=…
+// so responses can be tied back to the person/session that triggered the interview. Untrusted.
+function readLinkageFromUrl(): { distinct_id: string; session_id: string } {
+    try {
+        const params = fromParams()
+        return { distinct_id: params.distinct_id ?? '', session_id: params.session_id ?? '' }
+    } catch {
+        return { distinct_id: '', session_id: '' }
+    }
+}
 
 // Vapi surfaces several normal-completion signals through its `error` channel because
 // the underlying Daily.co transport reports the local participant being evicted as
@@ -40,12 +84,10 @@ interface VapiTranscriptMessage {
 }
 
 interface StartCallPayload {
-    public_key: string
-    assistant_id: string
-    assistant_overrides: {
-        firstMessage?: string
-        variableValues?: Record<string, string>
-        metadata?: Record<string, string>
+    web_call: {
+        webCallUrl: string
+        id?: string
+        artifactPlan?: { videoRecordingEnabled?: boolean }
     }
 }
 
@@ -59,17 +101,27 @@ const CallStatusPanel = memo(function CallStatusPanel({
     return (
         <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
             <div className="w-40 h-40 mx-auto">
-                <RobotHog className="w-full h-full" alt="" />
+                <HedgehogRoboHog className="w-full h-full" />
             </div>
             {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
         </div>
     )
 })
 
-function PreCallIntro({ interview }: { interview: InterviewExportPayload }): JSX.Element {
+function PreCallIntro({
+    interview,
+    name,
+    onNameChange,
+    honeypotRef,
+}: {
+    interview: InterviewExportPayload
+    name: string
+    onNameChange: (value: string) => void
+    honeypotRef: RefObject<HTMLInputElement>
+}): JSX.Element {
     return (
         <>
-            <h1 className="text-3xl font-bold mb-4">Hi {interview.user_name}!</h1>
+            <h1 className="text-3xl font-bold mb-4">{interview.shared ? 'Hi there!' : `Hi ${interview.user_name}!`}</h1>
             <p className="text-lg mb-4">
                 We're researching <strong>{interview.topic}</strong> and would love to hear your perspective.
             </p>
@@ -77,6 +129,32 @@ function PreCallIntro({ interview }: { interview: InterviewExportPayload }): JSX
                 This is a 5–10 minute voice conversation with an AI interviewer. Talk like you would to a researcher on
                 our team — your feedback helps us build a better product.
             </p>
+            {interview.shared && (
+                <div className="mb-6">
+                    <label htmlFor="interview-respondent-name" className="block font-semibold mb-1">
+                        What's your name?
+                    </label>
+                    <LemonInput
+                        id="interview-respondent-name"
+                        value={name}
+                        onChange={onNameChange}
+                        placeholder="Your name"
+                        maxLength={200}
+                        autoFocus
+                    />
+                    {/* Honeypot: hidden from real users, tempting to naive bots. Sent as `_hp`; a
+                        filled value gets the request rejected server-side. */}
+                    <input
+                        ref={honeypotRef}
+                        type="text"
+                        name="company_website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        aria-hidden="true"
+                        className="hidden"
+                    />
+                </div>
+            )}
             <div className="bg-accent-highlight border border-accent p-4 rounded mb-6 text-sm">
                 <strong>How it works</strong>
                 <ol className="list-decimal pl-5 mt-2 space-y-1">
@@ -147,11 +225,13 @@ function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Elem
 
 function CallActionButton({
     state,
+    canStart,
     onStart,
     onStop,
     onRetry,
 }: {
     state: CallState
+    canStart: boolean
     onStart: () => void
     onStop: () => void
     onRetry: () => void
@@ -159,7 +239,13 @@ function CallActionButton({
     switch (state) {
         case 'idle':
             return (
-                <LemonButton type="primary" size="large" fullWidth onClick={onStart}>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    fullWidth
+                    onClick={onStart}
+                    disabledReason={canStart ? undefined : 'Enter your name to start'}
+                >
                     Start interview
                 </LemonButton>
             )
@@ -188,6 +274,10 @@ const CallBodyPanel = memo(function CallBodyPanel({
     state,
     interview,
     errorMessage,
+    name,
+    onNameChange,
+    honeypotRef,
+    canStart,
     onStart,
     onStop,
     onRetry,
@@ -195,6 +285,10 @@ const CallBodyPanel = memo(function CallBodyPanel({
     state: CallState
     interview: InterviewExportPayload
     errorMessage: string | null
+    name: string
+    onNameChange: (value: string) => void
+    honeypotRef: RefObject<HTMLInputElement>
+    canStart: boolean
     onStart: () => void
     onStop: () => void
     onRetry: () => void
@@ -203,30 +297,43 @@ const CallBodyPanel = memo(function CallBodyPanel({
     return (
         <div className="flex-1 min-w-0">
             {state === 'already-replied' && <AlreadyRepliedPanel interview={interview} />}
-            {isPreCall && <PreCallIntro interview={interview} />}
+            {isPreCall && (
+                <PreCallIntro interview={interview} name={name} onNameChange={onNameChange} honeypotRef={honeypotRef} />
+            )}
             {state === 'connecting' && <ConnectingPanel />}
             {state === 'in-call' && <LivePanel />}
             {state === 'ended' && <EndedPanel />}
             {state === 'error' && <ErrorPanel errorMessage={errorMessage} />}
             <div className="mt-4">
-                <CallActionButton state={state} onStart={onStart} onStop={onStop} onRetry={onRetry} />
+                <CallActionButton
+                    state={state}
+                    canStart={canStart}
+                    onStart={onStart}
+                    onStop={onStop}
+                    onRetry={onRetry}
+                />
             </div>
         </div>
     )
 })
 
 /**
- * Fetch the Vapi public key, assistant id, and *full* assistant overrides (including
- * `agent_context`) from the server only when the interviewee clicks Start. Keeps the
- * personalized agent context out of the initial HTML payload, so a recipient can't
- * see "this person is a heavy user, be empathetic" just by viewing source.
+ * Ask the server to create one Vapi web call when the interviewee clicks Start. The
+ * response contains only that call's join payload, never reusable Vapi credentials.
  */
-async function fetchStartCallPayload(accessToken: string): Promise<StartCallPayload> {
+async function fetchStartCallPayload(accessToken: string, body: StartCallBody): Promise<StartCallPayload> {
     const response = await fetch(`/api/user_interviews/share/${accessToken}/start_call/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
     })
     if (!response.ok) {
+        // A shared link is opened by many people at once (e.g. posted in a company Slack), so
+        // concurrent respondents can trip the rate limit. Surface a retry-friendly message rather
+        // than a raw error — the error panel already offers a "Try again" button.
+        if (response.status === 429) {
+            throw new Error('A lot of people are starting interviews right now. Please wait a moment and try again.')
+        }
         const text = await response.text()
         throw new Error(text || `Server responded ${response.status}`)
     }
@@ -247,6 +354,11 @@ export default function ExporterInterviewScene({
     // read as listening (mic is open), and only the post-user-final gap re-enters thinking.
     const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('thinking')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
+    // Shared links ask each respondent for their name before starting; personalised links already
+    // know it. `canStart` gates the button so shared respondents can't start nameless.
+    const [respondentName, setRespondentName] = useState<string>('')
+    const honeypotRef = useRef<HTMLInputElement>(null)
+    const canStart = !interview.shared || respondentName.trim().length > 0
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
     const lastPhaseRef = useRef<ConversationPhase>('thinking')
@@ -255,9 +367,30 @@ export default function ExporterInterviewScene({
     const hogfettiFiredRef = useRef<boolean>(false)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 75, duration: 3000 })
 
+    // Reused across a refresh so an interrupted call re-attaches to the same respondent instead of
+    // spawning a duplicate. Only meaningful for shared links.
+    const respondentKey = useMemo(
+        () => (interview.shared && accessToken ? getOrCreateRespondentKey(accessToken) : ''),
+        [interview.shared, accessToken]
+    )
+
     useEffect(() => {
         document.title = `Interview · ${interview.topic}`
     }, [interview.topic])
+
+    // Warn before an accidental refresh/close ends a live call — Vapi's browser call can't be
+    // resumed across a page load, so a lost call means starting over.
+    useEffect(() => {
+        if (state !== 'in-call') {
+            return
+        }
+        const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+            event.preventDefault()
+            event.returnValue = ''
+        }
+        window.addEventListener('beforeunload', onBeforeUnload)
+        return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    }, [state])
 
     useEffect(() => {
         if (state !== 'ended' || hogfettiFiredRef.current) {
@@ -303,13 +436,22 @@ export default function ExporterInterviewScene({
         hogfettiFiredRef.current = false
         setConversationPhase('thinking')
         setState('loading')
+        const body: StartCallBody = {}
+        if (interview.shared) {
+            const { distinct_id, session_id } = readLinkageFromUrl()
+            body.name = respondentName.trim()
+            body.respondent_key = respondentKey
+            body.distinct_id = distinct_id
+            body.session_id = session_id
+            body._hp = honeypotRef.current?.value ?? ''
+        }
         void (async () => {
             try {
-                const startPayload = await fetchStartCallPayload(accessToken)
+                const startPayload = await fetchStartCallPayload(accessToken, body)
                 if (!isMountedRef.current) {
                     return
                 }
-                const vapi = new Vapi(startPayload.public_key)
+                const vapi = new Vapi('')
                 vapiRef.current = vapi
                 const setPhase = (next: ConversationPhase): void => {
                     if (lastPhaseRef.current === next) {
@@ -373,7 +515,7 @@ export default function ExporterInterviewScene({
                     }
                 })
                 setState('connecting')
-                await vapi.start(startPayload.assistant_id, startPayload.assistant_overrides)
+                await vapi.reconnect(startPayload.web_call)
                 if (!isMountedRef.current) {
                     vapi.stop()
                     return
@@ -391,7 +533,7 @@ export default function ExporterInterviewScene({
                 setState('error')
             }
         })()
-    }, [accessToken])
+    }, [accessToken, interview.shared, respondentName, respondentKey])
 
     const stop = useCallback((): void => {
         vapiRef.current?.stop()
@@ -407,7 +549,7 @@ export default function ExporterInterviewScene({
         <div className="max-w-2xl mx-auto px-4 py-12">
             <HogfettiComponent />
             <div className="mb-8">
-                <Logo className="text-lg" />
+                <Logo size="md" />
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">
@@ -416,6 +558,10 @@ export default function ExporterInterviewScene({
                     state={state}
                     interview={interview}
                     errorMessage={errorMessage}
+                    name={respondentName}
+                    onNameChange={setRespondentName}
+                    honeypotRef={honeypotRef}
+                    canStart={canStart}
                     onStart={start}
                     onStop={stop}
                     onRetry={retry}

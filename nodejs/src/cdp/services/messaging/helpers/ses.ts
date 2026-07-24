@@ -2,9 +2,9 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
 
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -127,7 +127,13 @@ const SesRenderingFailureSchema = SesCommonEventBase.extend({
 })
 
 const SesSendEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Send') })
-const SesRejectEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Reject') })
+const SesRejectEventSchema = SesCommonEventBase.extend({
+    eventType: z.literal('Reject'),
+    reject: z.object({ reason: z.string().optional() }).optional(),
+})
+
+// Acknowledged so SNS doesn't retry forever; details aren't surfaced.
+const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({ eventType: z.literal('DeliveryDelay') })
 
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
@@ -138,6 +144,7 @@ const SesEventRecordSchema = z.union([
     SesRenderingFailureSchema,
     SesSendEventSchema,
     SesRejectEventSchema,
+    SesDeliveryDelayEventSchema,
 ])
 
 const SesEventBatchSchema = z.array(SesEventRecordSchema)
@@ -146,6 +153,13 @@ export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
 // email_sent is recorded synchronously in email.service.ts when the email is sent,
 // so we don't record it again from SES Send webhooks to avoid double counting.
+const BOUNCE_TYPE_TO_METRIC_NAME: Record<'Permanent' | 'Transient' | 'Undetermined', MinimalAppMetric['metric_name']> =
+    {
+        Permanent: 'email_bounced_hard',
+        Transient: 'email_bounced_transient',
+        Undetermined: 'email_bounced_undetermined',
+    }
+
 const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
@@ -156,10 +170,94 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Reject: 'email_failed',
 }
 
+export type SesEventLogLine = {
+    level: 'warn' | 'error'
+    message: string
+}
+
+const MAX_SES_FIELD_LENGTH = 1024
+
+// Strip control chars, neutralize rich-log bracket tokens, and cap length.
+const sanitizeSesField = (value: string, max = MAX_SES_FIELD_LENGTH): string => {
+    const cleaned = value
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\[/g, '(')
+        .replace(/\]/g, ')')
+    return cleaned.length > max ? cleaned.slice(0, max) + '…' : cleaned
+}
+
+// Only warn/error events become log entries. Info-level events (Send, Delivery, Open, Click)
+// are tracked as metrics only - they're analytics signal, not debugging signal.
+export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
+    switch (rec.eventType) {
+        case 'Bounce': {
+            const bounceType = rec.bounce.bounceType
+            const level: SesEventLogLine['level'] = bounceType === 'Permanent' ? 'error' : 'warn'
+            return rec.bounce.bouncedRecipients.map((r) => {
+                const diag = r.diagnosticCode ? sanitizeSesField(r.diagnosticCode) : ''
+                // SES typically inlines the SMTP status inside diagnosticCode already
+                // (e.g. "smtp; 550 5.1.1 user unknown"), so skip the suffix when present.
+                const statusSuffix = r.status && !diag.includes(r.status) ? ` (${sanitizeSesField(r.status)})` : ''
+                const diagPart = diag ? `, ${diag}` : ''
+                return {
+                    level,
+                    message: `${bounceType} bounce to ${sanitizeSesField(r.emailAddress)}${diagPart}${statusSuffix}`,
+                }
+            })
+        }
+        case 'Complaint': {
+            const feedback = rec.complaint.complaintFeedbackType
+                ? `, feedback type: ${sanitizeSesField(rec.complaint.complaintFeedbackType)}`
+                : ''
+            return rec.complaint.complainedRecipients.map((r) => ({
+                level: 'warn',
+                message: `Complaint from ${sanitizeSesField(r.emailAddress)}${feedback}`,
+            }))
+        }
+        case 'RenderingFailure': {
+            const tmpl = rec.renderingFailure.templateName
+                ? ` for template ${sanitizeSesField(rec.renderingFailure.templateName)}`
+                : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Rendering failure${tmpl}: ${sanitizeSesField(rec.renderingFailure.errorMessage)}`,
+                },
+            ]
+        }
+        case 'Reject': {
+            const reason = rec.reject?.reason ? `: ${sanitizeSesField(rec.reject.reason)}` : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Message rejected by SES${reason}`,
+                },
+            ]
+        }
+        default:
+            return []
+    }
+}
+
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
+    private allowedTopicArns: Set<string>
 
-    constructor(private trackingCodeSigner: EmailTrackingCodeSigner) {}
+    constructor(
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        // Empty set means no restriction (dev/test); prod is expected to configure the workflow SES
+        // topic ARN.
+        allowedTopicArns: string[] = []
+    ) {
+        this.allowedTopicArns = new Set(allowedTopicArns.map((arn) => arn.trim()).filter(Boolean))
+    }
+
+    private isTopicAllowed(topicArn: string | undefined): boolean {
+        if (this.allowedTopicArns.size === 0) {
+            return true
+        }
+        return typeof topicArn === 'string' && this.allowedTopicArns.has(topicArn)
+    }
 
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
@@ -322,9 +420,35 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
         }[]
-        optOutRecipients?: {
+        logEntries?: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            parentRunId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
+        }[]
+        // Soft (Transient) bounces — fed into the suppression list's consecutive-bounce counter.
+        transientBounceRecipients?: {
             teamId?: string
             emailAddresses: string[]
+            diagnostic?: string
+        }[]
+        // Hard (Permanent) bounces — recorded in the suppression list so future sends to the address
+        // are blocked. Suppression enforcement replaces the legacy opt-out-on-bounce write.
+        hardBounceRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[]
+        // Successful deliveries — reset the suppression counter so transient outages don't accumulate.
+        // Timestamp is threaded through so the reset ignores an out-of-order delivery from an older send
+        // arriving after a newer bounce.
+        deliveredRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            timestamp?: string
         }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
@@ -344,6 +468,16 @@ export class SesWebhookHandler {
             if (!ok) {
                 return { status: 403, body: { error: 'Invalid SNS signature' } }
             }
+        }
+
+        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
+        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
+        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
         }
 
         // Handle confirmation flow
@@ -383,9 +517,29 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
         }[] = []
-        const optOutRecipients: {
+        const logEntries: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            parentRunId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
+        }[] = []
+        const transientBounceRecipients: {
             teamId?: string
             emailAddresses: string[]
+            diagnostic?: string
+        }[] = []
+        const hardBounceRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            diagnostic?: string
+        }[] = []
+        const deliveredRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            timestamp?: string
         }[] = []
 
         for (const rec of records) {
@@ -446,15 +600,89 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                 })
+
+                // email_bounced stays the catch-all rollup; each bounce additionally emits a
+                // per-type sub-metric (hard + transient + undetermined = email_bounced). AWS's
+                // account bounce rate — what the email reputation feature calibrates against —
+                // counts only hard (Permanent) bounces, so reputation reads email_bounced_hard;
+                // the others exist for diagnosis (transient spikes are a leading indicator).
+                if (rec.eventType === 'Bounce') {
+                    metrics.push({
+                        functionId,
+                        invocationId,
+                        actionId,
+                        parentRunId,
+                        distinctId,
+                        metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
+                        properties,
+                        timestamp,
+                    })
+                }
             }
 
-            // Opt out recipients on permanent bounces
-            if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+            // Allowlist actionId before interpolating into the [Action:…] rich-log token,
+            // since actionId comes from the attacker-influenceable ph_id tag.
+            const safeActionId = actionId && /^[a-zA-Z0-9_-]+$/.test(actionId) ? actionId : undefined
+            // Skip test sends here too (mirrors the metrics gate above) so a "Run test" bounce
+            // doesn't write a misleading failure into the workflow's invocation logs.
+            for (const line of isTest ? [] : formatSesEventLogs(rec)) {
+                const prefix = safeActionId ? `[Action:${safeActionId}] ` : ''
+                logEntries.push({
+                    functionId,
+                    invocationId,
+                    actionId,
+                    parentRunId,
+                    teamId,
+                    level: line.level,
+                    message: `${prefix}${line.message}`,
+                })
+            }
+
+            // State-changing writes (opt-out, suppression, delivery counter reset) require a signed
+            // tracking code. The signed header carries the HMAC we mint on send; the unsigned SES-tag
+            // carrier is only used for engagement metrics/log entries above.
+            const codeIsTrusted = parsedCode?.format === 'signed'
+
+            // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
+            // able to perturb production suppression state by targeting a bad recipient.
+            const suppressionAllowed = teamId && codeIsTrusted && !isTest
+
+            // Record permanent bounces in the suppression list so future sends to the address are
+            // blocked. The SMTP diagnostic is threaded through for operator visibility on the row.
+            if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                optOutRecipients.push({ teamId, emailAddresses: emails })
+                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
+                hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+            }
+
+            // Count soft (Transient) bounces toward suppression. These are recipient-side failures
+            // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
+            // of them means the address can't receive mail.
+            if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
+                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
+                transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+            }
+
+            // Successful delivery resets an address's soft-bounce counter — but only if newer than the
+            // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
+            // older send can't erase a fresh bounce.
+            if (suppressionAllowed && rec.eventType === 'Delivery') {
+                const emails = rec.delivery.recipients ?? rec.mail.destination ?? []
+                if (emails.length > 0) {
+                    deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
+                }
             }
         }
 
-        return { status: 200, body: { ok: true }, metrics, optOutRecipients }
+        return {
+            status: 200,
+            body: { ok: true },
+            metrics,
+            logEntries,
+            transientBounceRecipients,
+            hardBounceRecipients,
+            deliveredRecipients,
+        }
     }
 }

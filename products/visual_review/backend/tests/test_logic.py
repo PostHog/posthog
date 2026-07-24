@@ -4,9 +4,14 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.visual_review.backend import logic
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -1156,6 +1161,69 @@ class TestCommitStatusChecks:
         assert statuses[-1]["state"] == "error"
         assert "failed" in statuses[-1]["description"].lower()
         assert len(mock_github_api.issue_comments) == 0
+
+    def test_observe_run_with_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        # Default-branch (observe) runs are tracking-only: a visual change posts a green,
+        # informational status — never a blocking failure — and no review-prompt comment.
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "changed", "content_hash": "new_h"},
+                {"identifier": "added", "content_hash": "brand_new"},
+            ],
+            baseline_hashes={"changed": "old_h"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"changed": "old_h"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: 1 changed, 1 new recorded"
+        # Observe runs post to a separate, non-gating context. purpose is client-supplied,
+        # so greening the gating context would let an observe run bypass branch protection
+        # on a PR head SHA — the gating context must never be touched by an observe run.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
+        assert all(s["context"] != "PostHog Visual Review / storybook" for s in statuses)
+        assert len(mock_github_api.issue_comments) == 0
+
+    def test_observe_run_without_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same"}, 0),
+        )
+        logic.complete_run(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: no visual changes"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
@@ -2367,6 +2435,69 @@ class TestVerifyUploadsAndCreateArtifacts:
         assert artifact is not None
         assert artifact.content_hash == server_hash
         assert artifact.size_bytes == len(png)
+        snapshot = RunSnapshot.objects.get(run=run)
+        assert snapshot.current_artifact_id == artifact.id
+
+    def test_verification_query_count_does_not_grow_per_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
+            images: dict[str, bytes] = {}
+            snapshots: list[dict[str, str]] = []
+            for index in range(count):
+                png = self._png((color_offset + index, 20, 30, 255))
+                content_hash = hash_image(png)
+                images[content_hash] = png
+                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+
+            run, _ = logic.create_run(
+                repo_id=repo.id,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"sha-{count}-{color_offset}",
+                branch="main",
+                pr_number=None,
+                snapshots=snapshots,
+            )
+            return run, images
+
+        single_run, single_images = create_run_with_images(1, 10)
+        mock_read = mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            side_effect=lambda content_hash: single_images.get(content_hash),
+        )
+        with CaptureQueriesContext(connections[WRITER_DB]) as single_queries:
+            logic.verify_uploads_and_create_artifacts(single_run.id)
+
+        scaled_run, scaled_images = create_run_with_images(5, 100)
+        mock_read.side_effect = lambda content_hash: scaled_images.get(content_hash)
+        with CaptureQueriesContext(connections[WRITER_DB]) as scaled_queries:
+            logic.verify_uploads_and_create_artifacts(scaled_run.id)
+
+        assert len(scaled_queries) <= len(single_queries)
+
+    def test_verification_relinks_existing_artifacts_across_hash_batches(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
+        snapshots: list[dict[str, str]] = []
+        for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
+            content_hash = hash_image(self._png(color))
+            logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
+            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha-retry",
+            branch="main",
+            pr_number=None,
+            snapshots=snapshots,
+        )
+
+        assert logic.verify_uploads_and_create_artifacts(run.id) == 0
+        assert RunSnapshot.objects.filter(run=run, current_artifact__isnull=False).count() == 3
 
     def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
         # Two snapshots: first verifies cleanly, second has a mismatched claim.
@@ -2760,10 +2891,12 @@ class TestApprovalComment:
 
         body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
-        # Changed table: baseline (thumbnail) before, current after
+        # Changed table: baseline before, current after — full-resolution originals,
+        # not thumbnails, so clicking opens the image at full size
         assert "**Changed**" in body
         assert "| Snapshot | Before | After |" in body
-        assert "https://cdn.example/thumb_a" in body  # prefers the thumbnail
+        assert "https://cdn.example/base_a" in body  # full-res original, not thumb_a
+        assert "https://cdn.example/thumb_a" not in body
         assert "https://cdn.example/curr_a" in body
         # Removed snapshot lives in the changed table with an empty after cell
         assert "_(removed)_" in body
@@ -2870,14 +3003,19 @@ class TestApprovalComment:
         assert 'alt="a&quot;b"' in cell
         assert 'src="https://cdn.example/x?a=&quot;b"' in cell
 
-    @pytest.mark.parametrize(
-        "identifier,expected",
+    def test_image_cell_constrains_width_but_serves_full_resolution(self):
+        # The cell shows a width-constrained image whose src is the full-resolution
+        # original, so GitHub opens it at full size when clicked — no <a> wrapper needed.
+        cell = logic._image_cell("https://cdn.example/full", "after")
+        assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
+
+    @parameterized.expand(
         [
-            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
-            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+            ("pipe", "a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("backtick", "a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
         ],
     )
-    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+    def test_snapshot_name_cell_escapes_markdown(self, _name, identifier, expected):
         assert logic._snapshot_name_cell(identifier) == expected
 
     def test_snapshot_name_cell_collapses_control_characters(self):
@@ -2916,3 +3054,14 @@ class TestApprovalComment:
         assert url == "https://cdn.example/x"
         assert captured["content_hash"] == "h1"
         assert captured["expiration"] == 60 * 60 * 24 * 7 == 604800
+
+    def test_comment_image_url_serves_full_resolution_not_thumbnail(self, repo, mocker):
+        # Serve the original artifact, not the thumbnail, so clicking opens it full-size
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        artifact = self._mk_artifact(repo, "full_h", with_thumbnail="thumb_h")
+        url = logic._comment_image_url(repo, artifact)
+
+        assert url is not None
+        assert "full_h" in url
+        assert "thumb_h" not in url

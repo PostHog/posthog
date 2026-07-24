@@ -1,11 +1,15 @@
-from django.db import IntegrityError
+from uuid import uuid4
+
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestRoleCrossOrgAuthorization(APILicensedTest):
@@ -180,6 +184,38 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(res.json()["code"], "unique")
 
+    def test_listing_roles_does_not_scale_queries_with_member_count(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        def add_members(count: int) -> None:
+            for _ in range(count):
+                user = User.objects.create_and_join(self.organization, f"member-{uuid4()}@posthog.com", None)
+                membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
+                RoleMembership.objects.create(role=role, user=user, organization_member=membership)
+
+        def members_for_role(response) -> list:
+            return next(r["members"] for r in response.json()["results"] if r["id"] == str(role.id))
+
+        # Warm up per-process caches (instance settings etc.) so they don't skew the counts below.
+        self.client.get("/api/organizations/@current/roles")
+
+        add_members(2)
+        with CaptureQueriesContext(connection) as few_members:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(members_for_role(res)), 2)
+
+        add_members(4)
+        with CaptureQueriesContext(connection) as more_members:
+            res = self.client.get("/api/organizations/@current/roles")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(members_for_role(res)), 6)
+
+        # Constant query count as members grow: the social-auth/2FA lookups are prefetched, not N+1.
+        self.assertEqual(len(few_members.captured_queries), len(more_members.captured_queries))
+
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -203,3 +239,60 @@ class TestRoleAPI(APILicensedTest):
         results = res.json()
         self.assertEqual(results["count"], 2)
         self.assertNotContains(res, str(other_org.id))
+
+
+class TestRoleMemberVisibilityRestriction(APILicensedTest):
+    """When members_can_see_org_members is off, role endpoints must not disclose members the
+    requester can't see in the members list."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        self.mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        self.hidden = User.objects.create_and_join(self.organization, "hidden@posthog.com", None)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization, created_by=self.hidden)
+        for user in [self.mate, self.hidden]:
+            RoleMembership.objects.create(
+                role=self.role,
+                user=user,
+                organization_member=user.organization_memberships.get(organization=self.organization),
+            )
+        # Private project: explicit access for the requester and one project mate, none for `hidden`
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        for membership in [
+            self.organization_membership,
+            self.mate.organization_memberships.get(organization=self.organization),
+        ]:
+            AccessControl.objects.create(
+                team=self.team, resource="project", organization_member=membership, access_level="member"
+            )
+
+    def test_restricted_member_cannot_see_hidden_members_via_roles(self):
+        response = self.client.get("/api/organizations/@current/roles")
+        assert response.status_code == status.HTTP_200_OK
+        role = response.json()["results"][0]
+        assert {m["user"]["email"] for m in role["members"]} == {self.mate.email}
+        assert role["created_by"] is None
+
+    def test_restricted_member_cannot_see_hidden_members_via_role_memberships(self):
+        response = self.client.get(f"/api/organizations/@current/roles/{self.role.id}/role_memberships")
+        assert response.status_code == status.HTTP_200_OK
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.mate.email}
+
+    def test_admin_still_sees_all_role_members(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.get("/api/organizations/@current/roles")
+        role = response.json()["results"][0]
+        assert {m["user"]["email"] for m in role["members"]} == {self.mate.email, self.hidden.email}
+        assert role["created_by"]["email"] == self.hidden.email

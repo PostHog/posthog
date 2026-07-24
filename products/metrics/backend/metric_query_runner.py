@@ -8,11 +8,15 @@ isn't going through HogQL `DataNode` caching, schema-gen or the data-viz
 pipeline yet.
 """
 
+import re
+import math
 import datetime as dt
 from collections.abc import Sequence
 from typing import Any, Literal
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -20,11 +24,32 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
-from products.metrics.backend.facade.enums import FilterOp
+from products.metrics.backend.facade.enums import FilterOp, MetricType
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
 _ALLOWED_ATTRIBUTE_SCOPES: frozenset[str] = frozenset({"resource", "attribute", "auto"})
+
+# Hard bound on bucketed rows per query; hitting it raises instead of
+# silently truncating the tail of the time range (ORDER BY time ASC means
+# the most recent buckets would be the ones dropped).
+_ROW_LIMIT = 10000
+
+# Widest queryable range. Counter/histogram queries scan raw samples within
+# the range on the ClickHouse cluster shared with the live logs/traces
+# products, so the span has to be bounded.
+MAX_QUERY_SPAN = dt.timedelta(days=31)
+
+# These run on the shared logs cluster; cap how much one query may read.
+_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+    read_overflow_mode="throw",
+)
+
+# The OTel service name is a first-class `metrics1` column (extracted at
+# ingest from the `service.name` resource attribute); both spellings resolve
+# to it so filters/group-bys match real ingested rows.
+_SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
 
 def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
@@ -46,12 +71,20 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
       empty. Map lookups in ClickHouse return ``''`` for missing keys, not
       NULL, so the fallback compares against the empty string.
 
-    The empty-string fallback is documented behaviour, not a bug: it means
+    The empty-string fallback is documented behavior, not a bug: it means
     callers cannot meaningfully filter for "attribute equals empty string"
     in auto scope. Use an explicit scope for that edge case.
+
+    ``service_name`` / ``service.name`` are special-cased to the first-class
+    ``service_name`` column regardless of scope: ingestion extracts the
+    service name out of the resource attributes into its own column, so a
+    map lookup would match nothing on real rows.
     """
     if scope not in _ALLOWED_ATTRIBUTE_SCOPES:
         raise ValueError(f"Unknown attribute scope: {scope!r}")
+
+    if name in _SERVICE_NAME_KEYS:
+        return ast.Field(chain=["service_name"])
 
     name_constant = ast.Constant(value=name)
 
@@ -89,9 +122,23 @@ def _aggregation_expr(name: str) -> ast.Expr:
     raise ValueError(f"Unsupported aggregation: {name!r}")
 
 
+def _finite_or_none(value: float | None) -> float | None:
+    """ClickHouse float aggregates can overflow to inf/-inf (or produce NaN);
+    a non-finite value has no JSON representation and downstream renderers
+    turn it into null anyway. Make the null explicit and deterministic here —
+    consumers render it as a gap."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value
+
+
 _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
 )
+
+# Derived from the contract enum (whose values match what the ingest writes,
+# rust/capture-logs `flatten_metric`) so the two can't silently diverge.
+_ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
 
 def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
@@ -160,6 +207,14 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     that lack the key entirely — same as Prometheus negative matchers.
     """
     field = attribute_field(filter.key, scope=filter.scope.value)
+    if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
+        # Pre-validate so a bad pattern is a 400, not a ClickHouse
+        # CANNOT_COMPILE_REGEXP 500. Python `re` accepts a superset of RE2,
+        # so this catches syntax errors without rejecting valid patterns.
+        try:
+            re.compile(filter.value)
+        except re.error as exc:
+            raise ValueError(f"Invalid regular expression for filter {filter.key!r}: {exc}")
     placeholders: dict[str, ast.Expr] = {"field": field, "value": ast.Constant(value=filter.value)}
     if filter.op == FilterOp.EQ:
         return parse_expr("{field} = {value}", placeholders=placeholders)
@@ -194,13 +249,25 @@ class MetricQueryRunner:
         group_by: Sequence[MetricGroupBy] = (),
         interval: str | None = None,
         quantile: float | None = None,
+        metric_type: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
+        if metric_type is not None and metric_type not in _ALLOWED_METRIC_TYPES:
+            raise ValueError(f"Unknown metric_type: {metric_type!r}")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
+        if date_to - date_from > MAX_QUERY_SPAN:
+            raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
         if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
             raise ValueError(f"Unknown interval: {interval!r}")
+        if interval is not None:
+            step = next(step for name, step, _ in _INTERVAL_LADDER if name == interval)
+            if (date_to - date_from) / step > _ROW_LIMIT:
+                raise ValueError(
+                    f"interval {interval!r} produces more than {_ROW_LIMIT} buckets over this range; "
+                    "use a coarser interval or a narrower range"
+                )
         if aggregation == "histogram_quantile":
             if quantile is None or not 0.0 < quantile < 1.0:
                 raise ValueError("histogram_quantile requires a quantile in (0, 1)")
@@ -214,6 +281,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.interval = interval or _pick_interval(date_from, date_to)
         self.quantile = quantile
+        self.metric_type = metric_type
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
@@ -230,7 +298,9 @@ class MetricQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            settings=_QUERY_SETTINGS,
         )
+        self._raise_on_truncation(response.results)
 
         group_count = len(self.group_by)
         rows: list[dict[str, Any]] = []
@@ -238,7 +308,7 @@ class MetricQueryRunner:
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": row[1 + group_count],
+                    "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
@@ -255,7 +325,9 @@ class MetricQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
+            settings=_QUERY_SETTINGS,
         )
+        self._raise_on_truncation(response.results)
 
         group_count = len(self.group_by)
         distinct_bounds = {tuple(variant) for row in response.results for variant in row[2 + group_count] if variant}
@@ -269,14 +341,29 @@ class MetricQueryRunner:
         for row in response.results:
             bounds = list(row[1 + group_count])
             counts = list(row[3 + group_count])
+            if sum(counts) <= 0:
+                # No computable increase in this bucket (e.g. a cumulative
+                # series' first sample has nothing to diff against). A gap is
+                # honest; a fabricated quantile of 0 reads as "p95 is 0s".
+                continue
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": _histogram_quantile(self.quantile, bounds, counts),
+                    "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
         return rows
+
+    def _raise_on_truncation(self, results: list[Any]) -> None:
+        """A full page means ClickHouse hit the row LIMIT and dropped the
+        tail of the range (the most recent buckets) — fail loud rather than
+        return data that silently ends early."""
+        if len(results) >= _ROW_LIMIT:
+            raise ValueError(
+                "query produced too many (time bucket, group) rows; "
+                "use a coarser interval, a narrower range, or a lower-cardinality group_by"
+            )
 
     def _splice_group_columns(self, query: ast.SelectQuery) -> None:
         """Insert the group_by label columns between `time` and `value` —
@@ -286,6 +373,16 @@ class MetricQueryRunner:
             label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
             query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
             query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+
+    def _type_filter_expr(self) -> ast.Expr:
+        """Constrains rows to one metric type. A name can exist as several
+        types (a counter and a gauge); their series are distinct and must not
+        blend into one aggregate. TRUE when no type was requested."""
+        if self.metric_type is None:
+            return ast.Constant(value=True)
+        return parse_expr(
+            "metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=self.metric_type)}
+        )
 
     def _build_simple_query(self) -> ast.SelectQuery:
         # `metrics` is only registered under the `posthog.` HogQL namespace
@@ -300,9 +397,10 @@ class MetricQueryRunner:
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
                   AND {filters}
+                  AND {type_filter}
                 GROUP BY time
                 ORDER BY time ASC
-                LIMIT 10000
+                LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
@@ -311,6 +409,8 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
+                "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -344,6 +444,7 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
+                        service_name AS service_name,
                         attributes AS attributes,
                         resource_attributes AS resource_attributes,
                         multiIf(
@@ -355,6 +456,7 @@ class MetricQueryRunner:
                     FROM (
                         SELECT
                             timestamp,
+                            service_name,
                             value,
                             aggregation_temporality,
                             attributes,
@@ -369,11 +471,12 @@ class MetricQueryRunner:
                           AND timestamp >= {date_from}
                           AND timestamp < {date_to}
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
                 GROUP BY time
                 ORDER BY time ASC
-                LIMIT 10000
+                LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
@@ -382,6 +485,8 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
+                "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -402,6 +507,7 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
+                        service_name AS service_name,
                         attributes AS attributes,
                         resource_attributes AS resource_attributes,
                         histogram_bounds AS histogram_bounds,
@@ -415,6 +521,7 @@ class MetricQueryRunner:
                     FROM (
                         SELECT
                             timestamp,
+                            service_name,
                             aggregation_temporality,
                             attributes,
                             resource_attributes,
@@ -431,11 +538,12 @@ class MetricQueryRunner:
                           AND timestamp < {date_to}
                           AND notEmpty(histogram_counts)
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
                 GROUP BY time
                 ORDER BY time ASC
-                LIMIT 10000
+                LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
@@ -443,6 +551,8 @@ class MetricQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": _filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
+                "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)

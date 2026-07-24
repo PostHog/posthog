@@ -3,6 +3,7 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import DatabaseError
 from django.test import override_settings
 
@@ -22,15 +23,17 @@ from posthog.hogql.parser import parse_select
 from posthog.models import EventDefinition, PropertyDefinition
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    # No test here writes per-team ClickHouse data, so the per-test team isolation
+    # that ClickhouseTestMixin defaults to (CLASS_DATA_LEVEL_SETUP = False) only adds
+    # ~100ms of org/team/user creation to every test.
+    CLASS_DATA_LEVEL_SETUP = True
 
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -627,7 +630,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": query,
                 "notices": [
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 7,
                         "end": 16,
                         "fix": None,
@@ -639,7 +642,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": f"'{cohort.name}'",
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
@@ -651,7 +654,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": str(cohort.pk),
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
@@ -672,6 +675,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number")
+        materialized_notice = (
+            "not materialized 🐢." if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "materialized (mat_*) ⚡️."
+        )
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -686,7 +692,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": None,
                     },
                     {
-                        "message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.",
+                        "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,

@@ -484,3 +484,43 @@ class TestIsSourceEnabledGating(APIBaseTest):
     def test_replay_vision_scanner_finding_is_self_authorizing(self):
         # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
         assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
+
+    @parameterized.expand(
+        [
+            ("evaluation_requires_row", SignalSourceConfig.SourceType.EVALUATION, None, False),
+            ("evaluation_enabled_row", SignalSourceConfig.SourceType.EVALUATION, True, True),
+            ("evaluation_report_requires_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, None, False),
+            ("evaluation_report_enabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, True, True),
+            ("evaluation_report_disabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, False, False),
+        ]
+    )
+    def test_llm_analytics_gating(self, _name, source_type, existing_enabled, expected):
+        # llm_analytics has no always-on bypass: both evaluation and evaluation_report signals
+        # go through the standard config-row check.
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+                source_type=source_type,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "llm_analytics", source_type) is expected
+
+    @parameterized.expand(
+        [
+            ("no_row_defaults_on", None, True),
+            ("explicit_disabled_opts_out", False, False),
+            ("explicit_enabled_on", True, True),
+        ]
+    )
+    def test_scout_source_on_by_default(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+                source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected

@@ -66,6 +66,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -83,10 +84,12 @@ export const BlankEnumApi = {
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -97,6 +100,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -114,10 +118,12 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -230,6 +236,33 @@ export interface PatchedPersonRecordApi {
 export interface PersonDeletePropertyRequestApi {
     /** The property key to remove from this person. */
     $unset: string
+}
+
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Asset kind. Currently always 'email'. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** The recipient email address. */
+    recipient: string
+    /** The email subject line. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent'. */
+    status: string
+    /** When the email was sent. */
+    sent_at: string
 }
 
 export interface PersonSplitRequestApi {
@@ -456,6 +489,38 @@ export const PersonsDeletePropertyCreateFormat = {
     Json: 'json',
 } as const
 
+export type PersonsEmailsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsEmailsListFormat
+    /**
+     * Maximum number of emails to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of emails to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsEmailsListFormat = (typeof PersonsEmailsListFormat)[keyof typeof PersonsEmailsListFormat]
+
+export const PersonsEmailsListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type PersonsPropertiesTimelineRetrieveParams = {
     format?: PersonsPropertiesTimelineRetrieveFormat
 }
@@ -592,40 +657,6 @@ export const PersonsDeletionStatusListStatus = {
     Pending: 'pending',
 } as const
 
-export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat
-}
-
-export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
-
-export const PersonsFunnelRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat
-}
-
-export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
-
-export const PersonsFunnelCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat
-}
-
-export type PersonsLifecycleRetrieveFormat =
-    (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
-
-export const PersonsLifecycleRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -662,17 +693,6 @@ export type PersonsResetPersonDistinctIdCreateFormat =
     (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
 
 export const PersonsResetPersonDistinctIdCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat
-}
-
-export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
-
-export const PersonsTrendsRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

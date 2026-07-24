@@ -2,22 +2,31 @@ from __future__ import annotations
 
 import random
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.apps import apps
+from django.db import OperationalError
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -27,8 +36,10 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
-from products.tasks.backend.models import Task, TaskRun
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 @pytest_asyncio.fixture
@@ -68,6 +79,8 @@ async def aerrors_skill(ateam):
 
 def _make_task_run(team: Team) -> TaskRun:
     """Minimal Task + TaskRun pair scoped to the given team."""
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="scout run",
@@ -114,6 +127,132 @@ class TestSkillLoader(BaseTest):
         with pytest.raises(SkillNotFoundError):
             load_skill_for_run(self.team, "signals-scout-does-not-exist")
 
+    def test_authors_lead_with_creator_not_last_editor(self) -> None:
+        # Each version row's `created_by` is whoever published that version, so the pinned
+        # (latest) row alone attributes the skill to its last editor. A regression back to
+        # reading the loaded row's `created_by` flips this ordering.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [
+            ("creator", "ben@posthog.com"),
+            ("editor", self.user.email),
+        ]
+        # Off by default: the report-authorization path in views loads the skill on every report
+        # write just to check allowed_tools and must not pay the author scan.
+        assert load_skill_for_run(self.team, "signals-scout-errors").authors == []
+
+    def test_diverged_seeded_skill_creator_is_first_human_author(self) -> None:
+        # A seeded row's v1 is system-authored (`created_by=None`); the creator of the diverged
+        # skill is whoever first edited it, not "the author of version 1".
+        seeded_metadata = {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "0" * 64}
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            metadata=seeded_metadata,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+            metadata=seeded_metadata,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-general", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_exclude_users_without_project_access(self) -> None:
+        # An author's display name is self-editable and flows into a privileged prompt, so a
+        # former member must stop resolving the moment their access is revoked — otherwise they
+        # keep a post-revocation steering channel into scheduled runs (and waste an editor slot
+        # on someone reviewer routing can't reach anyway).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.created_by = ben
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("creator", self.user.email)]
+
+    def test_authors_empty_for_pristine_canonical_skill(self) -> None:
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            created_by=self.user,
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
+        assert load_skill_for_run(self.team, "signals-scout-general", include_authors=True).authors == []
+
+    def test_authors_prefer_explicit_owners_over_version_history(self) -> None:
+        # With an explicit owner set, ownership is authoritative and stable: a later editor never
+        # displaces the owner. Here ben owns the skill but self.user is the latest editor — the
+        # version-history reconstruction would surface self.user, the owner set must not.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        v1 = self._create_skill("signals-scout-errors")
+        v1.is_latest = False
+        v1.save()
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="A test skill",
+            body="edited body",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name="signals-scout-errors", user=ben)
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert [(a.role, a.email) for a in loaded.authors] == [("owner", "ben@posthog.com")]
+
+    def test_owned_skill_with_all_owners_revoked_returns_no_authors(self) -> None:
+        # A skill with owner rows is authoritatively owned. If every owner loses access, the reviewer
+        # path must return NO authors, not silently drift back to the version-history editor — the
+        # exact misroute the owner primitive exists to prevent. self.user is a valid version author
+        # here, so a regression that falls through would surface them.
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        skill = self._create_skill("signals-scout-errors")
+        skill.created_by = self.user
+        skill.save()
+        LLMSkillOwner.objects.for_team(self.team.id, canonical=True).create(
+            team=self.team, skill_name="signals-scout-errors", user=ben
+        )
+        OrganizationMembership.objects.filter(user=ben).delete()
+
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        assert loaded.authors == []
+
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
         non_match = self._create_skill("custom-research-helper")
@@ -143,6 +282,11 @@ class TestPromptBuilder(BaseTest):
         assert "(v1)" in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
+        # Calling convention is stated up front: bare tool names resolve only
+        # through the exec interface, so the agent doesn't burn opening moves
+        # trying to invoke them directly.
+        assert "How to call tools" in prompt
+        assert "mcp__posthog__exec" in prompt
         # Bootstrap section directs the agent to read the skill via MCP, not
         # from the prompt. Skill body + file manifest are deliberately NOT
         # inlined — they're discovered at run time.
@@ -157,10 +301,14 @@ class TestPromptBuilder(BaseTest):
         # project-profile harness tool, eliminating the discovery-burn the
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
-        assert "signals-scout-project-profile-get" in prompt
+        assert "scout-project-profile-get" in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
-        assert "signals-scout-emit-signal" in prompt
-        assert "signals-scout-scratchpad-search" in prompt
+        assert "scout-emit-signal" in prompt
+        assert "scout-scratchpad-search" in prompt
+        # Steering notes are prior context on every channel — the section and its tool
+        # reference must survive in the signal tail.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
@@ -176,6 +324,331 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # The writing-style section is wired into the tail, carrying the
+        # session-replay-vs-recording terminology rule scouts must follow.
+        assert "session recordings" in prompt
+        # Dedupe rules point a signal scout at the inbox with `include_all_statuses=true` —
+        # human-dismissed reports are hidden by default, and their dismissal notes carry the
+        # human rationale the scout needs before re-surfacing a topic. The note is free text
+        # any task:write caller can author, so the guidance must keep the untrusted-content
+        # boundary — a scout holds write scopes an injected note could otherwise steer.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
+        # Recency ordering too — the default report ordering sorts dismissed reports last,
+        # so without it a recent dismissal can paginate out of view.
+        assert "ordering=-updated_at" in prompt
+        # A signal scout never sees the report-channel guidance — it fires weak
+        # signals, it does not author reports.
+        assert "scout-emit-report" not in prompt
+        assert "Suggested reviewers route the report" not in prompt
+        assert "scratchpad entry is a pointer" not in prompt
+
+    def test_github_evidence_section_gated_on_token_grant(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-gh-reports",
+            description="Report scout",
+            body="watch",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-gh-reports")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        granted = build_run_prompt(loaded, **kwargs, github_read_access=True)
+        # The section only renders when the sandbox actually holds the token, and must carry the
+        # read-only framing so the scout doesn't attempt writes.
+        assert "Code-derived reviewer evidence" in granted
+        assert "read-only" in granted
+
+        # Default (no grant): naming `gh` in a tokenless sandbox burns the budget on 401s.
+        ungranted = build_run_prompt(loaded, **kwargs)
+        assert "Code-derived reviewer evidence" not in ungranted
+
+        # A signal-channel scout has no reviewers field — the section must not leak into its
+        # prompt even if the runner flag were mis-set for it.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-plain", description="s", body="watch")
+        signal_prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-plain"), **kwargs, github_read_access=True
+        )
+        assert "Code-derived reviewer evidence" not in signal_prompt
+
+    def test_report_channel_renders_report_persona_and_guidance(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors-reports",
+            description="Errors scout that authors reports",
+            body="watch for spikes",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors-reports")
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        # A report scout authors via the report channel, so the persona and the
+        # run-identity emit reference point at emit-report, not emit-signal.
+        assert "scout-emit-report" in prompt
+        assert "scout-edit-report" in prompt
+        # Steering notes are prior context on the report channel too.
+        assert "Notes left for you" in prompt
+        assert "scout-notes-list" in prompt
+        # The two highest-leverage nudges the report channel adds: search the inbox
+        # and edit before authoring a duplicate, and set suggested reviewers (what
+        # actually routes a report).
+        assert "Authoring vs. editing: search the inbox first" in prompt
+        assert "inbox-reports-list" in prompt
+        assert "Suggested reviewers route the report" in prompt
+        assert "suggested_reviewers" in prompt
+        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login), and when the
+        # owner isn't already in the evidence the prompt points the scout at the in-run
+        # `scout-members-list` tool — so it must name both rather than letting it guess a
+        # handle or reach for the org-scoped resolver that's stripped from a scout run.
+        assert "user_uuid" in prompt
+        assert "scout-members-list" in prompt
+        # The report channel teaches that the `report:` scratchpad entry is a pointer
+        # into the inbox, not a copy of the report — the inbox stays the source of
+        # truth, so the scout retrieves the live report before editing. Dropping this
+        # discipline re-opens the duplicate / stale-edit failure mode.
+        assert "scratchpad entry is a pointer" in prompt
+        assert "source of truth" in prompt
+        # The report-channel prompt must carry both dedup nuances: search `ordering=-updated_at`
+        # (else the most recent duplicate sorts below older rows) and don't filter by product name
+        # (a scout's own report-channel signals persist under `source_product=signals_scout`).
+        # Dropping either silently re-opens the duplicate-report failure mode for every report scout.
+        assert "ordering=-updated_at" in prompt
+        assert "source_product=signals_scout" in prompt
+        # The inbox search must widen to human-dismissed reports (`include_all_statuses=true`) and
+        # read their dismissal notes — a human's dismissal rationale is context the scout needs
+        # before re-surfacing a topic. Dropping either re-opens the "re-report what a human
+        # already dismissed" failure mode. The note is free text any task:write caller can
+        # author, so the guidance must keep the untrusted-content boundary — a scout holds
+        # write scopes an injected note could otherwise steer.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
+        # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
+        # for a report scout — it doesn't fire `emit_signal`.
+        assert "scout-emit-signal" not in prompt
+        assert "Tagging your findings" not in prompt
+        # Shared scaffolding is still present on both personas.
+        assert "First: read your skill" in prompt
+        assert "Report operational friction" in prompt
+        assert "Output format" in prompt
+
+    @parameterized.expand(
+        [
+            # (label, skill_name, metadata, allowed_tools, expect_section). A pristine canonical
+            # scout (harness-seeded row on an on-disk fleet name) must never see the
+            # self-improvement section — applying an `improve:` suggestion would mark its row
+            # diverged and cut it off from upstream sync. Custom scouts get it on both channels,
+            # and so does a *diverged* seeded row (content hash no longer matching the stamped
+            # `canonical_hash`): the team already owns that body, sync leaves it alone.
+            ("custom_signal_scout", "signals-scout-errors", {}, [], True),
+            ("custom_report_scout", "signals-scout-errors", {}, ["emit_report", "edit_report"], True),
+            ("custom_report_scout_emit_only", "signals-scout-errors", {}, ["emit_report"], True),
+            # No stored canonical_hash (pre-hash-tracking legacy row): unprovable, stays canonical.
+            ("canonical_scout_no_hash", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, [], False),
+            (
+                "canonical_report_scout",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY},
+                ["emit_report", "edit_report"],
+                False,
+            ),
+            (
+                "diverged_canonical_scout",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "0" * 64},
+                [],
+                True,
+            ),
+        ]
+    )
+    def test_self_improvement_section_gated_on_custom_origin(
+        self,
+        _name: str,
+        skill_name: str,
+        metadata: dict,
+        allowed_tools: list[str],
+        expect_section: bool,
+    ) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=skill_name,
+            description="d",
+            body="b",
+            allowed_tools=allowed_tools,
+            metadata=metadata,
+        )
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, skill_name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert ("Suggest improvements to your own skill" in prompt) is expect_section
+        # The `improve:` key contract is what the meta-skills document — it must ride with the
+        # section, and it must be skill-namespaced (scratchpad keys are unique per (team, key),
+        # so a domain-only key would let two scouts clobber each other's suggestions).
+        assert ("improve:<your-skill-name>:<topic>" in prompt) is expect_section
+        # The report-escalation guidance (file strong suggestions as inbox reports about the scout)
+        # must ride only with report tools the scout actually holds — a signal-channel custom scout
+        # has neither, so pointing it at `emit_report` would steer it into a PermissionDenied.
+        expect_escalation = expect_section and "emit_report" in allowed_tools
+        assert ("Scout self-improvement:" in prompt) is expect_escalation
+        # Reviewer routing for self-improvement reports points at the run-identity authors line,
+        # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
+        # last-editor-becomes-the-assignee failure mode.
+        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
+        if _name == "custom_report_scout_emit_only":
+            # The emit-only variant must never name the edit tool it lacks (fails closed).
+            assert "scout-edit-report" not in prompt
+        # The canonical-improvement channel is the exact inverse of the self-improvement gate: a
+        # canonical scout routes skill-content gaps upstream via agent-feedback, while a custom or
+        # diverged scout must never be told to send its team-owned skill body to the PostHog team.
+        assert ("Suggest improvements to your canonical skill" in prompt) is not expect_section
+        assert ('`feedback_type` = `"scout"`' in prompt) is not expect_section
+        # The structured fields and the reported: dedupe key are what make fleet-wide feedback
+        # aggregable per skill/version and non-repetitive across runs — they must ride with the section.
+        assert ("scout_skill_name" in prompt) is not expect_section
+        assert ("reported:<your-skill-name>:<topic>" in prompt) is not expect_section
+        # The generalization rule is the privacy boundary: the feedback leaves the customer's
+        # project, so dropping this line silently re-opens the customer-data-travels failure mode.
+        assert ("this project's data must not travel" in prompt) is not expect_section
+        # The upstream friction channel is origin-independent: harness/tool defects still route there.
+        assert "agent-feedback" in prompt
+
+    def test_pristine_seeded_row_stays_canonical(self) -> None:
+        # A seeded row whose content still matches its stamped canonical_hash is the one case
+        # that must NOT get the section — a regression that ignores the hash comparison (always
+        # custom when a hash is present) would nudge every unedited canonical scout to diverge.
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-general",
+            description="d",
+            body="b",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        skill.save()
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, "signals-scout-general"),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "Suggest improvements to your own skill" not in prompt
+        # The pristine canonical scout routes skill-content gaps upstream instead.
+        assert "Suggest improvements to your canonical skill" in prompt
+        # A canonical skill body is PostHog-owned — the run identity must not name the seeding
+        # row's incidental `created_by` as a skill author.
+        assert "skill authors" not in prompt
+
+    def test_run_identity_names_skill_authors_creator_first(self) -> None:
+        # The rendered line is what the escalation guidance points `suggested_reviewers` at;
+        # if it drops the creator, or renders for a skill with no known authors, routing
+        # falls back to the last editor (the exact misattribution this line exists to fix).
+        ben = User.objects.create_and_join(self.organization, "ben@posthog.com", None, "Ben")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="b",
+            created_by=ben,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors",
+            description="d",
+            body="edited",
+            version=2,
+            is_latest=True,
+            created_by=self.user,
+            allowed_tools=["emit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
+        assert self.user.email in prompt
+        # The authors line is a default, not an override — dropping the precedence hedge would
+        # set the harness up to fight a skill body that defines its own reviewer routing.
+        assert "unless your skill body defines its own reviewer routing" in prompt
+        # A signal-channel scout has no `suggested_reviewers` field, so member names/emails must
+        # not reach its prompt — there is no feature path that could use them.
+        signal_prompt = build_run_prompt(
+            replace(loaded, allowed_tools=[]),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        assert "skill authors" not in signal_prompt
+        assert "ben@posthog.com" not in signal_prompt
+
+    def _report_prompt_for(self, allowed_tools: list[str]) -> str:
+        name = "signals-scout-" + "-".join(allowed_tools)
+        LLMSkill.objects.create(team=self.team, name=name, description="d", body="b", allowed_tools=allowed_tools)
+        return build_run_prompt(
+            load_skill_for_run(self.team, name),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+
+    def test_emit_only_report_scout_never_references_edit_tool(self) -> None:
+        # A scout that opted into emit_report but NOT edit_report must never be steered toward
+        # `scout-edit-report` — the endpoint fails closed on the exact tool, so naming it
+        # would route the run into a PermissionDenied. This is the regression the per-tool gating guards.
+        prompt = self._report_prompt_for(["emit_report"])
+        assert "scout-emit-report" in prompt
+        assert "scout-edit-report" not in prompt
+        assert "Authoring reports: search the inbox first" in prompt
+        assert "Suggested reviewers route the report" in prompt
+        # The dedup nuances reach the emit-only variant too — not just the both-tools prompt.
+        assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the emit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
+        # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
+        # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
+        assert "relapse of a closed report" in prompt
+
+    def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
+        # The mirror case: an edit_report-only scout must never be told to author via
+        # `scout-emit-report`, and the standalone author-time sections (the suggested-reviewers
+        # deep-dive, writing a report) are dropped since it can't author. It still learns it can SET
+        # reviewers via edit (the routing rescue), folded into the editing guidance — not the H1 section.
+        prompt = self._report_prompt_for(["edit_report"])
+        assert "scout-edit-report" in prompt
+        assert "scout-emit-report" not in prompt
+        assert "Editing existing reports" in prompt
+        assert "Suggested reviewers route the report" not in prompt
+        assert "Writing the report" not in prompt
+        assert "suggested_reviewers" in prompt
+        # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
+        # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
+        assert "scout-members-list" in prompt
+        # An edit-only scout searches the inbox to find the report to update, so it needs the same
+        # dedup nuance — else the default ordering hides the most recently updated match.
+        assert "ordering=-updated_at" in prompt
+        # Same for the dismissed-report guidance: the edit-only section is a separate constant,
+        # so it can lose the widened search or the untrusted-note boundary independently.
+        assert "include_all_statuses=true" in prompt
+        assert "dismissal_note" in prompt
+        assert "record the rationale in your own words" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -217,6 +690,7 @@ def _fake_start_invoking_hook(session: MagicMock, result: object):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
         ateam, "I would investigate /checkout 500s next."
     )
@@ -232,7 +706,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
                 return_value="env-id",
             ),
             patch(
-                "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+                "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
                 return_value=42,
             ),
         ):
@@ -280,7 +754,7 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -291,7 +765,110 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
+    [
+        # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
+        # optional effort) travel with the model so the agent server can route it.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex", reasoning_effort="high"),
+            AgentRuntime(),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            "high",
+        ),
+        # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
+        # configured model trial is the production bug this ordering exists to prevent.
+        (
+            ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "@cf/zai-org/glm-5.2",
+            "codex",
+            None,
+        ),
+        # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high"),
+            "gpt-5.5",
+            "codex",
+            "high",
+        ),
+        # Neither configured: agent-server default.
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
+    ],
+)
+async def test_run_pins_sandbox_to_resolved_scout_model(
+    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
+):
+    # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
+    # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
+    # source supplies the whole runtime/model/effort triple.
+    # The routed model must also ride on both lifecycle events (omitted on the default path), so
+    # run outcomes are sliceable by model without joining through $ai_generation.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=resolved,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=pin,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["context"].model == expected_model
+    assert captured["context"].runtime_adapter == expected_runtime_adapter
+    assert captured["context"].reasoning_effort == expected_reasoning_effort
+    # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
+    # `{}` on the default path) — the native API-side record of which model served the run.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    expected_metadata = {
+        key: value
+        for key, value in (
+            ("model", expected_model),
+            ("runtime_adapter", expected_runtime_adapter),
+            ("reasoning_effort", expected_reasoning_effort),
+        )
+        if value is not None
+    }
+    assert bridge.metadata == expected_metadata
+    events = {c.kwargs["event"] for c in capture.call_args_list}
+    assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
+    for call in capture.call_args_list:
+        props = call.kwargs["properties"]
+        if expected_model is None:
+            assert "model" not in props
+            assert "runtime_adapter" not in props
+        else:
+            assert props["model"] == expected_model
+            assert props["runtime_adapter"] == expected_runtime_adapter
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # Failure inside MultiTurnSession.start means we never get a session.task_run
     # to bridge to — the runner's except path returns FAILED without persisting.
     with (
@@ -305,7 +882,7 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
     ):
@@ -321,6 +898,7 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
 
     with (
@@ -333,7 +911,7 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -374,7 +952,7 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -395,18 +973,29 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     with (
         patch(
             "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
             new_callable=AsyncMock,
             side_effect=RuntimeError("sandbox refused to start"),
         ),
+        # A routed model must survive onto the failed event too — timeouts and crashes are
+        # exactly the outcomes a model trial slices by.
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=ScoutModel(model="@cf/zai-org/glm-5.2", runtime_adapter="claude"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_agent_runtime",
+            return_value=AgentRuntime(),
+        ),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
         ),
         patch(
-            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
@@ -420,15 +1009,51 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # No bridge row persisted (TaskRun never created), so no emit tally or join key.
     assert props["emitted_count"] == 0
     assert props["task_run_id"] is None
+    assert props["model"] == "@cf/zai-org/glm-5.2"
+    assert props["runtime_adapter"] == "claude"
+    # Failure reason rides on the event so the failure rate is breakable down by cause
+    # without digging into worker logs — the bulk of scout failures fail here, before the
+    # process-task workflow's own task_run_failed event fires.
+    assert props["error_type"] == "RuntimeError"
+    assert props["error_message"] == "sandbox refused to start"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
+    # When no user can be resolved to act as (no active org member — `resolve_acting_user_id_for_team`
+    # returns None), the run must skip rather than crash deep in _spawn_and_run and book a bogus
+    # `failed`. That instant-crash-as-failure is what let a handful of teams dominate the fleet
+    # failure rate. A skip leaves no row, no lifecycle event, just a skip_reason. (A team merely
+    # lacking GitHub is NOT this case — it resolves an org member and runs; see the resolver tests.)
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=None,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status is None
+    assert run_result.run_id is None
+    assert run_result.skip_reason == "no active user to act as for team"
+    # Skipped runs are not runs: no started / finished / failed event is emitted.
+    assert capture.call_count == 0
+    has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
+    assert not has_runs
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
     async def fake_spawn(**_kwargs):
         raise asyncio.CancelledError("worker is shutting down")
 
     with (
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
@@ -455,6 +1080,7 @@ async def test_missing_skill_does_not_create_run_row(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # Seed an in-progress run for the same (team, skill) so the skip-if-running guard fires.
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
         team=ateam, skill_name="signals-scout-errors"
@@ -486,11 +1112,34 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_withheld_scout_is_not_run(ateam, aerrors_skill):
+    # A direct `run_signals_scout` of a held-back scout is refused up front — no sandbox session,
+    # no run row — so the manual path can't run a scout the `signals-scout` flag withholds.
+    payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+    with (
+        patch(payload_path, return_value={"default_team_config": {"withheld_skills": ["signals-scout-errors"]}}),
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("session.start should not run for a withheld scout"),
+        ),
+    ):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert result.run_id is None
+    assert result.skip_reason == "scout is withheld from this team"
+    has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
+    assert not has_runs
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, aerrors_skill):
     """Different skills for the same team must be allowed to run concurrently — the
     coordinator can dispatch several due scouts for one team in a single tick. The
     skip-if-running guard locks on `(team, skill_name)` rather than `(team, config_id)`
     so this works."""
+    TaskRun = apps.get_model("tasks", "TaskRun")
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
     # A different skill for the same team is in flight — should NOT block. Run status lives
     # on the linked TaskRun now, so stand up a real IN_PROGRESS TaskRun + bridge row.
@@ -510,7 +1159,10 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
         spawn_calls.append(kwargs)
         return "ok"
 
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+    with (
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+    ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     # Spawn went through — the OTHER skill's RUNNING row didn't gate ours.
@@ -522,6 +1174,7 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # An IN_PROGRESS run orphaned by a crashed worker must not block the lane forever. The
     # stale-run self-heal fails any run older than STALE_RUN_CUTOFF_S before the skip-if-running
     # guard, so a fresh dispatch proceeds and the orphan is marked FAILED.
@@ -548,7 +1201,10 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
         spawn_calls.append(kwargs)
         return "ok", str(task_run.id)
 
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+    with (
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+    ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     # The orphan was reaped, so the guard didn't block — dispatch went through.
@@ -563,6 +1219,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # A genuinely in-flight run (younger than the cutoff) must still single-flight — the
     # self-heal must not reap a live run out from under itself.
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
@@ -596,6 +1253,7 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # Reaping an orphan emits `signals_scout_run_reaped` — the strand's only event (a reaped
     # run never reaches the finalize path, so it emits no `signals_scout_run_finished`). This
     # is what makes the worker-death / mass-stall shape alertable with no warehouse lag.
@@ -648,7 +1306,10 @@ async def test_cancelled_run_re_raises(ateam, aerrors_skill):
     async def fake_spawn(**_kwargs):
         raise asyncio.CancelledError("worker is shutting down")
 
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+    with (
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+    ):
         with pytest.raises(asyncio.CancelledError):
             await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
@@ -660,6 +1321,8 @@ async def test_cancelled_run_re_raises(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_activity_returns_completed_outcome(ateam):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
     async def fake_arun(**_kwargs):
         return RunResult(
             run_id="abc",
@@ -717,6 +1380,88 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
     assert output.task_run_id is None
     assert output.status is None
     assert output.skip_reason is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_skips_run_when_team_over_signals_quota(ateam):
+    fake_arun = AsyncMock()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
+            return_value=True,
+        ),
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    fake_arun.assert_not_called()
+    assert output.run_id is None
+    assert output.status is None
+    assert output.skip_reason == "quota_limited"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_runs_when_team_under_signals_quota(ateam):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status=TaskRun.Status.COMPLETED.value,
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
+            return_value=False,
+        ),
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    assert output.status == "completed"
+    assert output.skip_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_swallows_transient_db_connection_drop(ateam):
+    # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
+    # synchronous DB access, outside the run-row try/except. The activity's "never raises"
+    # contract must hold: report a failed run instead of letting it escape.
+    async def fake_arun(**_kwargs):
+        raise OperationalError("server closed the connection unexpectedly")
+
+    with patch(
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
+        side_effect=fake_arun,
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    assert output.run_id is None
+    assert output.task_run_id is None
+    assert output.status == "failed"
+    assert output.skill_name == "signals-scout-errors"
+    assert output.skip_reason is None
 
 
 # ── Tasks-UI cross-link: SignalScoutRun ─→ TaskRun ────────────────────────────

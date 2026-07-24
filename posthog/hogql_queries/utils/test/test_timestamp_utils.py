@@ -1,6 +1,7 @@
 import datetime
 from zoneinfo import ZoneInfo
 
+from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +21,7 @@ from posthog.hogql_queries.utils.timestamp_utils import (
     _get_earliest_timestamp_cache_key,
     format_label_date,
     get_earliest_timestamp_from_series,
+    get_earliest_timestamp_unfiltered,
 )
 from posthog.models.team import WeekStartDay
 
@@ -350,6 +352,45 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
 
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_returns_earliest_event(self):
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-06T14:10:00Z")
+        flush_persons_and_events()
+
+        assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(
+            2020, 1, 4, 14, 10, tzinfo=datetime.UTC
+        )
+
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_floors_at_2015(self):
+        # Events before 2015-01-01 are treated as corrupt and ignored.
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="1984-01-06T14:10:00Z")
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2014-01-01T01:00:00Z")
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2015-01-01T01:00:00Z")
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-04T14:10:00Z")
+        flush_persons_and_events()
+
+        assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(2015, 1, 1, 1, tzinfo=datetime.UTC)
+
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_falls_back_when_no_events(self):
+        # No events: fall back to now - DEFAULT_EARLIEST_TIME_DELTA (one week).
+        assert get_earliest_timestamp_unfiltered(self.team) == datetime.datetime(2021, 1, 14, tzinfo=datetime.UTC)
+
+    @freeze_time("2021-01-21")
+    def test_unfiltered_earliest_timestamp_caches_real_result(self):
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2021-01-01T12:00:00Z")
+        flush_persons_and_events()
+
+        earliest_timestamp = get_earliest_timestamp_unfiltered(self.team)
+
+        # A later-added earlier event should not change the cached value within the TTL.
+        _create_event(team=self.team, event="sign up", distinct_id="1", timestamp="2020-01-01T12:00:00Z")
+        flush_persons_and_events()
+
+        assert get_earliest_timestamp_unfiltered(self.team) == earliest_timestamp
+
     @parameterized.expand(
         [
             # Naive inputs are interpreted in the passed (team) timezone, not UTC.
@@ -442,7 +483,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
         captured: dict[str, object] = {}
 
-        def capture(team, node):
+        def capture(team, node, user=None):
             captured[node.table_name] = get_query_tags().product
             return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
@@ -490,7 +531,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
         captured: dict[str, object] = {}
 
-        def capture(query, team):
+        def capture(query, team, user=None):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature

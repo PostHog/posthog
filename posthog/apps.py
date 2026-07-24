@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -26,6 +27,12 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Route all JSONField (jsonb) decode through orjson before any query runs.
+        if settings.JSONFIELD_ORJSON_DECODE:
+            from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
+
+            apply_orjson_jsonfield()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
@@ -64,6 +71,17 @@ class PostHogConfig(AppConfig):
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,
+            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
+        }
+        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
+        # the metrics API and ignores this attr; once posthoganalytics is bumped to
+        # >=7.23 it's picked up by setup(), so metrics get a real service.name
+        # instead of 'unknown_service'.
+        posthoganalytics.metrics = {  # type: ignore[attr-defined]
+            # Same fallback as the OTel trace resource (otel_instrumentation.py) —
+            # metrics and traces from one process must share a service identity.
+            "service_name": settings.OTEL_SERVICE_NAME or "posthog-django-default",
+            "service_version": os.getenv("COMMIT_SHA"),
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
@@ -119,6 +137,10 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
+
+        # The feature_flag_definitions() call above constructs the default client, so
+        # the dedicated-AI-endpoint flag can only be applied from this point on.
+        enable_dedicated_ai_endpoint_for_default_client()
 
         from posthog.async_migrations.setup import setup_async_migrations
 

@@ -2,6 +2,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -12,13 +13,20 @@ import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-ou
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
 import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
+import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
+
+jest.mock('@posthog/hogvm-node', () => ({
+    init: jest.fn(),
+    executeSync: jest.fn(),
+}))
+
+const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
@@ -1942,6 +1950,68 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
+        })
+    })
+
+    describe('rust vm primary execution', () => {
+        let bytecode: any[]
+
+        beforeEach(async () => {
+            resetHogvmNodeModuleCacheForTests()
+
+            hub.CDP_HOG_RUST_VM_EXECUTION_ENABLED = true
+            hogTransformer = createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            })
+
+            bytecode = await compileHog(defaultTemplate.code)
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Rust routed',
+                team_id: teamId,
+                enabled: true,
+                bytecode,
+                id: 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
+            })
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+        })
+
+        it('executes transformations on the rust vm when the flag is enabled', async () => {
+            mockHogvmNode.executeSync.mockReturnValue({
+                result: { properties: { from_rust: true } },
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeSync.mock.calls[0][0]).toEqual(bytecode)
+            expect(result.event?.properties).toEqual({
+                from_rust: true,
+                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
+            })
+        })
+
+        it('falls back to the node vm when the rust vm cannot run the program', async () => {
+            mockHogvmNode.executeSync.mockReturnValue({
+                error: 'Native call failed: unsupported_ext_fn:geoipLookup',
+                durationUs: 100,
+                logs: [],
+                logsTruncated: false,
+            })
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).toHaveBeenCalledTimes(1)
+            // The node vm ran the real bytecode: the event survives with its original properties.
+            expect(result.event?.properties).toMatchObject({
+                $current_url: 'https://example.com',
+                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
+            })
         })
     })
 })

@@ -265,6 +265,8 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             funnelStepReference: undefined,
             breakdownSorting: undefined,
             dataColorTheme: undefined,
+            legendPosition: undefined,
+            chartStyle: undefined,
         }
 
         if (isTrendsQuery(cleanedQuery)) {

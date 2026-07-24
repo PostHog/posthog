@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
-// Relative (not `@/`) import: this module is loaded by the tsx schema-generation
-// script, and `playbookIds` is pure constants — no `.md` imports to choke on.
+// Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
+// script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+import { normalizeParamAliases } from '../tools/cast-helpers'
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
@@ -16,13 +17,20 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .optional()
         .default('manual')
         .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+    always_include: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query."
+        ),
 })
 
 export const AgentResolveResourceSchema = z.object({
     resource: z
         .string()
         .describe(
-            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
+            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
         ),
 })
 
@@ -41,7 +49,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -172,69 +180,146 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const FeedbackSubmitSchema = z.object({
-    summary: z
-        .string()
-        .min(1)
-        .describe(
-            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
-        ),
-    sentiment: z
-        .enum(['negative', 'mixed'])
-        .describe(
-            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
-        ),
-    category: z
-        .enum([
-            'tool_correctness',
-            'tool_description',
-            'tool_input_schema',
-            'tool_output_format',
-            'missing_tool',
-            'instructions_clarity',
-            'performance',
-            'error_message',
-            'other',
-        ])
-        .describe(
-            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
-        ),
-    task_completed: z
-        .boolean()
-        .describe(
-            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
-        ),
-    tools_used: z
-        .array(z.string())
+export const FeedbackSubmitSchema = z
+    .object({
+        summary: z
+            .string()
+            .min(1)
+            .describe(
+                'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
+            ),
+        feedback_type: z
+            .enum(['product', 'mcp', 'docs', 'scout', 'other'])
+            .describe(
+                'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
+            ),
+        sentiment: z
+            .enum(['positive', 'neutral', 'negative', 'mixed'])
+            .describe(
+                'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
+            ),
+        product_area: z
+            .string()
+            .optional()
+            .describe(
+                'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
+            ),
+        category: z
+            .enum([
+                'tool_correctness',
+                'tool_description',
+                'tool_input_schema',
+                'tool_output_format',
+                'missing_tool',
+                'instructions_clarity',
+                'performance',
+                'error_message',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
+            ),
+        scout_skill_name: z
+            .string()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
+            ),
+        scout_skill_version: z
+            .number()
+            .int()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
+            ),
+        scout_category: z
+            .enum([
+                'false_positive',
+                'missed_detection',
+                'discriminator_gap',
+                'wasted_investigation',
+                'instruction_ambiguity',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
+            ),
+        task_completed: z
+            .boolean()
+            .optional()
+            .describe(
+                'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
+            ),
+        tools_used: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+            ),
+        friction_points: z
+            .string()
+            .optional()
+            .describe(
+                'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
+            ),
+        suggested_improvement: z
+            .string()
+            .optional()
+            .describe(
+                'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
+            ),
+        user_request: z
+            .string()
+            .optional()
+            .describe(
+                'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+            ),
+        details: z
+            .string()
+            .optional()
+            .describe(
+                "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
+            ),
+    })
+    .superRefine((data, ctx) => {
+        // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+        // so reject it at validation time instead of recording an unattributable event.
+        if (data.feedback_type !== 'scout') {
+            return
+        }
+        for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+            if (data[field] === undefined) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: [field],
+                    message: `${field} is required when feedback_type is "scout".`,
+                })
+            }
+        }
+    })
+
+const SavedMetricAttachItemSchema = z.object({
+    id: z
+        .number()
+        .int()
+        .describe('ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list.'),
+    metadata: z
+        .object({
+            type: z
+                .enum(['primary', 'secondary'])
+                .describe('Whether this metric is a primary or secondary metric on the experiment.'),
+        })
         .optional()
-        .describe(
-            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
-        ),
-    friction_points: z
-        .string()
-        .optional()
-        .describe(
-            "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data."
-        ),
-    suggested_improvement: z
-        .string()
-        .optional()
-        .describe(
-            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
-        ),
-    user_request: z
-        .string()
-        .optional()
-        .describe(
-            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
-        ),
-    details: z
-        .string()
-        .optional()
-        .describe(
-            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
-        ),
+        .describe('Optional per-link metadata. Omit to default this metric to primary.'),
 })
+
+export const SavedMetricsAttachSchema = z
+    .array(SavedMetricAttachItemSchema)
+    .describe(
+        "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+    )
 
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),
@@ -245,37 +330,88 @@ export const ExperimentResultsGetSchema = z.object({
         .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
-export const InsightQueryInputSchema = z.object({
-    insightId: z.string().describe('The insight ID or short_id to run.'),
-    output_format: z
-        .enum(['optimized', 'json'])
-        .optional()
-        .default('optimized')
-        .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
-        ),
-    variables_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-        ),
-    filters_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-        ),
-})
+// Accept the identifier under the aliases agents reach for (`insight-get` &
+// friends return the insight under `id`; UI URLs surface `short_id`), and
+// accept a numeric id — production traces show both mistakes are common.
+// Same motivation as the `orgId` aliases on OrganizationSetActiveSchema below;
+// normalized via preprocess here because this schema has more fields than a
+// per-alias union can reasonably enumerate.
+export const InsightQueryInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z.object({
+        insightId: z
+            .union([z.string(), z.number()])
+            .transform((value) => String(value))
+            .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
+        output_format: z
+            .enum(['optimized', 'json'])
+            .optional()
+            .default('optimized')
+            .describe(
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+    })
+)
 
 export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
+// Accept `orgId` and the aliases agents reach for when composing the call from
+// scratch. `organizations-list` / `organization-get` return the org under an `id`
+// key, and in exec mode agents don't read the advertised schema — they
+// reconstruct the field name from context, producing `id`, `organizationId`,
+// `organization_id`, or `org_id`. Requiring a single spelling made this the odd
+// tool out and drove a steady stream of exec-mode validation failures. Model each
+// accepted key as its own single-field required branch so the advertised JSON
+// schema (anyOf) enumerates every alias and still expresses "exactly one
+// identifier is required"; normalize to `orgId` so the handler stays simple.
+const orgIdAliasDescription =
+    'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
+export const OrganizationSetActiveSchema = z
+    .union(
+        [
+            z.object({
+                orgId: z
+                    .string()
+                    .describe(
+                        'The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.'
+                    ),
+            }),
+            z.object({ id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organizationId: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
+        ],
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-get)' }
+    )
+    .transform((data) => ({
+        orgId:
+            'orgId' in data
+                ? data.orgId
+                : 'id' in data
+                  ? data.id
+                  : 'organizationId' in data
+                    ? data.organizationId
+                    : 'organization_id' in data
+                      ? data.organization_id
+                      : data.org_id,
+    }))
+
+export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
@@ -300,6 +436,132 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const PropertyDefinitionUpdateInputSchema = z.object({
+    description: z.string().optional().describe('Description explaining what the property represents'),
+    tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: this REPLACES the property\'s entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
+        ),
+    property_type: z
+        .enum(['DateTime', 'String', 'Numeric', 'Boolean', 'Duration'])
+        .optional()
+        .describe('The data type of the property. Controls how the property is parsed, displayed, and filtered.'),
+    verified: z
+        .boolean()
+        .optional()
+        .describe('Mark as verified to indicate the property is correctly instrumented and safe to use'),
+    hidden: z
+        .boolean()
+        .optional()
+        .describe('Mark property as no longer used. Hides it from the UI while preserving historical data'),
+})
+
+export const PropertyDefinitionUpdateSchema = z.object({
+    propertyName: z.string().describe('The exact name of the property to update (e.g. "$browser", "plan_type")'),
+    type: z
+        .enum(['event', 'person', 'group', 'session'])
+        .default('event')
+        .describe('Which property taxonomy the property belongs to. Defaults to "event" (event properties).'),
+    groupTypeIndex: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required when type is "group": the zero-based index of the group type the property belongs to.'),
+    data: PropertyDefinitionUpdateInputSchema.describe('The property definition data to update'),
+})
+
+const PathCleaningAliasField = z
+    .string()
+    .describe(
+        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+    )
+const PathCleaningRegexField = z
+    .string()
+    .min(1)
+    .describe(
+        'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
+    )
+const PathCleaningTargetAlias = z
+    .string()
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
+
+export const PathCleaningRulesUpdateSchema = z.object({
+    operations: z
+        .array(
+            z.discriminatedUnion('action', [
+                z
+                    .object({
+                        action: z.literal('append'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe('Add a new rule at the end of the ordered list (runs last).'),
+                z
+                    .object({
+                        action: z.literal('insert'),
+                        index: z
+                            .number()
+                            .int()
+                            .min(0)
+                            .describe('Zero-based position to insert the rule at. Existing rules shift down.'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe(
+                        'Insert a new rule at a specific position — use when it must run before more general rules.'
+                    ),
+                z
+                    .object({
+                        action: z.literal('replace'),
+                        target_alias: PathCleaningTargetAlias,
+                        alias: PathCleaningAliasField.optional().describe('New alias. Omit to keep the current alias.'),
+                        regex: PathCleaningRegexField.optional().describe('New regex. Omit to keep the current regex.'),
+                    })
+                    .describe('Replace the alias and/or regex of an existing rule, keeping its position.'),
+                z
+                    .object({
+                        action: z.literal('remove'),
+                        target_alias: PathCleaningTargetAlias,
+                    })
+                    .describe('Remove an existing rule by alias.'),
+                z
+                    .object({
+                        action: z.literal('reorder'),
+                        ordered_aliases: z
+                            .array(z.string())
+                            .describe(
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
+                            ),
+                    })
+                    .describe(
+                        'Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.'
+                    ),
+            ])
+        )
+        .min(1)
+        .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
+    sample_paths: z
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
+        .optional()
+        .describe(
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            'Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.'
+        ),
 })
 
 export const ProjectSetActiveSchema = z.object({
@@ -328,10 +590,6 @@ export const ExecuteSQLSchema = z.object({
             'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
-
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
 
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
@@ -464,7 +722,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)

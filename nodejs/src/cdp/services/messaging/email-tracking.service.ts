@@ -1,24 +1,29 @@
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/api/router'
-import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
-import { isDevEnv, isTestEnv } from '~/utils/env-utils'
-import { parseJSON } from '~/utils/json-parse'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFunction, LogEntry, LogEntryLevel, MinimalAppMetric } from '~/cdp/types'
+import { ModifiedRequest } from '~/common/api/router'
+import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
-import { logger } from '../../../utils/logger'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
+
+// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
+const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
 
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
@@ -30,6 +35,14 @@ const emailTrackingErrorsCounter = new Counter({
     name: 'email_tracking_errors_total',
     help: 'Total number of email tracking processing errors',
     labelNames: ['error_type', 'source'],
+})
+
+// Skips here are expected (e.g. SES webhook for a hog_function rather than a hog_flow),
+// kept separate so alerts on `email_tracking_errors_total` don't fire on normal traffic.
+const emailTrackingLogSkipsCounter = new Counter({
+    name: 'email_tracking_log_skips_total',
+    help: 'Total number of email tracking log entries skipped (expected, non-error)',
+    labelNames: ['reason', 'source'],
 })
 
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
@@ -100,6 +113,15 @@ export const addTrackingToEmail = (
         if (/^\s*javascript:/i.test(href)) {
             return m
         }
+        // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
+        // app deeplinks resolve - routing through our cross-domain redirect breaks them.
+        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
+        // Match only the opening <a> tag so a marker in the link's inner HTML (a child
+        // element's attribute or literal link text) can't silently disable tracking.
+        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
+            return m
+        }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
@@ -120,10 +142,11 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        private recipientsManager: RecipientsManagerService,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private emailSuppressionService: EmailSuppressionService
     ) {
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
+        const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
     }
 
     public async trackMetric({
@@ -216,13 +239,85 @@ export class EmailTrackingService {
         })
     }
 
+    public async trackLogs(
+        entries: {
+            functionId?: string
+            invocationId?: string
+            parentRunId?: string
+            level: LogEntryLevel
+            message: string
+        }[]
+    ): Promise<void> {
+        if (entries.length === 0) {
+            return
+        }
+
+        const uniqueFunctionIds = Array.from(
+            new Set(entries.map((e) => e.functionId).filter((id): id is string => Boolean(id)))
+        )
+
+        let hogFlows: Record<string, HogFlow | null> = {}
+        try {
+            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+        } catch (error) {
+            logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
+            emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
+            return
+        }
+
+        const now = DateTime.utc()
+        const logEntries: LogEntry[] = []
+        for (const entry of entries) {
+            if (!entry.functionId || !entry.invocationId) {
+                logger.error('[EmailTrackingService] trackLogs: Invalid custom ID', {
+                    functionId: entry.functionId,
+                    invocationId: entry.invocationId,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'invalid_custom_id', source: 'ses' })
+                continue
+            }
+
+            const hogFlow = hogFlows[entry.functionId]
+            if (!hogFlow) {
+                emailTrackingLogSkipsCounter.inc({ reason: 'non_flow', source: 'ses' })
+                continue
+            }
+
+            logEntries.push({
+                team_id: hogFlow.team_id,
+                log_source: 'hog_flow',
+                // Batch-triggered runs log under the batch run id (parentRunId); mirror the metrics path.
+                log_source_id: entry.parentRunId ?? hogFlow.id,
+                instance_id: entry.invocationId,
+                timestamp: now,
+                level: entry.level,
+                message: entry.message,
+            })
+        }
+
+        if (logEntries.length === 0) {
+            return
+        }
+
+        this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
+        await this.hogFunctionMonitoringService.flush()
+    }
+
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
 
         try {
-            const { status, body, metrics, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const {
+                status,
+                body,
+                metrics,
+                logEntries,
+                transientBounceRecipients,
+                hardBounceRecipients,
+                deliveredRecipients,
+            } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -242,36 +337,52 @@ export class EmailTrackingService {
                 })
             }
 
-            // Collect all emails to opt out per team, then batch each team's opt-out in one query
-            const emailsByTeam = new Map<number, string[]>()
-            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
-                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
-                if (!teamId || isNaN(teamId)) {
-                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
-                        teamIdStr,
-                        emailAddresses,
-                    })
-                    continue
-                }
-                const existing = emailsByTeam.get(teamId) ?? []
-                existing.push(...emailAddresses)
-                emailsByTeam.set(teamId, existing)
+            // Wrapped so a failure here doesn't skip the suppression writes below.
+            try {
+                await this.trackLogs(
+                    (logEntries || []).map((entry) => ({
+                        functionId: entry.functionId,
+                        invocationId: entry.invocationId,
+                        parentRunId: entry.parentRunId,
+                        level: entry.level,
+                        message: entry.message,
+                    }))
+                )
+            } catch (error) {
+                logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            for (const [teamId, emails] of emailsByTeam) {
-                try {
-                    await this.recipientsManager.optOut(teamId, emails)
-                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
-                        teamId,
-                        emails,
-                    })
-                } catch (error) {
-                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
-                        teamId,
-                        emails,
-                        error,
-                    })
+            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
+            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
+            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
+            // then the fresh bounce re-counts from a clean slate).
+            try {
+                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                    }
                 }
+                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordTransientBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic
+                        )
+                    }
+                }
+                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+            } catch (error) {
+                logger.error('[EmailTrackingService] Failed to update suppression list', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
             return { status, message: body as string }

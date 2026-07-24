@@ -9,23 +9,50 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AffectedCohortRequestApi,
+    AffectedCohortResponseApi,
+    ApplyPromptSuggestionRequestApi,
+    BulkObserveRequestApi,
+    BulkObserveResponseApi,
+    CreateTaskFromObservationResponseApi,
+    CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
+    EvaluatePromptSuggestionRequestApi,
     ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
+    PaginatedReplayScannerPromptSuggestionListApi,
+    PaginatedVisionActionListApi,
+    PaginatedVisionActionRunListListApi,
     PatchedReplayScannerApi,
+    PatchedVisionActionApi,
     ReplayObservationApi,
+    ReplayObservationLabelApi,
     ReplayScannerApi,
+    ReplayScannerPromptSuggestionApi,
+    RetryResponseApi,
+    RunActionResponseApi,
     ScannerCreatorsResponseApi,
+    ScannerImpactApi,
     ScannerStatsResponseApi,
+    SuggestTagsRequestApi,
+    SuggestTagsResponseApi,
+    VisionActionApi,
+    VisionActionRunApi,
+    VisionActionsListParams,
+    VisionActionsRunsListParams,
     VisionObservationsListParams,
+    VisionObservationsRetrieveParams,
     VisionQuotaApi,
+    VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
+    VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
+    VisionScannersPromptSuggestionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -44,6 +71,186 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getVisionActionsListUrl = (projectId: string, params?: VisionActionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsList = async (
+    projectId: string,
+    params?: VisionActionsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionActionListApi> => {
+    return apiMutator<PaginatedVisionActionListApi>(getVisionActionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsCreate = async (
+    projectId: string,
+    visionActionApi: NonReadonly<VisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionActionApi),
+    })
+}
+
+export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedVisionActionApi?: NonReadonly<PatchedVisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedVisionActionApi),
+    })
+}
+
+export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/run/`
+}
+
+/**
+ * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+ * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
+ * engine advances next_run_at only at scheduled claim time, never in the run itself.
+ */
+export const visionActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RunActionResponseApi> => {
+    return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getVisionActionsRunsListUrl = (
+    projectId: string,
+    visionActionId: string,
+    params?: VisionActionsRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/`
+}
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const visionActionsRunsList = async (
+    projectId: string,
+    visionActionId: string,
+    params?: VisionActionsRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionActionRunListListApi> => {
+    return apiMutator<PaginatedVisionActionRunListListApi>(
+        getVisionActionsRunsListUrl(projectId, visionActionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionActionsRunsRetrieveUrl = (projectId: string, visionActionId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/${id}/`
+}
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const visionActionsRunsRetrieve = async (
+    projectId: string,
+    visionActionId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionActionRunApi> => {
+    return apiMutator<VisionActionRunApi>(getVisionActionsRunsRetrieveUrl(projectId, visionActionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -75,21 +282,113 @@ export const visionObservationsList = async (
     })
 }
 
-export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/`
+export const getVisionObservationsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionObservationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/${id}/`
 }
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const visionObservationsRetrieve = async (
     projectId: string,
     id: string,
+    params?: VisionObservationsRetrieveParams,
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
-    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
+    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionObservationsCreateTaskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionObservationsCreateTaskCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getVisionObservationsLabelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/label/`
+}
+
+/**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
+ */
+export const visionObservationsLabelCreate = async (
+    projectId: string,
+    id: string,
+    replayObservationLabelApi: ReplayObservationLabelApi,
+    options?: RequestInit
+): Promise<ReplayObservationLabelApi> => {
+    return apiMutator<ReplayObservationLabelApi>(getVisionObservationsLabelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayObservationLabelApi),
+    })
+}
+
+export const getVisionObservationsLabelDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/label/`
+}
+
+/**
+ * Remove the observation's shared label. Requires editor access to the scanner.
+ */
+export const visionObservationsLabelDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsLabelDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getVisionObservationsRetryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/retry/`
+}
+
+/**
+ * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ */
+export const visionObservationsRetryCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RetryResponseApi> => {
+    return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -210,6 +509,84 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
     })
 }
 
+export const getVisionScannersAffectedCohortCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/affected_cohort/`
+}
+
+/**
+ * Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis.
+ */
+export const visionScannersAffectedCohortCreate = async (
+    projectId: string,
+    id: string,
+    affectedCohortRequestApi?: AffectedCohortRequestApi,
+    options?: RequestInit
+): Promise<AffectedCohortResponseApi> => {
+    return apiMutator<AffectedCohortResponseApi>(getVisionScannersAffectedCohortCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(affectedCohortRequestApi),
+    })
+}
+
+export const getVisionScannersBulkObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/bulk_observe/`
+}
+
+/**
+ * Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight
+ * caps and monthly credit quota, reporting the rest as skipped rather than failing the batch.
+ */
+export const visionScannersBulkObserveCreate = async (
+    projectId: string,
+    id: string,
+    bulkObserveRequestApi: BulkObserveRequestApi,
+    options?: RequestInit
+): Promise<BulkObserveResponseApi> => {
+    return apiMutator<BulkObserveResponseApi>(getVisionScannersBulkObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
+export const getVisionScannersImpactRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${id}/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${id}/impact/`
+}
+
+/**
+ * Affected sessions and users for this scanner over the trailing window.
+ */
+export const visionScannersImpactRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionScannersImpactRetrieveParams,
+    options?: RequestInit
+): Promise<ScannerImpactApi> => {
+    return apiMutator<ScannerImpactApi>(getVisionScannersImpactRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
 }
@@ -269,22 +646,128 @@ export const visionScannersObservationsList = async (
     )
 }
 
-export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
+export const getVisionScannersObservationsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
- * Read-only access to observations produced by a scanner.
+ * Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the `previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered set — so prev/next from a filtered table stays within that filtered list.
  */
 export const visionScannersObservationsRetrieve = async (
     projectId: string,
     scannerId: string,
     id: string,
+    params?: VisionScannersObservationsRetrieveParams,
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
-    return apiMutator<ReplayObservationApi>(getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id), {
+    return apiMutator<ReplayObservationApi>(
+        getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersObservationsCreateTaskCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/create_task/`
+}
+
+/**
+ * Create a PostHog Task from this observation's finding so it can be triaged and fixed. Title and description are derived from the scanner and its result. Record-only: this does not start the coding agent. Idempotent per observation: once a task exists, repeat calls return its id with a 200 instead of creating a duplicate.
+ */
+export const visionScannersObservationsCreateTaskCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CreateTaskFromObservationResponseApi> => {
+    return apiMutator<CreateTaskFromObservationResponseApi>(
+        getVisionScannersObservationsCreateTaskCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
+}
+
+/**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
+ */
+export const visionScannersObservationsLabelCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayObservationLabelApi: ReplayObservationLabelApi,
+    options?: RequestInit
+): Promise<ReplayObservationLabelApi> => {
+    return apiMutator<ReplayObservationLabelApi>(
+        getVisionScannersObservationsLabelCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(replayObservationLabelApi),
+        }
+    )
+}
+
+export const getVisionScannersObservationsLabelDestroyUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
+}
+
+/**
+ * Remove the observation's shared label. Requires editor access to the scanner.
+ */
+export const visionScannersObservationsLabelDestroy = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsLabelDestroyUrl(projectId, scannerId, id), {
         ...options,
-        method: 'GET',
+        method: 'DELETE',
+    })
+}
+
+export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/retry/`
+}
+
+/**
+ * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ */
+export const visionScannersObservationsRetryCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RetryResponseApi> => {
+    return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -322,6 +805,166 @@ export const visionScannersObservationsStatsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsListUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersPromptSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/`
+}
+
+/**
+ * AI prompt-rewrite suggestions for a scanner, generated from the team's thumbs up/down ratings.
+ */
+export const visionScannersPromptSuggestionsList = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersPromptSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayScannerPromptSuggestionListApi> => {
+    return apiMutator<PaginatedReplayScannerPromptSuggestionListApi>(
+        getVisionScannersPromptSuggestionsListUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/apply/`
+}
+
+/**
+ * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsApplyCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    applyPromptSuggestionRequestApi?: ApplyPromptSuggestionRequestApi,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsApplyCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(applyPromptSuggestionRequestApi),
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/dismiss/`
+}
+
+/**
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
+ */
+export const visionScannersPromptSuggestionsDismissCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsDismissCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/${id}/evaluate/`
+}
+
+/**
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
+ */
+export const visionScannersPromptSuggestionsEvaluateCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    evaluatePromptSuggestionRequestApi?: EvaluatePromptSuggestionRequestApi,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsEvaluateCreateUrl(projectId, scannerId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(evaluatePromptSuggestionRequestApi),
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsCurrentRetrieveUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/current/`
+}
+
+/**
+ * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
+ */
+export const visionScannersPromptSuggestionsCurrentRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<CurrentPromptSuggestionApi> => {
+    return apiMutator<CurrentPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsCurrentRetrieveUrl(projectId, scannerId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersPromptSuggestionsGenerateCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/prompt_suggestions/generate/`
+}
+
+/**
+ * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
+ */
+export const visionScannersPromptSuggestionsGenerateCreate = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ReplayScannerPromptSuggestionApi> => {
+    return apiMutator<ReplayScannerPromptSuggestionApi>(
+        getVisionScannersPromptSuggestionsGenerateCreateUrl(projectId, scannerId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
@@ -377,5 +1020,25 @@ export const visionScannersStatsRetrieve = async (
     return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersSuggestTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/suggest_tags/`
+}
+
+/**
+ * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
+ */
+export const visionScannersSuggestTagsCreate = async (
+    projectId: string,
+    suggestTagsRequestApi: SuggestTagsRequestApi,
+    options?: RequestInit
+): Promise<SuggestTagsResponseApi> => {
+    return apiMutator<SuggestTagsResponseApi>(getVisionScannersSuggestTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(suggestTagsRequestApi),
     })
 }

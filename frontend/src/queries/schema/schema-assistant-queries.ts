@@ -460,6 +460,7 @@ export interface AssistantTrendsFilter {
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+     * For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.
      */
     formulaNodes?: TrendsFormulaNode[]
 
@@ -496,8 +497,8 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
-     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
-     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage.
+     * `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
@@ -1427,6 +1428,101 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
+ * Drills into a funnel insight to list the persons behind one step — either those who converted
+ * through it or those who dropped off at it. Returned rows are `distinct_id`, `email`, `name`, and
+ * optionally matched session recordings.
+ *
+ * Pair this with `query-funnel`: run the funnel query first to read the per-step counts, then call
+ * this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and
+ * the mode must match the source funnel's `funnelsFilter.funnelVizType`:
+ *
+ * 1. **Step mode** (source `funnelVizType: "steps"`, the default): use `funnelStep` to pick a step.
+ *    A **positive** value lists actors who converted **through** that step; a **negative** value lists
+ *    actors who **dropped off** at it. Steps are 1-based, so `funnelStep: 2` = converted through step 2,
+ *    `funnelStep: -2` = dropped off at step 2. (You cannot drop off at step 1, so the smallest negative
+ *    value is `-2`.) Add `funnelStepBreakdown` to scope to one breakdown series.
+ *
+ * 2. **Trends-dropoff mode** (source `funnelVizType: "trends"`): use `funnelTrendsDropOff` together with
+ *    `funnelTrendsEntrancePeriodStart` to list the persons behind one point of a funnel-trends
+ *    (conversion-over-time) chart.
+ *
+ * The funnel's `time_to_convert` viz type has no persons drilldown — do not use this tool with it.
+ */
+export interface AssistantFunnelsActorsQuery {
+    kind: NodeKind.FunnelsActorsQuery
+
+    /** The source funnel insight query whose step (or trends point) we are drilling into. */
+    source: AssistantFunnelsQuery
+
+    /**
+     * Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into.
+     * **Positive** lists actors who converted through that step; **negative** lists actors who dropped
+     * off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest
+     * negative value is `-2` (no one can drop off at the entry step).
+     */
+    funnelStep?: integer
+
+    /**
+     * Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from
+     * the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the
+     * baseline (non-breakdown) series.
+     */
+    funnelStepBreakdown?: string[]
+
+    /**
+     * Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who
+     * dropped off; when `false`, list those who converted. Use together with
+     * `funnelTrendsEntrancePeriodStart`.
+     */
+    funnelTrendsDropOff?: boolean
+
+    /**
+     * Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string
+     * (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about.
+     * Use together with `funnelTrendsDropOff`.
+     */
+    funnelTrendsEntrancePeriodStart?: string
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**

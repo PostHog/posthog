@@ -90,6 +90,7 @@ export function SettingsTab(): JSX.Element {
         isProvisioning,
         isDeprovisioning,
         isInProgress,
+        deprovisionTakingLong,
         databaseName,
         databaseNameAvailable,
         databaseNameChecking,
@@ -99,10 +100,26 @@ export function SettingsTab(): JSX.Element {
         retryDatabaseName,
         initialPassword,
         isResettingPassword,
+        warehouseDomain,
+        schemaName,
+        isValidSchemaName,
+        schemaNameAvailable,
+        schemaNameChecking,
+        isOnboardingTeam,
+        canOnboardTeam,
+        teamOnboarded,
+        teamSchemaName,
     } = useValues(warehouseProvisioningLogic)
-    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
-        useActions(warehouseProvisioningLogic)
-    const deprovisionRestrictionReason = useRestrictedArea({
+    const {
+        provisionWarehouse,
+        deprovisionWarehouse,
+        setDatabaseName,
+        clearInitialPassword,
+        resetPassword,
+        setSchemaName,
+        onboardTeam,
+    } = useActions(warehouseProvisioningLogic)
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -181,12 +198,39 @@ export function SettingsTab(): JSX.Element {
                                 and ending with a letter or number.
                             </p>
                         )}
-                        {(!databaseName ||
-                            (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
+                        {databaseName &&
+                        isValidDatabaseName &&
+                        !databaseNameChecking &&
+                        databaseNameAvailable === true &&
+                        warehouseDomain ? (
+                            <p className="text-muted text-xs mt-1">
+                                Your warehouse will be available at{' '}
+                                <code>
+                                    {databaseName}.dw.{warehouseDomain}
+                                </code>
+                                . You always connect with <code>dbname=ducklake</code>.
+                            </p>
+                        ) : !databaseName ||
+                          (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true)) ? (
                             <p className="text-muted text-xs mt-1">
                                 Unique name for your warehouse. It becomes the subdomain of your connection host (e.g.{' '}
-                                <code>my-warehouse.dw.us.postwh.com</code>). You always connect with{' '}
-                                <code>dbname=ducklake</code>.
+                                <code>my-warehouse.dw.{warehouseDomain ?? 'us.postwh.com'}</code>). You always connect
+                                with <code>dbname=ducklake</code>.
+                            </p>
+                        ) : null}
+                    </div>
+                    <div>
+                        <LemonLabel>Schema name</LemonLabel>
+                        <LemonInput value={schemaName} onChange={setSchemaName} placeholder="my_project" fullWidth />
+                        {schemaName && !isValidSchemaName ? (
+                            <p className="text-danger text-xs mt-1">
+                                Use lowercase letters, numbers, and underscores only (max 63 characters).
+                            </p>
+                        ) : (
+                            <p className="text-muted text-xs mt-1">
+                                This project's data lands in its own schema in the warehouse. Other projects pick their
+                                own schema when they join. Unlike the project name, the schema name cannot be changed
+                                later.
                             </p>
                         )}
                     </div>
@@ -196,10 +240,10 @@ export function SettingsTab(): JSX.Element {
                         disabledReason={
                             isFailed
                                 ? !canRetryProvision
-                                    ? 'Enter a valid database name'
+                                    ? 'Enter a valid database name and schema name'
                                     : undefined
                                 : !canProvision
-                                  ? 'Enter an available database name'
+                                  ? 'Enter an available database name and schema name'
                                   : undefined
                         }
                         onClick={() => {
@@ -208,10 +252,10 @@ export function SettingsTab(): JSX.Element {
                                     ? 'Retry managed warehouse provisioning?'
                                     : 'Provision managed warehouse?',
                                 description:
-                                    'This will create a managed warehouse for your organization, shared by every project in it. This typically takes 5-15 minutes.',
+                                    'This will create a managed warehouse for your organization, shared by every project in it. Should take less than 5 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
-                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
+                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName, schemaName }),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
@@ -226,15 +270,22 @@ export function SettingsTab(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     {isInProgress && (
-                        <LemonBanner type="info">
+                        <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
                                 <Spinner />
                                 <span>
-                                    {warehouseStatus?.state === 'deleting'
-                                        ? 'Deprovisioning in progress...'
-                                        : 'Provisioning in progress...'}
+                                    {warehouseStatus?.status_message ||
+                                        (warehouseStatus?.state === 'deleting'
+                                            ? 'Deprovisioning in progress...'
+                                            : 'Provisioning in progress...')}
                                 </span>
                             </div>
+                            {deprovisionTakingLong && (
+                                <p className="text-muted text-xs mt-2 mb-0">
+                                    Teardown is taking longer than usual. It keeps retrying until the warehouse is fully
+                                    removed, so this will finish on its own. You can safely leave this page.
+                                </p>
+                            )}
                         </LemonBanner>
                     )}
 
@@ -253,12 +304,86 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </div>
 
-                    {isReady && warehouseStatus?.connection && (
+                    {isReady && teamOnboarded && warehouseStatus?.connection && (
                         <ConnectionDetails connection={warehouseStatus.connection} />
                     )}
 
+                    {isReady && !teamOnboarded && adminRestrictionReason && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Your organization's warehouse is running</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project isn't part of it yet. Ask an organization admin to enable it here.
+                            </p>
+                        </div>
+                    )}
+
+                    {isReady && !teamOnboarded && !adminRestrictionReason && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Your organization's warehouse is running</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project isn't part of it yet. Pick a schema name to enable it. The project's data
+                                lands in its own schema so it doesn't mix with other projects. Unlike the project name,
+                                the schema name cannot be changed later.
+                            </p>
+                            <div>
+                                <LemonLabel>Schema name</LemonLabel>
+                                <div className="flex items-center gap-2">
+                                    <LemonInput
+                                        value={schemaName}
+                                        onChange={setSchemaName}
+                                        placeholder="my_project"
+                                        fullWidth
+                                    />
+                                    {schemaName &&
+                                        isValidSchemaName &&
+                                        (schemaNameChecking ? (
+                                            <Spinner className="text-muted" />
+                                        ) : schemaNameAvailable === true ? (
+                                            <IconCheck className="text-success text-xl" />
+                                        ) : (
+                                            <IconX className="text-danger text-xl" />
+                                        ))}
+                                </div>
+                                {schemaName && !isValidSchemaName && (
+                                    <p className="text-danger text-xs mt-1">
+                                        Use lowercase letters, numbers, and underscores only (max 63 characters).
+                                    </p>
+                                )}
+                                {schemaName &&
+                                    isValidSchemaName &&
+                                    !schemaNameChecking &&
+                                    schemaNameAvailable !== true && (
+                                        <p className="text-danger text-xs mt-1">
+                                            {schemaNameAvailable === false
+                                                ? 'This schema name is already used by another project in your organization.'
+                                                : 'Unable to verify schema name availability.'}
+                                        </p>
+                                    )}
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                loading={isOnboardingTeam}
+                                disabledReason={!canOnboardTeam ? 'Enter an available schema name' : undefined}
+                                onClick={() => onboardTeam({ schemaName })}
+                                data-attr="onboard-warehouse-team"
+                            >
+                                Enable this project
+                            </LemonButton>
+                        </div>
+                    )}
+
+                    {isReady && teamOnboarded && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Warehouse schema for this project</h3>
+                            <p className="text-muted text-xs mb-0">
+                                This project's data lands in the <code>{teamSchemaName ?? 'unknown'}</code> schema. The
+                                schema name cannot be changed.
+                            </p>
+                        </div>
+                    )}
+
                     <div className="flex gap-2">
-                        {isReady && (
+                        {isReady && teamOnboarded && (
                             <LemonButton
                                 type="secondary"
                                 loading={isResettingPassword}
@@ -286,7 +411,7 @@ export function SettingsTab(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 loading={isDeprovisioning}
-                                disabledReason={deprovisionRestrictionReason ?? undefined}
+                                disabledReason={adminRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',

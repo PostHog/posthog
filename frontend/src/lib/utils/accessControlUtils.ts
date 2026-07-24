@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import { getAppContext } from 'lib/utils/getAppContext'
 import { toSentenceCase } from 'lib/utils/strings'
+import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
@@ -42,7 +43,7 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The maximum access level required, or null if no maximum is set
  */
 export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
-    if (resource === AccessControlResourceType.ActivityLog) {
+    if (resource === AccessControlResourceType.ActivityLog || resource === AccessControlResourceType.Toolbar) {
         return AccessControlLevel.Viewer
     }
     return null
@@ -60,6 +61,10 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability'
+    } else if (resource === AccessControlResourceType.LlmSkill) {
+        return 'skills'
+    } else if (resource === AccessControlResourceType.AiObservabilityClusters) {
+        return 'AI trace clusters'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
@@ -68,13 +73,26 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking'
     } else if (resource === AccessControlResourceType.WarehouseObjects) {
         // Umbrella label for warehouse tables + views (both inherit from this)
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Metrics) {
+        return 'metrics'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
+    } else if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'sharing'
+    } else if (resource === AccessControlResourceType.Toolbar) {
+        return 'toolbar'
+    } else if (resource === AccessControlResourceType.Workflow) {
+        return 'workflows'
+    } else if (resource === AccessControlResourceType.ReplayScanner) {
+        // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
+        return 'replay vision'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -91,7 +109,7 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
     }
-    if (resourceType === AccessControlResourceType.ActivityLog) {
+    if (resourceType === AccessControlResourceType.ActivityLog || resourceType === AccessControlResourceType.Toolbar) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
@@ -109,12 +127,26 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability resource'
+    } else if (resourceType === AccessControlResourceType.LlmSkill) {
+        return 'skill'
+    } else if (resourceType === AccessControlResourceType.AiObservabilityClusters) {
+        return 'AI trace clusters resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
+    } else if (resourceType === AccessControlResourceType.Metrics) {
+        return 'metrics resource'
+    } else if (resourceType === AccessControlResourceType.Tracing) {
+        return 'tracing resource'
+    } else if (resourceType === AccessControlResourceType.Workflow) {
+        return 'workflow'
+    } else if (resourceType === AccessControlResourceType.ReplayScanner) {
+        return 'replay vision resource'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -199,6 +231,71 @@ export const userHasAccess = (
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 }
 
+/** Entry/search-result types mapped to the resource type gating them - identity for types that
+ * are access control resources themselves, plus the backend's RESOURCE_INHERITANCE_MAP entries
+ * for types that appear in trees and search. */
+const ENTRY_TYPE_TO_RESOURCE_TYPE: Record<string, AccessControlResourceType> = {
+    ...Object.fromEntries(Object.values(AccessControlResourceType).map((value) => [value, value])),
+    session_recording_playlist: AccessControlResourceType.SessionRecording,
+}
+
+const productHasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
+    return getAppContext()?.effective_resource_access_control?.[resourceType] === AccessControlLevel.None
+}
+
+/**
+ * Disabled reason for a product navigation item (sidebar product list, search product results)
+ * when the user's effective access to the product's resource is "none".
+ *
+ * Mirrors the scene gating in sceneLogic (which uses `effective_resource_access_control` and
+ * `sceneToAccessControlResourceType`), so items are disabled exactly when opening the target
+ * page would show "Access denied". Users with object-level grants get effective "viewer"
+ * access, so the product stays enabled for them.
+ *
+ * @param item - Navigation item with the scene key it points at (e.g. a FileSystemImport)
+ * @returns Reason to show on the disabled item, or undefined when the user has access
+ */
+export const getProductAccessDisabledReason = (item: {
+    sceneKey?: string
+    path?: string
+    displayLabel?: string
+}): string | undefined => {
+    if (!item.sceneKey) {
+        return undefined
+    }
+    const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
+    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
+        return undefined
+    }
+    return `You don't have access to ${item.displayLabel || item.path || 'this product'}`
+}
+
+/**
+ * Disabled reason for an individual item (search result, Files/Starred entry).
+ *
+ * Uses the backend-resolved access level for the underlying object, which accounts for
+ * object-level overrides - an item the user was individually granted access to stays enabled
+ * even when they have "none" access to the product. Additionally checks the product's
+ * effective access: when it is "none" the scene gate denies every item of that type,
+ * including ones the user created (object creators keep object-level access but aren't
+ * reflected in the effective map), so those must be disabled too or clicking them would
+ * still land on "Access denied".
+ *
+ * @param entry - Entry carrying the backend-resolved `user_access_level` and its type
+ * @returns Reason to show on the disabled item, or undefined when the user has access
+ */
+export const getEntryAccessDisabledReason = (entry: {
+    user_access_level?: string | null
+    type?: string | null
+}): string | undefined => {
+    const resourceType = entry.type ? ENTRY_TYPE_TO_RESOURCE_TYPE[entry.type] : undefined
+    const blockedByProduct = resourceType !== undefined && productHasEffectiveNoneAccess(resourceType)
+    if (!blockedByProduct && entry.user_access_level !== AccessControlLevel.None) {
+        return undefined
+    }
+    return `You don't have access to ${entry.type ? `this ${entry.type.replace(/_/g, ' ')}` : 'this item'}`
+}
+
 /**
  * Returns a tooltip message for a resource type if it has special access control behavior.
  * Use this to inform users about resource-specific access control limitations or clarifications.
@@ -211,7 +308,13 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
-        return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
+        return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
+    }
+    if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'Controls whether users can share resources like dashboards, insights, etc. with anyone via a public link.'
+    }
+    if (resource === AccessControlResourceType.Metrics) {
+        return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'
     }
     return null
 }
