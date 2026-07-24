@@ -5053,7 +5053,7 @@ snapshots:
     replay-scenes-group--group-events-tab-with-modal-not-found--dark:
         hash: v1.k794b7964.1326c64c54c2a719ef5e25d56ccd0a81aae74fdaaafb2aabe6994e9d34160406.MiSJPVzJoZFlKF5pViwuZUD-BTkuqq_m83d96uJy7bY
     replay-scenes-group--group-events-tab-with-modal-not-found--light:
-        hash: v1.k794b7964.1f70b90562d7d6f31e687dd47360c5c9e3ec9111b39443da3b56fa2532f534d5.IXrpXBGBprUBLitWrw_qN9Ee7JLn76tyJ-QeOniJKtY
+        hash: v1.k794b7964.a6ae7283986232e26123783358c3991b853b37e393bc0f846a648364249cdf6c.tzQYw0ED7oQFd1x7CLAuYcFrQoOirZMRh3X_5E5a5b4
     replay-scenes-group--group-recording-tab-empty--dark:
         hash: v1.k794b7964.0660887202ba71055373168f4b9df5cdc8251c89f0f96b77c4b3196845362f70.VFxGeaTyLzGuovqDxnkS9wWUmq2J0edku92QEPb1mJI
     replay-scenes-group--group-recording-tab-empty--light:
@@ -5587,7 +5587,7 @@ snapshots:
     scenes-app-dashboards--show-without-post-hog-ai-button-label--wide--light:
         hash: v1.k794b7964.bdf731e7da5ee6a208a690c18c0d5e38bd06011b383c57f526196da0f91f829c.1hMJmP7uN1mi3H6iqZFeDmGORCs42h4JJm5-VWxN9Rs
     scenes-app-dashboards--view-only-dashboard--dark:
-        hash: v1.k794b7964.a65acee97de57aeef30368365580e0e2c962193d6215acf55dac639823cb0ca8.zkO7nnEw6JoWOSq1KJ1DQrXzCI1FSmD0yzRsrMwcfA0
+        hash: v1.k794b7964.e15bc2243afd7e6692e7a30f3b077d727ba9ffa64c3c978c2dfe119564bf06da.M0ASGjGeENcp9BtMk92sx0r3HSFt4NsPJkjSzJCfd4k
     scenes-app-dashboards--view-only-dashboard--light:
         hash: v1.k794b7964.7ebc4aa50c00cbfa580fd96d32ef6565a6bd399e1ae6289278d36309c89e87f1.9xwqldb2HI9IewJABGeU3kmuyGXS-hwbloJgjznVypQ
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--dark:
