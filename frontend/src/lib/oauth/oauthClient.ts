@@ -80,7 +80,30 @@ export function isOAuthMode(): boolean {
     return !!getStoredSession()
 }
 
+// ---------------------------------------------------------------------------
+// Embedded-widget session override (see frontend/src/widgets/).
+//
+// When PostHog UI is mounted as a widget inside another app (e.g. PostHog Code),
+// the host app owns the tokens. It seeds an in-memory session here — never
+// localStorage, so nothing persists in the host origin — plus a refresh callback
+// that asks the host for a fresh token on 401.
+// ---------------------------------------------------------------------------
+
+let sessionOverride: OAuthSession | null = null
+let refreshOverride: (() => Promise<string | null>) | null = null
+
+export function setOAuthSessionOverride(
+    session: OAuthSession | null,
+    refresh?: () => Promise<string | null>
+): void {
+    sessionOverride = session
+    refreshOverride = session ? (refresh ?? null) : null
+}
+
 export function getStoredSession(): OAuthSession | null {
+    if (sessionOverride) {
+        return sessionOverride
+    }
     try {
         const raw = window.localStorage.getItem(SESSION_KEY)
         return raw ? (JSON.parse(raw) as OAuthSession) : null
@@ -193,6 +216,15 @@ export function refreshAccessToken(): Promise<string | null> {
 }
 
 async function doRefresh(): Promise<string | null> {
+    // Widget mode: the host app owns token refresh.
+    if (sessionOverride && refreshOverride) {
+        const accessToken = await refreshOverride()
+        if (accessToken) {
+            sessionOverride = { ...sessionOverride, accessToken, expiresAt: Date.now() + 10 * 60 * 1000 }
+            return accessToken
+        }
+        return null
+    }
     const session = getStoredSession()
     if (!session) {
         return null
