@@ -60,7 +60,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
 
@@ -233,7 +233,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     archived = models.BooleanField(
         default=False,
         help_text=(
-            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "If true, the task is hidden from default list responses. Used by PostHog Desktop clients "
             "to share archive state across desktop and mobile."
         ),
     )
@@ -1371,7 +1371,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # Local url-based MCP servers imported from the creating client (PostHog Desktop),
     # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
     # header values carry credentials; never exposed through API responses.
     imported_mcp_servers = EncryptedJSONStringField(
@@ -2453,7 +2453,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 
 class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Code access."""
+    """Invite codes for PostHog Desktop access."""
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
@@ -2498,7 +2498,7 @@ class CodeInvite(UUIDModel):
 
 
 class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Code invite."""
+    """Tracks each redemption of a PostHog Desktop invite."""
 
     invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
@@ -2521,7 +2521,7 @@ TASK_PRESENCE_TTL_SECONDS = 60
 class TaskPresence(TeamScopedRootMixin):
     """Per-device 'this user is actively watching this task' beacon.
 
-    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    Created/refreshed by the desktop and mobile PostHog Desktop clients while a
     task screen is foregrounded. The push fanout consults this table to skip
     devices that are demonstrably already watching the task, so we don't fire
     phantom notifications at a phone while the user is mid-conversation with

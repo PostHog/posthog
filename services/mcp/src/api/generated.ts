@@ -14134,12 +14134,12 @@ export namespace Schemas {
      */
     export interface ClaudeTaskRunCreateSchema {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -14198,7 +14198,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
        *
@@ -14505,12 +14505,12 @@ export namespace Schemas {
      */
     export interface CodexTaskRunCreateSchema {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -14569,7 +14569,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
        *
@@ -22920,7 +22920,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
     }
 
@@ -26519,7 +26519,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
@@ -26814,7 +26814,7 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentFlagCleanupTask {
-      /** ID of the flag-cleanup Code task. */
+      /** ID of the flag-cleanup Desktop task. */
       task_id: string;
       /** Status of the task's latest run.
        *
@@ -26832,7 +26832,7 @@ export namespace Schemas {
          * @nullable
          */
       pr_url: string | null;
-      /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+      /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
       can_view_task: boolean;
     }
 
@@ -27275,7 +27275,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
@@ -30312,7 +30312,7 @@ export namespace Schemas {
        * * `warehouse` - warehouse
        * * `direct` - direct */
       access_method?: AccessMethodEnum;
-      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`.
+      /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
        *
        * * `web` - web
        * * `api` - api
@@ -30387,7 +30387,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
@@ -31547,7 +31547,7 @@ export namespace Schemas {
     }
 
     export interface GitHubPrepareCallbackRequest {
-      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop). */
       next?: string;
       /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
       installation_id?: string;
@@ -32140,6 +32140,9 @@ export namespace Schemas {
       has_content: boolean;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface HeatmapScreenshotResponse {
       readonly id: string;
       /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
@@ -32191,6 +32194,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface HeatmapsResponse {
@@ -48082,7 +48090,7 @@ export namespace Schemas {
          */
       conclusion_comment?: string | null;
       /**
-         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
          * @nullable
          */
       readonly flag_cleanup_task_id?: string | null;
@@ -48268,7 +48276,7 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
-      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.
        *
        * * `web` - web
        * * `api` - api
@@ -58335,7 +58343,7 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
       limited: QuotaLimitsResponseLimited;
-      /** Whether the team's organization pays for PostHog Code usage: billing grants the `posthog_code_usage` product feature only on the Code usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Code behavior on this; an org unknown to billing reads as not paying. */
+      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
       code_usage_billing_active: boolean;
     }
 
@@ -59202,16 +59210,6 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
-
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -59225,6 +59223,16 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
+
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
 
     /**
      * * `bug` - bug
@@ -59392,6 +59400,12 @@ export namespace Schemas {
       perspective_selection: ReviewPerspectiveSelection | null;
       /** The rendered review body published to GitHub, as markdown. */
       report_markdown: string;
+      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      run_urgency_threshold: ReviewIssuePriorityEnum | null;
       /** The latest turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
       /** The latest turn's findings the validator dismissed, with its reasoning. */
@@ -60620,7 +60634,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
@@ -60881,11 +60895,6 @@ export namespace Schemas {
      * registered the row, the provided tunables are applied to it instead.
      */
     export interface SignalScoutConfigCreate {
-      /**
-         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
-         * @maxLength 200
-         */
-      skill_name: string;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -60904,6 +60913,73 @@ export namespace Schemas {
          * @nullable
          */
       run_cron_schedule?: string | null;
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+    }
+
+    /**
+     * Schedule, enablement, and delivery options accepted while creating a scout.
+     */
+    export interface SignalScoutConfigOptions {
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /** Destinations that receive each finding or report this scout emits. Empty by default. */
+      output_destinations?: SignalScoutOutputDestinations;
+      /**
+         * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+    }
+
+    /**
+     * Create a runnable custom scout and its config in one atomic request.
+     */
+    export interface SignalScoutCreate {
+      /**
+         * Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Short description of the signal or behavior this scout investigates.
+         * @maxLength 4096
+         */
+      description: string;
+      /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
+      body: string;
+      /** Optional reference files bundled with the scout prompt. */
+      files?: LLMSkillFileInput[];
+      /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
+      config?: SignalScoutConfigOptions;
+    }
+
+    export interface SignalScoutSkillSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      /** Server-managed report tools granted to this scout. */
+      readonly allowed_tools: readonly string[];
+    }
+
+    export interface SignalScoutCreateResponse {
+      /** True when this request created the missing scout skill or config; false when both already existed. */
+      created: boolean;
+      skill: SignalScoutSkillSummary;
+      config: SignalScoutConfig;
     }
 
     /**
@@ -66967,12 +67043,12 @@ export namespace Schemas {
      */
     export interface TaskRunBootstrapCreateRequest {
       /**
-         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
          * @nullable
          */
       imported_mcp_servers?: ImportedMcpServer[] | null;
       /**
-         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
          * @nullable
          */
       relayed_mcp_servers?: RelayedMcpServer[] | null;
@@ -67028,7 +67104,7 @@ export namespace Schemas {
        * * `xhigh` - xhigh
        * * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
        *
@@ -67140,7 +67216,7 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+      /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
     }
 
@@ -67990,6 +68066,15 @@ export namespace Schemas {
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
+    export interface TestHogTargetConfig {
+      /**
+         * Aggregation window for trace samples, in seconds.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    }
+
     export interface TestHogRequest {
       /**
          * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
@@ -68006,19 +68091,36 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Optional trigger conditions to filter which events are sampled. */
       conditions?: TestHogRequestConditionsItem[];
+      /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+      target_config?: TestHogTargetConfig;
     }
 
     export interface TestHogResultItem {
-      /** UUID of the $ai_generation event. */
-      event_uuid: string;
+      /** Stable identifier for the sampled generation or trace. */
+      sample_id: string;
+      /** Type of sampled unit: generation or trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      sample_type: EvaluationTargetEnum;
+      /**
+         * UUID of the sampled $ai_generation event, or null for a trace sample.
+         * @nullable
+         */
+      event_uuid: string | null;
       /**
          * Trace ID if available.
          * @nullable
          */
-      trace_id?: string | null;
-      /** First 200 chars of the generation input. */
+      trace_id: string | null;
+      /** First 200 characters of input from the sampled unit. */
       input_preview: string;
-      /** First 200 chars of the generation output. */
+      /** First 200 characters of output from the sampled unit. */
       output_preview: string;
       /**
          * True = pass, False = fail, null = N/A or error.
@@ -68409,7 +68511,7 @@ export namespace Schemas {
 
     export interface UserGitHubLinkStartRequest {
       /**
-         * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+         * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
          * @nullable
          */
       team_id?: number | null;
@@ -78440,7 +78542,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone
@@ -78459,7 +78561,7 @@ export namespace Schemas {
 
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
      *
      * * `mine` - mine
      * * `everyone` - everyone

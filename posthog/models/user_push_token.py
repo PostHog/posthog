@@ -9,7 +9,7 @@ class UserPushToken(UUIDModel):
     A user may register multiple tokens (one per device). Tokens are uploaded
     by the mobile app after the user grants notification permission, and used
     by backend services to fan out push notifications via the platform-native
-    push service (Expo for the PostHog Code mobile app).
+    push service (Expo for the PostHog mobile app).
     """
 
     class Platform(models.TextChoices):

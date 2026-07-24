@@ -16,6 +16,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { getReplayVisionRecordingViewDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerType } from '../types'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -178,6 +179,9 @@ export function ScannerInsightsChart({
         }),
         [scannerId]
     )
+    // Drill-down opens the actors modal, which surfaces the recordings behind a data point. Only enable it for
+    // users who can view recordings, so a scanner-only viewer denied session_recording access can't enumerate them.
+    const canDrillIntoRecordings = !getReplayVisionRecordingViewDisabledReason()
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -203,7 +207,12 @@ export function ScannerInsightsChart({
                     onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
                 />
             </div>
-            <VisionInsightChart query={chartQuery} insightProps={chartInsightProps} className="InsightCard h-80" />
+            <VisionInsightChart
+                query={chartQuery}
+                insightProps={chartInsightProps}
+                className="InsightCard h-80"
+                drillable={canDrillIntoRecordings}
+            />
         </div>
     )
 }

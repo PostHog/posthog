@@ -167,9 +167,12 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
-  `SignalScoutMembersViewSet`.
-  Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
+  `SignalScoutMembersViewSet`, `SignalScoutViewSet`.
+  Routed under `project_signals_scout_*` basenames in `products/signals/backend/routes.py`
   and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutViewSet` backs `scout-create`: it creates a custom `signals-scout-*` skill
+  and its runnable config atomically, grants the report-channel tools server-side, and
+  treats an identical definition as a retry while rejecting conflicting definitions.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
   it returns the project's members (those with access to the team) with `user_uuid` / `email` /
   `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
@@ -182,8 +185,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
   so private-project access control is honored), the project-nested path that the org-nested
   `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
-  The config viewset is the no-wait creation path: `create` registers (upserts) a
-  config for an already-authored skill with its schedule/emit posture in one call.
+  The config viewset remains the lower-level no-wait creation path: `create` registers
+  (upserts) a config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
   mints config rows. The metadata viewset is the read-only `scout/metadata/current/`
   endpoint that reports enrollment + banner + enforced limits via

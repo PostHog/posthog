@@ -288,6 +288,7 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
+    Heatmap = 'heatmap',
     Insight = 'insight',
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
@@ -4934,7 +4935,7 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
-    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
 }
@@ -6904,6 +6905,7 @@ export enum SDKKey {
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
+    KMP = 'kmp',
     LARAVEL = 'laravel',
     LANGCHAIN = 'langchain',
     LANGGRAPH = 'langgraph',
@@ -6935,6 +6937,7 @@ export enum SDKKey {
     REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
+    ROBLOX = 'roblox',
     RUBY = 'ruby',
     RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
@@ -6948,6 +6951,7 @@ export enum SDKKey {
     TRACELOOP = 'traceloop',
     TANSTACK_START = 'tanstack_start',
     TOGETHER_AI = 'together_ai',
+    UNITY = 'unity',
     VERCEL_AI = 'vercel_ai',
     VERCEL_AI_GATEWAY = 'vercel_ai_gateway',
     VITE = 'vite',
@@ -6973,6 +6977,7 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
+export type SDKDocsLinkOverrides = Partial<Record<SDKKey, string>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
 export enum SidePanelTab {
@@ -7696,6 +7701,7 @@ export interface HeatmapScreenshotType {
     exception?: string
     error?: string // Added for error responses from content endpoint
     created_by?: UserBasicType | null
+    user_access_level?: AccessControlLevel
 }
 
 export type HeatmapScreenshotContentResponse =
