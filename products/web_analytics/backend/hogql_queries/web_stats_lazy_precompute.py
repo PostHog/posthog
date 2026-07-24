@@ -196,6 +196,8 @@ def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
 def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web stats
     table query — the shared web analytics gate plus stats-specific checks."""
+    if runner._effective_breakdown() != runner.query.breakdownBy:
+        return False
     return _can_use_lazy_precompute_shared(runner, log_prefix="web_stats", extra_check=_check_stats_eligible)
 
 

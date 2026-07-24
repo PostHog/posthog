@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
+    FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
     NO_JOIN_MAIN_INNER_QUERY,
@@ -55,6 +56,9 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
     the query tag can be attributed separately even though the SQL shape
     is identical.
     """
+
+    # Inner scan template; subclasses swap it to change only the events aggregation.
+    INNER_QUERY = MAIN_INNER_QUERY
 
     def __init__(
         self,
@@ -129,7 +133,7 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
 
     def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
-            MAIN_INNER_QUERY,
+            self.INNER_QUERY,
             timings=self.runner.timings,
             placeholders={
                 "breakdown_value": breakdown,
@@ -192,6 +196,50 @@ class ChannelTypeStrategy(SimpleBreakdownStrategy):
     per-row work materially heavier than other simple breakdowns, which
     is why this gets its own tag for attribution even though the outer
     SQL is the same template."""
+
+
+class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
+    """Breakdowns attributed to the session's first ``$pageview``/``$screen``.
+
+    Same outer query as ``SimpleBreakdownStrategy``, but the inner scan is two
+    levels: a per-session aggregate (``GROUP BY session_id`` with a single
+    ``argMinIf`` tuple anchoring every property to the earliest in-range
+    pageview) wrapped in a projection that computes the breakdown value from
+    the aliased tuple. See ``FIRST_PAGEVIEW_INNER_QUERY`` for why the aggregate
+    must be aliased. Conversion aggregates go into the per-session level, with
+    pass-through columns added to the projection.
+    """
+
+    INNER_QUERY = FIRST_PAGEVIEW_INNER_QUERY
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            self.INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                "breakdown_value": breakdown,
+                "first_pageview_properties": self.runner._first_pageview_properties_expr(),
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner._all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+                "session_id_present": self.runner.events_session_id_present,
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        if self.runner.conversion_count_expr and self.runner.conversion_person_id_expr:
+            assert query.select_from is not None
+            per_session_query = query.select_from.table
+            assert isinstance(per_session_query, ast.SelectQuery)
+            per_session_query.select.append(ast.Alias(alias="conversion_count", expr=self.runner.conversion_count_expr))
+            per_session_query.select.append(
+                ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr)
+            )
+            query.select.append(ast.Field(chain=["conversion_count"]))
+            query.select.append(ast.Field(chain=["conversion_person_id"]))
+
+        return query
 
 
 class PathBounceStrategy(StatsTableQueryStrategy):
