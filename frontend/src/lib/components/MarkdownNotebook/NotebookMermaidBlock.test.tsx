@@ -22,10 +22,8 @@ jest.mock('mermaid', () => ({
     },
 }))
 
-// NotebookMermaidBlock code-splits MermaidDiagram via React.lazy(). Load it eagerly here so Jest
-// transforms and caches the chunk at module load; otherwise that cold transform runs inside
-// findByTestId's 1000ms window and times out under CI contention, leaving the render stuck on the
-// Suspense fallback.
+// NotebookMermaidBlock lazy-loads MermaidDiagram; import it eagerly so Jest caches the chunk before
+// the test runs, keeping the cold transform out of findByTestId's 1000ms window (flaky under CI load).
 import 'lib/lemon-ui/LemonMarkdown/MermaidDiagram'
 
 import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
