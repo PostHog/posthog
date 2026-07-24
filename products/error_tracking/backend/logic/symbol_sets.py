@@ -71,14 +71,10 @@ def generate_symbol_set_file_key() -> str:
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_url(file_key: str, *, accelerate: bool = False):
-    if accelerate:
-        return object_storage.get_accelerated_presigned_post(
-            file_key=file_key,
-            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
-        )
-    return object_storage.get_presigned_post(
+def generate_symbol_set_upload_presigned_url(file_key: str):
+    # get_accelerated_presigned_post transparently falls back to a standard presigned POST
+    # when S3 Transfer Acceleration is not configured.
+    return object_storage.get_accelerated_presigned_post(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
         expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
@@ -147,18 +143,7 @@ def bulk_create_symbol_sets(
     team: Team,
     force: bool = False,
     skip_on_conflict: bool = False,
-    distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
-    accelerate = bool(
-        distinct_id
-        and posthoganalytics.feature_enabled(
-            "error-tracking-s3-accelerate",
-            distinct_id,
-            groups={"organization": str(team.organization.id)},
-            send_feature_flag_events=False,
-        )
-    )
-
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
 
     # Check for dupes
@@ -190,7 +175,7 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
             id_url_map[chunk_id] = {"presigned_url": presigned_url}
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
@@ -239,7 +224,7 @@ def bulk_create_symbol_sets(
                 # Both sides have no hash: this is a pending upload being restarted.
                 # Issue a fresh presigned URL so the client can retry.
                 storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
                 id_url_map[existing.ref] = {
                     "presigned_url": presigned_url,
                     "symbol_set_id": str(existing.id),
@@ -250,7 +235,7 @@ def bulk_create_symbol_sets(
                 # Existing record has no hash (pending upload or uploaded by old CLI
                 # without hash support). Allow the new upload to supply one.
                 storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
                 id_url_map[existing.ref] = {
                     "presigned_url": presigned_url,
                     "symbol_set_id": str(existing.id),
@@ -266,7 +251,7 @@ def bulk_create_symbol_sets(
                 # requested an overwrite. Issue a new presigned URL and clear
                 # the old content hash so bulk_finish_upload stores the new one.
                 storage_ptr = generate_symbol_set_file_key()
-                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
                 id_url_map[existing.ref] = {
                     "presigned_url": presigned_url,
                     "symbol_set_id": str(existing.id),
@@ -435,7 +420,6 @@ def bulk_start_upload(
     release_id: str | None,
     force: bool,
     skip_on_conflict: bool,
-    distinct_id: str | None,
 ) -> dict[str, dict[str, str]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
     uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
@@ -451,7 +435,6 @@ def bulk_start_upload(
         team,
         force=force,
         skip_on_conflict=skip_on_conflict,
-        distinct_id=distinct_id,
     )
 
 
