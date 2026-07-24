@@ -63,7 +63,7 @@ All marker reads and writes go through the helper, never through direct comment 
 3. Bulk-fetch the candidate heads in one git call: `git fetch origin +refs/pull/<n>/head:refs/remotes/pull/<n> ...` for every candidate. Git protocol traffic is unmetered; prefer it over API calls everywhere below.
 4. Conflict check locally, per candidate: `git merge-tree --write-tree origin/master refs/remotes/pull/<n>`. Exit 1 means conflicting; 0 means clean (skip); anything else, skip with a warning in the report.
 5. For each conflicting PR, apply the cheap local filters before touching the API:
-   - **Freshness**: last non-bot commit within 72 hours, from local history: `git log -1 --format='%ct %ae %an' refs/remotes/pull/<n>` walking past bot commits (author name containing `[bot]`, or committer email `code@posthog.com`). Stale PRs are skipped so an absent author doesn't get a stream of bot commits.
+   - **Freshness**: last non-bot commit within 72 hours, from local history: `git log --format='%ct %ae %ce %an' refs/remotes/pull/<n>` walking past bot commits (author name containing `[bot]`, or author or committer email `code@posthog.com`). Stale PRs are skipped so an absent author doesn't get a stream of bot commits.
    - **Marker**: `scripts/autoresolve-marker.sh get $REPO <n>` and skip if the tuple equals the current `(head, master)`. Do not read PR comments any other way.
 6. Graphite-stacked PRs (base `graphite-base/*`) cannot be fixed by merging master. Post the restack template via `scripts/autoresolve-marker.sh set`, and make no code changes.
 7. Everything surviving the filters, up to the per-run cap, goes through resolution below.
