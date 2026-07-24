@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, type LemonSelectProps } from '@posthog/lemon-ui'
 
+import { Dot, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from 'lib/ui/quill'
+
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { LabelIndicator, StatusIndicator } from '../Indicators'
+import { ISSUE_STATUS_CONFIG, IssueStatusDot, LabelIndicator, StatusIndicator } from '../Indicators'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 
 export type ErrorTrackingStatusSelectValue = ErrorTrackingIssue['status'] | 'all'
@@ -16,6 +18,24 @@ function statusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Element {
         return <LabelIndicator intent="muted" label="All" size="small" />
     }
     return <StatusIndicator status={key} size="small" withTooltip="right" />
+}
+
+function quillStatusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Element {
+    if (key === 'all') {
+        return (
+            <span className="flex items-center gap-2">
+                <Dot className="!border-0 !p-0" />
+                All
+            </span>
+        )
+    }
+
+    return (
+        <span className="flex items-center gap-2">
+            <IssueStatusDot status={key} />
+            {ISSUE_STATUS_CONFIG[key].label}
+        </span>
+    )
 }
 
 type ErrorTrackingStatusSelectProps = {
@@ -56,6 +76,20 @@ export function ErrorTrackingStatusSelect({
 export const StatusFilter = (): JSX.Element => {
     const { status } = useValues(issueQueryOptionsLogic)
     const { setStatus } = useActions(issueQueryOptionsLogic)
+    const value = status ?? 'active'
 
-    return <ErrorTrackingStatusSelect value={status ?? 'active'} onChange={(value) => setStatus(value)} />
+    return (
+        <Select value={value} onValueChange={(nextValue) => setStatus(nextValue as ErrorTrackingStatusSelectValue)}>
+            <SelectTrigger size="default">
+                <SelectValue>{quillStatusOptionLabel(value)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent align="start" alignItemWithTrigger={false}>
+                {STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                        {quillStatusOptionLabel(option)}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    )
 }

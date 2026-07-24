@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { Button } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -45,5 +48,19 @@ export function AssigneeFilter(): JSX.Element {
     const { assignee } = useValues(issueQueryOptionsLogic)
     const { setAssignee } = useActions(issueQueryOptionsLogic)
 
-    return <ErrorTrackingAssigneeSelectButton assignee={assignee ?? null} onChange={(value) => setAssignee(value)} />
+    return (
+        <AssigneeSelect assignee={assignee ?? null} onChange={(value) => setAssignee(value)}>
+            {(displayAssignee, isOpen) => (
+                <Button variant="outline" size="default" aria-expanded={isOpen}>
+                    <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                    <AssigneeLabelDisplay
+                        assignee={displayAssignee}
+                        placeholder="Any assignee"
+                        className="max-w-40 truncate"
+                    />
+                    <IconChevronDown className="size-4" />
+                </Button>
+            )}
+        </AssigneeSelect>
+    )
 }

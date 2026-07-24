@@ -1,14 +1,10 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-
-import { QuickFiltersSection } from 'lib/components/QuickFilters/QuickFiltersSection'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Separator } from 'lib/ui/quill'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
-
-import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
+import { ErrorTrackingQuickFilters } from 'products/error_tracking/frontend/components/IssueFilters/QuickFilters'
 
 const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.ErrorTrackingProperties,
@@ -21,22 +17,18 @@ const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
 export function InsightsFilters(): JSX.Element {
     return (
         <ErrorFilters.Root>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex w-full flex-wrap items-center gap-1">
                 <ErrorFilters.DateRange />
-                <LemonDivider vertical />
-                <QuickFiltersSection
-                    context={QuickFilterContext.ErrorTrackingIssueFilters}
-                    logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                <Separator orientation="vertical" className="h-6" />
+                <ErrorTrackingQuickFilters />
+                <ErrorFilters.FilterGroup
+                    taxonomicGroupTypes={INSIGHTS_TAXONOMIC_GROUP_TYPES}
+                    excludeFilterTypes={[PropertyFilterType.ErrorTrackingIssue]}
+                    activeFiltersInline
                 />
-            </div>
-            <div className="flex gap-2 items-start">
-                <div className="flex-1">
-                    <ErrorFilters.FilterGroup
-                        taxonomicGroupTypes={INSIGHTS_TAXONOMIC_GROUP_TYPES}
-                        excludeFilterTypes={[PropertyFilterType.ErrorTrackingIssue]}
-                    />
+                <div className="ml-auto shrink-0">
+                    <ErrorFilters.InternalAccounts />
                 </div>
-                <ErrorFilters.InternalAccounts />
             </div>
         </ErrorFilters.Root>
     )
