@@ -47,7 +47,7 @@ Never record how the code got here. That belongs in the commit message and PR de
 
 ### Commented-out code
 
-Delete it. Git remembers. A block of dead code behind `#` is worse than no code: readers can't tell if it's a note, a rollback plan, or an accident.
+Delete it; the version history has it if it's needed again. Commented-out code is ambiguous to the next reader, who can't tell whether it's a note, a rollback plan, or an accident.
 
 ### Redundant docstrings and type restatements
 
