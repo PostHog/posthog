@@ -1,0 +1,9 @@
+apiVersion: v2
+name: posthog-metrics-agent
+description: Scrapes Prometheus /metrics endpoints in your cluster and forwards them to PostHog
+type: application
+version: 0.1.0
+appVersion: latest
+home: https://posthog.com/docs/metrics
+sources:
+    - https://github.com/PostHog/posthog/tree/master/products/metrics/agent

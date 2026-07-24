@@ -1,0 +1,42 @@
+image:
+    repository: posthog/metrics-agent
+    # Defaults to the chart's appVersion.
+    tag: ''
+    pullPolicy: IfNotPresent
+
+posthog:
+    # PostHog ingestion origin. EU cloud: https://eu.i.posthog.com
+    host: https://us.i.posthog.com
+    # Project API key. Stored in a chart-managed Secret.
+    apiKey: ''
+    # Alternatively, the name of an existing Secret with the key `posthog-api-key`.
+    # Takes precedence over apiKey.
+    existingSecret: ''
+
+scrape:
+    interval: 15s
+    # Scrape pods annotated with prometheus.io/scrape: "true"
+    # (path and port via prometheus.io/path and prometheus.io/port).
+    annotationDiscovery: true
+    # Extra fixed host:port targets, e.g. ['my-svc:9090'].
+    staticTargets: []
+    # Raw Prometheus scrape_configs YAML (a list) appended verbatim.
+    extraScrapeConfigs: ''
+
+resources:
+    requests:
+        cpu: 100m
+        memory: 256Mi
+    limits:
+        memory: 512Mi
+
+rbac:
+    create: true
+
+serviceAccount:
+    create: true
+    name: ''
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
