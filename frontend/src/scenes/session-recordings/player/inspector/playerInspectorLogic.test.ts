@@ -281,6 +281,141 @@ describe('playerInspectorLogic', () => {
             matchingLogic.unmount()
             playerLogic.unmount()
         })
+
+        it('seeks when the player arms the skip flag after matching events have loaded', async () => {
+            // In playlist embeds the flag is only armed once the player initializes, which is
+            // usually after the matching events have loaded — the skip must still fire then.
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'late-armed',
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            // Meta initializes the player, which arms the skip flag (no t/timestamp URL param)
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+            await expectLogic(playerLogic).toDispatchActions([
+                'setSkipToFirstMatchingEvent',
+                playerLogic.actionCreators.seekToTime(9000),
+            ])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it.each([
+            [
+                'seeked',
+                (playerLogic: ReturnType<typeof sessionRecordingPlayerLogic.build>) =>
+                    playerLogic.actions.seekToTime(5000),
+            ],
+            [
+                'scrubbed',
+                (playerLogic: ReturnType<typeof sessionRecordingPlayerLogic.build>) => playerLogic.actions.startScrub(),
+            ],
+        ])('does not auto-skip after the user has %s', async (_interaction, interact) => {
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'user-interacted',
+                skipToFirstMatchingEvent: true,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            interact(playerLogic)
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+
+            // Covers both skip triggers: the synchronous one on meta load and the deferred one
+            // from the player arming the flag during initialization
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess', 'trySkipToFirstMatchingEvent'])
+                .delay(25)
+            await expectLogic(playerLogic).toNotHaveDispatchedActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it('does not seek when the earliest match falls after the recording ends', async () => {
+            // The matching-events query has slack past the recording window; seeking there would
+            // pin the player to its final frame and trigger end-reached.
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'match-past-end',
+                skipToFirstMatchingEvent: true,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:02:00.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadRecordingMetaSuccess', 'trySkipToFirstMatchingEvent'])
+                .delay(25)
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
     })
 
     describe('experiment variant markers', () => {

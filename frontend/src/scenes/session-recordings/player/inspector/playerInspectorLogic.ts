@@ -578,8 +578,14 @@ export interface playerInspectorLogicActions {
         forcePlay: boolean
         timeInMilliseconds: number
     } // sessionRecordingPlayerLogic
+    setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => {
+        skipToFirstMatchingEvent: boolean
+    } // sessionRecordingPlayerLogic
     setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => {
         isSkippingToMatchingEvent: boolean
+    } // sessionRecordingPlayerLogic
+    startScrub: () => {
+        value: true
     } // sessionRecordingPlayerLogic
     loadMatchingEvents: () => any
     loadMatchingEventsFailure: (
@@ -838,7 +844,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'loadRecordingMetaSuccess',
             ],
             sessionRecordingPlayerLogic(props),
-            ['seekToTime', 'setSkippingToMatchingEvent'],
+            ['seekToTime', 'setSkippingToMatchingEvent', 'setSkipToFirstMatchingEvent', 'startScrub'],
             playerInspectorLogsLogic(props),
             ['loadLogs', 'loadMoreLogs', 'markLogsInitialLoadRequested'],
         ],
@@ -923,6 +929,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             {
                 loadMatchingEvents: () => false,
                 markSkippedToFirstMatchingEvent: () => true,
+                // A seek or scrub consumes any pending auto-skip: the matching-events query can
+                // resolve seconds into playback, and yanking the playhead after the viewer has
+                // already navigated is worse than not skipping at all.
+                seekToTime: () => true,
+                startScrub: () => true,
             },
         ],
     })),
@@ -2146,6 +2157,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         loadRecordingMetaSuccess: () => {
             actions.trySkipToFirstMatchingEvent()
         },
+        setSkipToFirstMatchingEvent: async ({ skipToFirstMatchingEvent }, breakpoint) => {
+            if (!skipToFirstMatchingEvent) {
+                return
+            }
+            // In playlist embeds the flag is armed by initializePlayerFromStart, which only runs
+            // once snapshots start syncing — usually after both matching events and meta have
+            // loaded, so without this trigger the skip never fires. The flag is also armed before
+            // the player's initial timestamp is set (and seekToTime no-ops until it exists), so
+            // defer past that synchronous init chain.
+            await breakpoint(1)
+            actions.trySkipToFirstMatchingEvent()
+        },
         trySkipToFirstMatchingEvent: () => {
             if (
                 !values.skipToFirstMatchingEvent ||
@@ -2159,7 +2182,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             const earliestMatchingEvent = values.matchingEvents.reduce((previous, current) =>
                 previous.timestamp < current.timestamp ? previous : current
             )
-            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+            const { timestamp, timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+            // The matching-events query has slack around the recording window, so the earliest
+            // match can fall past the playable range — seeking there would pin the player to its
+            // final frame and immediately trigger end-reached (auto-advancing playlists).
+            if (values.end && timestamp.isAfter(values.end)) {
+                return
+            }
             const seekTime = Math.max(0, ceilMsToClosestSecond(timeInRecording) - 1000)
 
             actions.markSkippedToFirstMatchingEvent()
