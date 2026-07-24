@@ -85,6 +85,9 @@ describe('sessionRecordingCollectionsLogic', () => {
                                 results: [`List of playlists filtered by pinned`],
                             },
                         ]
+                    } else if (searchParams.get('search') === 'empty-body') {
+                        // an empty 2xx body makes api.get resolve to null
+                        return [200]
                     }
                     return [200, mockPlaylistsResponse]
                 },
@@ -103,6 +106,17 @@ describe('sessionRecordingCollectionsLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadPlaylistsSuccess'])
                 .toMatchValues({ playlists: mockPlaylistsResponse })
+        })
+
+        it('keeps playlists non-null and pagination intact when the API returns an empty body', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSavedPlaylistsFilters({ search: 'empty-body' })
+            })
+                .toDispatchActions(['loadPlaylistsSuccess'])
+                .toMatchValues({
+                    playlists: expect.objectContaining({ count: 0 }),
+                    pagination: expect.objectContaining({ entryCount: 0 }),
+                })
         })
     })
 

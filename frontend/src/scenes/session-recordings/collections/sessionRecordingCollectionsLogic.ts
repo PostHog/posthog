@@ -261,7 +261,9 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
                 const response = await api.recordings.listPlaylists(toParams(params))
                 breakpoint()
 
-                return response
+                // api.get resolves to null when the response body isn't valid JSON (e.g. an empty 2xx body),
+                // so fall back to the current value to keep playlists non-null.
+                return response ?? values.playlists
             },
             updatePlaylist: async ({ shortId, properties }, breakpoint) => {
                 await breakpoint(100)
@@ -340,14 +342,14 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
                     controlled: true,
                     pageSize: PLAYLISTS_PER_PAGE,
                     currentPage: filters.page,
-                    entryCount: playlists.count,
-                    onBackward: playlists.previous
+                    entryCount: playlists?.count ?? 0,
+                    onBackward: playlists?.previous
                         ? () =>
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page - 1,
                               })
                         : undefined,
-                    onForward: playlists.next
+                    onForward: playlists?.next
                         ? () =>
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page + 1,
