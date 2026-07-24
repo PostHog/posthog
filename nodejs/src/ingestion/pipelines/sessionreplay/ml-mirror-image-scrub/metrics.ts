@@ -9,9 +9,9 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
         help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
     })
-    private static readonly mismatch = new Counter({
-        name: 'ml_mirror_image_scrub_consumer_key_content_mismatch_total',
-        help: 'Messages dropped because the key hash did not match the value bytes (forged/corrupt key)',
+    private static readonly invalidKey = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
+        help: 'Messages dropped because the key is missing, not an image ref, or the value is empty — a sustained rate means producer/consumer ref-format drift is zeroing the lane',
     })
     private static readonly shardsWritten = new Counter({
         name: 'ml_mirror_image_scrub_consumer_shards_written_total',
@@ -40,8 +40,8 @@ export class ImageScrubConsumerMetrics {
     public static incSkipped(): void {
         this.skipped.inc()
     }
-    public static incMismatch(): void {
-        this.mismatch.inc()
+    public static incInvalidKey(): void {
+        this.invalidKey.inc()
     }
     public static observeShard(images: number, bytes: number): void {
         this.shardsWritten.inc()

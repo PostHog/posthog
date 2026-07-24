@@ -29,6 +29,10 @@ from products.tasks.backend.facade.run_config import (
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
+from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
+    TASK_RUN_SKILL_SOURCE_CHOICES,
+)
 
 
 class LoopRepositoryEntrySerializer(serializers.Serializer):
@@ -549,6 +553,11 @@ class LoopRepositoryEntryResponseSerializer(DataclassSerializer):
         dataclass = loops_facade.LoopRepositoryEntryDTO
 
 
+class LoopSkillBundleResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = loops_facade.LoopSkillBundleDTO
+
+
 class LoopSerializer(DataclassSerializer):
     """Detail/create/update response for a loop, including its triggers."""
 
@@ -560,6 +569,9 @@ class LoopSerializer(DataclassSerializer):
         allow_null=True, required=False, help_text="Context this loop is attached to, or null when unattached."
     )
     triggers = LoopTriggerSerializer(many=True, help_text="Triggers attached to this loop.")
+    skill_bundles = LoopSkillBundleResponseSerializer(
+        many=True, help_text="Skill bundles attached to this loop, seeded into every fired run."
+    )
 
     class Meta:
         dataclass = loops_facade.LoopDTO
@@ -592,6 +604,7 @@ class LoopSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "triggers",
+            "skill_bundles",
         ]
 
 
@@ -652,6 +665,34 @@ class LoopPreviewRequestSerializer(serializers.Serializer):
 class LoopPreviewSerializer(DataclassSerializer):
     class Meta:
         dataclass = loops_facade.LoopPreviewDTO
+
+
+class LoopSkillBundleUploadSerializer(serializers.Serializer):
+    """One zipped local skill in a skill-bundle replace request."""
+
+    file_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="File name for the stored bundle, e.g. `my-skill.zip`."
+    )
+    skill_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="Name of the skill inside the bundle."
+    )
+    skill_source = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_SOURCE_CHOICES, help_text="Local source the bundle was built from, such as user or repo."
+    )
+    content_sha256 = serializers.RegexField(
+        regex=r"^[a-f0-9]{64}$", help_text="SHA-256 hex digest of the bundle bytes."
+    )
+    bundle_format = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES, help_text="Archive format used for the bundle."
+    )
+    content_base64 = serializers.CharField(allow_blank=False, help_text="Base64-encoded bundle bytes.")
+
+
+class LoopSkillBundlesWriteSerializer(serializers.Serializer):
+    """Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+    list to detach every skill."""
+
+    bundles = LoopSkillBundleUploadSerializer(many=True, allow_empty=True)
 
 
 class LoopFireRunSerializer(DataclassSerializer):

@@ -31,6 +31,8 @@ const producerConfigSchema = z.object({
         .default('true')
         .transform((v) => v === 'true'),
     'message.max.bytes': z.coerce.number().optional(),
+    // Topic-level property: librdkafka applies it to the default topic conf when set globally.
+    'message.timeout.ms': z.coerce.number().optional(),
     'batch.num.messages': z.coerce.number().optional(),
     'sticky.partitioning.linger.ms': z.coerce.number().optional(),
     'topic.metadata.refresh.interval.ms': z.coerce.number().optional(),

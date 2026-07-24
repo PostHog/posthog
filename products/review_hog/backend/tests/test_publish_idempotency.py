@@ -4,6 +4,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
@@ -47,12 +49,23 @@ def _promo_posted(marker: str, comments: list[dict[str, Any]], *, boom: bool = F
 
 
 def test_review_already_posted_detects_our_own_markered_review() -> None:
-    # Post-then-crash backstop: a review we posted carries this run's marker, so a retry recognizes it
-    # and skips. A review without the marker (another turn/author) must not match.
+    # Post-then-crash backstop: a review we posted (an app-bot review) carries this run's marker, so
+    # a retry recognizes it and skips. A review without the marker (another turn/author) must not
+    # match — and neither may a human review carrying a pasted marker: on a public repo anyone can
+    # copy it, and a match here silently suppresses the publish.
     marker = _review_marker("rep-1", "sha1")
-    assert _review_posted(marker, [{"body": f"body text\n\n{marker}"}]) is True
-    assert _review_posted(marker, [{"body": "an unrelated review"}, {"body": None}]) is False
-    assert _review_posted(marker, [{"body": _review_marker("rep-1", "other-sha")}]) is False
+    bot = {"user": {"login": "posthog[bot]", "type": "Bot"}}
+    assert _review_posted(marker, [{"body": f"body text\n\n{marker}", **bot}]) is True
+    assert _review_posted(marker, [{"body": "an unrelated review", **bot}, {"body": None, **bot}]) is False
+    assert _review_posted(marker, [{"body": _review_marker("rep-1", "other-sha"), **bot}]) is False
+    assert (
+        _review_posted(marker, [{"body": f"pasted: {marker}", "user": {"login": "prankster", "type": "User"}}]) is False
+    )
+    assert _review_posted(marker, [{"body": f"no user field: {marker}"}]) is False
+    # With the app's bot login configured, another installed bot's pasted marker must not match either.
+    with override_settings(REVIEWHOG_GITHUB_BOT_LOGIN="posthog[bot]"):
+        assert _review_posted(marker, [{"body": marker, **bot}]) is True
+        assert _review_posted(marker, [{"body": marker, "user": {"login": "rogue[bot]", "type": "Bot"}}]) is False
 
 
 def test_review_already_posted_proceeds_when_readback_fails() -> None:

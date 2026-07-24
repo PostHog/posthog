@@ -125,6 +125,30 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Property size admission ──────────────────────────────────
+    /// Ceiling for a person's properties, measured exactly as the
+    /// `check_properties_size` constraint on `posthog_person` measures it:
+    /// `pg_column_size(properties)`, the JSONB binary size. An update
+    /// that would newly push a within-limit row over this is rejected; a
+    /// row already over it (predating the constraint, or from another
+    /// writer) is remediated by trimming to the target below, discarding
+    /// the triggering update — mirroring the Node pipeline's policy. So
+    /// every acked record is applyable by the writer verbatim: the cache,
+    /// the changelog, and Postgres can never disagree about an acked row.
+    #[envconfig(default = "655360")]
+    pub properties_size_threshold: usize,
+
+    /// Size to trim already-oversized properties down to during
+    /// remediation, comfortably below the threshold so remediated rows
+    /// keep headroom under the constraint.
+    #[envconfig(default = "524288")]
+    pub properties_trim_target: usize,
+
+    /// Topic for in-product ingestion warnings emitted when admission
+    /// trims or rejects an update.
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
+    pub ingestion_warnings_topic: String,
+
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
     /// index marks the writer has applied to PG. A tick costs one batched
@@ -171,6 +195,14 @@ pub struct Config {
     /// break read-your-write. Leader reads are strong reads.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
+
+    /// Table the fallback reads. Must be the table the writer maintains
+    /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
+    /// PG row as current, which is only true of the writer's own target.
+    /// Prod pairs posthog_person on both sides; the dev validation stack
+    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    #[envconfig(default = "posthog_person")]
+    pub fallback_table: String,
 
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,

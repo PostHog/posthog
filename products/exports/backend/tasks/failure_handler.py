@@ -31,12 +31,7 @@ from posthog.errors import (
     CHQueryErrorUnknownTable,
     CHQueryErrorUnsupportedMethod,
 )
-from posthog.exceptions import (
-    ClickHouseAtCapacity,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQuerySizeExceeded,
-    ClickHouseQueryTimeOut,
-)
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 
 # =============================================================================
 # Export Failure Classification
@@ -92,7 +87,6 @@ EXCEPTIONS_TO_RETRY = (
     ConcurrencyLimitExceeded,
     MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
     ReadTimeoutError,  # Network timeout from urllib3
-    ClickHouseAtCapacity,
     SocketTimeoutError,
     SSLError,
     BrowserlessUnavailable,

@@ -143,7 +143,7 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
-SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
@@ -2251,7 +2251,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
-    """API for redeeming PostHog Code invite codes."""
+    """API for redeeming PostHog Desktop invite codes."""
 
     authentication_classes = [
         SessionAuthentication,
@@ -2281,7 +2281,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             ),
         },
         summary="Redeem invite code",
-        description="Redeem a PostHog Code invite code to enable access.",
+        description="Redeem a PostHog Desktop invite code to enable access.",
     )
     @action(detail=False, methods=["post"], url_path="redeem")
     def redeem(self, request, **kwargs):
@@ -2305,7 +2305,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Access check result"),
         },
         summary="Check access",
-        description="Check whether the authenticated user has access to PostHog Code and to Loops.",
+        description="Check whether the authenticated user has access to PostHog Desktop and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):

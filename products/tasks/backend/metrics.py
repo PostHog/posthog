@@ -59,6 +59,25 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
     ],
 )
 
+AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
+    "posthog_tasks_agent_otel_telemetry_stamped_total",
+    "Agent-run OTel telemetry rollout decisions stamped into run state at dispatch "
+    "(tasks-agent-run-otel-telemetry flag). First-time stamps only; resumes reuse the stamp.",
+    labelnames=["enabled"],
+)
+
+RUN_LOG_MIRROR_ENTRIES_TOTAL = Counter(
+    "posthog_tasks_run_log_mirror_entries_total",
+    "Task-run log entries mirrored to stdout for the internal Logs project (run_log_mirror).",
+    labelnames=["origin_product"],
+)
+
+RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
+    "posthog_tasks_run_log_mirror_otlp_batches_total",
+    "Direct-OTLP mirror batch deliveries by outcome (the local-dev leg; unset in cloud).",
+    labelnames=["outcome"],
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
