@@ -71,6 +71,33 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     })
 }
 
+// Builds the error thrown when a `call` JSON body fails to parse. The parser
+// itself accepts the full range of valid JSON (multi-byte UTF-8, arbitrarily
+// long strings) — so a failure here almost always means the body arrived
+// malformed, most often truncated in transit. The generic "Invalid JSON input"
+// used to misdirect callers into blaming their own escaping; this surfaces the
+// received length and, for truncation-shaped parse errors, names the likely
+// cause so they stop re-escaping a payload that was cut off, not mis-quoted.
+export function formatInvalidJsonInput(jsonBody: string, err: unknown): string {
+    const detail = err instanceof Error ? err.message : String(err)
+    const length = jsonBody.length
+    // V8's parse errors for a body that ends mid-value: an unterminated string,
+    // or input that stops before the JSON is closed.
+    const looksTruncated = /unterminated|unexpected end|end of (json|data)/i.test(detail)
+    if (looksTruncated) {
+        return (
+            `Invalid JSON input (received ${length} chars): ${detail}. ` +
+            `The body ends mid-value, which usually means it was truncated in transit rather than mis-escaped — ` +
+            `try a shorter payload or split it across calls.`
+        )
+    }
+    return (
+        `Invalid JSON input (received ${length} chars): ${detail}. ` +
+        `This describes the JSON as received; if the payload has a long string or multi-byte characters, ` +
+        `confirm it wasn't truncated before assuming an escaping problem.`
+    )
+}
+
 function parseCommand(input: string): { verb: string; rest: string } {
     const trimmed = input.trim()
     const idx = trimmed.indexOf(' ')
@@ -543,8 +570,7 @@ export function createExecTool(
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
                         } catch (err) {
-                            const detail = err instanceof Error ? err.message : String(err)
-                            throw new Error(`Invalid JSON input: ${detail}`)
+                            throw new Error(formatInvalidJsonInput(jsonBody, err))
                         }
                     }
 

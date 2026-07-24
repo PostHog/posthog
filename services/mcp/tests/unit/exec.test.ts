@@ -494,7 +494,7 @@ describe('exec tool', () => {
                 exec.handler(mockContext, {
                     command: 'call mock-tool {not-json}',
                 })
-            ).rejects.toThrow(/Invalid JSON input:/)
+            ).rejects.toThrow(/Invalid JSON input/)
         })
 
         it.each([

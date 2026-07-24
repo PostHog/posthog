@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, formatInvalidJsonInput } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -141,8 +141,7 @@ async function runDryCall(args: string[]): Promise<void> {
     try {
         parsed = jsonBody ? (JSON.parse(jsonBody) as Record<string, unknown>) : {}
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        throw new Error(`Invalid JSON input: ${detail}`)
+        throw new Error(formatInvalidJsonInput(jsonBody, error))
     }
 
     const validation = tool.schema.safeParse(parsed)
