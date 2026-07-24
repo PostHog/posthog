@@ -1014,6 +1014,30 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
         )
 
+    def breakdown_needs_old_analyzer(self) -> bool:
+        # The fewer-array-ops path threads the breakdown value through a multi-CTE outer select
+        # (breakdown_series → totals_per_breakdown → ranked_breakdown_totals JOIN ... ON breakdown_value).
+        # For custom-expression breakdowns (HogQL / event_metadata) that value is a complex expression
+        # (e.g. a multiIf), and ClickHouse's new analyzer fails to match the column across those CTE/JOIN
+        # boundaries, raising NotFoundColumnInBlock and failing the whole query. Simple property
+        # breakdowns aren't affected. Force the old analyzer for just these queries as a targeted
+        # workaround — same class of new-analyzer column-matching bug worked around in hogql/constants.py.
+        if not (self.breakdown.enabled and self._team_flag_fewer_array_ops()):
+            return False
+
+        breakdown_filter = self.query.breakdownFilter
+        if breakdown_filter is None:
+            return False
+
+        custom_expr_types = {"hogql", "event_metadata"}
+
+        def is_custom_expr(breakdown_type: object) -> bool:
+            return getattr(breakdown_type, "value", breakdown_type) in custom_expr_types
+
+        if breakdown_filter.breakdowns:
+            return any(is_custom_expr(breakdown.type) for breakdown in breakdown_filter.breakdowns)
+        return is_custom_expr(breakdown_filter.breakdown_type)
+
     def _team_flag_fewer_array_ops(self) -> bool:
         return feature_enabled_or_false(
             "trends-breakdown-fewer-array-ops",
