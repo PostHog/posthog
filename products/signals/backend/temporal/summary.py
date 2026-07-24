@@ -37,6 +37,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
+from products.signals.backend.temporal.error_details import describe_exception
 from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
@@ -66,6 +67,8 @@ def _capture_report_event(
     source_products: list[str],
     result: str | None = None,
     failure_reason: str | None = None,
+    failure_error_type: str | None = None,
+    failure_error_message: str | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -77,6 +80,12 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    # Enrich the generic agentic_activity_error bucket with the real downstream cause so
+    # spikes are diagnosable straight from the event.
+    if failure_error_type is not None:
+        properties["failure_error_type"] = failure_error_type
+    if failure_error_message is not None:
+        properties["failure_error_message"] = failure_error_message
 
     if event == "signal_report_completed" and result is not None:
         metrics.increment_report_completed(result)
@@ -381,6 +390,7 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            error_type, error_message = describe_exception(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(
@@ -388,6 +398,8 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     error=str(e),
                     failure_reason="agentic_activity_error",
+                    failure_error_type=error_type,
+                    failure_error_message=error_message,
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -537,6 +549,8 @@ class MarkReportFailedInput:
     report_id: str
     error: str
     failure_reason: str | None = None
+    failure_error_type: str | None = None
+    failure_error_message: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
 
@@ -583,6 +597,8 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        failure_error_type=input.failure_error_type,
+        failure_error_message=input.failure_error_message,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",

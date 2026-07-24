@@ -24,6 +24,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
+from products.signals.backend.temporal.error_details import describe_exception
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -62,12 +63,20 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
+    failure_error_type: str | None = None,
+    failure_error_message: str | None = None,
 ) -> None:
     properties: dict = {"report_id": report_id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    # Enrich the generic agentic_activity_error bucket with the real downstream cause so
+    # spikes are diagnosable straight from the event.
+    if failure_error_type is not None:
+        properties["failure_error_type"] = failure_error_type
+    if failure_error_message is not None:
+        properties["failure_error_message"] = failure_error_message
     try:
         posthoganalytics.capture(
             event=event,
@@ -190,6 +199,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             return result
     except Exception as e:
+        error_type, error_message = describe_exception(e)
         _capture_repo_research_event(
             "signals_repo_research_completed",
             team,
@@ -197,6 +207,8 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             input.report_id,
             result="failed",
             failure_reason="agentic_activity_error",
+            failure_error_type=error_type,
+            failure_error_message=error_message,
         )
         # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
         if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
