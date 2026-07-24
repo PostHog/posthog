@@ -47,7 +47,10 @@ import { GeneralSection } from 'products/conversations/frontend/scenes/settings/
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
-import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import {
+    WarehouseGroupPropertiesSetting,
+    WarehousePersonPropertiesSetting,
+} from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -442,12 +445,21 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-person-properties',
-                title: 'Person properties from the warehouse',
+                title: 'Person properties',
                 description:
                     'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
                 component: <WarehousePersonPropertiesSetting />,
                 flag: 'WAREHOUSE_PERSON_PROPERTIES',
                 keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
+            },
+            {
+                id: 'customer-analytics-group-properties',
+                title: 'Group properties',
+                description:
+                    'Sync warehouse table columns onto matching groups as group properties, and manage their schedule, backfills, and run history.',
+                component: <WarehouseGroupPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'group', 'properties', 'sync', 'backfill'],
             },
         ],
     },
