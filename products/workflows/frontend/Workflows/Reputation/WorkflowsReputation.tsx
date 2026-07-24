@@ -55,6 +55,22 @@ function formatRate(rate: number): string {
     return percentage(rate, 2, true)
 }
 
+// Must match the evaluator's window config (nodejs/src/cdp/services/email-reputation: n=1,000, nHours=24)
+// and the endpoint's cap (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
+const EVALUATION_WINDOW_TOOLTIP =
+    'Rates are calculated over your most recent sending: at least the last 24 hours and at least the last 1,000 emails, whichever covers more (up to 30 days back). Whole hourly batches are included, so the count can land just past 1,000.'
+const WORKFLOW_LIMIT = 50
+
+function MetricLabel({ label, tooltip }: { label: string; tooltip: string }): JSX.Element {
+    return (
+        <Tooltip title={tooltip}>
+            <div className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default">
+                {label}
+            </div>
+        </Tooltip>
+    )
+}
+
 function TeamReputationCard({ reputation }: { reputation: EmailReputationSnapshotApi }): JSX.Element {
     return (
         <div className="border rounded p-4 bg-surface-primary">
@@ -64,15 +80,18 @@ function TeamReputationCard({ reputation }: { reputation: EmailReputationSnapsho
             </div>
             <div className="flex flex-wrap gap-8 mt-3">
                 <div>
-                    <div className="text-secondary text-xs">Bounce rate</div>
+                    <MetricLabel
+                        label="Bounce rate"
+                        tooltip="Hard (permanent) bounces divided by emails evaluated. Transient bounces like a full mailbox are not counted."
+                    />
                     <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
                 </div>
                 <div>
-                    <div className="text-secondary text-xs">Spam complaint rate</div>
+                    <MetricLabel label="Spam complaint rate" tooltip="Spam complaints divided by emails evaluated." />
                     <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
                 </div>
                 <div>
-                    <div className="text-secondary text-xs">Emails evaluated (recent volume)</div>
+                    <MetricLabel label="Emails evaluated (recent volume)" tooltip={EVALUATION_WINDOW_TOOLTIP} />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
                 </div>
                 <div>
@@ -146,14 +165,22 @@ export function WorkflowsReputation(): JSX.Element {
                     </div>
                 )
             )}
-            <LemonInput
-                type="search"
-                placeholder="Search workflows"
-                value={search}
-                onChange={setSearch}
-                className="max-w-80"
-                data-attr="workflows-reputation-search"
-            />
+            <div className="flex items-center gap-3">
+                <LemonInput
+                    type="search"
+                    placeholder="Search workflows"
+                    value={search}
+                    onChange={setSearch}
+                    className="max-w-80"
+                    data-attr="workflows-reputation-search"
+                />
+                {!search.trim() && workflowSnapshots.length >= WORKFLOW_LIMIT && (
+                    <span className="text-secondary text-xs">
+                        Showing the {WORKFLOW_LIMIT} workflows with the worst reputation. Search to find any other
+                        evaluated workflow.
+                    </span>
+                )}
+            </div>
             <LemonTable
                 dataSource={[...workflowSnapshots]}
                 loading={reputationResponseLoading}
