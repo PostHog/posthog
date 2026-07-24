@@ -1082,6 +1082,37 @@ class TestPostgresSourceNonRetryableErrors:
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
 
 
+class TestPostgresSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 57P01: a DBA (or a cloud provider's maintenance/failover automation) killed
+            # our backend. `get_rows`'s in-process reconnect/offset-chunking already retries this
+            # mid-stream; it only reaches `_handle_import_error` once that resume is unsafe (a
+            # full-table scan with rows already yielded) or its retry budget is exhausted.
+            "terminating connection due to administrator command",
+            "OperationalError: terminating connection due to administrator command",
+        ],
+    )
+    def test_admin_shutdown_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Admin-shutdown error should be classified retryable: {error_msg}"
+
+    def test_admin_shutdown_is_not_also_non_retryable(self, source):
+        # Guards against the two classifications disagreeing — `_handle_import_error` checks
+        # non-retryable first, so if this ever matched both, it would stop the sync instead of
+        # retrying the activity.
+        error_msg = "terminating connection due to administrator command"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Admin-shutdown error should not be non-retryable: {error_msg}"
+
+
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
     # this raises before the generator yields, standing in for paramiko's handshake EOFError.
