@@ -142,6 +142,42 @@ class TestFilters(BaseTest):
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_replace_filters_date_range_nested_in_expression(self):
+        # A date-range placeholder nested inside a call/arithmetic expression is not a direct
+        # operand of a comparison, so there is no enclosing comparison to skip. It used to crash
+        # with IndexError; it should now resolve to the parsed date constant.
+        select = replace_filters(
+            self._parse_select("SELECT toDateTime({filters.dateRange.from}) FROM events"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT toDateTime(toDateTime('2020-02-02 00:00:00.000000')) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        select = replace_filters(
+            self._parse_select("SELECT toDateTime({filters.dateRange.to}) FROM events"),
+            HogQLFilters(dateRange=DateRange(date_to="2020-02-03")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT toDateTime(toDateTime('2020-02-03 00:00:00.000000')) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_date_range_nested_in_expression_without_filters(self):
+        # With no filters the nested placeholder resolves to a benign constant rather than crashing.
+        select = replace_filters(
+            self._parse_select("SELECT toDateTime({filters.dateRange.from}) FROM events"),
+            None,
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT toDateTime(true) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_replace_filters_event_property(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
