@@ -22,6 +22,7 @@ const LazyScoutCreateModal = React.lazy(async () => {
 export interface ScoutCreateButtonProps {
     children?: React.ReactNode
     className?: string
+    creationMode?: 'ai' | 'manual'
     initialValues?: ScoutCreateInitialValues
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     size?: LemonButtonProps['size']
@@ -34,6 +35,7 @@ export function ScoutCreateButton({
     onCreated,
     children = 'Create scout with AI',
     className,
+    creationMode = 'ai',
     size = 'small',
     type = 'primary',
     'data-attr': dataAttr,
@@ -43,41 +45,56 @@ export function ScoutCreateButton({
     const { runningChatPrompt } = useValues(scoutFleetLogic)
     const isStartingAiTask = runningChatPrompt === SCOUT_AUTHOR_PROMPT
     const anotherChatTaskIsStarting = runningChatPrompt !== null && !isStartingAiTask
+    const opensManualForm = creationMode === 'manual'
     const creationDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmSkill,
         AccessControlLevel.Editor
     )
+
+    const handleClick = (): void => {
+        if (opensManualForm) {
+            setIsManualModalOpen(true)
+            return
+        }
+        startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Create scout with AI')
+    }
 
     return (
         <>
             <LemonButton
                 type={type}
                 size={size}
-                icon={<IconSparkles />}
-                loading={isStartingAiTask}
+                icon={opensManualForm ? <IconPlus /> : <IconSparkles />}
+                loading={!opensManualForm && isStartingAiTask}
                 disabledReason={
-                    anotherChatTaskIsStarting ? 'Starting another task…' : (creationDisabledReason ?? undefined)
+                    !opensManualForm && anotherChatTaskIsStarting
+                        ? 'Starting another task…'
+                        : (creationDisabledReason ?? undefined)
                 }
-                onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Create scout with AI')}
-                sideAction={{
-                    icon: <IconChevronDown />,
-                    'aria-label': 'Alternative ways to create a scout',
-                    tooltip: 'Alternative ways to create a scout',
-                    dropdown: {
-                        placement: 'bottom-end',
-                        overlay: (
-                            <LemonButton
-                                fullWidth
-                                size={size}
-                                icon={<IconPlus />}
-                                disabledReason={creationDisabledReason}
-                                onClick={() => setIsManualModalOpen(true)}
-                            >
-                                Create manually
-                            </LemonButton>
-                        ),
-                    },
-                }}
+                onClick={handleClick}
+                sideAction={
+                    opensManualForm
+                        ? undefined
+                        : {
+                              icon: <IconChevronDown />,
+                              'aria-label': 'Alternative ways to create a scout',
+                              tooltip: 'Alternative ways to create a scout',
+                              dropdown: {
+                                  placement: 'bottom-end',
+                                  overlay: (
+                                      <LemonButton
+                                          fullWidth
+                                          size={size}
+                                          icon={<IconPlus />}
+                                          disabledReason={creationDisabledReason}
+                                          onClick={() => setIsManualModalOpen(true)}
+                                      >
+                                          Create manually
+                                      </LemonButton>
+                                  ),
+                              },
+                          }
+                }
                 className={className}
                 data-attr={dataAttr}
             >

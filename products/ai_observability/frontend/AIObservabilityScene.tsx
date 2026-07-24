@@ -32,6 +32,7 @@ import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
+import { AIObservabilityDigestScoutButton } from './AIObservabilityDigestScoutButton'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
 import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
@@ -619,6 +620,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {activeTab === 'dashboard' ? <AIObservabilityDigestScoutButton /> : null}
                         <LemonButton
                             to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                             type="secondary"
