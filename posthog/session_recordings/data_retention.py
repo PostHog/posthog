@@ -2,6 +2,10 @@ from posthog.models.organization import ProductFeature
 
 VALID_RETENTION_PERIODS = ["30d", "90d", "1y", "5y"]
 
+# Ascending day-length of each valid period, used to resolve an entitlement down to
+# the longest period it fully covers.
+RETENTION_PERIOD_DAYS = {"30d": 30, "90d": 90, "1y": 365, "5y": 1825}
+
 
 def parse_feature_to_entitlement(retention_feature: ProductFeature | None) -> str | None:
     if retention_feature is None:
@@ -15,21 +19,19 @@ def parse_feature_to_entitlement(retention_feature: ProductFeature | None) -> st
 
     match retention_unit.lower():
         case "day" | "days":
-            highest_retention_entitlement = f"{retention_limit}d"
+            entitlement_days = retention_limit
         case "month" | "months":
-            if retention_limit < 12:
-                highest_retention_entitlement = f"{retention_limit * 30}d"
-            else:
-                highest_retention_entitlement = f"{retention_limit // 12}y"
+            entitlement_days = round(retention_limit * 365 / 12)
         case "year" | "years":
-            highest_retention_entitlement = f"{retention_limit}y"
+            entitlement_days = retention_limit * 365
         case _:
             return None
 
-    if not validate_retention_period(highest_retention_entitlement):
-        return None
-
-    return highest_retention_entitlement
+    # Entitlements don't always land on a canonical period (e.g. a 6-month or 3-year plan).
+    # Resolve down to the longest valid period the entitlement fully covers rather than
+    # rejecting anything that isn't an exact match.
+    eligible = [period for period in VALID_RETENTION_PERIODS if RETENTION_PERIOD_DAYS[period] <= entitlement_days]
+    return eligible[-1] if eligible else VALID_RETENTION_PERIODS[0]
 
 
 def validate_retention_period(retention_period: str | None) -> bool:

@@ -264,7 +264,9 @@ def verify_team_session_recording_retention_period(team: Team, new_retention_per
     highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
 
     if highest_retention_entitlement is None:
-        raise exceptions.APIException(detail="Invalid retention entitlement.")  # HTTP 500
+        raise exceptions.PermissionDenied(  # HTTP 403
+            "This organization does not have a session recording data retention entitlement."
+        )
 
     if not validate_retention_period(new_retention_period):
         raise exceptions.ValidationError(  # HTTP 400

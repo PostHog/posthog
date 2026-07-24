@@ -323,7 +323,6 @@ export function ReplayMaskingSettings(): JSX.Element {
 }
 
 export function ReplayDataRetentionSettings(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const restrictedReason = useRestrictedArea({
@@ -407,10 +406,14 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 'Changing retention only affects recordings that start from this point forwards. Existing recordings will keep their original retention period.',
             primaryButton: {
                 children: `Change retention to ${label}`,
-                onClick: () =>
-                    updateCurrentTeam({
-                        session_recording_retention_period: retention_period,
-                    }),
+                onClick: () => {
+                    // A rejected update (e.g. the org has no matching retention entitlement) is
+                    // surfaced to the user by the global loaders error toast; swallow it here so it
+                    // doesn't bubble up as an unhandled rejection.
+                    void teamLogic.asyncActions
+                        .updateCurrentTeam({ session_recording_retention_period: retention_period })
+                        .catch(() => {})
+                },
             },
             secondaryButton: { children: 'Cancel' },
         })

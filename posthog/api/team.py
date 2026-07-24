@@ -1844,7 +1844,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
 
         if highest_retention_entitlement is None:
-            raise exceptions.APIException(detail="Invalid retention entitlement.")  # HTTP 500
+            raise exceptions.PermissionDenied(  # HTTP 403
+                "This organization does not have a session recording data retention entitlement."
+            )
 
         # Should be validated already, but let's be extra sure to avoid IndexErrors below
         if not validate_retention_period(new_retention_period):
