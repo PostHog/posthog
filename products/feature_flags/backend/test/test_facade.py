@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -25,8 +26,10 @@ from products.feature_flags.backend.facade.api import (
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
+    replace_release_conditions,
     replace_variant_distribution,
     restrict_groups_to_cohort,
+    set_first_release_condition_rollout,
     set_holdout,
     strip_group_cohort_restriction,
 )
@@ -441,6 +444,70 @@ class TestReplaceVariantDistribution:
 
         assert new_variants == [{"key": "control", "rollout_percentage": 100}]
         assert current_filters["multivariate"]["variants"][0]["rollout_percentage"] == 100
+
+
+class TestReleaseConditionTransforms:
+    @parameterized.expand(
+        [
+            (
+                "survey_sampling_shape",
+                {"groups": [{"variant": "", "rollout_percentage": 100, "properties": []}]},
+            ),
+            (
+                "multi_group_with_multivariate_and_payloads",
+                {
+                    "groups": [
+                        {"variant": "", "rollout_percentage": 100, "properties": [{"key": "email", "type": "person"}]},
+                        {"properties": [], "rollout_percentage": 50},
+                    ],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "payloads": {"control": "{}"},
+                    "aggregation_group_type_index": 1,
+                },
+            ),
+        ]
+    )
+    def test_set_first_release_condition_rollout_only_changes_first_group_rollout(self, _name, filters):
+        original = deepcopy(filters)
+
+        result = set_first_release_condition_rollout(filters, 20)
+
+        assert result["groups"][0]["rollout_percentage"] == 20
+        result["groups"][0]["rollout_percentage"] = original["groups"][0]["rollout_percentage"]
+        assert result == original
+        assert filters == original  # input not mutated
+
+    @parameterized.expand(
+        [
+            ("missing_groups", {}, KeyError),
+            ("empty_groups", {"groups": []}, IndexError),
+        ]
+    )
+    def test_set_first_release_condition_rollout_raises_without_a_group(self, _name, filters, expected_error):
+        with pytest.raises(expected_error):
+            set_first_release_condition_rollout(filters, 20)
+
+    def test_replace_release_conditions_swaps_groups_and_preserves_the_rest(self):
+        filters: dict[str, Any] = {
+            "groups": [{"variant": "", "rollout_percentage": 100, "properties": [{"key": "old", "type": "person"}]}],
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+            "payloads": {"control": "{}"},
+            "aggregation_group_type_index": 1,
+        }
+        new_groups = [{"variant": "", "rollout_percentage": 100, "properties": [{"key": "new", "type": "person"}]}]
+
+        result = replace_release_conditions(filters, new_groups)
+
+        assert result == {
+            "groups": new_groups,
+            "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+            "payloads": {"control": "{}"},
+            "aggregation_group_type_index": 1,
+        }
+        assert result["groups"] is not new_groups
+        result["groups"][0]["properties"][0]["key"] = "mutated"
+        assert new_groups[0]["properties"][0]["key"] == "new"
+        assert filters["groups"][0]["properties"][0]["key"] == "old"  # input not mutated
 
 
 class TestExperimentRuleFromFilters:

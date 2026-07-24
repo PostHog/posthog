@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta
 
 from posthog.test.base import ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils.timezone import now
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -108,31 +111,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(self.recurring_survey.current_iteration, 3)
         assert self.recurring_survey.internal_targeting_flag is not None
 
-        self.assertLessEqual(
-            {
-                "groups": [
-                    {
-                        "variant": "",
-                        "properties": [
-                            {
-                                "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                            {
-                                "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                                "type": "person",
-                                "value": "is_not_set",
-                                "operator": "is_not_set",
-                            },
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            }.items(),
-            self.recurring_survey.internal_targeting_flag.filters.items(),
-        )
+        self.assertEqual(self.recurring_survey.internal_targeting_flag.filters, self._expected_iteration_filters(3))
 
     def test_can_create_internal_targeting_flag(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
@@ -145,33 +124,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
         internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
-        assert internal_flag is not None
-        if internal_flag is not None:
-            self.assertLessEqual(
-                {
-                    "groups": [
-                        {
-                            "variant": "",
-                            "properties": [
-                                {
-                                    "key": f"$survey_dismissed/{self.recurring_survey.id}/3",
-                                    "type": "person",
-                                    "value": "is_not_set",
-                                    "operator": "is_not_set",
-                                },
-                                {
-                                    "key": f"$survey_responded/{self.recurring_survey.id}/3",
-                                    "type": "person",
-                                    "value": "is_not_set",
-                                    "operator": "is_not_set",
-                                },
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ]
-                }.items(),
-                internal_flag.filters.items(),
-            )
+        self.assertEqual(internal_flag.filters, self._expected_iteration_filters(3))
 
     def test_iteration_change_updates_flag_with_new_iteration_suffix(self) -> None:
         """Test that when iteration changes, the flag is updated with the NEW iteration suffix.
@@ -214,14 +167,96 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
-        # Verify flag now has NEW iteration suffix (/3), not old (/1)
+        # Verify flag now has NEW iteration suffix (/3), not old (/1), and that
+        # nothing else was added or dropped on the way through the flag facade
         assert self.recurring_survey.internal_targeting_flag is not None
         self.recurring_survey.internal_targeting_flag.refresh_from_db()
         flag_filters = self.recurring_survey.internal_targeting_flag.filters
-        properties = flag_filters["groups"][0]["properties"]
-        property_keys = [p["key"] for p in properties]
 
-        self.assertIn(f"$survey_dismissed/{self.recurring_survey.id}/3", property_keys)
-        self.assertIn(f"$survey_responded/{self.recurring_survey.id}/3", property_keys)
-        self.assertNotIn(f"$survey_dismissed/{self.recurring_survey.id}/1", property_keys)
-        self.assertNotIn(f"$survey_responded/{self.recurring_survey.id}/1", property_keys)
+        self.assertEqual(flag_filters, self._expected_iteration_filters(3))
+
+    def _expected_iteration_filters(self, iteration: int) -> dict:
+        # aggregation_group_type_index (None = person-aggregated) is normalized onto
+        # every condition set by the flag serializer on the way through the facade
+        return {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "aggregation_group_type_index": None,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{self.recurring_survey.id}/{iteration}",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                            "type": "person",
+                        },
+                        {
+                            "key": f"$survey_responded/{self.recurring_survey.id}/{iteration}",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                            "type": "person",
+                        },
+                    ],
+                }
+            ],
+            "aggregation_group_type_index": None,
+        }
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_flag_update_is_system_write_and_skips_approval_gate(self, _mock_enabled: MagicMock) -> None:
+        self.org.available_product_features = [{"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}]
+        self.org.save()
+        ApprovalPolicy.objects.create(
+            organization=self.org,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        self.recurring_survey.created_by = None
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        flag = self.recurring_survey.internal_targeting_flag
+        assert flag is not None
+        self.assertEqual(flag.filters, self._expected_iteration_filters(3))
+        self.assertFalse(ChangeRequest.objects.filter(team=self.team).exists())
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
+        self.assertTrue(log.is_system)
+        self.assertIsNone(log.user)
+        self.assertEqual(flag.created_by, self.user)
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_flag_create_is_system_write_and_skips_approval_gate(self, _mock_enabled: MagicMock) -> None:
+        self.org.available_product_features = [{"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}]
+        self.org.save()
+        ApprovalPolicy.objects.create(
+            organization=self.org,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        self.recurring_survey.internal_targeting_flag = None
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_survey_iteration()
+
+        internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
+        # System write, but attribution is restored so the creator keeps flag access
+        self.assertEqual(internal_flag.created_by, self.user)
+        self.assertTrue(internal_flag.active)
+        self.assertEqual(internal_flag.filters, self._expected_iteration_filters(3))
+        self.assertFalse(ChangeRequest.objects.filter(team=self.team).exists())
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(internal_flag.id), activity="created")
+        self.assertTrue(log.is_system)
+        self.assertIsNone(log.user)
