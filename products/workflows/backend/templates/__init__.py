@@ -20,6 +20,7 @@ TEMPLATE_FILES = [
     "negative-survey-response.json",
     "re-engagement-workflow.json",
     "repeated-failure-alert.json",
+    "sla-approaching-alert.json",
     "support-ticket-notification.json",
     "ticket-unresolved-alert.json",
     "trial-ending-reminder.json",
