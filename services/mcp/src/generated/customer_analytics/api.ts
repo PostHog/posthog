@@ -689,6 +689,12 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
             ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+            ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)

@@ -2277,6 +2277,15 @@ export namespace Schemas {
       readonly item_id: string;
       detail?: Detail;
       readonly created_at: string;
+      /** Whether the activity was performed by the system rather than a user. */
+      readonly is_system: boolean;
+      /** Whether the acting user was being impersonated by PostHog staff. */
+      readonly was_impersonated: boolean;
+      /**
+         * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+         * @nullable
+         */
+      readonly client: string | null;
     }
 
     /**
@@ -6402,6 +6411,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter1 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6435,6 +6446,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter2 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6464,6 +6477,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter3 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -7557,9 +7572,9 @@ export namespace Schemas {
          *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-       *         callers (personal API keys, OAuth) only receive it when passing the
-       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+       *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+       *         must opt in the same way. Do not rely on it being present.
        *
          * @deprecated
          */
@@ -16150,6 +16165,8 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
+      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
          * @maxLength 400
@@ -26550,6 +26567,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -27251,6 +27274,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -36361,10 +36390,6 @@ export namespace Schemas {
       path: string;
       /** @maxLength 100 */
       content_type?: string;
-      /** Number of lines in the file content. */
-      line_count: number;
-      /** Number of characters in the file content. */
-      char_count: number;
     }
 
     export interface LLMSkillOutlineEntry {
@@ -36415,7 +36440,9 @@ export namespace Schemas {
       metadata?: LLMSkillMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
-      /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
+      /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+      readonly owners: readonly UserBasic[];
+      /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
@@ -36451,7 +36478,7 @@ export namespace Schemas {
     }
 
     /**
-     * Create serializer — accepts bundled files as write-only input on POST.
+     * Create serializer — accepts bundled files and owners as write-only input on POST.
      */
     export interface LLMSkillCreate {
       readonly id: string;
@@ -36490,6 +36517,11 @@ export namespace Schemas {
       metadata?: LLMSkillCreateMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /**
+         * User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners.
+         * @maxItems 25
+         */
+      owners?: string[];
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -36617,6 +36649,8 @@ export namespace Schemas {
       metadata?: LLMSkillListMetadata;
       /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
       readonly category: string;
+      /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
+      readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -36717,65 +36751,6 @@ export namespace Schemas {
       skill: LLMSkill;
       versions: LLMSkillVersionSummary[];
       has_more: boolean;
-    }
-
-    export interface LLMSkillSearchError {
-      /** Explanation of why the skill search could not complete. */
-      detail: string;
-    }
-
-    /**
-     * * `name` - name
-     * * `description` - description
-     * * `body` - body
-     * * `file_path` - file_path
-     * * `file_content` - file_content
-     */
-    export type MatchedFieldEnum = typeof MatchedFieldEnum[keyof typeof MatchedFieldEnum];
-
-
-    export const MatchedFieldEnum = {
-      Name: 'name',
-      Description: 'description',
-      Body: 'body',
-      FilePath: 'file_path',
-      FileContent: 'file_content',
-    } as const;
-
-    export interface LLMSkillSearchMatch {
-      /** Skill field that matched the search query.
-       *
-       * * `name` - name
-       * * `description` - description
-       * * `body` - body
-       * * `file_path` - file_path
-       * * `file_content` - file_content */
-      matched_field: MatchedFieldEnum;
-      /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
-      path?: string;
-      /**
-         * One-based line containing the match when the result came from a body or bundled file.
-         * @minimum 1
-         */
-      line?: number;
-      /** Short excerpt showing why this skill matched. */
-      excerpt: string;
-    }
-
-    export interface LLMSkillSearchResult {
-      /** Unique skill name. */
-      name: string;
-      /** What this skill does and when to use it. */
-      description: string;
-      /** Up to two locations that matched the search query, ordered by field relevance. */
-      matches: LLMSkillSearchMatch[];
-    }
-
-    export interface LLMSkillSearchResponse {
-      /** Number of matching skills returned, capped at 10. */
-      count: number;
-      /** Matching ordinary skills in relevance order. */
-      results: LLMSkillSearchResult[];
     }
 
     export interface LLMTaggerConfig {
@@ -48141,6 +48116,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly flag_cleanup_task_id?: string | null;
+      /**
+         * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -48760,6 +48741,8 @@ export namespace Schemas {
     }
 
     export interface PatchedHogFlowGraphUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
       /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
       operations?: HogFlowGraphOperation[];
     }
@@ -49017,9 +49000,9 @@ export namespace Schemas {
          *
        *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
        *         A dashboard ID for each of the dashboards that this insight is displayed on.
-       *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-       *         callers (personal API keys, OAuth) only receive it when passing the
-       *         `include_dashboards=true` query parameter. Do not rely on it being present.
+       *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+       *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+       *         must opt in the same way. Do not rely on it being present.
        *
          * @deprecated
          */
@@ -49257,7 +49240,12 @@ export namespace Schemas {
       /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
       file_edits?: LLMSkillFileEdit[];
       /**
-         * Latest version you are editing from. Used for optimistic concurrency checks.
+         * Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership.
+         * @maxItems 25
+         */
+      owners?: string[];
+      /**
+         * Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).
          * @minimum 1
          */
       base_version?: number;
@@ -71837,6 +71825,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
@@ -71927,6 +71916,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
@@ -72003,6 +71993,7 @@ export namespace Schemas {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
@@ -72081,6 +72072,7 @@ export namespace Schemas {
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
+      LLMPrompt: 'LLMPrompt',
       LLMPromptLabel: 'LLMPromptLabel',
       LLMTrace: 'LLMTrace',
       AIGatewayCredit: 'AIGatewayCredit',
@@ -72821,6 +72813,10 @@ export namespace Schemas {
      * Comma-separated list of person `distinct_id`s to filter by (max 100).
      */
     distinct_ids?: string;
+    /**
+     * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
+     */
+    emails?: string;
     /**
      * Number of results to return per page.
      */
@@ -74812,6 +74808,19 @@ export namespace Schemas {
       Running: 'running',
       Stopped: 'stopped',
     } as const;
+
+    export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
@@ -77291,15 +77300,6 @@ export namespace Schemas {
      * Exact skill version UUID to resolve.
      */
     version_id?: string;
-    };
-
-    export type LlmSkillsSearchRetrieveParams = {
-    /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query: string;
     };
 
     export type LogsAlertsListParams = {

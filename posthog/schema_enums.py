@@ -910,6 +910,7 @@ class DefaultChannelTypes(StrEnum):
     ORGANIC_SOCIAL = "Organic Social"
     ORGANIC_VIDEO = "Organic Video"
     ORGANIC_SHOPPING = "Organic Shopping"
+    AI = "AI"
     PUSH = "Push"
     SMS = "SMS"
     AUDIO = "Audio"
@@ -3663,6 +3664,7 @@ class SlackIntegrationScopeInReview(StrEnum):
     COMMANDS = "commands"
     FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
+    MPIM_HISTORY = "mpim:history"
     MPIM_READ = "mpim:read"
 
 

@@ -159,7 +159,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                         order: '-last_modified_at',
                         limit: NOTEBOOK_DROPDOWN_LIMIT,
                     })
-                    return response.results
+                    return response?.results ?? []
                 },
             },
         ],
@@ -191,7 +191,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
                         order: '-last_modified_at',
                         limit: NOTEBOOK_DROPDOWN_LIMIT,
                     })
-                    return response.results
+                    return response?.results ?? []
                 },
             },
         ],

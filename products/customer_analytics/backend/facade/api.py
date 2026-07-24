@@ -1246,7 +1246,9 @@ def _to_custom_property_source_view(
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
     # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
     # the schedule/latest-run above — a caller without warehouse-source viewer access sees the mapping
-    # but not its status. Account sources have no warehouse binding; their status stays visible.
+    # but not its status. Column descriptions are likewise warehouse-derived (populated from the source's
+    # ``information_schema.columns`` or set by a warehouse-source editor), so they're gated the same way.
+    # Account sources have no warehouse binding; their status and descriptions stay visible.
     warehouse_status_visible = source.external_data_schema_id is None or schema is not None
 
     return contracts.CustomPropertySourceView(
@@ -1257,6 +1259,7 @@ def _to_custom_property_source_view(
         source_column=source.source_column,
         key_column=source.key_column,
         column_property_map=source.column_property_map,
+        column_descriptions=source.column_descriptions if warehouse_status_visible else {},
         is_enabled=source.is_enabled,
         consecutive_failures=source.consecutive_failures if warehouse_status_visible else 0,
         last_synced_at=source.last_synced_at if warehouse_status_visible else None,
@@ -1333,6 +1336,25 @@ def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
         if not isinstance(property_name, str) or not property_name:
             raise CustomPropertySourceValidationError("column_property_map values must be non-empty property names.")
     return column_property_map
+
+
+def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[str]) -> dict[str, str]:
+    """Optional {warehouse_column: description} for a person source. Descriptions are keyed by the
+    same warehouse columns the source maps; unknown columns and blank descriptions are dropped."""
+    if column_descriptions is None:
+        return {}
+    if not isinstance(column_descriptions, dict):
+        raise CustomPropertySourceValidationError("column_descriptions must be an object.")
+    cleaned: dict[str, str] = {}
+    for column, description in column_descriptions.items():
+        if column not in mapped_columns:
+            continue
+        if description is None or (isinstance(description, str) and not description.strip()):
+            continue
+        if not isinstance(description, str):
+            raise CustomPropertySourceValidationError("column_descriptions values must be strings.")
+        cleaned[column] = description.strip()
+    return cleaned
 
 
 def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
@@ -1585,6 +1607,7 @@ def create_custom_property_source(
     source_column: str | None = None,
     external_data_schema_id: str | UUID | None = None,
     column_property_map: dict | None = None,
+    column_descriptions: dict | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
@@ -1608,7 +1631,11 @@ def create_custom_property_source(
                 "A person/group property source uses external_data_schema + column_property_map, not saved_query."
             )
         # Validate the map shape in memory before the DB lookup below.
-        create_kwargs["column_property_map"] = _validate_column_property_map(column_property_map)
+        validated_map = _validate_column_property_map(column_property_map)
+        create_kwargs["column_property_map"] = validated_map
+        create_kwargs["column_descriptions"] = _validate_column_descriptions(
+            column_descriptions, set(validated_map.keys())
+        )
         if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
             raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
         # Mapping (and enabling) a warehouse table into person properties drives its billable source,

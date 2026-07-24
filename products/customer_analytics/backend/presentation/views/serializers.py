@@ -414,6 +414,15 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "source writes onto the person or group."
         ),
     )
+    column_descriptions = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person sources only: {warehouse_column: description} giving each mapped column a "
+            "human-facing description, seeded from the warehouse column's information_schema "
+            "description. Optional per column. Create-only."
+        ),
+    )
     key_column = serializers.CharField(
         max_length=400,
         help_text=(
@@ -474,6 +483,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "external_data_schema",
             "source_column",
             "column_property_map",
+            "column_descriptions",
             "key_column",
             "is_enabled",
             "consecutive_failures",

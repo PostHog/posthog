@@ -105,14 +105,26 @@ tracer = trace.get_tracer(__name__)
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
-        max_length=200,
+        read_only=True,
         help_text=(
-            "Log attribute key whose value should match a person's distinct_id. "
-            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "Legacy single-key alias — always the first entry of "
+            "`logs_distinct_id_attribute_keys`. Read-only; write the plural field instead."
+        ),
+    )
+    logs_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Log attribute keys whose values should match a person's distinct_id — a log "
+            "links to a person when any of these attributes equals one of their distinct IDs. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to "
+            "['posthogDistinctId'] — the convention documented at "
             "https://posthog.com/docs/logs/link-session-replay and the key the "
-            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-            "your pipeline emits a different attribute."
+            "posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your "
+            "pipeline emits the person identifier under different attributes."
         ),
     )
     logs_session_id_attribute_keys = serializers.ListField(
@@ -132,14 +144,31 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+        fields = [
+            "logs_distinct_id_attribute_key",
+            "logs_distinct_id_attribute_keys",
+            "logs_session_id_attribute_keys",
+        ]
 
-    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+    def _validate_unique_keys(self, value: list[str]) -> list[str]:
         # The child CharField already trims whitespace and rejects blanks; only
         # cross-item uniqueness needs checking here.
         if len(set(value)) != len(value):
             raise serializers.ValidationError("Attribute keys must be unique.")
         return value
+
+    def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
+        # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
+        keys = validated_data.get("logs_distinct_id_attribute_keys")
+        if keys:
+            validated_data["logs_distinct_id_attribute_key"] = keys[0]
+        return super().update(instance, validated_data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -468,6 +497,10 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "is_demo",
     "app_urls",
     "access_control",
+    # Renaming a project/environment is admin-only (the settings UI gates TeamDisplayName behind
+    # useRestrictedArea(Admin)). Excluded from the create-time gate below so members allowed to
+    # create projects can still name them.
+    "name",
 }
 
 # Fields that are not member-safe but carry their own `field_access_control` (enforced in
@@ -2511,8 +2544,9 @@ def validate_team_attrs(
         # On create there's no team yet, so check the creator's org-level membership. Without this a
         # non-admin member (allowed to create projects via members_can_create_projects) could set
         # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
-        # project creation is intentionally open to members and gated separately.
-        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        # project creation is intentionally open to members and gated separately. `name` is excluded
+        # too — naming a project you're allowed to create is not the same as renaming an existing one.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
             membership = OrganizationMembership.objects.filter(
                 user=cast(User, view.request.user), organization_id=view.organization_id

@@ -6449,6 +6449,8 @@ export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter1Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
     custom_name?: string | null
     /** The event or `null` for all events. */
     event?: string | null
@@ -6543,6 +6545,8 @@ export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter2Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
     custom_name?: string | null
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?:
@@ -6633,6 +6637,8 @@ export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter3Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    counts_as_customer?: boolean | null
     custom_name?: string | null
     distinct_id_field: string
     dw_source_type?: string | null
@@ -7979,9 +7985,9 @@ export interface InsightApi {
      *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *         This field may be omitted from responses: once opt-in enforcement is enabled, API-token
-     *         callers (personal API keys, OAuth) only receive it when passing the
-     *         `include_dashboards=true` query parameter. Do not rely on it being present.
+     *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+     *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+     *         must opt in the same way. Do not rely on it being present.
      *
      * @deprecated
      */

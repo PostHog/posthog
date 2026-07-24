@@ -200,6 +200,7 @@ rules:
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
+                              |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |MarketingAnalyticsGoalMapping
@@ -515,6 +516,7 @@ rules:
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
+                        |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |MarketingAnalyticsGoalMapping

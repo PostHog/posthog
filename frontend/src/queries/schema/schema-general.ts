@@ -5743,6 +5743,7 @@ export enum DefaultChannelTypes {
     OrganicSocial = 'Organic Social',
     OrganicVideo = 'Organic Video',
     OrganicShopping = 'Organic Shopping',
+    AI = 'AI',
     Push = 'Push',
     SMS = 'SMS',
     Audio = 'Audio',
@@ -6443,6 +6444,13 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     conversion_goal_id: string
     conversion_goal_name: string
     schema_map: SchemaMap
+    /**
+     * Marks this goal as customer-defining: a conversion here means the person became a customer
+     * (e.g. a payment or subscription), not an intermediate step like a sign up. It gates
+     * customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted
+     * once per person via first_time_for_user) rather than every conversion. Defaults to false.
+     */
+    counts_as_customer?: boolean
 }
 
 export enum AttributionMode {
