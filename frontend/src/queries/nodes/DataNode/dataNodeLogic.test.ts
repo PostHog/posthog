@@ -93,6 +93,40 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
     })
 
+    it('clears stale results when a same-kind insight query changes', async () => {
+        // Insight visualizations render their whole shape from the cached response, so switching
+        // to a different query of the same kind (e.g. funnel to funnel) must not keep the old
+        // results, unlike raw data tables which intentionally keep results while reloading.
+        const results = [{ count: 1 }]
+        mockedQuery.mockResolvedValueOnce({ results })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, response: null })
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results }) })
+
+        const results2 = [{ count: 2 }]
+        mockedQuery.mockResolvedValueOnce({ results: results2 })
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$autocapture' }],
+            }),
+        })
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, response: null })
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [
