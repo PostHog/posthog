@@ -3,10 +3,13 @@ import { memo, useMemo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
-    // Convert single newlines to markdown line breaks (two spaces + newline)
-    const withLineBreaks = markdown.replace(/(?<!\n)\n(?!\n)/g, '  \n')
-    const tokens = marked.lexer(withLineBreaks)
+function parseMarkdownIntoBlocks(markdown: string | undefined): string[] {
+    if (!markdown) {
+        return []
+    }
+    // Single-newline-to-line-break conversion is handled downstream by LemonMarkdown's remarkBreaks
+    // plugin, which does it at the AST level without corrupting table rows.
+    const tokens = marked.lexer(markdown)
     return tokens.map((token) => token.raw)
 }
 
@@ -19,7 +22,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     id,
     className,
 }: {
-    content: string
+    content: string | undefined
     id: string
     className?: string
 }): JSX.Element {
