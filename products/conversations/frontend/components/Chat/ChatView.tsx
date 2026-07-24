@@ -2,7 +2,14 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    Ticket,
+    TicketChannel,
+    TicketChannelDetail,
+    TicketStatus,
+} from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList } from './MessageList'
 
@@ -24,8 +31,12 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
-    /** Channel the ticket came from; drives the reply placeholder and send-button logo */
+    /** Channel the ticket came from; drives the reply placeholder and send-button logo, and pins a source banner to the top of the thread */
     channel?: TicketChannel
+    /** Optional channel detail shown in the thread's source banner */
+    channelDetail?: TicketChannelDetail | null
+    /** Optional deep link to the originating thread, making the source banner clickable */
+    channelThreadUrl?: string | null
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
     /** Number of team messages that haven't been read by the customer */
@@ -72,6 +83,8 @@ export function ChatView({
     minHeight,
     maxHeight,
     channel,
+    channelDetail,
+    channelThreadUrl,
     showPrivateOption = false,
     unreadCustomerCount,
     showDeliveryStatus = false,
@@ -103,6 +116,9 @@ export function ChatView({
                 hasMoreMessages={hasMoreMessages}
                 olderMessagesLoading={olderMessagesLoading}
                 onLoadOlderMessages={onLoadOlderMessages}
+                channel={channel}
+                channelDetail={channelDetail}
+                channelThreadUrl={channelThreadUrl}
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}

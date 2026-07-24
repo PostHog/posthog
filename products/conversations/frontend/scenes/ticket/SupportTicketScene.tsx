@@ -216,6 +216,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         channel={ticket?.channel_source}
+                        channelDetail={ticket?.channel_detail}
+                        channelThreadUrl={getChannelThreadUrl(ticket ?? null)}
                         showPrivateOption
                         unreadCustomerCount={ticket?.unread_customer_count}
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
