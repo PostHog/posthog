@@ -1,9 +1,22 @@
 .Paths {
     position: relative;
+
+    // Contain elevated PathNodeCard z-index (active/hover) within the viz so cards
+    // don't paint over the surrounding editor sidebar.
+    isolation: isolate;
     width: 100%;
     height: 720px;
     max-height: 100%;
     overflow-y: hidden;
+
+    // In bounded, flex-sized contexts (dashboard cards, notebooks, exports) the fixed
+    // 720px never fits the tile and the percentage-height chain can collapse, leaving the
+    // sankey a near-zero sliver. Fill the container instead so it gets a real measured height.
+    .InsightCard &,
+    .NotebookNode &,
+    .ExportedInsight & {
+        height: 100%;
+    }
 
     .Paths__canvas {
         width: 100%;
