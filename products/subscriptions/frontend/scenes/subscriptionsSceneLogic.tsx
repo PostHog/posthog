@@ -5,7 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { Sorting } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -24,7 +24,7 @@ import {
     type SubscriptionsListTargetType,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet, OrganizationType, UserType } from '../../../../frontend/src/types'
+import type { OrganizationType, UserType } from '../../../../frontend/src/types'
 import { runSubscriptionTestDelivery } from '../components/Subscriptions/runSubscriptionTestDelivery'
 import { toggleSubscriptionEnabled } from '../components/Subscriptions/toggleSubscriptionEnabled'
 import type { SubscriptionApi } from '../generated/api.schemas'
