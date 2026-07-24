@@ -1,25 +1,21 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
-use sqlx::Row;
 
 use crate::cli::GateArgs;
 use crate::client::HarnessClient;
-use crate::report::{print_report, ConsistencyViolation};
+use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
-use crate::state::{verify_properties, ExpectedPerson, PersonState};
+use crate::state::PersonState;
 use crate::stats::StatsCollector;
-
-/// How long to wait for the writer to drain acked writes into Postgres
-/// before declaring them lost.
-const QUIESCE_DEADLINE: Duration = Duration::from_secs(60);
+use crate::verify::verify_postgres;
 
 /// A chaos disruption scheduled relative to the start of the traffic phase.
 enum ChaosEvent {
@@ -181,8 +177,10 @@ pub async fn run(args: GateArgs) -> Result<()> {
 
     // A crashed prior run may have left rows behind; the team id belongs to
     // the harness, so start from a clean slate.
-    seed::cleanup_team(&pool, args.team_id).await?;
-    let person_ids = Arc::new(seed::seed_persons(&pool, args.team_id, args.persons).await?);
+    seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+    let person_ids = Arc::new(
+        seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons).await?,
+    );
     println!(
         "Seeded {} persons for team {}",
         person_ids.len(),
@@ -209,9 +207,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 person_ids,
                 duration,
                 concurrency,
+                None,
                 "harness_gate_",
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -234,6 +234,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 &collector,
                 &state,
+                Arc::new(AtomicBool::new(false)),
             )
             .await
         })
@@ -338,10 +339,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
     );
 
     if !args.keep_data {
-        let persons = seed::cleanup_team(&pool, args.team_id).await?;
-        if args.pg_target_table != "posthog_person" {
-            seed::cleanup_target_table(&pool, &args.pg_target_table, args.team_id).await?;
-        }
+        let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
         println!("Cleaned up {persons} persons");
     }
 
@@ -370,97 +368,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
     Ok(())
-}
-
-/// Poll Postgres until every journaled person row contains all acked
-/// property writes at the acked version, or the quiesce deadline passes.
-/// Returns the outstanding violations (empty = converged).
-async fn verify_postgres(
-    pool: &PgPool,
-    table: &str,
-    team_id: i64,
-    journal: &HashMap<i64, ExpectedPerson>,
-) -> Result<Vec<ConsistencyViolation>> {
-    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-    let person_ids: Vec<i64> = journal.keys().copied().collect();
-    if person_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let query = format!(
-        "SELECT id, properties::text AS properties, version \
-         FROM {table} WHERE team_id = $1 AND id = ANY($2)"
-    );
-    let deadline = Instant::now() + QUIESCE_DEADLINE;
-    loop {
-        let rows = sqlx::query(&query)
-            .bind(team)
-            .bind(&person_ids)
-            .fetch_all(pool)
-            .await
-            .context("reading persons from Postgres")?;
-
-        let mut by_id: HashMap<i64, (serde_json::Value, i64)> = HashMap::new();
-        for row in rows {
-            let id: i64 = row.get("id");
-            let properties: Option<String> = row.get("properties");
-            let version: Option<i64> = row.get("version");
-            let props = properties
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .context("parsing properties JSON")?
-                .unwrap_or_else(|| serde_json::json!({}));
-            by_id.insert(id, (props, version.unwrap_or(0)));
-        }
-
-        let mut violations = Vec::new();
-        for (person_id, expected) in journal {
-            match by_id.get(person_id) {
-                Some((props, version)) => {
-                    violations.extend(verify_properties(
-                        *person_id,
-                        &expected.written_properties,
-                        props,
-                    ));
-                    // The highest acked version is a floor, not an exact
-                    // target: a write that produced its record but lost the
-                    // response (a drain, a client timeout) is unacked yet
-                    // still applied, legitimately leaving the row above the
-                    // floor. Below it, an acked write never reached
-                    // Postgres.
-                    if *version < expected.last_version {
-                        violations.push(ConsistencyViolation {
-                            person_id: *person_id,
-                            key: "__version".to_string(),
-                            expected: serde_json::json!(format!(">= {}", expected.last_version)),
-                            actual: serde_json::json!(version),
-                        });
-                    }
-                }
-                None => {
-                    violations.push(ConsistencyViolation {
-                        person_id: *person_id,
-                        key: "__row".to_string(),
-                        expected: serde_json::json!("present"),
-                        actual: serde_json::Value::Null,
-                    });
-                }
-            }
-        }
-
-        if violations.is_empty() {
-            return Ok(violations);
-        }
-        if Instant::now() > deadline {
-            tracing::error!(
-                outstanding = violations.len(),
-                "Postgres did not converge within {QUIESCE_DEADLINE:?}"
-            );
-            return Ok(violations);
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
 }
 
 #[cfg(test)]

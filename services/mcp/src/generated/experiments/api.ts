@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 31 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -840,6 +840,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
 export const experimentsCreateBodyConclusionCommentMax = 4000
+
+export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -4319,6 +4321,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .max(experimentsCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4455,6 +4464,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
+
+export const experimentsPartialUpdateBodyRepositoryMax = 255
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -7940,6 +7951,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .max(experimentsPartialUpdateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsPartialUpdateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7962,6 +7980,35 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsActivityRetrieveQueryLimitDefault = 10
+
+export const experimentsActivityRetrieveQueryPageDefault = 1
+
+export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(experimentsActivityRetrieveQueryLimitDefault)
+        .describe('Number of items per page'),
+    page: zod.number().min(1).default(experimentsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
@@ -8121,6 +8168,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
 export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
+export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -11504,6 +11553,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .max(experimentsDuplicateCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),

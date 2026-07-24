@@ -67,6 +67,19 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
             **extra,
         )
 
+    def _patch_delay_via_mcp(self, flow_id: str, delay_duration: str = "1d"):
+        # Graph content edits over MCP go through the surgical graph endpoint (a plain update
+        # rejects actions/edges outright).
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {"op": "update_action", "id": "delay_1", "patch": {"config": {"delay_duration": delay_duration}}}
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
     @patch(TASK_PATH)
     @patch(TIMING_FLAG_PATH, return_value=True)
     def test_shortened_delay_on_live_save_enqueues_sweep_post_commit(self, _flag, mock_task):
@@ -117,7 +130,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         flow_id = self._create_flow()
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self._patch_actions(flow_id, delay_duration="1d", HTTP_X_POSTHOG_CLIENT="mcp")
+            response = self._patch_delay_via_mcp(flow_id)
 
         assert response.status_code == 200, response.json()
         assert HogFlow.objects.get(pk=flow_id).draft is not None
@@ -128,7 +141,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
     @patch(REVISIONS_FLAG_PATH, return_value=True)
     def test_publish_of_timing_shortening_draft_enqueues_sweep(self, _revisions, _timing, mock_task):
         flow_id = self._create_flow()
-        response = self._patch_actions(flow_id, delay_duration="1d", HTTP_X_POSTHOG_CLIENT="mcp")
+        response = self._patch_delay_via_mcp(flow_id)
         assert response.status_code == 200, response.json()
         assert HogFlow.objects.get(pk=flow_id).draft_updated_at is not None
         mock_task.delay.assert_not_called()

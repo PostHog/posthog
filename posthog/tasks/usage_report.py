@@ -307,6 +307,11 @@ class UsageReportCounters:
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
 
+    # Distributed Tracing (APM)
+    apm_tracing_bytes_in_period: int
+    apm_tracing_spans_in_period: int
+    apm_tracing_mb_in_period: int
+
 
 # Instance metadata to be included in overall report
 @dataclasses.dataclass
@@ -2313,6 +2318,44 @@ def get_teams_with_sdk_logs_records_in_period(
     return by_sdk
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_apm_tracing_usage_in_period(
+    begin: datetime,
+    end: datetime,
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns Distributed Tracing (APM) ingested bytes and span counts per team for the period,
+    keyed by `bytes` / `spans`; each value is a list of `(team_id, count)` tuples ready for
+    `convert_team_usage_rows_to_dict`.
+
+    The traces ingestion consumer subclasses the logs consumer, so it emits the same
+    pre-aggregated `app_metrics2` counters under `app_source='traces'`. A span is one record,
+    so `records_ingested` is the span count.
+    """
+    with tags_context(product=Product.TRACING, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='traces'
+              AND metric_name IN ('bytes_ingested', 'records_ingested')
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+    key_by_metric = {"bytes_ingested": "bytes", "records_ingested": "spans"}
+    usage: dict[str, list[tuple[int, int]]] = {"bytes": [], "spans": []}
+    for team_id, metric_name, count in rows:
+        usage[key_by_metric[metric_name]].append((team_id, count))
+    return usage
+
+
 def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
     """Drop the per-team breakdown when the serialized report would exceed Kafka's
     message size limit, so the org-level roll-up still makes it through ingestion.
@@ -2431,6 +2474,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
+        or report.apm_tracing_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2467,6 +2511,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
+    apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -2727,6 +2772,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
+        "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
     }
 
 
@@ -2922,6 +2969,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        apm_tracing_bytes_in_period=all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0),
+        apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
+        apm_tracing_mb_in_period=int(all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 
