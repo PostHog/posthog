@@ -31,6 +31,10 @@ export interface MessageInputProps {
     draftContent?: JSONContent | null
     /** Called when draft content changes */
     onDraftChange?: (content: JSONContent | null) => void
+    /** Content to append into the live editor once; cleared via onInsertConsumed after it's applied */
+    pendingInsert?: JSONContent | null
+    /** Called after pendingInsert has been inserted */
+    onInsertConsumed?: () => void
     /** Whether the private note checkbox is checked (from parent logic for tab persistence) */
     isPrivate?: boolean
     /** Called when private checkbox changes */
@@ -61,6 +65,8 @@ export function MessageInput({
     showPrivateOption = false,
     draftContent,
     onDraftChange,
+    pendingInsert,
+    onInsertConsumed,
     isPrivate: controlledIsPrivate,
     onPrivateChange,
     extraActions,
@@ -74,11 +80,25 @@ export function MessageInput({
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
+    const [editorReady, setEditorReady] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
 
     useEffect(() => {
         setIsEmpty(!draftContent)
     }, [draftContent])
+
+    // Append externally-provided content (e.g. a generated merch-code message) to the end of the
+    // live editor, then signal the parent to clear it. The editor's own onUpdate syncs the draft.
+    // Gated on editorReady so a value that arrives before the editor mounts isn't stranded — the
+    // effect re-runs once onCreate flips editorReady.
+    useEffect(() => {
+        if (pendingInsert && editorReady && editorRef.current) {
+            editorRef.current.insertContentAt(editorRef.current.getEndPosition(), pendingInsert)
+            editorRef.current.focus()
+            setIsEmpty(false)
+            onInsertConsumed?.()
+        }
+    }, [pendingInsert, editorReady, onInsertConsumed])
 
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
@@ -176,6 +196,7 @@ export function MessageInput({
                 placeholder={resolvedPlaceholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
+                    setEditorReady(true)
                     if (draftContent) {
                         setIsEmpty(false)
                     }

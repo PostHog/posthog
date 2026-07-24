@@ -27,6 +27,9 @@ tools:
     conversations-tickets-full-update:
         operation: conversations_tickets_update
         enabled: false
+    conversations-tickets-generate-merch-code-create:
+        operation: conversations_tickets_generate_merch_code_create
+        enabled: false
     conversations-tickets-list:
         operation: conversations_tickets_list
         enabled: true

@@ -38989,6 +38989,39 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    /**
+     * Payload for minting a PostHog merch discount code from a ticket (staff only).
+     */
+    export interface MerchCodeRequest {
+      /**
+         * Discount value in USD. Capped server-side by SHOPIFY_MERCH_MAX_VALUE_USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      value_usd: string;
+    }
+
+    /**
+     * A freshly minted Shopify discount code.
+     */
+    export interface MerchCodeResponse {
+      /** The discount code to give the customer. */
+      code: string;
+      /**
+         * Discount value in USD applied to the code.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      value_usd: string;
+      /** How many redemptions the code allows. */
+      usage_limit: number;
+      /** Customer-facing storefront link that auto-applies the discount at checkout. */
+      discount_url: string;
+      /**
+         * Shopify admin link for the created discount, if resolvable.
+         * @nullable
+         */
+      admin_url: string | null;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**

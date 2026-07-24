@@ -31,6 +31,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
+import { MerchCodePanel } from './MerchCodePanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { RelatedGroupsPanel } from './RelatedGroupsPanel'
@@ -89,6 +90,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         unsavedTicketChanges,
         ticketUpdating,
         draftContent,
+        pendingComposerInsert,
         draftIsPrivate,
         draftModeEnabled,
         replyRecipientDescription,
@@ -114,6 +116,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         updateTicket,
         loadOlderMessages,
         setDraftContent,
+        composerInsertConsumed,
         setDraftIsPrivate,
         setDraftModeEnabled,
         dismissKnowledgeGap,
@@ -221,6 +224,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showDeliveryStatus={ticket?.channel_source === 'widget'}
                         draftContent={draftContent}
                         onDraftChange={setDraftContent}
+                        pendingComposerInsert={pendingComposerInsert}
+                        onComposerInsertConsumed={composerInsertConsumed}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
                         draftMode={draftModeEnabled}
@@ -535,6 +540,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
                     {/* Activity History Panel */}
                     {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+
+                    {/* Merch Code Panel (staff only) — kept at the bottom */}
+                    {user?.is_staff && ticket && <MerchCodePanel ticketId={ticketId} />}
                 </div>
             </div>
         </SceneContent>

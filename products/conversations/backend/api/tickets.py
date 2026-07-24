@@ -4,8 +4,10 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
@@ -30,6 +32,7 @@ from rest_framework.response import Response
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -38,7 +41,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, IsStaffUser
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
@@ -57,6 +60,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.merch_code import MerchCodeError, MerchCodeNotConfigured, create_merch_code
 
 from ee.models.rbac.role import Role
 
@@ -176,6 +180,33 @@ class ComposeTicketSerializer(serializers.Serializer):
 class ComposeTicketResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Created ticket UUID.")
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
+
+
+class MerchCodeRequestSerializer(serializers.Serializer):
+    """Payload for minting a PostHog merch discount code from a ticket (staff only)."""
+
+    value_usd = serializers.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        min_value=Decimal("1"),
+        help_text="Discount value in USD. Capped server-side by SHOPIFY_MERCH_MAX_VALUE_USD.",
+    )
+
+
+class MerchCodeResponseSerializer(serializers.Serializer):
+    """A freshly minted Shopify discount code."""
+
+    code = serializers.CharField(help_text="The discount code to give the customer.")
+    value_usd = serializers.DecimalField(
+        max_digits=8, decimal_places=2, help_text="Discount value in USD applied to the code."
+    )
+    usage_limit = serializers.IntegerField(help_text="How many redemptions the code allows.")
+    discount_url = serializers.CharField(
+        help_text="Customer-facing storefront link that auto-applies the discount at checkout."
+    )
+    admin_url = serializers.CharField(
+        allow_null=True, help_text="Shopify admin link for the created discount, if resolvable."
+    )
 
 
 BULK_UPDATE_STATUS_MAX_IDS = 500
@@ -1388,6 +1419,112 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         return Response(
             {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
+            status=drf_status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=MerchCodeRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=MerchCodeResponseSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            503: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        pagination_class=None,
+        # Session-authenticated staff only. Restricting to SessionAuthentication keeps every
+        # non-session credential (personal API keys, OAuth tokens, and the internal impersonation
+        # JWT that the viewset's default authenticators would otherwise accept) from reaching a
+        # money-minting action; APIScopePermission stays as belt-and-suspenders on the scope path.
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, IsStaffUser, APIScopePermission],
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def generate_merch_code(self, request, *args, **kwargs):
+        """Mint a PostHog merch discount code for this ticket's customer.
+
+        Staff only — this creates a real, redeemable Shopify discount. The code is derived from the
+        ticket and a secret salt, minted via the Shopify Admin API, and the generation is audit-logged.
+        """
+        ticket = self.get_object()
+
+        serializer = MerchCodeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        value_usd: Decimal = serializer.validated_data["value_usd"]
+        # Codes are always single-use — a support goodwill gesture for one customer.
+        usage_limit = 1
+
+        max_value = Decimal(settings.SHOPIFY_MERCH_MAX_VALUE_USD)
+        if value_usd > max_value:
+            return Response(
+                {"detail": f"Discount value exceeds the ${max_value} limit."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        context = f"ticket-{ticket.ticket_number}"
+        try:
+            result = create_merch_code(context=context, value_usd=value_usd, usage_limit=usage_limit)
+        except MerchCodeNotConfigured as e:
+            return Response({"detail": str(e)}, status=drf_status.HTTP_503_SERVICE_UNAVAILABLE)
+        except MerchCodeError as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+            return Response({"detail": str(e)}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        # Audit trail: who minted a code, for how much, against which ticket (real money). The code
+        # itself is redeemable, so record only a non-redeemable reference (last 4 + admin link) —
+        # the full code goes solely to the staff member in the response below. The activity log is
+        # readable by non-staff project members, so it must never carry the redeemable value.
+        code_ref = f"…{result['code'][-4:]}"
+        logger.info(
+            "conversations_merch_code_generated",
+            ticket_id=str(ticket.id),
+            ticket_number=ticket.ticket_number,
+            user_id=request.user.id,
+            code_ref=code_ref,
+            admin_url=result.get("admin_url"),
+            value_usd=str(value_usd),
+            usage_limit=usage_limit,
+        )
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="generated_merch_code",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="merch_code",
+                            after=f"{code_ref} (${value_usd}, {usage_limit} use(s))",
+                            action="created",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            report_user_action(
+                request.user,
+                "support merch code generated",
+                {"value_usd": str(value_usd), "usage_limit": usage_limit},
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        return Response(
+            MerchCodeResponseSerializer(result).data,
             status=drf_status.HTTP_201_CREATED,
         )
 

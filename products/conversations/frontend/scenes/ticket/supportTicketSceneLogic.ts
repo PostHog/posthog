@@ -194,6 +194,7 @@ export interface supportTicketSceneLogicValues {
     messages: CommentType[]
     messagesLoading: boolean
     olderMessagesLoading: boolean
+    pendingComposerInsert: JSONContent | null
     person: PersonType | null
     personLoading: boolean
     previousTickets: Ticket[]
@@ -214,11 +215,17 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
+    composerInsertConsumed: () => {
+        value: true
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
     incrementUnreadCustomerCount: () => {
         value: true
+    }
+    insertIntoComposer: (content: JSONContent) => {
+        content: JSONContent
     }
     loadKnowledgeGaps: () => {
         value: true
@@ -485,6 +492,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
+        // Imperatively push content into the reply composer (e.g. a generated merch-code message).
+        insertIntoComposer: (content: JSONContent) => ({ content }),
+        composerInsertConsumed: true,
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -691,6 +701,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
+            },
+        ],
+        pendingComposerInsert: [
+            null as JSONContent | null,
+            {
+                insertIntoComposer: (_, { content }) => content,
+                composerInsertConsumed: () => null,
             },
         ],
         draftIsPrivate: [

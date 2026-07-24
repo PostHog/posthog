@@ -144,6 +144,17 @@ PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
 UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
 
+# Shopify merch discount codes for the PostHog store (staff-only, generated from Conversations).
+# Empty by default so the feature stays opt-in; the endpoint refuses to run until the token and
+# hash key are provisioned. SHOPIFY_MERCH_HASH_KEY is the salt the code is derived from — keep it secret.
+SHOPIFY_MERCH_STORE_DOMAIN = get_from_env("SHOPIFY_MERCH_STORE_DOMAIN", "posthog.myshopify.com")
+SHOPIFY_MERCH_API_VERSION = get_from_env("SHOPIFY_MERCH_API_VERSION", "2026-04")
+SHOPIFY_MERCH_ACCESS_TOKEN = get_from_env("SHOPIFY_MERCH_ACCESS_TOKEN", "")
+SHOPIFY_MERCH_HASH_KEY = get_from_env("SHOPIFY_MERCH_HASH_KEY", "")
+# Hard cap on the discount value a staff member can mint in a single code (real money).
+# Codes are always single-use, so value is the only variable dimension of exposure.
+SHOPIFY_MERCH_MAX_VALUE_USD = get_from_env("SHOPIFY_MERCH_MAX_VALUE_USD", 150, type_cast=int)
+
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.

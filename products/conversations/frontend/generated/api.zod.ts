@@ -253,6 +253,22 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
 /**
+ * Mint a PostHog merch discount code for this ticket's customer.
+ *
+ * Staff only — this creates a real, redeemable Shopify discount. The code is derived from the
+ * ticket and a secret salt, minted via the Shopify Admin API, and the generation is audit-logged.
+ */
+export const conversationsTicketsGenerateMerchCodeCreateBodyValueUsdRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
+
+export const ConversationsTicketsGenerateMerchCodeCreateBody = /* @__PURE__ */ zod
+    .object({
+        value_usd: zod
+            .stringFormat('decimal', conversationsTicketsGenerateMerchCodeCreateBodyValueUsdRegExp)
+            .describe('Discount value in USD. Capped server-side by SHOPIFY_MERCH_MAX_VALUE_USD.'),
+    })
+    .describe('Payload for minting a PostHog merch discount code from a ticket (staff only).')
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the

@@ -21,6 +21,8 @@ import type {
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    MerchCodeRequestApi,
+    MerchCodeResponseApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
@@ -411,6 +413,30 @@ export const conversationsTicketsAiFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
+export const getConversationsTicketsGenerateMerchCodeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/generate_merch_code/`
+}
+
+/**
+ * Mint a PostHog merch discount code for this ticket's customer.
+ *
+ * Staff only — this creates a real, redeemable Shopify discount. The code is derived from the
+ * ticket and a secret salt, minted via the Shopify Admin API, and the generation is audit-logged.
+ */
+export const conversationsTicketsGenerateMerchCodeCreate = async (
+    projectId: string,
+    id: string,
+    merchCodeRequestApi: MerchCodeRequestApi,
+    options?: RequestInit
+): Promise<MerchCodeResponseApi> => {
+    return apiMutator<MerchCodeResponseApi>(getConversationsTicketsGenerateMerchCodeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(merchCodeRequestApi),
     })
 }
 

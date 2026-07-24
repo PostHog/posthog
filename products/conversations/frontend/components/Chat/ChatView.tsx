@@ -36,6 +36,10 @@ export interface ChatViewProps {
     draftContent?: JSONContent | null
     /** Called when draft content changes */
     onDraftChange?: (content: JSONContent | null) => void
+    /** Content to imperatively append into the composer (cleared via onComposerInsertConsumed once applied) */
+    pendingComposerInsert?: JSONContent | null
+    /** Called after pendingComposerInsert has been inserted into the editor */
+    onComposerInsertConsumed?: () => void
     /** Whether the private note checkbox is checked */
     isPrivate?: boolean
     /** Called when private checkbox changes */
@@ -76,6 +80,8 @@ export function ChatView({
     unreadCustomerCount,
     showDeliveryStatus = false,
     draftContent,
+    pendingComposerInsert,
+    onComposerInsertConsumed,
     onDraftChange,
     isPrivate,
     onPrivateChange,
@@ -121,6 +127,8 @@ export function ChatView({
                     showPrivateOption={showPrivateOption}
                     draftContent={draftContent}
                     onDraftChange={onDraftChange}
+                    pendingInsert={pendingComposerInsert}
+                    onInsertConsumed={onComposerInsertConsumed}
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
