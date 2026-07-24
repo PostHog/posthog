@@ -297,11 +297,12 @@ def _resolve_autostart_assignee(
     reviewer at all — it runs as the triggering user (see `_resolve_triggering_user`), so a user
     can't name a colleague and have the agent run under that colleague's identity.
 
-    Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: the scout
-    owner guardrail injects them from an editor-controlled `LLMSkillOwner`, so treating them as a
-    trusted commit-authorship signal would let a skill editor name a privileged teammate as owner
-    and have the implementation agent mint an OAuth session under that teammate. They still route
-    the report (they remain in the artefact); they just can't be the runner.
+    Owner-provenance entries (``is_skill_owner``) are excluded from identity selection: a scout is
+    steered by its editor-controlled skill body, so a picked reviewer who is a current `LLMSkillOwner`
+    is stamped on the way in — treating that pick as a trusted commit-authorship signal would let a
+    skill editor name a privileged teammate as owner, steer the scout to pick them, and have the
+    implementation agent mint an OAuth session under that teammate. They still route the report (they
+    remain in the artefact); they just can't be the runner.
 
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
