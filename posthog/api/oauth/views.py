@@ -1493,52 +1493,65 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
-        # Try access token first (indexed lookup via token_checksum)
-        token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
-            access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
-        except OAuthAccessToken.DoesNotExist:
-            access_token = None
+            # Try access token first (indexed lookup via token_checksum). We eagerly
+            # join `application` so its fields are read in this single indexed query —
+            # without select_related, accessing `access_token.application` below fires a
+            # second lazy query whose failure on a dropped connection surfaces as a
+            # misleading `KeyError: 'application'` instead of the real OperationalError.
+            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
+            try:
+                access_token = OAuthAccessToken.objects.select_related("application").get(token_checksum=token_checksum)
+            except OAuthAccessToken.DoesNotExist:
+                access_token = None
 
-        if access_token:
-            # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
-            if not access_token.is_valid():
-                return JsonResponse({"active": False}, status=200)
-            data = {
-                "active": True,
-                "token_type": "access_token",
-                "scope": access_token.scope,
-                "scoped_teams": access_token.scoped_teams or [],
-                "scoped_organizations": access_token.scoped_organizations or [],
-                "exp": int(calendar.timegm(access_token.expires.timetuple())),
-            }
-            if access_token.application:
-                data["client_id"] = access_token.application.client_id
-                data["client_name"] = access_token.application.name
-            return JsonResponse(data)
+            if access_token:
+                # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
+                if not access_token.is_valid():
+                    return JsonResponse({"active": False}, status=200)
+                data = {
+                    "active": True,
+                    "token_type": "access_token",
+                    "scope": access_token.scope,
+                    "scoped_teams": access_token.scoped_teams or [],
+                    "scoped_organizations": access_token.scoped_organizations or [],
+                    "exp": int(calendar.timegm(access_token.expires.timetuple())),
+                }
+                if access_token.application:
+                    data["client_id"] = access_token.application.client_id
+                    data["client_name"] = access_token.application.name
+                return JsonResponse(data)
 
-        # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
-        # no token_checksum field; revoked tokens filtered via revoked__isnull=True)
-        try:
-            refresh_token = OAuthRefreshToken.objects.get(token=token_value, revoked__isnull=True)
-        except OAuthRefreshToken.DoesNotExist:
-            refresh_token = None
+            # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
+            # no token_checksum field; revoked tokens filtered via revoked__isnull=True)
+            try:
+                refresh_token = OAuthRefreshToken.objects.select_related("application").get(
+                    token=token_value, revoked__isnull=True
+                )
+            except OAuthRefreshToken.DoesNotExist:
+                refresh_token = None
 
-        if refresh_token:
-            # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
-            # so we only return the fields that are available
-            data = {
-                "active": True,
-                "token_type": "refresh_token",
-                "scoped_teams": refresh_token.scoped_teams or [],
-                "scoped_organizations": refresh_token.scoped_organizations or [],
-            }
-            if refresh_token.application:
-                data["client_id"] = refresh_token.application.client_id
-                data["client_name"] = refresh_token.application.name
-            return JsonResponse(data)
+            if refresh_token:
+                # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
+                # so we only return the fields that are available
+                data = {
+                    "active": True,
+                    "token_type": "refresh_token",
+                    "scoped_teams": refresh_token.scoped_teams or [],
+                    "scoped_organizations": refresh_token.scoped_organizations or [],
+                }
+                if refresh_token.application:
+                    data["client_id"] = refresh_token.application.client_id
+                    data["client_name"] = refresh_token.application.name
+                return JsonResponse(data)
 
-        return JsonResponse({"active": False}, status=200)
+            return JsonResponse({"active": False}, status=200)
+        except OperationalError as e:
+            # A dropped/timed-out Postgres connection during the token lookup is a
+            # transient infrastructure failure, not a "token not found". Surface it as a
+            # retryable 503 so clients back off instead of receiving an opaque 500.
+            logger.warning("oauth_introspection_db_unavailable", error=str(e))
+            return _temporarily_unavailable_response()
 
     def get(self, request, *args, **kwargs):
         """
