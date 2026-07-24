@@ -130,6 +130,21 @@ export function SubscriptionsScene(): JSX.Element {
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
+    const emptyStateDescription = aiSubscriptionsAvailable
+        ? 'Send scheduled dashboard and insight snapshots, or use an AI prompt to generate a recurring report. Deliver subscriptions to Slack or email.'
+        : 'Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems.'
+    const emptyStateAction = aiSubscriptionsAvailable ? (
+        <span className="italic">
+            <Link to={urls.subscriptionNew()}>Create an AI prompt subscription</Link>, or open a{' '}
+            <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link> and click{' '}
+            &quot;Subscribe&quot; in the side panel.
+        </span>
+    ) : (
+        <span className="italic">
+            Open a <Link to={urls.dashboards()}>dashboard</Link> or <Link to={urls.insights()}>saved insight</Link>,
+            open the side panel, and click &quot;Subscribe&quot; to configure the options.
+        </span>
+    )
 
     return (
         <SceneContent>
@@ -162,19 +177,13 @@ export function SubscriptionsScene(): JSX.Element {
                         productKey={ProductKey.SUBSCRIPTIONS}
                         thingName="subscription"
                         titleOverride="No subscriptions yet"
-                        description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
+                        description={emptyStateDescription}
                         isEmpty
                         customHog={HedgehogMagnifyingGlass}
                         hogLayout="responsive"
                         useMainContentContainerQueries
                         docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                        actionElementOverride={
-                            <span className="italic">
-                                Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
-                                <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
-                                &quot;Subscribe&quot; to configure the options.
-                            </span>
-                        }
+                        actionElementOverride={emptyStateAction}
                     />
                 ) : (
                     <>
