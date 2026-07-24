@@ -106,6 +106,7 @@ from products.streamlit_apps.backend.facade.api import (
     stop_idle_streamlit_sandboxes,
 )
 from products.tasks.backend.facade.tasks import (
+    bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
@@ -279,6 +280,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         refresh_stale_sandbox_custom_images_task.s(),
         name="refresh stale sandbox custom images",
         expires_seconds=10 * 60,
+    )
+
+    # Rebake the prebaked dev-stack VM image nightly so the baked migration state
+    # stays close to master. No-ops unless TASKS_DEV_STACK_IMAGE_BAKE_ENABLED is set.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="45"),
+        bake_dev_stack_image_task.s(),
+        name="bake prebaked dev-stack VM image",
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

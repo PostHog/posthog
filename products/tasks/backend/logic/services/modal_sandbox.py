@@ -1351,6 +1351,44 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
 
+    def publish_filesystem_image(self, publish_name: str) -> str:
+        """Snapshot the filesystem and publish it as a named Modal image.
+
+        Republishing an existing name moves it to the new snapshot, so a fixed name
+        (e.g. the prebaked dev-stack image) can be refreshed without touching its
+        consumers. Returns the snapshot image's object id.
+        """
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        try:
+            # Modal can report the sandbox as running before filesystem snapshotting is ready.
+            self._sandbox.exec("true", timeout=30).wait()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
+            image.publish(publish_name)
+            logger.info(f"Published filesystem image {publish_name} ({image.object_id}) from sandbox {self.id}")
+            return image.object_id
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            logger.warning(f"Transient error publishing filesystem image from sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error publishing filesystem image: {e}",
+                {"sandbox_id": self.id, "publish_name": publish_name, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to publish filesystem image: {e}")
+            raise SnapshotCreationError(
+                f"Failed to publish filesystem image: {e}",
+                {"sandbox_id": self.id, "publish_name": publish_name, "error": str(e)},
+                cause=e,
+            )
+
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
         logger.info(f"Deleting snapshot {external_id}")

@@ -45,6 +45,26 @@ def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
     return set()
 
 
+def vm_sandbox_default_custom_image(payload: object) -> str | None:
+    """Modal image name that VM runs fall back to when no custom image was picked.
+
+    This is how the *default* VM image is routed per organization: the flag's payload
+    variants are org-targeted, so e.g. PostHog's own org can point its standard VM runs
+    at the prebaked posthog dev-stack image (see
+    `products/tasks/backend/logic/services/dev_stack_image.py`) while every other org
+    keeps the plain VM base. A user- or environment-picked custom image always wins over
+    this default. Read only from the explicit dict key."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("default_custom_image") if isinstance(payload, dict) else None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> object:
     """Raw payload of the Modal VM-sandbox flag; resolves to None when the flag is off."""
     return posthoganalytics.get_feature_flag_payload(
