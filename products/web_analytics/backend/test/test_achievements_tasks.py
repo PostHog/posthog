@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext
 from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
@@ -144,6 +146,21 @@ class TestRecomputeTask(BaseTest):
         self._run_user(make_evaluators(loyal_days=loyal_that_acks))
         progress.refresh_from_db()
         self.assertEqual(progress.state["pending_celebrations"], [])
+
+    def test_clickhouse_capacity_error_propagates_for_retry(self) -> None:
+        # A capacity error must not be swallowed like other eval failures — it has to bubble up so the
+        # task's autoretry backs off instead of dropping the recompute and re-saturating the cluster.
+        def at_capacity(_ctx: EvalContext) -> int:
+            raise ClickHouseAtCapacity()
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            self._run_team(make_evaluators(cumulative_pageviews=at_capacity, conversions=lambda ctx: 0))
+
+    def test_generic_eval_error_is_still_swallowed(self) -> None:
+        def boom(_ctx: EvalContext) -> int:
+            raise ValueError("unexpected")
+
+        self._run_user(make_evaluators(loyal_days=boom))  # does not raise
 
     def test_control_user_gets_no_compute(self) -> None:
         with (

@@ -83,6 +83,15 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 3)
 
+    def test_cumulative_pageviews_excludes_events_outside_lookback_window(self) -> None:
+        _create_event(team=self.team, event="$pageview", distinct_id="d1")
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="d1", timestamp="2020-01-01T00:00:00Z"
+        )  # older than the lookback window — must not be counted
+        flush_persons_and_events()
+
+        self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 1)
+
     def test_conversions_returns_best_goal_conversion_count(self) -> None:
         Action.objects.create(
             team=self.team,
