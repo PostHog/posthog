@@ -15,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
+from django.apps import apps
 from django.test import override_settings
 
 from nanoid import generate
@@ -7354,3 +7355,64 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestSurveyTargetingFlagApprovalGate(APIBaseTest):
+    # Survey-internal targeting flags are an implementation detail (creation_context "surveys").
+    # They must not be caught by the feature-flag approval gate — otherwise the gate raises
+    # ApprovalRequired, which SurveyViewSet does not handle and would surface as a 500.
+    # A rollout-based feature_flag.update policy is what actually fires here: survey targeting
+    # flags are created through FeatureFlagSerializer with rollout filters (and only toggled
+    # active later via a direct model save, so the enable gate never sees them).
+    # Resolve ApprovalPolicy via the app registry rather than a static import: products.surveys
+    # is not allowed to import products.approvals (tach boundary), and its production code doesn't.
+    TARGETING_FILTERS: dict[str, Any] = {"groups": [{"variant": None, "rollout_percentage": 100, "properties": []}]}
+    ROLLOUT_POLICY_CONDITIONS = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0}
+
+    def _enable_rollout_policy(self) -> None:
+        ApprovalPolicy = apps.get_model("approvals", "ApprovalPolicy")
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions=self.ROLLOUT_POLICY_CONDITIONS,
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def test_create_survey_with_targeting_flag_bypasses_approval(self, _mock_enabled):
+        self._enable_rollout_policy()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": self.TARGETING_FILTERS,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(pk=response.json()["id"])
+        assert survey.targeting_flag_id is not None
+
+    def test_update_survey_targeting_flag_bypasses_approval(self, _mock_enabled):
+        survey_id = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey", "type": "popover", "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        ).json()["id"]
+
+        self._enable_rollout_policy()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "targeting_flag_filters": {"groups": [{"variant": None, "rollout_percentage": 50, "properties": []}]}
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()

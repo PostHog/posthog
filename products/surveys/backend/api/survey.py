@@ -1909,6 +1909,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _create_or_update_targeting_flag(
         self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
     ):
+        # These flags are an internal implementation detail of surveys (creation_context
+        # "surveys"), not user-managed feature flags — so they must not be subject to the
+        # feature-flag approval gate. Without this, an org with an approval policy enabled
+        # would have FeatureFlagSerializer.save() raise ApprovalRequired, which SurveyViewSet
+        # doesn't handle and surfaces as a 500. approval_apply bypasses the gate.
+        flag_context = {**self.context, "approval_apply": True}
         with create_flag_with_survey_errors():
             # Ensure the request method is set correctly for validation
             if existing_flag:
@@ -1917,7 +1923,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     existing_flag,
                     data={"filters": filters},
                     partial=True,
-                    context=self.context,
+                    context=flag_context,
                 )
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
@@ -1933,7 +1939,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "active": active,
                         "creation_context": "surveys",
                     },
-                    context=self.context,
+                    context=flag_context,
                 )
 
                 feature_flag_serializer.is_valid(raise_exception=True)
