@@ -1,0 +1,267 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .lab-layout { display: flex; gap: 24px; align-items: flex-start; }
+    .lab-rail {
+        width: 220px; flex-shrink: 0; border: 1px solid var(--hairline-color, #e8e8e8);
+        border-radius: 4px; overflow: hidden;
+    }
+    .lab-rail-item {
+        display: block; padding: 8px 12px; border-bottom: 1px solid var(--hairline-color, #e8e8e8);
+        text-decoration: none; color: inherit;
+    }
+    .lab-rail-item:last-child { border-bottom: none; }
+    .lab-rail-item.selected { background: var(--selected-row, #fffce0); font-weight: 600; }
+    .lab-rail-version { display: block; }
+    .lab-rail-meta { display: block; font-size: 11px; color: var(--body-quiet-color, #666); margin-top: 2px; }
+    .lab-badge-active {
+        display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px;
+        background: #2f9e44; color: #fff; font-size: 10px; text-transform: uppercase;
+    }
+    .lab-main { flex: 1; min-width: 0; }
+    .lab-state-line { margin: 0 0 12px; color: var(--body-quiet-color, #666); font-style: italic; }
+    .lab-state-line.dirty { color: var(--link-fg, #447e9b); font-style: normal; font-weight: 600; }
+    #prompt_text { width: 100%; font-family: monospace; font-size: 13px; min-height: 260px; box-sizing: border-box; }
+    .lab-input-fields { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+    .lab-input-fields label { font-weight: normal; white-space: nowrap; }
+    .lab-run-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+    .lab-run-row .form-row { margin: 0; }
+    .lab-errors { color: #e03131; margin: 0 0 12px; }
+    .lab-errors li { margin-left: 16px; }
+    #lab-run-spinner { display: none; margin-left: 8px; }
+    #lab-run-spinner .spinner {
+        display: inline-block; width: 14px; height: 14px; margin-right: 6px;
+        border: 2px solid var(--border-color, #ccc); border-top-color: var(--link-fg, #447e9b);
+        border-radius: 50%; vertical-align: text-bottom; animation: lab-spin 0.8s linear infinite;
+    }
+    @keyframes lab-spin { to { transform: rotate(360deg); } }
+    table.lab-results { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    table.lab-results th, table.lab-results td {
+        text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--hairline-color, #e8e8e8);
+        vertical-align: top;
+    }
+    table.lab-results th { text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
+    .verdict { font-weight: 700; text-transform: uppercase; font-size: 12px; }
+    .verdict-true { color: #2f9e44; }
+    .verdict-false { color: #e03131; }
+    .verdict-unknown { color: var(--body-quiet-color, #888); }
+    .verdict-error { color: #e8590c; }
+    tr[data-lab-summary] td { font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Lab: {{ label }}</h1>
+
+{% if errors %}
+<ul class="lab-errors">
+    {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<div class="lab-layout">
+    <div class="lab-rail">
+        {% for version in versions %}
+        <a class="lab-rail-item{% if selected and version.id == selected.id %} selected{% endif %}"
+           href="{% url 'admin:growth_enrichmentpromptconfig_lab' label %}?version={{ version.id }}">
+            <span class="lab-rail-version">{{ version.version }}{% if version.is_active %}<span class="lab-badge-active">Active</span>{% endif %}</span>
+            <span class="lab-rail-meta">{{ version.created_by.email|default:"unknown" }} &middot; {{ version.created_at|date:"Y-m-d H:i" }}</span>
+        </a>
+        {% empty %}
+        <div class="lab-rail-item">No versions yet.</div>
+        {% endfor %}
+    </div>
+
+    <div class="lab-main">
+        <form id="lab-form" method="post" action="{% url 'admin:growth_enrichmentpromptconfig_lab_save' label %}">
+            {% csrf_token %}
+            <p class="lab-state-line" id="lab-state-line">&nbsp;</p>
+
+            <fieldset class="module aligned">
+                <div class="form-row">
+                    <label for="prompt_text">Prompt:</label>
+                    <textarea name="prompt_text" id="prompt_text">{{ prompt_text }}</textarea>
+                    <div class="help">{email} is replaced with the signup email domain at runtime.</div>
+                </div>
+                <div class="form-row">
+                    <label for="model">Model:</label>
+                    <select name="model" id="model">
+                        {% for value, display in model_choices %}
+                        <option value="{{ value }}"{% if value == model %} selected{% endif %}>{{ display }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Input fields:</label>
+                    <div class="lab-input-fields">
+                        {% for value, display in input_field_choices %}
+                        <label>
+                            <input type="checkbox" name="input_fields" value="{{ value }}"{% if value in input_fields %} checked{% endif %}>
+                            {{ display }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset class="module aligned">
+                <div class="lab-run-row">
+                    <div class="form-row">
+                        <label for="sample">Sample size:</label>
+                        <input type="number" id="sample" name="sample" value="{{ sample_default }}" min="1" max="{{ sample_max }}">
+                    </div>
+                    <div class="form-row">
+                        <label for="contains">Company contains:</label>
+                        <input type="text" id="contains" name="contains" placeholder="e.g. acme">
+                    </div>
+                    <div class="form-row">
+                        <button type="button" id="lab-run-button" class="button">Run</button>
+                        <span id="lab-run-spinner"><span class="spinner"></span>Running&hellip;</span>
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset class="module aligned">
+                <div class="form-row">
+                    <label for="version">Save as new version:</label>
+                    <input type="text" id="version" name="version" value="{{ version_input }}">
+                    <input type="submit" class="default" value="Save as new version">
+                </div>
+            </fieldset>
+        </form>
+
+        <div class="module">
+            <table class="lab-results">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Domain</th>
+                        <th>Verdict</th>
+                        <th>Confidence</th>
+                        <th>Reasoning</th>
+                    </tr>
+                </thead>
+                <tbody id="lab-results-body">
+                </tbody>
+            </table>
+        </div>
+
+        <p><a href="{{ changelist_url }}" class="button">&larr; Back to prompt configs</a></p>
+    </div>
+</div>
+
+{{ selected.version|default:""|json_script:"lab-selected-version-json" }}
+<script>
+(function () {
+    var form = document.getElementById("lab-form");
+    var promptField = document.getElementById("prompt_text");
+    var modelField = document.getElementById("model");
+    var stateLine = document.getElementById("lab-state-line");
+    var runButton = document.getElementById("lab-run-button");
+    var runSpinner = document.getElementById("lab-run-spinner");
+    var resultsBody = document.getElementById("lab-results-body");
+
+    function checkedInputFields() {
+        return Array.prototype.map.call(
+            form.querySelectorAll('input[name="input_fields"]:checked'),
+            function (el) { return el.value; }
+        ).sort().join(",");
+    }
+
+    var initialSnapshot = {
+        prompt_text: promptField.value,
+        model: modelField.value,
+        input_fields: checkedInputFields(),
+    };
+
+    function currentVersionLabel() {
+        var el = document.getElementById("lab-selected-version-json");
+        if (!el) return "";
+        try { return JSON.parse(el.textContent); } catch (e) { return ""; }
+    }
+
+    function refreshStateLine() {
+        var dirty = (
+            promptField.value !== initialSnapshot.prompt_text ||
+            modelField.value !== initialSnapshot.model ||
+            checkedInputFields() !== initialSnapshot.input_fields
+        );
+        var version = currentVersionLabel();
+        stateLine.classList.toggle("dirty", dirty);
+        if (dirty) {
+            stateLine.textContent = "Editing (unsaved experiment)";
+        } else if (version) {
+            stateLine.textContent = "Viewing saved version " + version;
+        } else {
+            stateLine.textContent = "No version selected yet";
+        }
+    }
+
+    form.addEventListener("input", refreshStateLine);
+    form.addEventListener("change", refreshStateLine);
+    refreshStateLine();
+
+    function getCookie(name) {
+        var match = document.cookie.match("(^|;)\\s*" + name + "\\s*=\\s*([^;]+)");
+        return match ? decodeURIComponent(match[2]) : "";
+    }
+
+    function extractRows(buffer) {
+        var trRe = /<tr[\s\S]*?<\/tr>/;
+        var rows = [];
+        var match;
+        while ((match = trRe.exec(buffer)) !== null) {
+            rows.push(match[0]);
+            buffer = buffer.slice(match.index + match[0].length);
+        }
+        return { rows: rows, rest: buffer };
+    }
+
+    runButton.addEventListener("click", function () {
+        runButton.disabled = true;
+        runSpinner.style.display = "inline-block";
+        resultsBody.innerHTML = "";
+
+        var body = new FormData(form);
+        var runUrl = "{% url 'admin:growth_enrichmentpromptconfig_lab_run' label %}";
+
+        fetch(runUrl, {
+            method: "POST",
+            headers: { "X-CSRFToken": getCookie("csrftoken") },
+            body: body,
+        }).then(function (response) {
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = "";
+
+            function pump() {
+                return reader.read().then(function (result) {
+                    if (result.done) {
+                        runButton.disabled = false;
+                        runSpinner.style.display = "none";
+                        return;
+                    }
+                    buffer += decoder.decode(result.value, { stream: true });
+                    var extracted = extractRows(buffer);
+                    buffer = extracted.rest;
+                    extracted.rows.forEach(function (rowHtml) {
+                        resultsBody.insertAdjacentHTML("beforeend", rowHtml);
+                    });
+                    return pump();
+                });
+            }
+
+            return pump();
+        }).catch(function () {
+            runButton.disabled = false;
+            runSpinner.style.display = "none";
+            resultsBody.insertAdjacentHTML(
+                "beforeend", '<tr><td colspan="5">Run failed - check the server logs.</td></tr>'
+            );
+        });
+    });
+})();
+</script>
+{% endblock %}
