@@ -290,7 +290,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
     effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
     desired_tiers = bucket_into_cadence_tiers(effective)
-    existing_ids = _list_existing_schedule_ids(str(dag.id))
+    existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
     return DagSchedulePreview(
         effective=effective,
@@ -307,7 +307,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
 
 
 @async_to_sync
-async def _list_existing_schedule_ids(dag_id: str) -> set[str]:
+async def list_existing_schedule_ids(dag_id: str) -> set[str]:
     temporal = await async_connect()
     return await _list_execute_dag_schedule_ids(temporal, dag_id)
 
