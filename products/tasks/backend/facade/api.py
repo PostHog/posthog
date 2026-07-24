@@ -490,18 +490,20 @@ def find_signal_implementation_run(
     repository + branch — see ``webhooks.find_task_run``) and answers only for the
     self-driving shape: a non-internal task carrying a signal report in the given team.
     Callers (stamphog's inbox carve-out) use this to positively identify a bot-authored PR
-    as a PostHog Code self-driving implementation and gate automation on it, so the team
-    scoping is enforced here — a run belonging to any other team returns None, and no
-    caller can accidentally bind a PR to another tenant's run. Wizard/manual tasks and
-    unlinked PRs return None too. The caller supplies the repository the PR event came from
-    and is responsible for fork safety (only branch-match PRs whose head repo IS that
-    repository).
+    as a PostHog Code self-driving implementation and gate automation on it, so the match is
+    both **team-scoped** and **live-only at the query level**: ``team_id`` is applied before the
+    lookup orders and picks a winner (a newer same-repo/same-pr_url run in another tenant can't
+    shadow the legitimate run and force a None), and cancelled/failed/completed runs and
+    soft-deleted tasks are excluded (a disowned or dead run must not keep the carve-out alive on
+    later pushes). Wizard/manual tasks and unlinked PRs return None too. The caller supplies the
+    repository the PR event came from and is responsible for fork safety (only branch-match PRs
+    whose head repo IS that repository).
     """
     # Deferred: webhooks imports this module back (signal_workflow_completion), so a
     # module-level import here would be circular.
     from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415
 
-    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository)
+    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id, live_only=True)
     if run is None or run.team_id != team_id:
         return None
     task = run.task

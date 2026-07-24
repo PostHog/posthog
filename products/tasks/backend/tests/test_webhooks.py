@@ -1242,9 +1242,20 @@ class TestFindSignalImplementationRun(TestCase):
             team=cls.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
         )
 
-    def _make_run(self, *, with_report: bool = True, internal: bool = False, output: dict | None = None, branch=None):
+    def _make_run(
+        self,
+        *,
+        with_report: bool = True,
+        internal: bool = False,
+        output: dict | None = None,
+        branch=None,
+        team: Team | None = None,
+        status: str = TaskRun.Status.IN_PROGRESS,
+        task_deleted: bool = False,
+    ):
+        team = team or self.team
         task = Task.objects.create(
-            team=self.team,
+            team=team,
             created_by=self.user,
             title="Self-driving implementation",
             description="",
@@ -1252,10 +1263,9 @@ class TestFindSignalImplementationRun(TestCase):
             repository="posthog/posthog",
             signal_report=self.report if with_report else None,
             internal=internal,
+            deleted=task_deleted,
         )
-        return TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, output=output or {}, branch=branch
-        )
+        return TaskRun.objects.create(task=task, team=team, status=status, output=output or {}, branch=branch)
 
     def test_pr_url_match_returns_the_run(self):
         run = self._make_run(output={"pr_url": self.PR_URL})
@@ -1291,6 +1301,10 @@ class TestFindSignalImplementationRun(TestCase):
             ("task_without_signal_report", {"with_report": False}, {}),
             ("other_team", {}, {"team_id_offset": 1}),
             ("fork_pr_branch_not_consulted", {"output": {}, "branch": "posthog-code/sd-fix"}, {"head_branch": None}),
+            # A disowned or dead run must not keep the carve-out alive on later pushes.
+            ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, {}),
+            ("failed_run", {"status": TaskRun.Status.FAILED}, {}),
+            ("soft_deleted_task", {"task_deleted": True}, {}),
         ]
     )
     def test_non_qualifying_runs_return_none(self, _name, run_kwargs, call_overrides):
@@ -1309,3 +1323,18 @@ class TestFindSignalImplementationRun(TestCase):
         )
 
         assert found is None
+
+    def test_cross_team_run_does_not_shadow_the_teams_own_run(self):
+        # find_task_run spans every team, so without scoping the query to the team a newer run in
+        # another tenant carrying the same repo + pr_url wins the pick, and the team-mismatch check
+        # then returns None — silently suppressing the legitimate team's self-driving re-review.
+        # Scoping the query keeps the tenant's own run findable.
+        legitimate = self._make_run(output={"pr_url": self.PR_URL})
+        other_team = Team.objects.create(organization=self.organization, name="Shadow Team")
+        # Created after the legitimate run, so it is the newer one find_task_run would prefer.
+        self._make_run(output={"pr_url": self.PR_URL}, with_report=False, team=other_team)
+
+        found = find_signal_implementation_run(team_id=self.team.id, repository="posthog/posthog", pr_url=self.PR_URL)
+
+        assert found is not None
+        assert found.run_id == legitimate.id

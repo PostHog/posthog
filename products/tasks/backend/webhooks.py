@@ -30,15 +30,31 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
+    *,
+    team_id: int | None = None,
+    live_only: bool = False,
 ) -> TaskRun | None:
     repository = repository.strip() if repository else None
+
+    def _scope(runs):
+        # `team_id`: TaskRun has no team-scoped manager, so this lookup spans every team by default —
+        # correct for the webhook backstop (it resolves the team FROM the matched run), but a caller
+        # that already knows the team must scope BEFORE ordering + `.first()`, or a newer same-repo /
+        # same-pr_url run in another tenant shadows the legitimate one and wins the pick. `live_only`
+        # drops cancelled/failed/completed runs and soft-deleted tasks, for callers (the self-driving
+        # carve-out) that must act only on a live, still-owned run — mirrors the wizard leg below.
+        if team_id is not None:
+            runs = runs.filter(team_id=team_id)
+        if live_only:
+            runs = runs.filter(task__deleted=False).exclude(status__in=_TERMINAL_RUN_STATUSES)
+        return runs
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(output__pr_url=pr_url)
+        runs = _scope(TaskRun.objects.filter(output__pr_url=pr_url))
         if repository:
             runs = runs.filter(task__repository__iexact=repository)
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -66,10 +82,12 @@ def find_task_run(
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(
-                branch=branch,
-                task__repository__iexact=repository,
-                state__wizard_head_branch__isnull=True,
+            _scope(
+                TaskRun.objects.filter(
+                    branch=branch,
+                    task__repository__iexact=repository,
+                    state__wizard_head_branch__isnull=True,
+                )
             )
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
@@ -83,10 +101,12 @@ def find_task_run(
         # (post-merge events for bound runs resolve via the pr_url leg above).
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
-                TaskRun.objects.filter(
-                    state__wizard_head_branch=branch,
-                    task__repository__iexact=repository,
-                    task__deleted=False,
+                _scope(
+                    TaskRun.objects.filter(
+                        state__wizard_head_branch=branch,
+                        task__repository__iexact=repository,
+                        task__deleted=False,
+                    )
                 )
                 .exclude(status__in=_TERMINAL_RUN_STATUSES)
                 .select_related(*TASK_RUN_SELECT_RELATED)
