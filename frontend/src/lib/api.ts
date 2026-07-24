@@ -7604,8 +7604,15 @@ async function handleFetch(
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
+        // A fetch rejects with whatever `AbortController.abort(reason)` was given. Callers should pass a
+        // proper `DOMException` (name 'AbortError'), but a plain string reason has no `.name` and would
+        // otherwise be wrapped in an ApiError and captured as noise. Normalize any abort — a DOMException
+        // AbortError or a bare string reason — into an AbortError so downstream handlers drop it.
         if (error && (error as any).name === 'AbortError') {
             throw error
+        }
+        if (typeof error === 'string') {
+            throw new DOMException(error, 'AbortError')
         }
         throw new ApiError(error as any, response?.status)
     }

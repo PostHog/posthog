@@ -174,6 +174,26 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    describe('aborted requests', () => {
+        it('rethrows a DOMException AbortError as-is', async () => {
+            const abortError = new DOMException('unmounting component', 'AbortError')
+            fakeFetch.mockRejectedValueOnce(abortError)
+
+            await expect(api.get('/api/projects/2/insights/')).rejects.toBe(abortError)
+        })
+
+        it('normalizes a string abort reason into an AbortError instead of an ApiError', async () => {
+            // A plain-string abort reason (e.g. `abort('unmounting component')`) has no `.name`, so it
+            // must not be wrapped in an ApiError and captured as error-tracking noise.
+            fakeFetch.mockRejectedValueOnce('unmounting component')
+
+            await expect(api.get('/api/projects/2/insights/')).rejects.toMatchObject({
+                name: 'AbortError',
+                message: 'unmounting component',
+            })
+        })
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(

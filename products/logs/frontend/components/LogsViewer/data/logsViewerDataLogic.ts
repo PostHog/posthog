@@ -1252,10 +1252,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
             if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
+                values.logsAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
         },
     })),
