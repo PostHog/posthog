@@ -26,7 +26,10 @@ export function getLocalTimeZone(): string {
     return Intl.DateTimeFormat().resolvedOptions().timeZone
 }
 
-export function timeZoneLabel(timeZone: string, offset: number): string {
+export function timeZoneLabel(timeZone: string | undefined, offset: number): string {
+    if (!timeZone) {
+        return ''
+    }
     const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
     const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
     const hours = Math.floor(Math.abs(offset))
