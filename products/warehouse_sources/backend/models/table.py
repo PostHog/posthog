@@ -30,7 +30,6 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import wrap_clickhouse_query_error
-from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -847,10 +846,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def _safe_expose_ch_error(self, err):
         err = wrap_clickhouse_query_error(err)
 
-        # Capacity errors are transient — surface them so the caller can retry. Check this
-        # before the message matching below, since ClickHouseAtCapacity is an APIException
-        # and has no `.message` attribute.
-        if isinstance(err, ClickHouseAtCapacity):
+        # Only ClickHouse ServerException-derived errors carry a `.message`. Everything else —
+        # transient connection/read errors (e.g. an EOFError from a dropped ClickHouse socket) and
+        # already-translated APIExceptions like ClickHouseAtCapacity — has no `.message`, so re-raise
+        # it untouched. Masking these as a storage-bucket misconfiguration would both crash here on
+        # the missing attribute and hide a retryable error behind a misleading user-facing message.
+        if not hasattr(err, "message"):
             raise err
 
         for key, value in ExtractErrors.items():

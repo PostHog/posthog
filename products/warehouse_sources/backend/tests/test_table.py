@@ -58,6 +58,19 @@ class TestSafeExposeChError:
         with pytest.raises(ClickHouseAtCapacity):
             DataWarehouseTable()._safe_expose_ch_error(ServerException("busy", code=code))
 
+    # A transient connection/read error (e.g. an EOFError from a dropped ClickHouse socket) is not
+    # a ServerException, so wrap_clickhouse_query_error returns it untouched and it has no `.message`.
+    # It must be re-raised as-is — not crash on the missing attribute, nor be masked as a
+    # storage-bucket misconfiguration, which would hide a retryable error from Temporal.
+    @pytest.mark.parametrize(
+        "err",
+        [EOFError("Unexpected EOF while reading bytes"), ConnectionResetError("Connection reset by peer")],
+    )
+    def test_transient_errors_without_message_are_reraised_untouched(self, err: Exception) -> None:
+        with pytest.raises(type(err)) as exc_info:
+            DataWarehouseTable()._safe_expose_ch_error(err)
+        assert exc_info.value is err
+
 
 class TestRunChdbQuery:
     def test_hung_query_is_killed_and_raises_instead_of_blocking(self) -> None:
