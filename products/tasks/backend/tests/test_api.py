@@ -8012,7 +8012,11 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        body = response.json()
+        self.assertEqual(body["code"], "code_access_required")
+        # The error surfaces as a toast in the inbox steer flow, so it must tell the user how to
+        # get access rather than dead-ending them.
+        self.assertIn("https://posthog.com/code", body["error"])
         mock_signal_followup.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")

@@ -23,6 +23,16 @@ GATEWAY_PRODUCT = "posthog_code"
 # Short timeout: this runs on the creation hot path; on failure we fail open.
 GATEWAY_USAGE_TIMEOUT_SECONDS = 2.5
 
+# Shown when a user without the Code entitlement tries to run or steer a cloud task (e.g. replying
+# to a PR from the inbox). PostHog Code is gated on the person-level `tasks` flag or a redeemed
+# invite code, so a teammate can watch tasks land in a shared inbox without being able to act on
+# them. Keep this actionable — it surfaces directly as a toast, so it must say what's blocked and
+# how to get access rather than dead-ending the user.
+CODE_ACCESS_REQUIRED_MESSAGE = (
+    "PostHog Code is currently in limited access, so you can't run or steer cloud tasks yet. "
+    "Request access at https://posthog.com/code, or redeem an invite code if you have one."
+)
+
 
 @dataclass(frozen=True)
 class CodeUsageStatus:
@@ -145,7 +155,7 @@ def code_access_required_response(user) -> Response | None:
             {
                 "type": "permission_denied",
                 "code": "code_access_required",
-                "error": "PostHog Code access is required to run tasks in the cloud.",
+                "error": CODE_ACCESS_REQUIRED_MESSAGE,
             }
         ).data,
         status=status.HTTP_403_FORBIDDEN,
