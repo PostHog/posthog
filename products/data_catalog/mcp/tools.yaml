@@ -170,10 +170,10 @@ tools:
             idempotent: true
         title: Refresh a metric from its insight
         description: >
-            Re-snapshot the linked insight's current query into the metric's definition to clear drift
-            (is_drifted). If the snapshot changes the definition of an approved metric, the metric resets
-            to 'proposed' and must be re-approved by a human. Use this to unblock approving a drifted
-            metric; alternatively unlink or redefine it. The metric must have a source_insight_short_id.
+            Re-snapshot the linked insight's current query into the metric's definition to clear drift (is_drifted). If
+            the snapshot changes the definition of an approved metric, the metric resets to 'proposed' and must be
+            re-approved by a human. Use this to unblock approving a drifted metric; alternatively unlink or redefine it.
+            The metric must have a source_insight_short_id.
         feature_flag: product-data-catalog
     data-catalog-metrics-retrieve:
         operation: data_catalog_metrics_retrieve
