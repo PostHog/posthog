@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import type { ChartTheme, Series } from '../../core/types'
+import type { ChartTheme, Series, TooltipContext } from '../../core/types'
 import {
     ArrowRightIcon,
     type ChangeColor,
@@ -47,6 +47,9 @@ export interface MetricCardProps {
     sparklineClassName?: string
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
+    /** Render prop for the sparkline's hover tooltip. Off by default (hovering only scrubs the
+     *  headline); supply this — e.g. `(ctx) => <DefaultTooltip {...ctx} />` — to also show a tooltip. */
+    sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -113,6 +116,7 @@ function MetricCardInner({
     sparklineFillOpacity = 0.35,
     sparklineClassName = 'mt-4',
     sparklineDashedFromIndex,
+    sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -307,6 +311,7 @@ function MetricCardInner({
                     fill={sparklineFill}
                     fillOpacity={sparklineFillOpacity}
                     dashedFromIndex={sparklineDashedFromIndex}
+                    tooltip={sparklineTooltip}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
