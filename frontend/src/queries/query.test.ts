@@ -36,6 +36,15 @@ describe('query', () => {
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
                         return [500, { detail: 'error' }]
                     }
+                    if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'invalid_hogql') {
+                        return [
+                            400,
+                            {
+                                detail: 'Column is not under aggregate function and not in GROUP BY keys',
+                                code: 'not_an_aggregate',
+                            },
+                        ]
+                    }
                     return [200, {}]
                 },
             },
@@ -160,6 +169,28 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    // A 400 means the user's own query was rejected (invalid HogQL/SQL) — expected, shown inline
+    // in the UI, so it's flagged to stay out of exception autocapture. A 5xx is a real backend
+    // error and must stay unflagged so error tracking still reports it.
+    it.each([
+        { select: 'invalid_hogql', shouldFlag: true },
+        { select: 'error', shouldFlag: false },
+    ])('flags expected user query errors (select=$select) but not backend errors', async ({ select, shouldFlag }) => {
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: [select],
+            limit: 100,
+        })
+        let caught: unknown
+        try {
+            await performQuery(q)
+        } catch (e) {
+            caught = e
+        }
+        expect(caught).toBeInstanceOf(ApiError)
+        expect((caught as ApiError).isExpectedQueryError ?? false).toBe(shouldFlag)
     })
 
     describe('waitForPageVisible', () => {
