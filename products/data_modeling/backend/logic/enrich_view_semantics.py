@@ -36,7 +36,7 @@ from posthog.llm.semantic_enrichment import (
     upsert_column_annotation,
 )
 from posthog.models import Team
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import WorkerShuttingDownError, sync_connect
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
@@ -521,5 +521,8 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
         )
     except WorkflowAlreadyStartedError:
         logger.info("view_enrichment.workflow_already_running", saved_query_id=saved_query_id)
+    except WorkerShuttingDownError:
+        # Web worker is being torn down mid-request; enrichment will re-dispatch on the next save.
+        logger.info("view_enrichment.skipped_worker_shutting_down", saved_query_id=saved_query_id)
     except Exception as e:
         capture_exception(e)
