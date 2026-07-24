@@ -77,6 +77,19 @@
         </sessions>
     </remote_servers>
 
+    <!--
+      Keep SQL-created named collections out of the default /var/lib/clickhouse/named_collections/
+      path. ClickHouse loads the config-defined <named_collections> below AND any *.sql files in
+      that default path; when both define the same name (e.g. a warpstream_* collection left over
+      in an older dev volume from before these moved to config) startup aborts fatally with
+      NAMED_COLLECTION_ALREADY_EXISTS (code 670) and the container crash-loops. Pointing SQL storage
+      at a separate path makes the config definitions authoritative and orphans the stale files.
+    -->
+    <named_collections_storage>
+        <type>local</type>
+        <path>/var/lib/clickhouse/named_collections_sql/</path>
+    </named_collections_storage>
+
     <named_collections>
         <msk_cluster>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
