@@ -3,6 +3,8 @@ from typing import Optional
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.object_storage import OBJECT_STORAGE_REGION
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 
 # S3-compatible store holding managed-migration trial run output (browsable
 # JSONL pages + summary), written by the batch-import worker (its TRIAL_BUCKET_*
@@ -30,3 +32,13 @@ MANAGED_MIGRATIONS_TRIAL_S3_REGION = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_REGI
 # responds accordingly); set it wherever the worker fleet has a trial bucket.
 MANAGED_MIGRATIONS_TRIAL_S3_BUCKET = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_BUCKET", "posthog" if TEST or DEBUG else "")
 MANAGED_MIGRATIONS_TRIAL_S3_PREFIX = os.getenv("MANAGED_MIGRATIONS_TRIAL_S3_PREFIX", "trial_runs")
+
+# ARN of the PostHog-owned IAM role the batch import worker runs as. Customers grant this
+# role access to their S3 buckets via a cross-account trust policy, so it must stay stable.
+MANAGED_MIGRATIONS_IMPORT_ROLE_ARN: str = os.getenv("MANAGED_MIGRATIONS_IMPORT_ROLE_ARN", "")
+
+# Requires the Django pods to be allowed to assume MANAGED_MIGRATIONS_IMPORT_ROLE_ARN,
+# so it stays off until that grant exists in the deployment.
+MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE: bool = get_from_env(
+    "MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE", False, type_cast=str_to_bool
+)

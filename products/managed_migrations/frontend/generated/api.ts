@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BatchImportAWSIAMSetupApi,
     BatchImportApi,
     BatchImportResponseApi,
     BatchImportSupportDetailApi,
@@ -298,6 +299,23 @@ export const managedMigrationsTrialRecordsRetrieve = async (
     options?: RequestInit
 ): Promise<TrialRecordsResponseApi> => {
     return apiMutator<TrialRecordsResponseApi>(getManagedMigrationsTrialRecordsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsAwsIamSetupRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_migrations/aws_iam_setup/`
+}
+
+/**
+ * Values needed to set up cross-account IAM role access for S3 imports: the external ID, PostHog's import role ARN, and ready-to-paste trust/permission policy JSON.
+ */
+export const managedMigrationsAwsIamSetupRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BatchImportAWSIAMSetupApi> => {
+    return apiMutator<BatchImportAWSIAMSetupApi>(getManagedMigrationsAwsIamSetupRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
