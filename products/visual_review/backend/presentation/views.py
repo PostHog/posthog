@@ -80,9 +80,19 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
 class SnapshotsPagination(LimitOffsetPagination):
     """Adds quarantined_count to the paginated snapshots envelope so a client can
     show "N quarantined hidden" without a second request. The action sets
-    `quarantined_count` on the paginator instance before rendering the response."""
+    `quarantined_count` on the paginator instance before rendering the response.
+
+    `max_limit` is the important guard: a broken run can produce thousands of
+    snapshots, and each carries presigned artifact URLs plus diff metadata. Without
+    a cap, a single unpaginated response (e.g. an API/MCP caller passing a huge
+    `limit`) could serialize millions of tokens and blow an agent's context window.
+    Snapshots are ordered actionable-first (changed/new/removed before unchanged),
+    so a capped page still surfaces what matters; callers page with `offset` for
+    the rest."""
 
     quarantined_count = 0
+    default_limit = 100
+    max_limit = 500
 
     def get_paginated_response(self, data: object) -> Response:
         response = super().get_paginated_response(data)

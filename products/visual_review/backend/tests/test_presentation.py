@@ -182,6 +182,41 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert {s["identifier"] for s in data["results"]} == expected_identifiers
         assert data["quarantined_count"] == 1
 
+    def test_get_run_snapshots_caps_page_size(self):
+        # A broken run can produce thousands of snapshots; the endpoint must clamp
+        # a caller's requested limit so a single response can't blow an agent's
+        # context. Guards the max_limit on SnapshotsPagination against removal.
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+            ),
+            team_id=self.team.id,
+        )
+        total = 550
+        RunSnapshot.objects.bulk_create(
+            RunSnapshot(
+                run_id=create_result.run_id,
+                team_id=self.team.id,
+                identifier=f"snap-{i:04d}",
+                result=SnapshotResult.CHANGED,
+            )
+            for i in range(total)
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/?limit=10000"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 500
+        assert data["count"] == total
+        assert data["next"] is not None
+
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
         """Runs with no changes complete immediately without triggering diff task."""

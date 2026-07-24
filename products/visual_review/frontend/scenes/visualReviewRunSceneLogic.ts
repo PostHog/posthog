@@ -333,11 +333,26 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 10000,
-                        include_quarantined: true,
-                    })
-                    return response.results
+                    // The endpoint caps the page size, so page through until we've
+                    // collected the whole run. A safety bound keeps a pathological
+                    // run from looping forever.
+                    const pageSize = 500
+                    const maxSnapshots = 10000
+                    const collected: SnapshotApi[] = []
+                    let offset = 0
+                    while (collected.length < maxSnapshots) {
+                        const response = await visualReviewRunsSnapshotsList(
+                            String(values.currentProjectId),
+                            props.runId,
+                            { limit: pageSize, offset, include_quarantined: true }
+                        )
+                        collected.push(...response.results)
+                        if (!response.next || response.results.length === 0) {
+                            break
+                        }
+                        offset += pageSize
+                    }
+                    return collected
                 },
             },
         ],
