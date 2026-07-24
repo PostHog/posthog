@@ -71,6 +71,9 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
+    # tables) use a different vocabulary than ClickHouse's native S3 errors above.
+    "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
