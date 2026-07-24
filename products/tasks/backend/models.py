@@ -418,6 +418,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
+                # Loop attribution: this event uses Task.capture_event (not TaskRun's),
+                # so carry it from the run state the same way TaskRun.capture_event does.
+                "loop_id": state.get("loop_id"),
+                "loop_trigger_id": state.get("loop_trigger_id"),
             },
         )
         return task_run
