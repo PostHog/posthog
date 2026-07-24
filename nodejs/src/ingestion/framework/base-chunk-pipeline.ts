@@ -22,6 +22,74 @@ function isSuccessResultWithContext<T, C, R extends string>(
  */
 export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
+/**
+ * Apply a chunk step to a chunk of results: run the step over the OK values,
+ * enforce the one-result-per-value contract, and zip the step results back onto
+ * their contexts (recording lastStep and accumulating side effects and
+ * warnings). Non-OK results pass through unchanged. This is the single
+ * implementation of chunk-step semantics, shared by {@link BaseChunkPipeline}
+ * and the group-level pipeChunk in ConcurrentlyGroupingChunkPipeline.
+ */
+export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string, RStep extends string>(
+    step: ChunkProcessingStep<TIn, TOut, RStep>,
+    stepName: string,
+    items: PipelineResultWithContext<TIn, C, RPrev>[]
+): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
+    const successfulValues = items
+        .filter(isSuccessResultWithContext)
+        .map((resultWithContext) => resultWithContext.result.value)
+
+    let stepResults: PipelineResult<TOut, RStep>[] = []
+    if (successfulValues.length > 0) {
+        const end = pipelineStepDurationHistogram.startTimer({ step_name: stepName, step_type: 'chunk' })
+        try {
+            stepResults = await instrumentFn({ key: stepName, sendException: false, measureTime: false }, () =>
+                step(successfulValues)
+            )
+            end({ result: 'chunk' })
+        } catch (e) {
+            end({ result: 'exception' })
+            throw e
+        }
+        if (stepResults.length !== successfulValues.length) {
+            throw new Error(
+                `Chunk pipeline step ${stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
+            )
+        }
+    }
+    let stepIndex = 0
+
+    // Map results back, preserving context and non-successful results
+    const output: PipelineResultWithContext<TOut, C, RPrev | RStep>[] = []
+    for (const resultWithContext of items) {
+        if (isOkResult(resultWithContext.result)) {
+            const stepResult = stepResults[stepIndex++]
+            output.push({
+                result: stepResult,
+                context: {
+                    ...resultWithContext.context,
+                    lastStep: stepName,
+                    // Copy-on-write: contexts are rebuilt by spreading at every
+                    // step and never mutated in place, so when the step added
+                    // nothing the existing array can be shared as-is.
+                    sideEffects: stepResult.sideEffects.length
+                        ? [...resultWithContext.context.sideEffects, ...stepResult.sideEffects]
+                        : resultWithContext.context.sideEffects,
+                    warnings: stepResult.warnings.length
+                        ? [...resultWithContext.context.warnings, ...stepResult.warnings]
+                        : resultWithContext.context.warnings,
+                },
+            })
+        } else {
+            output.push({
+                result: resultWithContext.result,
+                context: resultWithContext.context,
+            })
+        }
+    }
+    return output
+}
+
 export class BaseChunkPipeline<
     TInput,
     TIntermediate,
@@ -51,53 +119,6 @@ export class BaseChunkPipeline<
             return null
         }
 
-        // Filter successful values for processing
-        const successfulValues = previousResults
-            .filter(isSuccessResultWithContext)
-            .map((resultWithContext) => resultWithContext.result.value)
-
-        // Apply current step to successful values
-        let stepResults: PipelineResult<TOutput, RStep>[] = []
-        if (successfulValues.length > 0) {
-            const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'chunk' })
-            try {
-                stepResults = await instrumentFn({ key: this.stepName, sendException: false, measureTime: false }, () =>
-                    this.currentStep(successfulValues)
-                )
-                end({ result: 'chunk' })
-            } catch (e) {
-                end({ result: 'exception' })
-                throw e
-            }
-            if (stepResults.length !== successfulValues.length) {
-                throw new Error(
-                    `Chunk pipeline step ${this.stepName} returned different number of results than input values: ${stepResults.length} !== ${successfulValues.length}`
-                )
-            }
-        }
-        let stepIndex = 0
-
-        // Map results back, preserving context and non-successful results
-        const output: ChunkPipelineResultWithContext<TOutput, COutput, RPrev | RStep> = []
-        for (const resultWithContext of previousResults) {
-            if (isOkResult(resultWithContext.result)) {
-                const stepResult = stepResults[stepIndex++]
-                output.push({
-                    result: stepResult,
-                    context: {
-                        ...resultWithContext.context,
-                        lastStep: this.stepName,
-                        sideEffects: [...resultWithContext.context.sideEffects, ...stepResult.sideEffects],
-                        warnings: [...resultWithContext.context.warnings, ...stepResult.warnings],
-                    },
-                })
-            } else {
-                output.push({
-                    result: resultWithContext.result,
-                    context: resultWithContext.context,
-                })
-            }
-        }
-        return output
+        return await applyChunkStepToResults(this.currentStep, this.stepName, previousResults)
     }
 }

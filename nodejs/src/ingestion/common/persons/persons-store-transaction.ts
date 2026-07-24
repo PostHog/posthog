@@ -100,6 +100,27 @@ export class PersonsStoreTransaction {
         return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }
 
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.store.moveDistinctIdsFromPersons(sources, target, distinctId, this.tx, batchId)
+    }
+
+    async deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {
+        return await this.store.deletePersons(persons, distinctId, this.tx)
+    }
+
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>> {
+        return await this.store.countDistinctIdsForPersons(teamID, personIds, distinctId, this.tx)
+    }
+
     async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -109,6 +130,21 @@ export class PersonsStoreTransaction {
         return await this.store.updateCohortsAndFeatureFlagsForMerge(
             teamID,
             sourcePersonID,
+            targetPersonID,
+            distinctId,
+            this.tx
+        )
+    }
+
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string
+    ): Promise<void> {
+        return await this.store.updateCohortsAndFeatureFlagsForMergeBatch(
+            teamID,
+            sourcePersonIDs,
             targetPersonID,
             distinctId,
             this.tx

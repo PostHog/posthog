@@ -87,6 +87,17 @@ export interface PersonRepository {
     ): Promise<InternalPerson[]>
 
     /**
+     * Batched, row-locking variant of fetchPerson({forUpdate: true}) for folded
+     * merges: resolves and locks all persons behind the given distinct_ids in
+     * one statement, in deterministic (person id) lock order.
+     */
+    fetchPersonsForUpdateByDistinctIds(
+        teamId: TeamId,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]>
+
+    /**
      * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
      * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
      * Persons with no distinct_ids will be absent from the result.
@@ -132,6 +143,9 @@ export interface PersonRepository {
 
     deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 
+    /** Batched deletePerson for folded merges; all persons must belong to one team. */
+    deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]>
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
@@ -143,6 +157,12 @@ export interface PersonRepository {
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id']
+    ): Promise<void>
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id']
     ): Promise<void>
 

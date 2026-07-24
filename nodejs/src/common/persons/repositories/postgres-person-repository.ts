@@ -331,6 +331,58 @@ export class PostgresPersonRepository
         }))
     }
 
+    async fetchPersonsForUpdateByDistinctIds(
+        teamId: number,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+
+        const uniqueDistinctIds = [...new Set(distinctIds)]
+
+        // ORDER BY person id gives concurrent multi-row lockers a deterministic
+        // lock order, minimizing deadlocks between folded merges on overlapping
+        // persons.
+        const queryString = `SELECT
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified,
+                posthog_person.last_seen_at,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = ANY($2::text[])
+            ORDER BY posthog_person.id
+            FOR UPDATE`
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, uniqueDistinctIds],
+            queryTag('fetchPersonsForUpdateByDistinctIds', callerTag)
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
+    }
+
     async fetchPersonsByPersonIds(
         teamPersons: { teamId: TeamId; personId: string }[],
         useReadReplica: boolean = true,
@@ -641,6 +693,49 @@ export class PostgresPersonRepository
         return kafkaMessages
     }
 
+    async deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]> {
+        if (persons.length === 0) {
+            return []
+        }
+
+        // All persons in a folded merge belong to one team.
+        const teamId = persons[0].team_id
+        const personById = new Map(persons.map((person) => [person.id, person]))
+        // Postgres acquires the row locks in index scan order (btree scans sort
+        // the id keys ascending), not in array-parameter order, so concurrent
+        // folds deleting overlapping persons lock in a consistent order either
+        // way; sorting here just keeps the parameter and logs deterministic.
+        const personIds = [...personById.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        let rows: { id: string; version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ id: string; version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[]) RETURNING id, version',
+                [teamId, personIds],
+                'deletePersons'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: teamId,
+                    person_ids: personIds,
+                })
+            }
+            throw error
+        }
+
+        return rows.flatMap((row) => {
+            const person = personById.get(String(row.id))
+            if (!person) {
+                return []
+            }
+            return [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+        })
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -767,6 +862,97 @@ export class PostgresPersonRepository
         }
 
         // Track the number of distinct IDs moved in this merge operation
+        moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
+
+        return {
+            success: true,
+            messages: kafkaMessages,
+            distinctIdsMoved: movedDistinctIdResult.rows.map((row) => row.distinct_id),
+        }
+    }
+
+    async countDistinctIdsForPersons(
+        teamId: number,
+        personIds: string[],
+        tx?: TransactionClient
+    ): Promise<Map<string, number>> {
+        if (personIds.length === 0) {
+            return new Map()
+        }
+        const { rows } = await this.postgres.query<{ person_id: string; count: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT person_id, count(*) AS count
+                FROM posthog_persondistinctid
+                WHERE team_id = $1 AND person_id = ANY($2::bigint[])
+                GROUP BY person_id`,
+            [teamId, personIds],
+            'countDistinctIdsForPersons'
+        )
+        return new Map(rows.map((row) => [String(row.person_id), Number(row.count)]))
+    }
+
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult> {
+        if (sources.length === 0) {
+            return { success: true, messages: [], distinctIdsMoved: [] }
+        }
+
+        // Sorted ids keep the row-lock acquisition order deterministic across
+        // concurrent folded merges touching overlapping source persons.
+        const sourceIds = sources.map((source) => source.id).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
+
+        let movedDistinctIdResult: QueryResult<any> | null = null
+        try {
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_persondistinctid
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
+                    WHERE person_id = ANY($2::bigint[])
+                      AND team_id = $3
+                    RETURNING *`,
+                [target.id, sourceIds, target.team_id],
+                'updateDistinctIdPersonFold'
+            )
+        } catch (error) {
+            if (
+                (error as Error).message.includes(
+                    'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
+                )
+            ) {
+                // Same race as moveDistinctIds: the target person was deleted
+                // between fetch and update; the caller retries with fresh data.
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                moveDistinctIdsCountHistogram.observe(0)
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
+            }
+
+            throw error
+        }
+
+        // Unlike the single-source variant, zero moved rows for a source is not
+        // a failure here: a concurrently completed merge may have already moved
+        // it, which the folded merge treats as satisfied.
+        const kafkaMessages = []
+        for (const row of movedDistinctIdResult.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0)
+            kafkaMessages.push({
+                output: PERSON_DISTINCT_IDS_OUTPUT,
+                value: Buffer.from(
+                    JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                ),
+            })
+        }
+
         moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
 
         return {
@@ -1284,6 +1470,40 @@ export class PostgresPersonRepository
                 ON CONFLICT DO NOTHING`,
             [targetPersonID, sourcePersonID, teamID],
             'updateCohortAndFeatureFlagsPeople'
+        )
+    }
+
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void> {
+        if (sourcePersonIDs.length === 0) {
+            return
+        }
+
+        // Multi-source variant of updateCohortsAndFeatureFlagsForMerge — same
+        // two operations, one round-trip for all folded source persons.
+        await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `WITH cohort_update AS (
+                UPDATE posthog_cohortpeople
+                SET person_id = $1
+                WHERE person_id = ANY($2::bigint[])
+                RETURNING person_id
+            ),
+            deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride
+                WHERE team_id = $3 AND person_id = ANY($2::bigint[])
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $1, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING`,
+            [targetPersonID, sourcePersonIDs, teamID],
+            'updateCohortAndFeatureFlagsPeopleBatch'
         )
     }
 

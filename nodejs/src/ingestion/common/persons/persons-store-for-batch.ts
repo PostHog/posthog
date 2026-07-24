@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
@@ -49,9 +50,33 @@ export interface PersonsStoreTransactionForBatch {
         limit?: number
     ): Promise<MoveDistinctIdsResult>
 
+    /** Batched unlimited moveDistinctIds for folded merges. */
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string
+    ): Promise<MoveDistinctIdsResult>
+
+    /** Batched deletePerson for folded merges; all persons must belong to one team. */
+    deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]>
+
+    /** Distinct-id counts per person id, for the folded-merge limit pre-check. */
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>>
+
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string
+    ): Promise<void>
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id'],
         distinctId: string
     ): Promise<void>
@@ -73,11 +98,13 @@ export type PersonsStoreForBatch = Omit<
     PersonsStore,
     | 'fetchForChecking'
     | 'fetchForUpdate'
+    | 'fetchPersonsForUpdateByDistinctIds'
     | 'createPerson'
     | 'updatePersonForMerge'
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'moveDistinctIdsFromPersons'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
     | 'prefetchPersons'
@@ -88,6 +115,13 @@ export type PersonsStoreForBatch = Omit<
 > & {
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null>
     fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null>
+    fetchPersonsForUpdateByDistinctIds(teamId: number, distinctIds: string[]): Promise<InternalPersonWithDistinctId[]>
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<MoveDistinctIdsResult>
     createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -212,6 +246,26 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         return this.tx.moveDistinctIds(source, target, distinctId, limit, this.batchId)
     }
 
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string
+    ): Promise<MoveDistinctIdsResult> {
+        return this.tx.moveDistinctIdsFromPersons(sources, target, distinctId, this.batchId)
+    }
+
+    deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {
+        return this.tx.deletePersons(persons, distinctId)
+    }
+
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>> {
+        return this.tx.countDistinctIdsForPersons(teamId, personIds, distinctId)
+    }
+
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -219,6 +273,15 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         distinctId: string
     ): Promise<void> {
         return this.tx.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, distinctId)
+    }
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string
+    ): Promise<void> {
+        return this.tx.updateCohortsAndFeatureFlagsForMergeBatch(teamID, sourcePersonIDs, targetPersonID, distinctId)
     }
 
     addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
@@ -242,6 +305,10 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
 
     fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null> {
         return this.store.fetchForUpdate(teamId, distinctId, this.batchId)
+    }
+
+    fetchPersonsForUpdateByDistinctIds(teamId: number, distinctIds: string[]): Promise<InternalPersonWithDistinctId[]> {
+        return this.store.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, this.batchId)
     }
 
     createPerson(
@@ -284,6 +351,48 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         return this.store.moveDistinctIds(source, target, distinctId, limit, tx, this.batchId)
+    }
+
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<MoveDistinctIdsResult> {
+        return this.store.moveDistinctIdsFromPersons(sources, target, distinctId, tx, this.batchId)
+    }
+
+    deletePersons(
+        persons: InternalPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<PersonMessage[]> {
+        return this.store.deletePersons(persons, distinctId, tx)
+    }
+
+    countDistinctIdsForPersons(
+        teamId: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>> {
+        return this.store.countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
+    }
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        return this.store.updateCohortsAndFeatureFlagsForMergeBatch(
+            teamID,
+            sourcePersonIDs,
+            targetPersonID,
+            distinctId,
+            tx
+        )
     }
 
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {

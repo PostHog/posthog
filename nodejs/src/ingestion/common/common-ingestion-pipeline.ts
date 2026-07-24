@@ -400,7 +400,7 @@ export class CommonTeamStage<
         groupingFn: GroupingFunction<TCurrent, TKey>,
         callback: (
             group: GroupProcessingBuilder<TPost, TCurrent, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
-        ) => ChunkPipelineBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>,
+        ) => GroupProcessingBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>,
         options?: { maxConcurrency?: number }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
         const committed = this.chain.build()
