@@ -413,6 +413,12 @@ jobs:
                   # Create dedicated persons database for postgres-parity tests
                   cd nodejs && pnpm run setup:test:persons-parity
 
+            # Build the workspace deps (the Rust addons + TS) up front so the Jest step below times
+            # only the tests. Otherwise turbo's `test` task pulls `^build`, folding the addon compile
+            # into the test step and making a slow shard ambiguous (cold cargo vs slow tests).
+            - name: Prepare Node.js workspace
+              run: bin/turbo --filter=@posthog/nodejs prepare
+
             - name: Test with Jest
               id: run-jest
               # continue-on-error so the quarantine gate below is the verdict — it passes when
