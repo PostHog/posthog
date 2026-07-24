@@ -22,6 +22,8 @@ from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
+from products.cohorts.backend.models.cohort import Cohort
+
 
 @dataclass
 class BlastRadiusResult:
@@ -32,12 +34,14 @@ class BlastRadiusResult:
 @contextmanager
 def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # Sizing runs caller-supplied condition filters through HogQL and ClickHouse. Shapes those
-    # layers reject - behavioral or event filters in person scope, deleted or malformed cohort
-    # references, malformed regexes, values that don't cast to the property's type - fail
-    # deterministically on every request, so they're the caller's input, not a server fault:
-    # surface them as a 400 carrying the layer's own message instead of an opaque 500. ValueError
-    # and ObjectDoesNotExist are caught only inside this block, where filter parsing and cohort
-    # resolution are the dominant sources.
+    # layers reject - behavioral or event filters in person scope, deleted cohort references,
+    # malformed regexes, values that don't cast to the property's type - fail deterministically
+    # on every request, so they're the caller's input, not a server fault: surface them as a 400
+    # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
+    # types (plus ObjectDoesNotExist from cohort lookups) are converted across query build and
+    # execution; caller-shaped ValueError is converted separately in the parse phase
+    # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
+    # during build/execution still surfaces as a server fault.
     try:
         yield
     except (
@@ -45,7 +49,6 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
         HogQLNotImplementedError,
         ExposedCHQueryError,
         ObjectDoesNotExist,
-        ValueError,
     ) as e:
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
 
@@ -66,17 +69,26 @@ def _normalize_property_value(prop: Property) -> None:
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
-    prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
+    # Parse phase: everything here derives directly from the caller's filter JSON, so a
+    # ValueError is caller input (malformed property shape, non-numeric cohort id) and becomes
+    # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
+    # ValueError from deep inside query building.
+    try:
+        prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
 
-    for prop in prop_groups.flat:
-        if prop.operator in ("is_date_before", "is_date_after"):
-            relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
-            if relative_date:
-                prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            _normalize_property_value(prop)
+        for prop in prop_groups.flat:
+            if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
+                Cohort._meta.pk.get_prep_value(prop.value)
+            if prop.operator in ("is_date_before", "is_date_after"):
+                relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))
+                if relative_date:
+                    prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                _normalize_property_value(prop)
 
-    return Filter(data={"properties": prop_groups.to_dict()}, team=team)
+        return Filter(data={"properties": prop_groups.to_dict()}, team=team)
+    except ValueError as e:
+        raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
 
 
 def get_user_blast_radius(

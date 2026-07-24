@@ -8920,6 +8920,20 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             get_user_blast_radius(self.team, {"properties": [prop]})
         self.assertIn(message_fragment, str(ctx.exception))
 
+    def test_user_blast_radius_execution_value_error_is_not_masked_as_caller_error(self):
+        # A bare ValueError from query execution is a server fault, not invalid filters.
+        with (
+            patch(
+                "products.feature_flags.backend.user_blast_radius._get_person_blast_radius",
+                side_effect=ValueError("could not load timezone"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            get_user_blast_radius(
+                self.team,
+                {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
+            )
+
     def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
