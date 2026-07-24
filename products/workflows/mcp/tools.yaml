@@ -338,7 +338,6 @@ tools:
             draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way.
             Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and
             the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened
-
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing is normal, not a failed publish.
