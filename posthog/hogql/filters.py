@@ -80,6 +80,21 @@ class ReplaceFilters(CloningVisitor):
             )
         return node
 
+    def _skip_enclosing_comparison_or_raise(self, placeholder_name: str) -> None:
+        """Neutralize the comparison a dateRange placeholder sits in when there's no date to fill in.
+
+        The placeholder is only meaningful directly inside a comparison (e.g. `timestamp > {filters.dateRange.from}`),
+        which is the only node that pushes onto the stack. If it's wrapped in a function or arithmetic expression
+        instead, there's nothing to skip, so raise a QueryError the LLM can recover from.
+        """
+        if not self.compare_operations:
+            raise QueryError(
+                f"The `{{filters.dateRange.{placeholder_name}}}` placeholder must be used directly in a comparison, "
+                f"e.g. `timestamp > {{filters.dateRange.{placeholder_name}}}`. "
+                "It cannot be wrapped in a function or arithmetic expression."
+            )
+        self.compare_operations[-1].skip = True
+
     def visit_placeholder(self, node):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
@@ -185,10 +200,8 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
             if no_filters:
-                compare_op_wrapper.skip = True
+                self._skip_enclosing_comparison_or_raise("from")
                 return ast.Constant(value=True)
 
             assert self.filters is not None
@@ -204,13 +217,11 @@ class ReplaceFilters(CloningVisitor):
 
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
+                self._skip_enclosing_comparison_or_raise("from")
                 return ast.Constant(value=True)
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
             if no_filters:
-                compare_op_wrapper.skip = True
+                self._skip_enclosing_comparison_or_raise("to")
                 return ast.Constant(value=True)
 
             assert self.filters is not None
@@ -225,7 +236,7 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
-                compare_op_wrapper.skip = True
+                self._skip_enclosing_comparison_or_raise("to")
                 return ast.Constant(value=True)
 
         if node.chain and node.chain[0] == "filters":

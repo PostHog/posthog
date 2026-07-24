@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -324,6 +326,41 @@ class TestFilters(BaseTest):
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    @parameterized.expand(
+        [
+            # no filters at all -> nothing to fill in, and no comparison to neutralize
+            ("from_no_filters", "from", None),
+            ("to_no_filters", "to", None),
+            # filters present but the relevant bound is unset -> hits the skip branch
+            ("from_missing_date", "from", HogQLFilters(dateRange=DateRange(date_to="2020-02-02"))),
+            ("to_missing_date", "to", HogQLFilters(dateRange=DateRange(date_from="2020-02-02"))),
+        ]
+    )
+    def test_date_range_placeholder_without_comparison_raises(self, _name, bound, filters):
+        # The LLM sometimes wraps the placeholder in a function instead of using it in a bare comparison.
+        # That used to throw an uncaught IndexError; it must surface as a recoverable QueryError instead.
+        select = self._parse_select(f"SELECT toStartOfDay({{filters.dateRange.{bound}}}) FROM events")
+
+        with self.assertRaisesMessage(QueryError, "must be used directly in a comparison"):
+            replace_filters(select, filters, self.team)
+
+    @parameterized.expand(
+        [
+            ("from", "date_from"),
+            ("to", "date_to"),
+        ]
+    )
+    def test_date_range_placeholder_wrapped_in_function_resolves(self, bound, field):
+        select = replace_filters(
+            self._parse_select(f"SELECT toStartOfDay({{filters.dateRange.{bound}}}) FROM events"),
+            HogQLFilters(dateRange=DateRange(**{field: "2020-02-02"})),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT toStartOfDay(toDateTime('2020-02-02 00:00:00.000000')) FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
     def test_raises_for_unsupported_filters_placeholder(self):
         select = self._parse_select("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
