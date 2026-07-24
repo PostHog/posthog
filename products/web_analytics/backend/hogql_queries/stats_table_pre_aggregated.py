@@ -61,7 +61,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if not super().can_use_preaggregated_tables():
             return False
 
-        return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
+        return self.runner._effective_breakdown() in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
     def _get_channel_type_expr(self) -> ast.Expr:
         """Create a channel type expression using the available fields in pre-aggregated tables."""

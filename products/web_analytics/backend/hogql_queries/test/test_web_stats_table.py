@@ -46,7 +46,11 @@ from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.stats_table import (
+    FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG,
+    WebStatsTableQueryRunner,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import can_use_lazy_precompute
 
 nan_value = float("nan")
 
@@ -989,6 +993,196 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         assert [["google", (1, None), (1, None), 1 / 2, ""], [None, (1, None), (1, None), 1 / 2, ""]] == results
+
+    def _seed_ssr_poisoned_session(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=d1,
+            timestamp="2024-06-26T10:00:00",
+            properties={"$session_id": s1, "$referring_domain": "$direct"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26T10:00:05",
+            properties={
+                "$session_id": s1,
+                "$current_url": "http://example.com/landing",
+                "$referring_domain": "google.com",
+                "utm_source": "google",
+                "utm_medium": "cpc",
+                "gad_source": "1",
+            },
+        )
+
+    def _seed_first_pageview_session(self, properties, distinct_id="d1", day="2024-06-26"):
+        session_id = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": session_id, **properties},
+        )
+        return session_id
+
+    def _patch_first_pageview_flag(self, enabled=True):
+        return patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: enabled and key == FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG,
+        )
+
+    def _breakdown_values(self, breakdown):
+        return [row[0] for row in self._run_web_stats_table_query("all", "2024-06-27", breakdown_by=breakdown).results]
+
+    def test_first_pageview_attribution_ignores_non_pageview_first_event(self):
+        self._seed_ssr_poisoned_session()
+
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == [None]
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Direct"]
+
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == ["google"]
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == ["Paid Search"]
+
+    @parameterized.expand(
+        [
+            ("referral_unknown_domain", {"$referring_domain": "someblog.example"}, "Referral"),
+            ("gad_source_only", {"$referring_domain": "$direct", "gad_source": "1"}, "Paid Search"),
+            ("bare_direct", {"$referring_domain": "$direct"}, "Direct"),
+        ]
+    )
+    def test_first_pageview_channel_type_buckets(self, _name, properties, expected):
+        # These buckets all depend on the IS [NOT] NULL branches of the channel
+        # type expression, which silently die (print as comparisons against a
+        # NULL literal) if the argMin aggregate leaks into the comparisons.
+        self._seed_first_pageview_session(properties)
+
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == [expected]
+
+    def test_first_pageview_attribution_ignores_conversion_goal_events(self):
+        d1, day = "d1", "2024-06-26"
+        s1 = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": s1, "$referring_domain": "$direct"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:05",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        response = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE,
+            custom_event="custom_event",
+        )
+
+        # The conversion event precedes the first pageview (the SSR pattern this
+        # feature fixes) but must not win the attribution argMin — while still
+        # being counted as a conversion.
+        assert [["google", (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+
+    def test_first_pageview_attribution_excludes_sessionless_events(self):
+        self._seed_first_pageview_session({"utm_source": "google"})
+        _create_person(team_id=self.team.pk, distinct_ids=["d2"], properties={"name": "d2"})
+        for second in range(2):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="d2",
+                timestamp=f"2024-06-26T11:00:0{second}",
+                properties={"utm_source": "facebook"},
+            )
+
+        # Events without a session id can't be attributed to a session's first
+        # pageview and must not collapse into a merged catch-all group.
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == ["google"]
+
+    def test_first_pageview_attribution_anchors_all_properties_to_one_event(self):
+        d1, day = "d1", "2024-06-26"
+        s1 = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": s1, "$referring_domain": "someblog.example"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:10",
+            properties={
+                "$session_id": s1,
+                "$referring_domain": "someblog.example",
+                "gclid": "abc",
+                "utm_source": "google",
+            },
+        )
+
+        # Every property must come from the first pageview alone: the later
+        # gclid/utm_source must not stitch a paid channel onto referral traffic.
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == ["Referral"]
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == [None]
+
+    def test_first_pageview_attribution_flag_flips_initial_breakdowns(self):
+        self._seed_ssr_poisoned_session()
+
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == [None]
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Direct"]
+
+        with self._patch_first_pageview_flag():
+            assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == ["google"]
+            assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Paid Search"]
+
+    def test_first_pageview_attribution_flag_changes_cache_key(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+
+        def cache_key(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return WebStatsTableQueryRunner(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(flag_on=False) != cache_key(flag_on=True)
+
+    def test_first_pageview_attribution_bypasses_lazy_precompute(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+
+        def lazy_eligible(flag_on):
+            with (
+                patch(
+                    "products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute._can_use_lazy_precompute_shared",
+                    return_value=True,
+                ),
+                self._patch_first_pageview_flag(enabled=flag_on),
+            ):
+                return can_use_lazy_precompute(WebStatsTableQueryRunner(team=self.team, query=query))
+
+        assert lazy_eligible(flag_on=False) is True
+        assert lazy_eligible(flag_on=True) is False
 
     def test_is_not_set_filter(self):
         d1 = "d1"
