@@ -439,7 +439,7 @@ class TestEmailMultiConfig(BaseTest):
             assert config.dns_records == fresh_records
             mock_delete.assert_called_once_with("example.com")
         else:
-            assert "cannot be registered" in response.json()["error"]
+            assert "couldn't be set up" in response.json()["error"]
             assert not EmailChannel.objects.filter(team=self.team).exists()
             mock_delete.assert_not_called()
 
@@ -468,7 +468,7 @@ class TestEmailMultiConfig(BaseTest):
         )
 
         assert response.status_code == 400
-        assert "cannot be registered" in response.json()["error"]
+        assert "couldn't be set up" in response.json()["error"]
         assert EmailChannel.objects.filter(team=self.team).count() == 0
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})

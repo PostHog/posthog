@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -45,6 +46,47 @@ describe('supportSettingsLogic', () => {
             ],
         ])('%s', (_label, flags, expected) => {
             expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('connectEmail', () => {
+        let errorToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
+        })
+
+        // Two failure shapes reach this listener: the view's custom {error} responses and
+        // DRF serializer-validation errors, which surface as {detail}. Both must be shown.
+        it.each<[string, Record<string, string>]>([
+            ['view {error} shape', { error: 'This domain is already in use by another organization.' }],
+            [
+                'DRF {detail} shape',
+                { type: 'validation_error', code: 'invalid', detail: 'Enter a valid email address.' },
+            ],
+        ])('surfaces the backend reason when connecting fails (%s)', async (_label, body) => {
+            useMocks({
+                get: {
+                    'api/conversations/v1/email/status': { configs: [] },
+                },
+                post: {
+                    'api/conversations/v1/email/connect': () => [400, body],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewEmailFromEmail('help@albo.inc')
+            logic.actions.setNewEmailFromName('Albo Support')
+
+            logic.actions.connectEmail()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith(body.error ?? body.detail)
         })
     })
 

@@ -224,8 +224,11 @@ class EmailConnectView(APIView):
 
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
+            logger.warning("email_connect_inbound_domain_not_configured", team_id=team.id, domain=domain)
             return Response(
-                {"error": "Email inbound domain not configured. Set CONVERSATIONS_EMAIL_INBOUND_DOMAIN."},
+                {
+                    "error": "Inbound email isn't configured on this instance. An admin needs to set the inbound email domain."
+                },
                 status=400,
             )
 
@@ -244,15 +247,21 @@ class EmailConnectView(APIView):
                 dns_records = mailgun_add_domain(domain)
             except MailgunNotConfigured:
                 logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
-                return Response({"error": "Mailgun API key not configured"}, status=400)
+                return Response(
+                    {
+                        "error": "Email sending isn't configured on this instance. An admin needs to set up the Mailgun API key."
+                    },
+                    status=400,
+                )
             except MailgunDomainConflict as e:
                 reclaimed = _try_reclaim_stranded_domain(team, domain)
                 if reclaimed is None:
                     logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
                     return Response(
                         {
-                            "error": "This domain cannot be registered for sending. "
-                            "It may already be claimed by another account."
+                            "error": "This domain couldn't be set up for sending. "
+                            "It may still be attached to an earlier setup attempt. "
+                            "Contact support and we'll reset it for you."
                         },
                         status=400,
                     )
@@ -328,10 +337,16 @@ class EmailVerifyDomainView(APIView):
         try:
             mg_result = mailgun_verify_domain(config.domain)
         except MailgunNotConfigured:
-            return Response({"error": "Mailgun API key not configured"}, status=400)
+            logger.warning("email_verify_domain_not_configured", team_id=team.id, domain=config.domain)
+            return Response(
+                {
+                    "error": "Email sending isn't configured on this instance. An admin needs to set up the Mailgun API key."
+                },
+                status=400,
+            )
         except Exception:
             logger.exception("email_verify_domain_failed", team_id=team.id, domain=config.domain)
-            return Response({"error": "Failed to verify domain with Mailgun"}, status=502)
+            return Response({"error": "Couldn't verify your domain. Please try again."}, status=502)
 
         is_active = mg_result.get("state") == "active"
         dns_records = {"sending_dns_records": mg_result.get("sending_dns_records", [])}
@@ -393,7 +408,9 @@ class EmailSendTestView(APIView):
         except MailgunNotConfigured:
             logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
             return Response(
-                {"error": "Support email not configured on this instance"},
+                {
+                    "error": "Email sending isn't configured on this instance. An admin needs to set up the Mailgun API key."
+                },
                 status=500,
             )
         except MailgunDomainNotRegistered:
@@ -405,7 +422,7 @@ class EmailSendTestView(APIView):
             )
             config.mark_domain_unverified()
             return Response(
-                {"error": "Domain not registered with Mailgun. Please reconnect."},
+                {"error": "This domain isn't registered for sending. Please reconnect it."},
                 status=502,
             )
         except MailgunError:

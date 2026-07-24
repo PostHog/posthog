@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -1376,8 +1377,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     },
                 })
                 lemonToast.success('Email address connected')
-            } catch {
-                lemonToast.error('Failed to connect email')
+            } catch (error) {
+                // Surface the backend's reason (e.g. domain already claimed) so people
+                // aren't left guessing why the connect failed. The view returns a custom
+                // {error} shape; serializer validation errors come through DRF as {detail}.
+                const reason = error instanceof ApiError ? (error.data?.error ?? error.detail) : undefined
+                lemonToast.error(reason || 'Failed to connect email. Please try again.')
                 actions.connectEmailDone(null)
             }
         },
