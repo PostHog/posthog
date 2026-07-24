@@ -1,4 +1,5 @@
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -248,6 +249,22 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         self.assertEqual(context.exception.llm_output, "SELECT count() FROM nonexistent_table")
         self.assertEqual(context.exception.validation_message, "Unknown table `nonexistent_table`.")
+
+    async def test_quality_check_output_recursion_error_is_recoverable(self):
+        """A deeply nested query that overflows the stack during resolution becomes a recoverable error."""
+        mixin = self._node
+
+        output = self._sql_output("SELECT count() FROM events")
+
+        with patch(
+            "ee.hogai.chat_agent.sql.mixins.prepare_and_print_ast",
+            side_effect=RecursionError,
+        ):
+            with self.assertRaises(PydanticOutputParserException) as context:
+                await mixin._quality_check_output(output)
+
+        self.assertEqual(context.exception.llm_output, "SELECT count() FROM events")
+        self.assertIn("too deeply nested", context.exception.validation_message)
 
     async def test_quality_check_output_complex_query_with_joins(self):
         """Test quality check success with complex query including joins."""
