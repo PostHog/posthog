@@ -1,7 +1,5 @@
 from typing import Optional, Protocol, cast, runtime_checkable
 
-from rest_framework.exceptions import ValidationError
-
 from posthog.schema import BreakdownAttributionType, BreakdownType, StepOrderValue
 
 from posthog.hogql import ast
@@ -206,16 +204,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
-        funnelsFilter = self.context.funnelsFilter
-
         inner_select = self._inner_aggregation_query()
 
-        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            if (
-                funnelsFilter.breakdownAttributionType == BreakdownAttributionType.STEP
-                and funnelsFilter.breakdownAttributionValue != 0
-            ):
-                raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
+        # Unordered funnels only support first-step breakdown attribution. This is enforced
+        # pre-execution by ValidateUnorderedFunnelBreakdownAttribution so invalid configs return
+        # a clean 400 instead of a misclassified query failure.
 
         step_results = ",".join(
             [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i + 1}" for i in range(self.context.max_steps)]

@@ -6,7 +6,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
-import { StepOrderValue } from '~/types'
+import { BreakdownAttributionType, StepOrderValue } from '~/types'
 
 interface StepOption {
     key?: string
@@ -34,14 +34,31 @@ export function FunnelStepOrderPicker(): JSX.Element {
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnelOrderType } = (insightFilter || {}) as FunnelsFilter
+    const { funnelOrderType, breakdownAttributionType, breakdownAttributionValue } = (insightFilter ||
+        {}) as FunnelsFilter
 
     return (
         <LemonSelect
             id="funnel-step-order-filter"
             data-attr="funnel-step-order-filter"
             value={funnelOrderType || StepOrderValue.ORDERED}
-            onChange={(stepOrder) => stepOrder && updateInsightFilter({ funnelOrderType: stepOrder })}
+            onChange={(stepOrder) => {
+                if (!stepOrder) {
+                    return
+                }
+                const update: Partial<FunnelsFilter> = { funnelOrderType: stepOrder }
+                // Unordered funnels only allow the first step for breakdown attribution, so reset a
+                // stale "Specific step" selection to the first step — otherwise the invalid combo
+                // reaches the backend and fails the insight with a "Try again" loop.
+                if (
+                    stepOrder === StepOrderValue.UNORDERED &&
+                    breakdownAttributionType === BreakdownAttributionType.Step &&
+                    breakdownAttributionValue !== 0
+                ) {
+                    update.breakdownAttributionValue = 0
+                }
+                updateInsightFilter(update)
+            }}
             dropdownMatchSelectWidth={false}
             options={options}
         />

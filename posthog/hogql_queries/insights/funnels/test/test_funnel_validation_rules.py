@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    BreakdownAttributionType,
     EventsNode,
     FunnelExclusionEventsNode,
     FunnelsFilter,
@@ -18,6 +19,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
+    ValidateUnorderedFunnelBreakdownAttribution,
 )
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
@@ -204,3 +206,57 @@ class TestFunnelValidationRules(BaseTest):
 
         self.assertIn(expected_error, str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
+
+    def test_disallows_non_first_step_breakdown_attribution_in_unordered_funnels(self):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
+            funnelsFilter=FunnelsFilter(
+                funnelOrderType=StepOrderValue.UNORDERED,
+                breakdownAttributionType=BreakdownAttributionType.STEP,
+                breakdownAttributionValue=2,
+            ),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            ValidateUnorderedFunnelBreakdownAttribution().validate(self._context(query))
+
+        self.assertIn(
+            "Only the first step can be used for breakdown attribution in unordered funnels.",
+            str(context.exception),
+        )
+        self.assertEqual(context.exception.get_codes(), ["funnel_unordered_breakdown_attribution_invalid"])
+
+    @parameterized.expand(
+        [
+            (
+                "first_step_attribution_in_unordered_funnel",
+                FunnelsFilter(
+                    funnelOrderType=StepOrderValue.UNORDERED,
+                    breakdownAttributionType=BreakdownAttributionType.STEP,
+                    breakdownAttributionValue=0,
+                ),
+            ),
+            (
+                "non_first_step_attribution_in_ordered_funnel",
+                FunnelsFilter(
+                    funnelOrderType=StepOrderValue.ORDERED,
+                    breakdownAttributionType=BreakdownAttributionType.STEP,
+                    breakdownAttributionValue=2,
+                ),
+            ),
+            (
+                "non_step_attribution_in_unordered_funnel",
+                FunnelsFilter(
+                    funnelOrderType=StepOrderValue.UNORDERED,
+                    breakdownAttributionType=BreakdownAttributionType.FIRST_TOUCH,
+                ),
+            ),
+        ]
+    )
+    def test_allows_valid_unordered_funnel_breakdown_attribution(self, _name, funnels_filter):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step 1"), EventsNode(event="step 2"), EventsNode(event="step 3")],
+            funnelsFilter=funnels_filter,
+        )
+
+        ValidateUnorderedFunnelBreakdownAttribution().validate(self._context(query))

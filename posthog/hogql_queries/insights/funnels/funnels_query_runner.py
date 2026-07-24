@@ -46,6 +46,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
+    ValidateUnorderedFunnelBreakdownAttribution,
 )
 from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -106,6 +107,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
             ValidateOptionalFunnelSteps(),
+            ValidateUnorderedFunnelBreakdownAttribution(),
             DisallowUnsupportedDataWarehouseSettings(),
         )
 
