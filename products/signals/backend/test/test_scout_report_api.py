@@ -27,7 +27,6 @@ from products.signals.backend.scout_harness.tools.report import (
     _build_suggested_reviewers,
     _capture_report_edited,
     _report_classification_props,
-    _skill_authored_report,
     _wants_repo_selection,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -415,39 +414,29 @@ class TestScoutReportAPI(APIBaseTest):
         assert stored["alice"]["reason"] == "confirmed owner via human correction"
         assert stored["dave"]["relevant_commits"] == []
 
-    def test_edit_report_injects_owners_only_into_reports_the_skill_authored(self) -> None:
-        # The owner guardrail on edit is scoped to reports the skill authored: `edit_report` can
-        # target any inbox report, and stamping the editing skill's owners onto an unrelated
-        # (e.g. pipeline-authored) report would rewrite that report's routing on no evidence.
+    def test_edit_uses_scout_picks_verbatim_and_stamps_owners_on_any_report(self) -> None:
+        # No injection: an edit replaces reviewers with the scout's picks in order, even on a report
+        # the skill didn't author. But a picked *owner* is stamped `is_skill_owner=True` on any report
+        # the scout edits, so a steered scout can't launder autostart identity through a foreign one.
         self._seed_skill_owner("scoutowner")
         run = _make_run(self.team)
-        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
-            authored = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         foreign = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
-
         with patch(AUTOSTART_PATH, new=AsyncMock()):
-            for report_id in (authored["report_id"], str(foreign.id)):
-                response = self.client.post(
-                    self._edit_url(str(run.id)),
-                    data={"report_id": report_id, "suggested_reviewers": [{"github_login": "picked"}]},
-                    format="json",
-                )
-                assert response.status_code == status.HTTP_200_OK, response.json()
-
-        assert self._reviewer_logins(authored["report_id"]) == ["scoutowner", "picked"]
-        assert self._reviewer_logins(str(foreign.id)) == ["picked"]
-
-    def test_skill_authored_report_resolves_without_ambient_team_scope(self) -> None:
-        # `SignalScoutRun` is on a fail-closed manager; the async harness path (temporal runner) has
-        # no ambient request scope, so the helper must query via `for_team` — the ambient-context
-        # manager would raise TeamScopeError there. This direct call runs with no request scope,
-        # exactly like the runner.
-        run = _make_run(self.team)
-        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
-            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        foreign = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline")
-        assert _skill_authored_report(self.team, "signals-scout-general", created["report_id"]) is True
-        assert _skill_authored_report(self.team, "signals-scout-general", str(foreign.id)) is False
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": str(foreign.id),
+                    "suggested_reviewers": [{"github_login": "scoutowner"}, {"github_login": "picked"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(str(foreign.id), SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        stored = {e["github_login"]: e for e in json.loads(artefact.content)}
+        assert self._reviewer_logins(str(foreign.id)) == ["scoutowner", "picked"]
+        assert stored["scoutowner"]["is_skill_owner"] is True
+        assert stored["picked"]["is_skill_owner"] is False
 
     def test_edit_readding_former_owner_clears_owner_provenance(self) -> None:
         # A former owner re-added as a normal reviewer must lose `is_skill_owner`: provenance is
@@ -455,8 +444,13 @@ class TestScoutReportAPI(APIBaseTest):
         # flag forward would keep excluding them from autostart identity selection.
         self._seed_skill_owner("formerowner")
         run = _make_run(self.team)
+        # The scout picks the (then-)owner as reviewer; the pick is stamped as owner provenance.
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
-            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(suggested_reviewers=[{"github_login": "formerowner"}]),
+                format="json",
+            ).json()
         report_id = created["report_id"]
         artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert artefact is not None
@@ -799,113 +793,60 @@ class TestBuildSuggestedReviewers(APIBaseTest):
     def _seed_owner(self, skill_name: str, user: User) -> None:
         LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name=skill_name, user=user)
 
-    def test_owners_enforced_first_and_deduped(self) -> None:
-        # The guardrail: the running scout's owners are routed first, ahead of the model's picks, so a
-        # report about a scout always reaches whoever owns it — even if the model also names the owner
-        # (deduped) or picks someone else too. A regression that drops the guardrail routes to the
-        # model's pick alone.
+    def test_no_reviewers_yields_none_even_with_owners(self) -> None:
+        # The scout owns routing: with no picks the report routes to no one. A regression that
+        # re-adds owner injection would route a picked-nobody report to the owner instead.
+        self._seed_owner("signals-scout-y", self._github_member("soleowner"))
+        assert _build_suggested_reviewers(self.team, None, skill_name="signals-scout-y") is None
+
+    def test_owner_pick_stamped_in_place_without_reordering(self) -> None:
+        # A picked reviewer who is a current owner is stamped `is_skill_owner=True` (the autostart
+        # identity guardrail) — but stamping must not inject, drop, or reorder: the scout's order is
+        # the routing order, and a non-owner pick stays unstamped.
         self._seed_owner("signals-scout-x", self._github_member("ownerlogin"))
         result = _build_suggested_reviewers(
             self.team,
-            [ReviewerInput(github_login="ownerlogin"), ReviewerInput(github_login="other")],
+            [ReviewerInput(github_login="other"), ReviewerInput(github_login="ownerlogin")],
             skill_name="signals-scout-x",
-            enforce_owners=True,
         )
         assert result is not None
-        assert [e.github_login for e in result.root] == ["ownerlogin", "other"]
-        assert result.root[0].reason == "skill owner"
+        assert [(e.github_login, e.is_skill_owner) for e in result.root] == [("other", False), ("ownerlogin", True)]
 
-    def test_owner_injected_when_scout_supplies_no_reviewers(self) -> None:
-        # Foolproof routing: a report authored with no reviewers still routes to the owner, rather
-        # than to no one.
-        self._seed_owner("signals-scout-y", self._github_member("soleowner"))
-        result = _build_suggested_reviewers(self.team, None, skill_name="signals-scout-y", enforce_owners=True)
-        assert result is not None
-        assert [e.github_login for e in result.root] == ["soleowner"]
-
-    def test_owners_not_injected_without_enforce_flag(self) -> None:
-        # The edit path leaves enforcement off when the caller isn't setting reviewers, so an
-        # unrelated edit never injects owners over a routing a human may have chosen.
-        self._seed_owner("signals-scout-z", self._github_member("ignoredowner"))
-        result = _build_suggested_reviewers(
-            self.team,
-            [ReviewerInput(github_login="picked")],
-            skill_name="signals-scout-z",
-            enforce_owners=False,
-        )
-        assert result is not None
-        assert [e.github_login for e in result.root] == ["picked"]
-
-    def test_scout_repeating_an_owner_keeps_owner_provenance(self) -> None:
-        # The skill body steers the scout, so a scout repeating an owner's login is not independent
-        # commit-authorship evidence: clearing `is_skill_owner` here would let a skill editor name a
-        # privileged member as owner, steer the scout to repeat that login, and mint the autostart
-        # session as them. The flag must survive the dedupe; only the scout's reason merges in.
+    def test_scout_picked_owner_keeps_its_reason(self) -> None:
+        # Stamping rebuilds the owner entry, so it must carry the scout's reason forward — a report's
+        # reviewer routing is only as useful as the reason behind it. This is also the security case:
+        # a skill editor could name a privileged member as owner and steer the scout to pick them, so
+        # the pick is stamped (kept out of autostart identity) rather than trusted as authorship.
         self._seed_owner("signals-scout-v", self._github_member("pickedowner"))
         result = _build_suggested_reviewers(
             self.team,
             [ReviewerInput(github_login="PickedOwner", reason="top author on the surface")],
             skill_name="signals-scout-v",
-            enforce_owners=True,
         )
         assert result is not None
         assert [(e.github_login, e.is_skill_owner, e.reason) for e in result.root] == [
             ("pickedowner", True, "top author on the surface")
         ]
 
-    def test_scout_pick_survives_owner_overflow_at_the_cap(self) -> None:
-        # A skill can hold more GitHub-routable owners than MAX_SUGGESTED_REVIEWERS
-        # (MAX_SKILL_OWNERS exceeds it). Plain head-truncation would return an owner-only list,
-        # silently discarding the scout's explicit pick — and with it the only entry
-        # `_wants_repo_selection` counts as PR intent. The last slot is reserved for the pick.
-        for i in range(MAX_SUGGESTED_REVIEWERS + 2):
-            self._seed_owner("signals-scout-full", self._github_member(f"owner{i}"))
-        result = _build_suggested_reviewers(
-            self.team,
-            [ReviewerInput(github_login="scoutpick", reason="top author on the surface")],
-            skill_name="signals-scout-full",
-            enforce_owners=True,
-        )
-        assert result is not None
-        assert len(result.root) == MAX_SUGGESTED_REVIEWERS
-        assert result.root[-1].github_login == "scoutpick"
-        assert result.root[-1].is_skill_owner is False
-        assert all(e.is_skill_owner for e in result.root[:-1])
-
-    def test_owner_without_github_identity_is_skipped(self) -> None:
-        # A `suggested_reviewers` artefact is GitHub-login-keyed, so an owner with no linked identity
-        # can't be routed — skip them without failing the whole resolution.
-        orphan = User.objects.create(email="noowngh@example.com")
-        OrganizationMembership.objects.create(user=orphan, organization=self.organization)
-        self._seed_owner("signals-scout-w", orphan)
-        result = _build_suggested_reviewers(
-            self.team,
-            [ReviewerInput(github_login="picked")],
-            skill_name="signals-scout-w",
-            enforce_owners=True,
-        )
-        assert result is not None
-        assert [e.github_login for e in result.root] == ["picked"]
-
 
 _P1 = PriorityAssessment(priority=Priority.P1, explanation="big blast radius")
-_OWNER_ONLY_REVIEWERS = SuggestedReviewers.model_validate([{"github_login": "owner", "is_skill_owner": True}])
-_OWNER_PLUS_SCOUT_PICK = SuggestedReviewers.model_validate(
-    [{"github_login": "owner", "is_skill_owner": True}, {"github_login": "picked"}]
-)
+_PICKED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "picked"}])
+# An owner-flagged reviewer only exists because the scout picked an owner, so it carries PR intent
+# like any other pick — `is_skill_owner` governs autostart identity, not intent.
+_OWNER_FLAGGED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "owner", "is_skill_owner": True}])
 
 
 class TestWantsRepoSelection(SimpleTestCase):
-    """The PR-intent gate for repo selection. The load-bearing case: owner-guardrail entries land on
-    every emit, so counting them as reviewers would run free-form repo selection (and later autostart
-    under the team fallback runner) for a prioritized report whose scout supplied neither a repo nor
-    a reviewer."""
+    """The PR-intent gate for repo selection. The load-bearing case: an owner-flagged reviewer is a
+    scout pick (nothing is injected), so it counts as intent — re-excluding it would skip repo
+    selection for a prioritized report whose scout deliberately routed to an owner."""
 
     @parameterized.expand(
         [
-            ("owner_only_reviewers_are_not_pr_intent", None, _P1, _OWNER_ONLY_REVIEWERS, False),
-            ("scout_pick_with_priority_is_pr_intent", None, _P1, _OWNER_PLUS_SCOUT_PICK, True),
-            ("explicit_repository_always_selects", "posthog/posthog", None, _OWNER_ONLY_REVIEWERS, True),
+            ("picked_reviewer_with_priority_is_pr_intent", None, _P1, _PICKED_REVIEWER, True),
+            ("owner_flagged_reviewer_with_priority_is_pr_intent", None, _P1, _OWNER_FLAGGED_REVIEWER, True),
+            ("reviewer_without_priority_is_not_pr_intent", None, None, _PICKED_REVIEWER, False),
+            ("explicit_repository_always_selects", "posthog/posthog", None, None, True),
             ("priority_without_reviewers_is_not_pr_intent", None, _P1, None, False),
         ]
     )
