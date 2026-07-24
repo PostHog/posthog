@@ -57,10 +57,10 @@ class TestDiscourseSource:
         assert field.secret is False
         assert field.required is True
 
-    def test_connection_host_fields_covers_base_url(self) -> None:
-        # The stored API key is sent to whatever `base_url` points at, so retargeting the URL
-        # must force the editor to re-enter the key.
-        assert self.source.connection_host_fields == ["base_url"]
+    def test_connection_host_fields_covers_base_url_and_api_username(self) -> None:
+        # The stored API key is sent to whatever `base_url` points at, and `api_username` selects
+        # the identity an All Users key acts as, so retargeting either must force key re-entry.
+        assert self.source.connection_host_fields == ["base_url", "api_username"]
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True

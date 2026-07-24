@@ -50,8 +50,9 @@ class DiscourseSource(ResumableSource[DiscourseSourceConfig, DiscourseResumeConf
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `base_url` is where the stored API key is sent; retargeting it must re-require the key.
-        return ["base_url"]
+        # `base_url` is where the stored API key is sent, and `api_username` selects the identity an
+        # All Users key acts as — retargeting either while the key is preserved must re-require the key.
+        return ["base_url", "api_username"]
 
     @property
     def get_source_config(self) -> SourceConfig:
