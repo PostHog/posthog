@@ -66,6 +66,16 @@ class TestQueriedAccessControlledResources(BaseTest):
                 {"data_catalog"},
             ),
             ("information_schema_metrics", "select name from system.information_schema.metrics", {"data_catalog"}),
+            (
+                "information_schema_certifications",
+                "select notes from system.information_schema.certifications",
+                {"data_catalog"},
+            ),
+            (
+                "information_schema_relationship_proposals",
+                "select reasoning from system.information_schema.relationship_proposals",
+                {"data_catalog"},
+            ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
