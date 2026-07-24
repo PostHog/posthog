@@ -241,6 +241,47 @@ describe('ImageBatcher', () => {
         }
     )
 
+    it('refills a slot as soon as it frees rather than waiting on the slowest image in flight', async () => {
+        // Awaiting a whole group of scrubConcurrency before starting the next means one slow image
+        // holds its group's other slots idle until it finishes, so throughput tracks the slowest image
+        // in each group rather than the average one. On a spread-out scrub-time distribution that is
+        // most of the sidecar's capacity. A sliding window costs one slot for a slow image, not all of
+        // them, so every remaining image is already in flight before the slow one returns.
+        const store = new FakeStore()
+        let releaseSlow = (): void => {}
+        const slow = new Promise<void>((resolve) => (releaseSlow = resolve))
+        let started = 0
+        const gatedClient = {
+            scrub: (b: Buffer) => {
+                started += 1
+                return b.toString() === 'slow' ? slow.then(() => b) : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            gatedClient,
+            options,
+            0
+        )
+
+        const batch: Message[] = [msg(0, 0, pt(1), Buffer.from('slow'))]
+        for (let i = 1; i < 8; i++) {
+            batch.push(msg(0, i, pt(1), Buffer.from(`img-${i}`)))
+        }
+        const running = batcher.handleBatch(batch, 1)
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+
+        // All 8 are in flight while the slow one is still blocked; a barrier would stall at 4.
+        expect(started).toBe(8)
+
+        releaseSlow()
+        await running
+        expect(store.writes.flat()).toHaveLength(8)
+    })
+
     it('rescrubs an image whose batch failed rather than pod-deduping the replay away', async () => {
         // A ref is marked seen only once its image is buffered. Marking it at plan time, or inside
         // scrubOne, reads as a harmless simplification and silently drops the image instead: the
