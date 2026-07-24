@@ -203,6 +203,46 @@ describe('API helper', () => {
         })
     })
 
+    describe('successful response body parsing', () => {
+        const jsonRejects = (): Promise<any> => Promise.reject(new SyntaxError('Unexpected end of JSON input'))
+        const fakeResponse = ({
+            status = 200,
+            json,
+            headers = {},
+        }: {
+            status?: number
+            json: () => Promise<any>
+            headers?: Record<string, string>
+        }): any => ({
+            ok: true,
+            status,
+            json,
+            headers: { get: (key: string) => headers[key.toLowerCase()] ?? null },
+        })
+
+        it.each([
+            ['a non-JSON (HTML) content-type', { 'content-type': 'text/html' }],
+            ['a non-empty content-length', { 'content-length': '42' }],
+        ])('throws instead of returning null when the body was %s', async (_desc, headers) => {
+            fakeFetch.mockResolvedValue(fakeResponse({ json: jsonRejects, headers }))
+            await expect(api.get('api/environments/2/insights')).rejects.toThrow('malformed')
+        })
+
+        it.each([
+            ['a 204 No Content response', { status: 204, headers: {} }],
+            ['an empty body with no content headers', { status: 200, headers: {} }],
+        ])('resolves to null for %s', async (_desc, { status, headers }) => {
+            fakeFetch.mockResolvedValue(fakeResponse({ status, json: jsonRejects, headers }))
+            await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
+        })
+
+        it('propagates an AbortError instead of masquerading as a null result', async () => {
+            const abortError = new DOMException('The operation was aborted', 'AbortError')
+            fakeFetch.mockResolvedValue(fakeResponse({ json: () => Promise.reject(abortError) }))
+            await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

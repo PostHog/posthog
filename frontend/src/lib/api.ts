@@ -361,10 +361,53 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
+function isAbortError(error: unknown): boolean {
+    return (error as { name?: string } | null)?.name === 'AbortError'
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch {
+    } catch (error) {
+        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
+        // AbortError. Propagate it so it flows through the normal cancellation path instead of
+        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
+        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
+        if (isAbortError(error)) {
+            throw error
+        }
+        return null
+    }
+}
+
+/**
+ * Parse the body of a *successful* response, which is expected to be JSON.
+ *
+ * Unlike getJSONOrNull (best-effort parsing of error bodies, where callers opt into handling
+ * null), a present-but-unparseable body is treated as a failure rather than silently yielding
+ * null. Handing null back where callers expect the documented JSON shape is what turns a
+ * transient backend/proxy hiccup (a non-JSON 2xx body) into a
+ * `Cannot read properties of null (reading 'results')` crash deep inside loaders across the app.
+ * An empty body (e.g. 204 No Content) still resolves to null, and aborts propagate as AbortError.
+ */
+async function getJSONFromSuccessResponse(response: Response): Promise<any> {
+    try {
+        return await response.json()
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error
+        }
+        // json() failed on an OK response. When there's positive evidence the body actually
+        // carried content — a non-empty content-length, or a non-JSON content-type such as the
+        // HTML shell a proxy/CDN serves during a blip — treat it as a failure and surface it,
+        // rather than returning a null that callers dereference (`.results`, `.count`, …) and
+        // crash on. Otherwise (e.g. an empty 204/200 body) keep the historical null.
+        const contentLength = response.headers?.get?.('content-length')
+        const contentType = response.headers?.get?.('content-type') ?? ''
+        const hasBody = (contentLength != null && contentLength !== '0') || /html|xml|text\/plain/i.test(contentType)
+        if (hasBody) {
+            throw new ApiError('Received a malformed (non-JSON) response body', response.status)
+        }
         return null
     }
 }
@@ -7174,7 +7217,7 @@ const api = {
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -7227,7 +7270,7 @@ const api = {
             })
         })
 
-        return await getJSONOrNull(response)
+        return await getJSONFromSuccessResponse(response)
     },
 
     async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
@@ -7240,7 +7283,7 @@ const api = {
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrNull(res)
+        return await getJSONFromSuccessResponse(res)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
