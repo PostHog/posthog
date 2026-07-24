@@ -102,8 +102,6 @@ def get_client(region: str = "US", **kwargs: Any):
         api_key,
         host=host,
         super_properties={"region": region},
-        # Internal, unstable SDK switch: AI SDK wrapper events ride the dedicated
-        # AI capture lane instead of /batch/.
         _use_ai_lane=True,
         **kwargs,
     )

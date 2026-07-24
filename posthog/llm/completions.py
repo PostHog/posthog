@@ -11,8 +11,6 @@ from posthoganalytics.ai.openai import OpenAI
 
 @cache
 def _get_openai_client() -> Optional[OpenAI]:
-    # Lazy so importing this module never constructs the SDK's default client
-    # before apps.py has configured the posthoganalytics module attributes.
     if not os.getenv("OPENAI_API_KEY"):
         return None
     return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL)

@@ -72,13 +72,13 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        # Internal, unstable SDK switch: our AI SDK wrapper events ride the dedicated
-        # AI capture lane instead of /batch/. setup() syncs this onto the lazily
-        # auto-instantiated default client, whenever it gets constructed.
-        posthoganalytics._use_ai_lane = True  # type: ignore[invalid-assignment]
+        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
 
-        # Config for the SDK's `client.metrics` API, picked up by setup().
-        posthoganalytics.metrics = {  # type: ignore[attr-defined]
+        # Config for the SDK's `client.metrics` API. The pinned SDK version predates
+        # the metrics API and ignores this attr; once posthoganalytics is bumped to
+        # >=7.23 it's picked up by setup(), so metrics get a real service.name
+        # instead of 'unknown_service'.
+        posthoganalytics.metrics = {  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
             # metrics and traces from one process must share a service identity.
             "service_name": settings.OTEL_SERVICE_NAME or "posthog-django-default",

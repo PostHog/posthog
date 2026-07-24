@@ -12,8 +12,6 @@ class TestAILaneOptIn(SimpleTestCase):
             self.assertTrue(client._use_ai_lane)
 
     def test_module_attribute_opts_default_client_into_ai_lane(self):
-        # apps.py sets the module attribute; setup() syncs it onto the lazily
-        # auto-instantiated default client whenever it gets constructed.
         self.assertTrue(posthoganalytics._use_ai_lane)
         client = posthoganalytics.setup()
         self.assertTrue(client._use_ai_lane)
