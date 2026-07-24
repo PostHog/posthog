@@ -1,7 +1,7 @@
 import hashlib
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -34,6 +34,10 @@ ENTITY_PAGE_SIZE = 1000
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
 DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
+# Floor for the day-by-day fan-out of the Claude Code analytics endpoint (one required `starting_at`
+# day per request). Claude Code became available in 2025, so earlier days only return empty pages —
+# starting here avoids fanning out over hundreds of pre-launch days on a full refresh.
+DEFAULT_CLAUDE_CODE_START = date(2025, 1, 1)
 
 
 @dataclasses.dataclass
@@ -48,6 +52,8 @@ class AnthropicResumeConfig:
     # workspace_members fan-out checkpoint from the framework:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     fanout_state: dict | None = None
+    # Claude Code day fan-out checkpoint: {"date": "YYYY-MM-DD", "cursor": next_page | None}.
+    day_fanout_state: dict | None = None
 
 
 class AnthropicCursorPaginator(BasePaginator):
@@ -104,6 +110,70 @@ class AnthropicCursorPaginator(BasePaginator):
 
     def __str__(self) -> str:
         return f"AnthropicCursorPaginator(cursor_path={self.cursor_path}, cursor_param={self.cursor_param})"
+
+
+class ClaudeCodeDayPaginator(BasePaginator):
+    """Day-by-day fan-out for the Claude Code analytics endpoint.
+
+    The endpoint windows on a single required `starting_at` day (not a range) and page-cursors within
+    that day via `page`/`next_page`+`has_more`. This paginator walks each day's pages, then advances
+    `starting_at` to the next day, stopping once it passes today — so the whole history is one resource
+    driven entirely by the paginator (there is no parent API resource to resolve days from).
+    """
+
+    def __init__(self, start_day: date, today: date) -> None:
+        super().__init__()
+        # Never request a future day: if the watermark is at/after today, re-pull today only.
+        self._current_day = min(start_day, today)
+        self._today = today
+        self._page: Optional[str] = None
+
+    def _apply(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["starting_at"] = self._current_day.isoformat()
+        if self._page is not None:
+            request.params["page"] = self._page
+        else:
+            request.params.pop("page", None)
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        next_page = body.get("next_page") if isinstance(body, dict) else None
+        has_more = bool(body.get("has_more")) if isinstance(body, dict) else False
+        if has_more and next_page and data:
+            # More pages within the current day.
+            self._page = next_page
+            self._has_next_page = True
+            return
+        # Day exhausted — advance to the next day, or stop once we pass today.
+        self._current_day = self._current_day + timedelta(days=1)
+        self._page = None
+        self._has_next_page = self._current_day <= self._today
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {"date": self._current_day.isoformat(), "cursor": self._page}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        saved_date = state.get("date")
+        if saved_date:
+            self._current_day = _parse_iso_date(str(saved_date))
+            self._page = state.get("cursor")
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"ClaudeCodeDayPaginator(current_day={self._current_day}, today={self._today})"
 
 
 def _version_headers() -> dict[str, str]:
@@ -221,6 +291,9 @@ def _flatten_cost_result(bucket: dict[str, Any], result: dict[str, Any]) -> dict
         "service_tier": result.get("service_tier"),
         "token_type": result.get("token_type"),
         "context_window": result.get("context_window"),
+        # Data-residency dimension parsed from `description`; kept out of the id (description already
+        # disambiguates it) so existing rows' surrogate keys stay stable.
+        "inference_geo": result.get("inference_geo"),
         "currency": result.get("currency"),
         "amount": result.get("amount"),
     }
@@ -234,6 +307,116 @@ def _explode_usage_bucket(bucket: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _explode_cost_bucket(bucket: dict[str, Any]) -> list[dict[str, Any]]:
     return [_flatten_cost_result(bucket, result) for result in bucket.get("results") or []]
+
+
+def _parse_iso_date(value: str) -> date:
+    # Accept a bare date or a full RFC 3339 timestamp; only the calendar day matters for the fan-out.
+    return date.fromisoformat(value.strip()[:10])
+
+
+def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
+    """Resolve the first day to request: the incremental watermark (already shifted back by the
+    pipeline's lookback) on an incremental run, else the Claude Code launch-era floor."""
+    value = db_incremental_field_last_value
+    if value is None:
+        return DEFAULT_CLAUDE_CODE_START
+    if isinstance(value, datetime):
+        return (value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)).date()
+    if isinstance(value, date):
+        return value
+    return _parse_iso_date(str(value))
+
+
+def _claude_code_actor_dims(item: dict[str, Any]) -> tuple[Any, str | None, str | None, str | None, str | None]:
+    """Pull the shared (date, actor, terminal) dimensions every Claude Code row carries.
+
+    `actor` is either a user (`email_address`) or an API actor (`api_key_name`); surface both as flat
+    columns so the grain is queryable without unpacking a nested object.
+    """
+    actor = item.get("actor") or {}
+    return (
+        item.get("date"),
+        actor.get("type"),
+        actor.get("email_address"),
+        actor.get("api_key_name"),
+        item.get("terminal_type"),
+    )
+
+
+def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, actor): Claude Code core productivity metrics and tool-action counts."""
+    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    core = item.get("core_metrics") or {}
+    lines_of_code = core.get("lines_of_code") or {}
+    tool_actions = item.get("tool_actions") or {}
+
+    def _tool(name: str) -> tuple[Any, Any]:
+        action = tool_actions.get(name) or {}
+        return action.get("accepted"), action.get("rejected")
+
+    edit_accepted, edit_rejected = _tool("edit_tool")
+    multi_edit_accepted, multi_edit_rejected = _tool("multi_edit_tool")
+    write_accepted, write_rejected = _tool("write_tool")
+    notebook_edit_accepted, notebook_edit_rejected = _tool("notebook_edit_tool")
+
+    return {
+        "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type),
+        "date": date_value,
+        "organization_id": item.get("organization_id"),
+        "actor_type": actor_type,
+        "actor_email_address": actor_email,
+        "actor_api_key_name": actor_api_key_name,
+        "customer_type": item.get("customer_type"),
+        "terminal_type": terminal_type,
+        "num_sessions": core.get("num_sessions"),
+        "lines_of_code_added": lines_of_code.get("added"),
+        "lines_of_code_removed": lines_of_code.get("removed"),
+        "commits_by_claude_code": core.get("commits_by_claude_code"),
+        "pull_requests_by_claude_code": core.get("pull_requests_by_claude_code"),
+        "edit_tool_accepted": edit_accepted,
+        "edit_tool_rejected": edit_rejected,
+        "multi_edit_tool_accepted": multi_edit_accepted,
+        "multi_edit_tool_rejected": multi_edit_rejected,
+        "write_tool_accepted": write_accepted,
+        "write_tool_rejected": write_rejected,
+        "notebook_edit_tool_accepted": notebook_edit_accepted,
+        "notebook_edit_tool_rejected": notebook_edit_rejected,
+    }
+
+
+def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per (day, actor, model): the per-model token and estimated-cost breakdown.
+
+    Split out from the core metrics because tokens/cost are at a finer grain (per model) than sessions
+    and commits (per day) — keeping them in one table would either duplicate the core metrics across a
+    day's models or bury the per-model cost in a nested column.
+    """
+    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    rows: list[dict[str, Any]] = []
+    for entry in item.get("model_breakdown") or []:
+        model = entry.get("model")
+        tokens = entry.get("tokens") or {}
+        estimated_cost = entry.get("estimated_cost") or {}
+        rows.append(
+            {
+                "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type, model),
+                "date": date_value,
+                "organization_id": item.get("organization_id"),
+                "actor_type": actor_type,
+                "actor_email_address": actor_email,
+                "actor_api_key_name": actor_api_key_name,
+                "customer_type": item.get("customer_type"),
+                "terminal_type": terminal_type,
+                "model": model,
+                "input_tokens": tokens.get("input"),
+                "output_tokens": tokens.get("output"),
+                "cache_read_tokens": tokens.get("cache_read"),
+                "cache_creation_tokens": tokens.get("cache_creation"),
+                "estimated_cost_amount": estimated_cost.get("amount"),
+                "estimated_cost_currency": estimated_cost.get("currency"),
+            }
+        )
+    return rows
 
 
 def _stamp_workspace_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -266,7 +449,50 @@ def anthropic_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_workspaces:
+    if config.fan_out_over_days:
+        # Claude Code analytics: one windowed request per calendar day, driven entirely by the
+        # paginator (there is no parent API resource to resolve days from).
+        start_day = _claude_code_start_day(db_incremental_field_last_value)
+        # Annotated to the shared base so the other branches can rebind it to AnthropicCursorPaginator.
+        paginator: BasePaginator = ClaudeCodeDayPaginator(start_day, datetime.now(UTC).date())
+        day_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] = (
+            _flatten_claude_code_models if endpoint == "claude_code_model_breakdown" else _flatten_claude_code_core
+        )
+        day_params: dict[str, Any] = {}
+        if config.limit is not None:
+            day_params["limit"] = config.limit
+
+        cc_endpoint_resource: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {
+                "path": config.path,
+                "params": day_params,
+                "data_selector": "data",
+                "paginator": paginator,
+            },
+            "data_map": day_data_map,
+        }
+        cc_rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [cc_endpoint_resource],
+        }
+
+        initial_day_state = resume.day_fanout_state if resume is not None else None
+
+        def save_day_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(AnthropicResumeConfig(day_fanout_state=state))
+
+        resource = rest_api_resource(
+            cc_rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_day_checkpoint,
+            initial_paginator_state=initial_day_state,
+        )
+    elif config.fan_out_over_workspaces:
         # No org-wide member list exists; enumerate every workspace (archived included, since they
         # are still referenced by historical usage/cost rows) and fetch its /members per workspace.
         workspaces_config = ANTHROPIC_ENDPOINTS["workspaces"]

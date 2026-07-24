@@ -2414,7 +2414,14 @@ class HogFlowViewSet(
                     {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
                 )
             if not hog_flow or not hog_flow.draft:
-                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+                raise exceptions.ValidationError(
+                    {
+                        "use_draft": (
+                            "This workflow has no staged draft to test. Stage one by editing the "
+                            "workflow first, or omit use_draft to test the live config."
+                        )
+                    }
+                )
             payload["configuration"] = hog_flow.draft
 
         res = create_hog_flow_invocation_test(

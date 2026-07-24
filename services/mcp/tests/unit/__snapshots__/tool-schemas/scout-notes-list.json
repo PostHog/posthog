@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content_max_chars": {
+            "description": "Truncate each note's `content` to the first N characters (a preview). Omit for the full body — use this on wide scans so stacked notes can't dominate your context.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "date_from": {
+            "description": "ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "ISO-8601 exclusive upper bound on `created_at`. Pass the `created_at` of the oldest note from the prior page to walk back past the result cap.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "include_expired": {
+            "default": false,
+            "description": "Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.",
+            "type": "boolean"
+        },
+        "include_general": {
+            "default": true,
+            "description": "Only meaningful with `skill_name`: when false, exclude the general fleet-wide notes and return the skill's own notes only.",
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Max rows to return (default 20, hard cap 500).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "skill_name": {
+            "description": "Return the notes addressed to this scout (`signals-scout-*`) plus the general (blank-target) notes for the whole fleet. Omit to browse every note on the project.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
