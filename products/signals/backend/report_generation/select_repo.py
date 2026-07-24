@@ -40,10 +40,36 @@ __all__ = [
     "REPO_SELECTION_DUMMY_REPOSITORY",
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
+    "implicit_repository_for_report_action",
     "resolve_team_github_integration",
     "select_repository_for_report",
     "select_repository_for_team",
 ]
+
+
+def implicit_repository_for_report_action(
+    team_id: int, user_id: int | None, report_id: str, message: str
+) -> str | None:
+    """Repository for a manual report action (Inbox "Create PR" / "Discuss").
+
+    Mirrors the report's persisted selection when one exists — so a scout's explicit ``NO_REPO``
+    stays no-repo. When the report has no ``repo_selection`` artefact yet, resolves one the same
+    cheap way Slack mentions do (a single connected repo, or an explicit ``owner/repo`` named in
+    ``message``) via ``cascade_select_repository``, without the sandbox-backed selection agent.
+    Returns ``None`` when nothing resolves. Synchronous — safe to call from the task-create path.
+    """
+    from products.signals.backend.models import (
+        SignalReportArtefact,  # noqa: PLC0415 — model import kept off this module's import path
+    )
+
+    latest_selection = (
+        SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        .order_by("-created_at")
+        .first()
+    )
+    if latest_selection is not None:
+        return RepoSelectionResult.model_validate_json(latest_selection.content).repository
+    return tasks_facade.cascade_select_repository(team_id, user_id, message)
 
 
 async def select_repository_for_team(

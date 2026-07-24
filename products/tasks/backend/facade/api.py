@@ -107,6 +107,7 @@ __all__ = [
     "beacon_task_presence",
     "bootstrap_task_run",
     "can_mint_readonly_github_token",
+    "cascade_select_repository",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -3538,6 +3539,19 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
+def cascade_select_repository(team_id: int, user_id: int | None, message: str) -> str | None:
+    """Cheap synchronous repo pick for a team — the Slack-mention cascade fast path (single
+    connected repo, or an explicit `owner/repo` in `message`; else `None`). No selection agent.
+
+    Lazy wrapper so API importers do not load the repo-selection agent on their request path.
+    """
+    from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
+        cascade_select_repository as cascade_select_repository_impl,
+    )
+
+    return cascade_select_repository_impl(team_id, user_id, message)
+
+
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
 ) -> QuerySet[Task]:
@@ -3818,6 +3832,29 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
+
+    # Inbox "Create PR" / "Discuss" don't require a pre-selected repo: when the caller passes none,
+    # resolve one implicitly instead of failing — mirroring the report's persisted selection, or
+    # (when it has none yet) the same cheap Slack-mention cascade. Keeps repo selection off the
+    # client and out of the api import path via the signals facade read.
+    signal_report = validated_data.get("signal_report")
+    if (
+        signal_report is not None
+        and not validated_data.get("repository")
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    ):
+        from products.signals.backend.report_generation.select_repo import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            implicit_repository_for_report_action,
+        )
+
+        resolved_repository = implicit_repository_for_report_action(
+            team_id=team_id,
+            user_id=user_id,
+            report_id=str(signal_report.id),
+            message=validated_data.get("description") or "",
+        )
+        if resolved_repository:
+            validated_data["repository"] = resolved_repository
 
     if (
         validated_data.get("repository")

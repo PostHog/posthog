@@ -41,3 +41,30 @@ async def select_repository_for_message(
     except Exception:
         logger.warning("repo_selection_for_message.failed team_id=%s", team_id, exc_info=True)
         return None
+
+
+def cascade_select_repository(team_id: int, user_id: int | None, message: str) -> str | None:
+    """Cheap synchronous repo pick, mirroring the Slack mention cascade's fast path.
+
+    Resolves the trivial cases without the sandbox-backed selection agent: a single connected repo
+    is used directly, otherwise an explicit `owner/repo` named in `message`. Ambiguous multi-repo
+    cases with no explicit mention return `None` (the caller starts a repo-less run) rather than
+    paying for agentic discovery. Never raises — every failure degrades to "no repo".
+
+    Synchronous so request-path callers (task creation) can use it without an event loop. Passes
+    `user_id` as the requester, so their own connected GitHub is a valid source (their credentials,
+    not a cross-account leak) when the team has no team-level integration.
+    """
+    try:
+        github = resolve_team_github_integration(team_id, requester_user_id=user_id)
+        if github is None:
+            return None
+        candidates = _list_candidate_repos(github, team_id)
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        return extract_explicit_repo(message, candidates)
+    except Exception:
+        logger.warning("cascade_select_repository.failed team_id=%s", team_id, exc_info=True)
+        return None

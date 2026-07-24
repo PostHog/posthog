@@ -1377,6 +1377,37 @@ class TestTaskAPI(BaseTaskAPITest):
             ).exists()
         )
 
+    def test_create_signal_report_task_resolves_repository_when_none_provided(self):
+        # A report with no repo_selection artefact must not leave the task repo-less: create_task
+        # resolves one implicitly (single connected repo here), so "Create PR" works without the
+        # client pre-selecting a repo.
+        from products.signals.backend.models import SignalReport
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["repository"], "acme/web")
+
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import (
