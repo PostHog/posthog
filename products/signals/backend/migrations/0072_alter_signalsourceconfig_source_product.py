@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0070_signalscoutconfig_output_destinations"),
+        ("signals", "0071_signalscoutnote"),
     ]
 
     operations = [
