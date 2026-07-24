@@ -5,12 +5,18 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 
 from products.dashboards.backend.models.dashboard import Dashboard
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 class TestWelcomeEndpoint(APIBaseTest):
@@ -178,6 +184,42 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["popular_dashboards"]), 1)
         self.assertEqual(data["popular_dashboards"][0]["name"], "Top dashboard")
+
+    def test_popular_dashboards_not_leaked_across_users_via_shared_cache(self):
+        # popular_dashboards is filtered by the requester's object-level dashboard access, but the
+        # welcome cache key is only org/team-scoped. If it were served from that shared cache, a user
+        # allowed to view a dashboard could populate the entry for a user explicitly denied it. It must
+        # be recomputed per request.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Secret dashboard")
+        dashboard.last_accessed_at = timezone.now()
+        dashboard.save()
+
+        allowed_user = User.objects.create_and_join(self.organization, "allowed@example.com", "password")
+        denied_user = User.objects.create_and_join(self.organization, "denied@example.com", "password")
+        denied_membership = OrganizationMembership.objects.get(organization=self.organization, user=denied_user)
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="none",
+            organization_member=denied_membership,
+        )
+
+        # allowed_user hits the endpoint first, warming the shared org-scoped cache.
+        self.client.force_login(allowed_user)
+        allowed_data = self.client.get("/api/organizations/@current/welcome/current/").json()
+        assert "Secret dashboard" in [d["name"] for d in allowed_data["popular_dashboards"]]
+
+        # denied_user must not receive the dashboard, even with the shared cache now warm.
+        self.client.force_login(denied_user)
+        denied_data = self.client.get("/api/organizations/@current/welcome/current/").json()
+        assert "Secret dashboard" not in [d["name"] for d in denied_data["popular_dashboards"]]
 
     def test_products_in_use_from_ingested_events(self):
         self.team.ingested_event = True
