@@ -11,7 +11,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -20,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
@@ -319,24 +319,22 @@ export function SidePanelSupport(): JSX.Element {
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { isCurrentOrganizationNew } = useValues(organizationLogic)
+    const { tickets, canCreateTicket, view: ticketsView } = useValues(sidepanelTicketsLogic)
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
-    const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
-    const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
-
-    const canEmail =
-        billing?.subscription_level === 'paid' ||
-        billing?.subscription_level === 'custom' ||
-        hasActiveTrial ||
-        targetArea === 'billing' ||
-        isCurrentOrganizationNew
-    const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
-    const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
+    // Billing problems are answered on every plan, so that CTA gets a form even on free
+    const canEmail = canCreateTicket || targetArea === 'billing'
+    const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
+    const showEmailSupport = isCloudOrDev && canEmail
+    const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
+    // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
+    // bug reports) stay readable and repliable here. `ticketsView` keeps the section mounted once a
+    // thread or the composer is open, since targetArea resets as soon as the intent is consumed.
+    const showTickets =
+        isCloudOrDev && useProductSupportSidePanel && (canEmail || tickets.length > 0 || ticketsView !== 'list')
+    const isComposingTicket = useProductSupportSidePanel && ticketsView === 'new'
 
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
@@ -385,13 +383,14 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
-                                <Section title="Contact us">
+                            {showTickets && isBillingLoaded && (
+                                <Section title={canEmail || isComposingTicket ? 'Contact us' : 'Your tickets'}>
                                     <StatusPageAlert />
                                     <SupportMessageOverride />
                                     <p>
-                                        Can't find what you need and PostHog AI unable to help? Message our support
-                                        engineers.
+                                        {canEmail || isComposingTicket
+                                            ? "Can't find what you need and PostHog AI unable to help? Message our support engineers."
+                                            : 'You can keep replying to tickets you already have open.'}
                                     </p>
                                     <SidePanelTickets />
                                 </Section>

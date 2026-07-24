@@ -4,13 +4,19 @@ import posthog from 'posthog-js'
 import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { initKeaTests } from '~/test/init'
+import { BillingType } from '~/types'
 
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
+
+    const setSubscriptionLevel = (subscriptionLevel: BillingType['subscription_level']): void => {
+        billingLogic.actions.loadBillingSuccess({ subscription_level: subscriptionLevel } as BillingType)
+    }
 
     beforeEach(() => {
         initKeaTests()
@@ -26,6 +32,10 @@ describe('sidepanelTicketsLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
         supportLogic.mount()
+        billingLogic.mount()
+        // Tickets can be created unless a test drops the plan; set it up front, since the async
+        // fixture load lands too late for the intent a test may already have queued
+        setSubscriptionLevel('paid')
     })
 
     afterEach(() => {
@@ -64,13 +74,39 @@ describe('sidepanelTicketsLogic', () => {
         await expectLogic(logic, () => {
             supportLogic.actions.openSupportForm({
                 kind: 'support',
-                target_area: 'billing',
+                target_area: 'analytics',
                 isEmailFormOpen: true,
                 target: 'sidePanel',
             })
         }).toFinishAllListeners()
 
         expect(logic.values.view).toBe('new')
+        expect(supportLogic.values.isEmailFormOpen).toBe(false)
+    })
+
+    it.each([
+        ['analytics', 'list'],
+        // Billing problems are answered on every plan
+        ['billing', 'new'],
+    ])('on a free plan, a %s support CTA lands on the %s view', async (targetArea, expectedView) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        // After the mount, so the fixture load doesn't put the paid plan back
+        setSubscriptionLevel('free')
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'bug',
+                target_area: targetArea as 'analytics' | 'billing',
+                isEmailFormOpen: true,
+                message: 'It broke',
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.view).toBe(expectedView)
+        // Either way the intent is consumed, so supportRouterLogic doesn't keep replaying it
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
     })
 
