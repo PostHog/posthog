@@ -64,6 +64,7 @@ export const getCategoryDisplayName = (category: string): string => {
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
         health: 'Health',
+        help: 'Help',
         misc: 'Misc',
     }
 
