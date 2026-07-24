@@ -270,7 +270,58 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_EU_DOMAIN="eu.posthog.com",
     )
     @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
-    def test_billing_event_unknown_config_does_not_proxy(self, mock_post):
+    def test_billing_event_unknown_config_on_us_proxies_to_eu(self, mock_post):
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 200
+        mock_post.return_value = mock_eu_response
+
+        payload = {
+            "type": "marketplace.invoice.paid",
+            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "ok"
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs["url"] == "https://eu.posthog.com/webhooks/vercel"
+        assert call_kwargs.kwargs["headers"]["x-vercel-signature"] == signature
+
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
+        SITE_URL="https://us.posthog.com",
+        REGION_US_DOMAIN="us.posthog.com",
+        REGION_EU_DOMAIN="eu.posthog.com",
+    )
+    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    def test_billing_event_unknown_config_on_us_eu_proxy_non_ok_returns_404(self, mock_post):
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 404
+        mock_post.return_value = mock_eu_response
+
+        payload = {
+            "type": "marketplace.invoice.paid",
+            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_post.assert_called_once()
+
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
+        SITE_URL="https://eu.posthog.com",
+        REGION_US_DOMAIN="us.posthog.com",
+        REGION_EU_DOMAIN="eu.posthog.com",
+    )
+    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    def test_billing_event_unknown_config_on_eu_does_not_proxy(self, mock_post):
         payload = {
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},

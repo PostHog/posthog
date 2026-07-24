@@ -33,8 +33,8 @@ def _is_us_region() -> bool:
     return settings.SITE_URL == f"https://{us_domain}"
 
 
-def _proxy_deauthorization_to_eu(raw_body: bytes, signature: str | None) -> int | None:
-    """Forward a deauthorization webhook to EU. Returns the EU status code, or None on failure."""
+def _proxy_to_eu(raw_body: bytes, signature: str | None) -> int | None:
+    """Forward a webhook to EU. Returns the EU status code, or None on failure."""
     eu_domain = getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
     target_url = f"https://{eu_domain}/webhooks/vercel"
 
@@ -163,7 +163,7 @@ def vercel_webhook(request: Request) -> Response:
                     return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         elif _is_us_region():
             logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
-            eu_status = _proxy_deauthorization_to_eu(request.body, signature)
+            eu_status = _proxy_to_eu(request.body, signature)
             if eu_status is None or eu_status >= 300:
                 logger.warning(
                     "vercel_webhook_deauthorize_eu_proxy_non_ok",
@@ -187,11 +187,21 @@ def vercel_webhook(request: Request) -> Response:
 
     integration = _get_integration(config_id)
     if not integration:
-        logger.error("vercel_webhook_unknown_config", config_id=config_id)
-        capture_exception(
-            OrganizationIntegration.DoesNotExist(),
-            {"config_id": config_id, "event_type": event_type},
-        )
+        # The integration may be hosted in the other region. Mirror the deauthorization path
+        # and forward unknown-config billing webhooks from US to EU before giving up.
+        if _is_us_region():
+            logger.info("vercel_webhook_billing_proxying_to_eu", config_id=config_id, event_type=event_type)
+            eu_status = _proxy_to_eu(request.body, signature)
+            if eu_status is not None and eu_status < 300:
+                return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            logger.warning(
+                "vercel_webhook_billing_eu_proxy_non_ok",
+                config_id=config_id,
+                event_type=event_type,
+                eu_status=eu_status,
+            )
+        else:
+            logger.error("vercel_webhook_unknown_config", config_id=config_id, event_type=event_type)
         return Response({"error": "Unknown configuration"}, status=status.HTTP_404_NOT_FOUND)
 
     try:
