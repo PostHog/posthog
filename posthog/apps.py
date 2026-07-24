@@ -75,7 +75,8 @@ class PostHogConfig(AppConfig):
         # Internal, unstable SDK switch: our AI SDK wrapper events ride the dedicated
         # AI capture lane instead of /batch/. setup() syncs this onto the lazily
         # auto-instantiated default client, whenever it gets constructed.
-        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
+        posthoganalytics._use_ai_lane = True  # type: ignore[invalid-assignment]
+
         # Config for the SDK's `client.metrics` API, picked up by setup().
         posthoganalytics.metrics = {  # type: ignore[attr-defined]
             # Same fallback as the OTel trace resource (otel_instrumentation.py) —
