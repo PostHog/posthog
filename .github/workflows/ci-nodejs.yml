@@ -413,13 +413,7 @@ jobs:
                   # Create dedicated persons database for postgres-parity tests
                   cd nodejs && pnpm run setup:test:persons-parity
 
-            # Build the workspace deps (the Rust addons + TS) up front so the Jest step below times
-            # only the tests. Otherwise turbo's `test` task pulls `^build`, folding the addon compile
-            # into the test step and making a slow shard ambiguous (cold cargo vs slow tests).
-            # SHARD_INDEX/SHARD_COUNT are in the `build` task's turbo cache key, so they must match the
-            # Jest step's values here — otherwise `^build` hashes differently in the two steps and the
-            # addon rebuilds inside Jest anyway. (The build output doesn't actually vary by shard; the
-            # real fix is dropping them from the build task's env in turbo.json.)
+            # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests; the shard env must match Jest's, or turbo's build cache key differs between the steps and the addon rebuilds inside Jest anyway.
             - name: Prepare Node.js workspace
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
