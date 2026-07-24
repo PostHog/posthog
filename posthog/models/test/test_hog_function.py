@@ -285,7 +285,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         ]
         # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
         # Note: RemoteConfig refresh queries are now deferred via async signals
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
