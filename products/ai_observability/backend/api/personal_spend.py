@@ -37,7 +37,7 @@ from rest_framework.response import Response
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import (
@@ -868,22 +868,23 @@ def _fetch_by_input_size(
     `limit`: there are only as many rows as there are buckets (six), so truncating by
     cost would drop whole buckets rather than individual rows."""
     query = parse_select(
-        f"""
+        """
         SELECT
-            {_input_size_bucket_case_sql()} AS bucket,
+            {bucket_case} AS bucket,
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
         FROM events
-        WHERE {{event_in}}
-            AND {{product_filter}}
-            AND {{email_filter}}
-            AND {{timestamp_filter}}
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
         GROUP BY bucket
         """
     )
     result = execute_hogql_query(
         query=query,
         placeholders={
+            "bucket_case": parse_expr(_input_size_bucket_case_sql()),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "product_filter": _product_filter(product),
             "email_filter": _email_filter(email),
