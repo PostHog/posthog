@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 
 from django.conf import settings
+from django.db.utils import OperationalError as DjangoOperationalError
 
 import orjson
 import pyarrow as pa
@@ -23,6 +24,7 @@ from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -119,28 +121,38 @@ class CDPProducer:
             self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions or workflows")
             self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
 
-            has_matching_hog_function = (
-                HogFunction.objects.filter(
-                    team_id=self.team_id,
-                    enabled=True,
-                    filters__source="data-warehouse-table",
-                    filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
+            try:
+                has_matching_hog_function = (
+                    HogFunction.objects.filter(
+                        team_id=self.team_id,
+                        enabled=True,
+                        filters__source="data-warehouse-table",
+                        filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
+                    )
+                    .exclude(deleted=True)
+                    .exists()
                 )
-                .exclude(deleted=True)
-                .exists()
-            )
 
-            if has_matching_hog_function:
-                return True
+                if has_matching_hog_function:
+                    return True
 
-            # Also gate on active workflows (HogFlows) triggered by this table - without this the
-            # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
-            return HogFlow.objects.filter(
-                team_id=self.team_id,
-                status=HogFlow.State.ACTIVE,
-                trigger__type="data-warehouse-table",
-                trigger__table_name=dot_notated_table_name,
-            ).exists()
+                # Also gate on active workflows (HogFlows) triggered by this table - without this the
+                # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
+                return HogFlow.objects.filter(
+                    team_id=self.team_id,
+                    status=HogFlow.State.ACTIVE,
+                    trigger__type="data-warehouse-table",
+                    trigger__table_name=dot_notated_table_name,
+                ).exists()
+            except DjangoOperationalError as e:
+                # This queries PostHog's own database, not the source being synced. A transient
+                # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
+                # same wording a customer's misconfigured source host would, which the source's
+                # `get_non_retryable_errors` would misclassify as non-retryable and permanently
+                # stop a healthy sync. Re-raise clear of those substrings so it stays retryable.
+                raise PostHogInternalDatabaseError(
+                    "Failed to check hog function/workflow triggers in PostHog's database"
+                ) from e
 
         self._should_produce_cache = await _check()
         return self._should_produce_cache

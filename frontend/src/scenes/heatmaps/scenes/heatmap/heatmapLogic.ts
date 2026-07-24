@@ -13,7 +13,8 @@ import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/h
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HeatmapStatus, HeatmapType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { AccessControlLevel, ActivityScope, HeatmapStatus, HeatmapType } from '~/types'
 
 import {
     getHeatmapScreenshotsContentRetrieveUrl,
@@ -131,8 +132,10 @@ export interface heatmapLogicValues {
     screenshotLoaded: boolean
     screenshotLoading: boolean
     screenshotUrl: string | null
+    sidePanelContext: SidePanelSceneContext | null
     status: HeatmapStatus
     type: HeatmapType
+    userAccessLevel: AccessControlLevel | null
     width: number | null
 }
 
@@ -218,6 +221,9 @@ export interface heatmapLogicActions {
     }
     setType: (type: HeatmapType) => {
         type: HeatmapType
+    }
+    setUserAccessLevel: (level: AccessControlLevel | null) => {
+        level: AccessControlLevel | null
     }
     setWidth: (width: number) => {
         width: number
@@ -317,6 +323,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         snapshotSavedBlockConsentModals: (value: boolean) => ({ value }),
         setPageUrlDraft: (value: string) => ({ value }),
         applyPageUrlDraft: true,
+        setUserAccessLevel: (level: AccessControlLevel | null) => ({ level }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -342,6 +349,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 setDisplayUrl: (_, { url }) => url ?? '',
             },
         ],
+        userAccessLevel: [null as AccessControlLevel | null, { setUserAccessLevel: (_, { level }) => level }],
     }),
     listeners(({ actions, values, props, cache }) => ({
         changeCaptureMethod: async ({ type }) => {
@@ -377,6 +385,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.snapshotSavedDisplayUrl(item.url ?? null)
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
+                actions.setUserAccessLevel((item.user_access_level ?? null) as AccessControlLevel | null)
                 actions.setType(item.type ?? 'screenshot')
                 posthog.capture('in-app heatmap viewed', {
                     heatmap_type: item.type,
@@ -619,6 +628,21 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
     }),
+    selectors(({ props }) => ({
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext | null => {
+                return props.id && String(props.id) !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.HEATMAP,
+                          activity_item_id: `${props.id}`,
+                          access_control_resource: 'heatmap',
+                          access_control_resource_id: `${props.id}`,
+                      }
+                    : null
+            },
+        ],
+    })),
     afterMount(({ actions }) => {
         actions.load()
     }),

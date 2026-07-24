@@ -42,10 +42,12 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
         lines.push({
             label: 'Assignee',
             value: assigneeEntries.map((entry, index) => (
-                <span key={entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`}>
+                <span key={typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`}>
                     {index > 0 ? ', ' : ''}
                     {entry === 'unassigned' ? (
                         'Unassigned'
+                    ) : entry === 'me' ? (
+                        'Me (current user)'
                     ) : (
                         <AssigneeResolver assignee={entry}>
                             {({ assignee }) => (

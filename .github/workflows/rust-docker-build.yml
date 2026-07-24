@@ -180,6 +180,9 @@ jobs:
                     - release: sqlx-migrate
                       digest_key: sqlx-migrate
                       values_key: image
+                    - release: personhog-identity
+                      digest_key: personhog-identity
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image

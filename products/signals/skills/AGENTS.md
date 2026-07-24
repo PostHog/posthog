@@ -313,8 +313,10 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
    (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
-   authoring a skill is enough to get a scout. To register (and tune) one immediately
-   instead, use the `scout-config-create` endpoint.
+   authoring a skill is enough to get a scout. For custom scouts, `scout-create-prepare`
+   validates and signs the skill and config, then `scout-create-execute` creates them
+   after the user confirms; `scout-config-create` remains the lower-level way to register
+   a config for an existing skill.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -322,8 +324,8 @@ every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP
-tool, and settable at creation time via `scout-config-create` (an upsert that
-registers the config immediately instead of waiting for the tick). See
+tool, and settable for a new custom scout via the nested `config` object on
+`scout-create-prepare`. See
 `scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
