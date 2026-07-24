@@ -9,6 +9,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.organization import OrganizationMembership
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
@@ -37,6 +38,14 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
     """Snapshot the full scanner state and INSERT the row in `pending`; UNIQUE conflicts return `was_created=False` unless the row is this workflow's own lost-result insert, which is reclaimed."""
+    try:
+        return _create_observation(inputs)
+    finally:
+        # Every exit resolves the row's existence, so the enqueue claim is done; TTL covers a crash.
+        release_enqueue_claim(team_id=inputs.team_id, scanner_id=inputs.scanner_id, workflow_id=inputs.workflow_id)
+
+
+def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
     scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
     if scanner is None:
         raise ValueError(f"ReplayScanner {inputs.scanner_id} not found for team {inputs.team_id}")

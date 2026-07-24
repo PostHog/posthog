@@ -438,6 +438,29 @@ tools:
             minutes apart; set null to return to the rolling interval. You can also configure
             `output_destinations.slack` with a Slack integration and channel. `skill_name` is fixed. Enabling records
             who flipped it on and is activity-logged, since running a scout drives spend.
+    scout-create:
+        operation: signals_scout_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a scout
+        description: >
+            Create a custom `signals-scout-*` skill and its runnable config in one atomic call. Pass the complete
+            markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps,
+            and report criteria there. The server always grants the report-channel tools. Optional `files` bundle
+            reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and
+            typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied
+            config fields. Reusing the name for a different definition returns a conflict.
+        confirmed_action:
+            message: >
+                About to create scout '{name}', a persistent automation that can run unattended on its configured
+                schedule and write reports to the inbox when enabled with emit on. Reply 'confirm' to create it.
+            action_label: create scout
     scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true

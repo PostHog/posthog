@@ -75,7 +75,7 @@ export default function RegionSelect(): JSX.Element | null {
     const { beginLogin } = useActions(oauthLogic)
     const [regionModalOpen, setRegionModalOpen] = useState(false)
 
-    // Local dev: offer signing into a remote cloud region over OAuth, styled like the PostHog Code
+    // Local dev: offer signing into a remote cloud region over OAuth, styled like the PostHog Desktop
     // desktop region picker. Keeping "Local" uses the usual session-cookie form below; picking
     // US/EU kicks off the OAuth flow against that region.
     if (preflight?.is_debug) {

@@ -57,6 +57,7 @@ members = [
   "kafka-deduplicator",
   "personhog-common",
   "personhog-coordination",
+  "personhog-identity",
   "personhog-leader",
   "personhog-writer",
   "personhog-proto",
@@ -162,6 +163,10 @@ http-body-util = "0.1"
 httpmock = "0.7.0"
 mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
+# default-features off on purpose: the defaults drag in native-tokio (rustls-native-certs), and the
+# `clickhouse` crate already pins this dependency with defaults off. Enabling them here would flip
+# the feature set for every consumer of the shared dependency.
+hyper-rustls = { version = "0.27.7", default-features = false, features = ["aws-lc-rs", "http1", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 libdeflater = "1"
@@ -177,6 +182,9 @@ prost = "0.13"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
+# Matches the provider `clickhouse`'s `rustls-tls` feature selects, so a direct `rustls::ClientConfig`
+# is built against the same crypto backend the crate would have used itself.
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }

@@ -9,6 +9,9 @@ from django.core.cache import cache
 
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table, TableNode
+
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -27,6 +30,14 @@ from ee.models.rbac.access_control import AccessControl
 RECORDING_START = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
+
+
+def _hogql_table_tree(node: TableNode) -> dict[str, Any]:
+    table = node.table
+    return {
+        "fields": sorted(table.fields) if isinstance(table, Table) else None,
+        "children": {name: _hogql_table_tree(child) for name, child in node.children.items()},
+    }
 
 
 @freeze_time("2026-01-02T12:00:00Z")
@@ -621,6 +632,46 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         compute.assert_not_called()
         assert second.json() == first.json()
 
+    def test_uncached_request_shares_one_readonly_hogql_database(self) -> None:
+        # Building the HogQL virtual database costs seconds on teams with a large warehouse
+        # schema, so the endpoint builds one and shares it across every scan (exposures,
+        # stamped properties, metric events) — concurrently, in production. Two regressions
+        # pinned: a scan quietly building its own database (reintroduces the multi-second
+        # latency), and a scan mutating the shared one (e.g. an information_schema-touching
+        # query registers hidden external tables on it — a silent data race across the
+        # production thread pool).
+        self._create_recording()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        self._create_experiment(metrics=[metric])
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        built: list[tuple[Database, dict[str, Any]]] = []
+        original_create_for = Database.create_for
+
+        def _capturing_create_for(*args: Any, **kwargs: Any) -> Database:
+            database = original_create_for(*args, **kwargs)
+            built.append((database, _hogql_table_tree(database.tables)))
+            return database
+
+        with patch.object(Database, "create_for", side_effect=_capturing_create_for) as create_for:
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["metrics_in_session"][0]["metric_uuid"] == metric["uuid"]
+        assert create_for.call_count == 1
+        database, tree_before_scans = built[0]
+        assert _hogql_table_tree(database.tables) == tree_before_scans
+
     def test_recording_not_found_is_not_cached(self) -> None:
         # A recording can 404 while still ingesting; that answer must not stick for the TTL.
         assert self._get_session_context().status_code == status.HTTP_404_NOT_FOUND
@@ -703,6 +754,17 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
                 "event_count": 1,
                 "first_timestamp": "2026-01-01T10:09:00Z",
                 "timestamps": ["2026-01-01T10:09:00Z"],
+                "sources": [
+                    {
+                        "source_role": "source",
+                        "source_name": "purchase",
+                        "source_index": 0,
+                        "source_total": 1,
+                        "event_count": 1,
+                        "first_timestamp": "2026-01-01T10:09:00Z",
+                        "timestamps": ["2026-01-01T10:09:00Z"],
+                    }
+                ],
             }
         ]
         # No metric event fired for the other experiment — the additive fields stay inert and

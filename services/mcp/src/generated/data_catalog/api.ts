@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -193,6 +193,18 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
  */
 export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Re-snapshot the linked insight's current query into the definition.
+ */
+export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
     project_id: zod
         .string()
