@@ -101,8 +101,8 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
                     event_count: 1,
                     first_timestamp: '2023-05-01T14:46:27.000000Z',
                     timestamps: ['2023-05-01T14:46:27.000000Z'],
-                    // The return visit lands in a later session, so a retention metric can only
-                    // ever contribute its start event here.
+                    // $pageview on both the start and return side: the return source would just
+                    // duplicate the start's identical events, so only the start is contributed here.
                     sources: [
                         {
                             source_role: 'retention_start',

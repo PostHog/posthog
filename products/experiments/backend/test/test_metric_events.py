@@ -101,28 +101,29 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
                 _metric("ratio", numerator=_events_node("purchase"), denominator=_events_node("$pageview")),
                 ("purchase", "$pageview"),
             ),
+            # A distinct return event is its own source, kept whichever window it opens in — the
+            # day-later window is analysis-side detail this session scan doesn't model, and the
+            # return can still fire in a session that straddles the boundary.
             (
-                "retention_window_opening_on_the_start_event",
-                _retention_metric(_events_node("signed up"), _events_node("uploaded file")),
-                ("signed up", "uploaded file"),
-            ),
-            # A retention window that opens a day or more later measures a return visit, which by
-            # construction lands in a later session — scanning for it here would report every
-            # session containing the start event as a return.
-            (
-                "retention_window_opening_a_day_later",
+                "retention_distinct_completion_event",
                 _retention_metric(_events_node("signed up"), _events_node("uploaded file"), retention_window_start=1),
-                ("signed up",),
-            ),
-            (
-                "retention_window_opening_hours_later",
-                _retention_metric(
-                    _events_node("signed up"),
-                    _events_node("uploaded file"),
-                    retention_window_start=2,
-                    retention_window_unit="hour",
-                ),
                 ("signed up", "uploaded file"),
+            ),
+            # Same event on both sides: the completion would match the identical events and render a
+            # duplicate of the start chip, so only the start source is kept.
+            (
+                "retention_same_event_dedupes_completion",
+                _retention_metric(_events_node("$pageview"), _events_node("$pageview")),
+                ("$pageview",),
+            ),
+            # Same event narrowed by different properties is a genuinely separate signal — both kept.
+            (
+                "retention_same_event_different_properties",
+                _retention_metric(
+                    _events_node("$pageview", [{"key": "$pathname", "value": "/in", "type": "event"}]),
+                    _events_node("$pageview", [{"key": "$pathname", "value": "/out", "type": "event"}]),
+                ),
+                ("$pageview", "$pageview"),
             ),
         ]
     )
@@ -372,6 +373,25 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         assert len(hits) == 1
         assert [(source.role, source.name, source.index, source.total) for source in hits[0].sources] == [
             (MetricSourceRole.STEP, "upgraded", 2, 3)
+        ]
+
+    def test_retention_distinct_completion_in_session_reports_its_source(self) -> None:
+        # A distinct return event that fires in the session must surface as a completion source,
+        # even for a window that opens a day later — the analysis counts such a return when the
+        # session straddles the boundary, and dropping it before the scan hid it from the sidebar.
+        retention = _retention_metric(
+            _events_node("signed up"), _events_node("uploaded file"), retention_window_start=1
+        )
+        self._create_session_event("signed up", "s1")
+        self._create_session_event("uploaded file", "s1")
+        flush_persons_and_events()
+
+        hits = self._scan([retention], "s1")
+
+        assert len(hits) == 1
+        assert [(source.role, source.name) for source in hits[0].sources] == [
+            (MetricSourceRole.RETENTION_START, "signed up"),
+            (MetricSourceRole.RETENTION_COMPLETION, "uploaded file"),
         ]
 
     def test_metric_total_counts_an_event_matching_two_sources_once(self) -> None:

@@ -41,10 +41,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.hogql_queries.base_query_utils import (
-    conversion_window_to_seconds,
-    event_or_action_to_filter,
-)
+from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.temporal.metric_resolution import ExperimentMetric, build_metric, iter_metric_dicts
 
@@ -64,11 +61,6 @@ MAX_SCANNED_METRICS = 50
 # per-source split but never its total. Funnel step counts are user-configurable, so without
 # this a fleet of long funnels could compile a query thousands of aggregates wide.
 MAX_AGGREGATE_GROUPS = 200
-# The largest retention_window_start (in seconds) that could still resolve inside one session. A
-# window that opens a full day or more after the start event measures a return visit that lands
-# in a later session; matching the completion event within this recording would then just be the
-# start behavior repeating, not the return the metric counts.
-MAX_SAME_SESSION_RETENTION_START_SECONDS = 24 * 60 * 60
 
 MetricSourceNode = EventsNode | ActionsNode
 
@@ -168,19 +160,10 @@ class MetricHit:
     sources: tuple[MetricSourceHit, ...]
 
 
-def _retention_measures_completion_in_session(metric: ExperimentRetentionMetric) -> bool:
-    """Whether a retention metric's completion event can count within one session.
-
-    Only when the window opens less than a day after the start event. A window starting a day or
-    more later measures a return visit that lands in a later session, so matching the completion
-    event here would report every session containing the start event as a return. That is the
-    common shape (a retention metric usually reuses one event on both sides), and exactly the case
-    where the false positive is invisible.
-    """
-    return (
-        conversion_window_to_seconds(metric.retention_window_start, metric.retention_window_unit)
-        < MAX_SAME_SESSION_RETENTION_START_SECONDS
-    )
+def _node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
+    """A stable identity for a source node. Two nodes with the same signature match the same events
+    and share one aggregate in the scan, so they can only ever render identical hits."""
+    return node.model_dump_json(exclude_none=True)
 
 
 def _metric_sources(
@@ -195,10 +178,16 @@ def _metric_sources(
             (MetricSourceRole.NUMERATOR, metric.numerator),
             (MetricSourceRole.DENOMINATOR, metric.denominator),
         ]
+    # The completion is the retention metric's "return visit" event. The scan can only say the event
+    # fired in this session, not that it fired in the window the analysis requires — so when start
+    # and completion are the identical node, a completion source would render a hit byte-identical to
+    # the start's: a duplicate chip implying a return the scan can't distinguish from the entry. A
+    # distinct completion event (or the same event narrowed by different properties) is a separate
+    # signal worth showing, whichever window it opens in.
     sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = [
         (MetricSourceRole.RETENTION_START, metric.start_event)
     ]
-    if _retention_measures_completion_in_session(metric):
+    if _node_signature(metric.completion_event) != _node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
 
@@ -337,7 +326,7 @@ def scan_session_for_metric_events(
     skipped_breakdown_sources = 0
 
     def node_key(source: MetricSource) -> str:
-        return source.node.model_dump_json(exclude_none=True)
+        return _node_signature(source.node)
 
     def metric_group_key(metric_source: MetricEventSource) -> tuple[str, ...]:
         # Distinct nodes only, so a ratio measuring the same event on both sides is one aggregate.

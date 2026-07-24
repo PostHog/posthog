@@ -1543,8 +1543,8 @@ class ExperimentSessionMetricHitSerializer(serializers.Serializer):
             "Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a "
             "retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event "
             "are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention "
-            "metric whose window opens a day or more after the start event contributes no completion source: the "
-            "return visit it measures happens in a later session."
+            "metric whose start and completion are the same event contributes only the start source: the "
+            "completion would match the identical events and render a duplicate."
         ),
     )
 
