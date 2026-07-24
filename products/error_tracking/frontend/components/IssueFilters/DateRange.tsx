@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCalendar, IconChevronDown } from '@posthog/icons'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { cn } from 'lib/utils/css-classes'
+import { Button } from 'lib/ui/quill'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
@@ -20,7 +22,7 @@ export const DateRangeFilter = ({
     const { dateRange } = useValues(issueFiltersLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
     return (
-        <span className={cn('rounded bg-surface-primary', className)}>
+        <span className={className}>
             <DateFilter
                 size={size}
                 dateFrom={dateRange.date_from}
@@ -31,6 +33,23 @@ export const DateRangeFilter = ({
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                 }
                 allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
+                renderTrigger={({ buttonRef, disabledReason, fullWidth, isOpen, label, onClick, title }) => (
+                    <Button
+                        ref={buttonRef}
+                        variant="outline"
+                        size="default"
+                        className={fullWidth ? 'w-full' : undefined}
+                        disabled={!!disabledReason}
+                        aria-expanded={isOpen}
+                        data-attr="date-filter"
+                        onClick={onClick}
+                        title={disabledReason ?? title}
+                    >
+                        <IconCalendar />
+                        <span className="text-nowrap">{label}</span>
+                        <IconChevronDown className="size-4" />
+                    </Button>
+                )}
             />
         </span>
     )

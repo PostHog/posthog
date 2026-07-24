@@ -32,7 +32,6 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
-import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
@@ -86,9 +85,6 @@ export function ErrorTrackingScene(): JSX.Element {
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                    <div className="border rounded bg-surface-primary p-2">
-                        <IssuesFilters />
-                    </div>
                     <IssuesList />
                 </ErrorTrackingSetupPrompt>
             ),

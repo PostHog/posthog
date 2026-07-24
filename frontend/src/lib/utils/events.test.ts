@@ -226,7 +226,7 @@ describe('events utils', () => {
             ['$pageleave', '$pathname'],
             ['$screen', '$screen_name'],
             ['$feature_flag_called', '$feature_flag'],
-            ['$exception', '$exception_type'],
+            ['$exception', '$exception_types'],
             ['$ai_generation', '$ai_model'],
             ['$ai_trace', '$ai_span_name'],
             ['$ai_span', '$ai_span_name'],

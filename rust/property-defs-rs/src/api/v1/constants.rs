@@ -68,7 +68,7 @@ pub const EVENTS_HIDDEN_PROPERTY_DEFINITIONS: [&str; 14] = [
 // **IMPORTANT** we need to keep this in sync the w/Django original!! see below for more details:
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/taxonomy.py#L1627-L1631
-pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
+pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 249] = [
     (
         "$last_posthog_reset",
         "timestamp of last call to `reset` in the web sdk",
@@ -104,15 +104,28 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$sentry_tags", "sentry tags"),
     ("$exception_list", "exception list"),
     ("$exception_level", "exception level"),
-    ("$exception_type", "exception type"),
-    ("$exception_message", "exception message"),
+    ("$exception_types", "exception type"),
+    ("$exception_values", "exception message"),
+    ("$exception_sources", "exception source"),
+    ("$exception_functions", "exception function"),
     ("$exception_fingerprint", "exception fingerprint"),
+    (
+        "$exception_fingerprint_version",
+        "exception fingerprint version",
+    ),
+    (
+        "$exception_fingerprint_record",
+        "exception fingerprint record",
+    ),
     (
         "$exception_proposed_fingerprint",
         "exception proposed fingerprint",
     ),
     ("$exception_issue_id", "exception issue id"),
-    ("$exception_source", "exception source"),
+    ("$exception_releases", "exception releases"),
+    ("$debug_images", "debug images"),
+    ("$issue_name", "issue name"),
+    ("$issue_description", "issue description"),
     ("$exception_lineno", "exception source line number"),
     ("$exception_colno", "exception source column number"),
     ("$exception_DOMException_code", "domexception code"),

@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { type ForwardedRef, type ReactElement, type ReactNode, forwardRef, useEffect, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -62,6 +62,18 @@ export interface DateFilterProps {
     allowSingleAndRange?: boolean
     /** Called when the dropdown opens (true) or closes (false). Used for interaction analytics. */
     onOpenChange?: (open: boolean) => void
+    /** Optional design-system-specific trigger while preserving the date filter's existing behavior and overlay. */
+    renderTrigger?: (props: DateFilterTriggerProps) => ReactElement
+}
+
+export interface DateFilterTriggerProps {
+    buttonRef: ForwardedRef<HTMLButtonElement>
+    disabledReason?: string | null
+    fullWidth: boolean
+    isOpen: boolean
+    label: ReactNode
+    onClick: () => void
+    title?: string
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -114,6 +126,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
         onOpenChange,
+        renderTrigger,
     },
     ref
 ) {
@@ -410,20 +423,32 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             onClickOutside={close}
             closeParentPopoverOnClickInside={false}
         >
-            <LemonButton
-                ref={ref}
-                id="daterange_selector"
-                size={size ?? 'small'}
-                type={type ?? 'secondary'}
-                disabledReason={disabledReason}
-                data-attr="date-filter"
-                icon={<IconCalendar />}
-                onClick={isVisible ? close : open}
-                fullWidth={fullWidth}
-                tooltip={formatResolvedDateRange(resolvedDateRange)}
-            >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
-            </LemonButton>
+            {renderTrigger ? (
+                renderTrigger({
+                    buttonRef: ref,
+                    disabledReason,
+                    fullWidth,
+                    isOpen: isVisible,
+                    label,
+                    onClick: isVisible ? close : open,
+                    title: formatResolvedDateRange(resolvedDateRange),
+                })
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    id="daterange_selector"
+                    size={size ?? 'small'}
+                    type={type ?? 'secondary'}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    icon={<IconCalendar />}
+                    onClick={isVisible ? close : open}
+                    fullWidth={fullWidth}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                </LemonButton>
+            )}
         </Popover>
     )
 })

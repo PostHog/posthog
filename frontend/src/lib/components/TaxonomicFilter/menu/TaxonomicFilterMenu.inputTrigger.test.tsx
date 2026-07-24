@@ -35,10 +35,16 @@ const GROUP_TYPES = [
     TaxonomicFilterGroupType.HogQLExpression,
 ]
 
-function renderInputTriggerMenu(): ReturnType<typeof render> {
+function renderInputTriggerMenu({
+    groupTypes = GROUP_TYPES,
+    onChange = jest.fn(),
+}: {
+    groupTypes?: TaxonomicFilterGroupType[]
+    onChange?: jest.Mock
+} = {}): ReturnType<typeof render> {
     return render(
         <Provider>
-            <TaxonomicFilterHeadless.Root taxonomicGroupTypes={GROUP_TYPES} onChange={jest.fn()}>
+            <TaxonomicFilterHeadless.Root taxonomicGroupTypes={groupTypes} onChange={onChange}>
                 <TaxonomicFilterMenu triggerVariant="input" />
             </TaxonomicFilterHeadless.Root>
         </Provider>
@@ -113,5 +119,58 @@ describe('TaxonomicFilterMenu input trigger', () => {
         const iconButton = screen.getByLabelText('Open filter menu')
         const searchInput = screen.getByTestId('menu-filter-search')
         expect(iconButton.closest('.LemonInput')).toContainElement(searchInput)
+    })
+
+    it('commits curated properties through their declared canonical group', async () => {
+        const onChange = jest.fn()
+        renderInputTriggerMenu({
+            groupTypes: [TaxonomicFilterGroupType.ErrorTrackingProperties, TaxonomicFilterGroupType.EventProperties],
+            onChange,
+        })
+
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-input'))
+        const searchInput = await screen.findByTestId('menu-filter-search')
+        await userEvent.type(searchInput, '$exception_types')
+        const matches = await screen.findAllByText('$exception_types')
+        const propertyRow = matches
+            .map((match) => match.closest('[data-slot="taxonomic-filter-menu-row"]'))
+            .find(Boolean)
+        expect(propertyRow).toBeInTheDocument()
+        await userEvent.click(propertyRow!)
+
+        expect(onChange).toHaveBeenCalledWith(
+            expect.objectContaining({ type: TaxonomicFilterGroupType.EventProperties }),
+            '$exception_types',
+            expect.objectContaining({ name: '$exception_types' })
+        )
+    })
+
+    it('does not render properties excluded by the consumer', async () => {
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    eventNames={['$exception']}
+                    optionsFromProp={{
+                        [TaxonomicFilterGroupType.EventProperties]: [
+                            { name: '$exception_type' },
+                            { name: '$exception_types' },
+                        ],
+                    }}
+                    excludedProperties={{
+                        [TaxonomicFilterGroupType.EventProperties]: ['$exception_type'],
+                    }}
+                    onChange={jest.fn()}
+                >
+                    <TaxonomicFilterMenu triggerVariant="input" />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-input'))
+        await screen.findByTestId('menu-filter-search')
+
+        expect(screen.queryByText('$exception_type')).not.toBeInTheDocument()
+        expect(screen.getAllByText('$exception_types').length).toBeGreaterThan(0)
     })
 })

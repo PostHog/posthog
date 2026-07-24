@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { IconFilter, IconList, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -17,6 +17,7 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { Separator } from 'lib/ui/quill'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -386,16 +387,18 @@ const ExceptionsTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <div className="px-2 py-3 shrink-0">
+            <div className="shrink-0 px-2 py-2">
                 <ErrorFilters.Root>
-                    <div className="flex gap-2 justify-between flex-wrap">
+                    <div className="flex w-full flex-wrap items-center gap-1">
                         <ErrorFilters.DateRange />
-                        <ErrorFilters.InternalAccounts />
+                        <ErrorFilters.FilterGroup />
+                        <div className="ml-auto shrink-0">
+                            <ErrorFilters.InternalAccounts />
+                        </div>
                     </div>
-                    <ErrorFilters.FilterGroup />
                 </ErrorFilters.Root>
             </div>
-            <LemonDivider className="my-0 shrink-0" />
+            <Separator className="shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (
                     <div className="text-muted text-sm px-2 py-3">Loading exceptions...</div>
