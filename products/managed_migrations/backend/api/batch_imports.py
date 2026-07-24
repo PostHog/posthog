@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
 from products.managed_migrations.backend import trial_storage
@@ -257,7 +258,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
         has_secret_key = bool(data.get("secret_key"))
         has_role = bool(data.get("role_arn"))
 
-        if has_role and not self._is_iam_role_enabled():
+        if has_role and not (settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN and self._is_iam_role_enabled()):
             raise serializers.ValidationError("IAM role authentication is not available for this project")
 
         if has_role and (has_access_key or has_secret_key):
@@ -293,8 +294,12 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
                 RoleSessionName="posthog-managed-migration-validation",
                 DurationSeconds=900,
             )["Credentials"]
-        except (ClientError, BotoCoreError):
+        except (ClientError, BotoCoreError) as err:
+            # PostHog-side failure (our role grant or STS), not the customer's setup: skip
+            # validation rather than block the create. The worker re-validates the full
+            # chain and pauses the job with an actionable message if the role is broken.
             logger.exception("managed_migrations_import_role_assume_failed")
+            capture_exception(err)
             return
 
         customer_sts = boto3.client(
