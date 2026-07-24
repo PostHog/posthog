@@ -3105,14 +3105,14 @@ export type CachedWebVitalsQueryResponse = CachedQueryResponse<WebVitalsQueryRes
 
 export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVitalsPathBreakdownQueryResponse> {
     kind: NodeKind.WebVitalsPathBreakdownQuery
-    percentile: WebVitalsPercentile
+    /** Percentile to aggregate each page's samples at. Defaults to `p75` (the percentile the Google bands are defined at) when omitted. */
+    percentile?: WebVitalsPercentile
     metric: WebVitalsMetric
 
-    // Threshold for this specific metric, these are stored in the frontend only
-    // so let's send them back to the backend to be used in the query
-    // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
-    // Values in between the two values are the threshold for needs_improvements
-    thresholds: [number, number]
+    // [good, poor] threshold for this specific metric: values below good are good, values above poor are poor,
+    // and values in between fall into needs_improvements. Optional — when omitted the backend applies the
+    // standard Google thresholds for the chosen metric.
+    thresholds?: [number, number]
     /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
     useWebAnalyticsPrecompute?: boolean
 }

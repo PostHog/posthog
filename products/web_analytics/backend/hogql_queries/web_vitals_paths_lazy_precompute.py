@@ -277,9 +277,9 @@ def execute_read_query(
     `time_window_start` (stored UTC) in `toTimeZone(..., team_tz)` and break the
     direct comparison against our UTC `cur_start` / `cur_end` constants.
     """
-    pct_index = _PCT_INDEX[runner.query.percentile]
-    good_threshold = float(runner.query.thresholds[0])
-    needs_improvements_threshold = float(runner.query.thresholds[1])
+    pct_index = _PCT_INDEX[runner.resolved_percentile]
+    good_threshold = float(runner.resolved_thresholds[0])
+    needs_improvements_threshold = float(runner.resolved_thresholds[1])
     state_column = _METRIC_STATE_COLUMN[runner.query.metric]
 
     placeholders: dict[str, ast.Expr] = {
@@ -374,7 +374,7 @@ def execute_lazy_precomputed_read(
             "web_vitals_paths_lazy_precompute_started",
             team_id=team_id,
             metric=runner.query.metric.value,
-            percentile=runner.query.percentile.value,
+            percentile=runner.resolved_percentile.value,
             time_range_start=time_range_start.isoformat(),
             time_range_end=time_range_end.isoformat(),
             time_range_days=(time_range_end - time_range_start).days,
@@ -421,7 +421,7 @@ def execute_lazy_precomputed_read(
             "web_vitals_paths_lazy_precompute_completed",
             team_id=team_id,
             metric=runner.query.metric.value,
-            percentile=runner.query.percentile.value,
+            percentile=runner.resolved_percentile.value,
             job_count=len(result.job_ids),
             rows_returned=len(rows),
             total_duration_ms=int((time.perf_counter() - overall_started) * 1000),

@@ -12,9 +12,9 @@ Requires the project to capture the `$web_vitals` event (`capture_performance` i
 
 # Inputs
 
-- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.
-- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.
-- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:
+- `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit. This is the only field you have to set.
+- `percentile` (optional): defaults to `p75` — the percentile the Google bands are defined at. Only set it for the slow tail (`p90`/`p99`).
+- `thresholds` (optional): `[good, poor]` boundaries for the chosen metric. Defaults to the standard Google values below, so leave it unset unless the user has their own bands.
 
 | Metric | thresholds     |
 | ------ | -------------- |
@@ -31,15 +31,20 @@ Requires the project to capture the `$web_vitals` event (`capture_performance` i
 
 Each band lists `{path, value}` pairs. A page in `poor` at p75 on a high-traffic route is a real, citable problem even if it never changed. Percentiles on low-traffic pages wobble — corroborate a surprising result with a sample count via `execute-sql` before making strong claims. Mobile values run 2–3× desktop, so a pooled percentile can hide a mobile-only problem: when a page looks borderline, re-run with a `$device_type` filter.
 
-# Example
+# Examples
 
-Worst LCP pages at p75, last 7 days, marketing site only:
+Worst LCP pages at p75 over the last 7 days — the minimal call, letting percentile and thresholds default:
+
+```json
+{ "metric": "LCP" }
+```
+
+Same audit scoped to one domain, at the slow tail:
 
 ```json
 {
   "metric": "LCP",
-  "percentile": "p75",
-  "thresholds": [2500, 4000],
+  "percentile": "p90",
   "properties": [{ "type": "event", "key": "$host", "operator": "exact", "value": ["example.com"] }]
 }
 ```

@@ -6214,7 +6214,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
-    percentile: WebVitalsPercentileApi
+    /** Percentile to aggregate each page's samples at. Defaults to `p75` (the percentile the Google bands are defined at) when omitted. */
+    percentile?: WebVitalsPercentileApi | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -6226,11 +6227,7 @@ export interface WebVitalsPathBreakdownQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
-    /**
-     * @minItems 2
-     * @maxItems 2
-     */
-    thresholds: number[]
+    thresholds?: number[] | null
     useSessionsTable?: boolean | null
     /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
     useWebAnalyticsPrecompute?: boolean | null

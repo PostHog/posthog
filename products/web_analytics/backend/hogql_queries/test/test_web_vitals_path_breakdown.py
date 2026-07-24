@@ -7,6 +7,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -324,3 +326,58 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+
+class TestWebVitalsPathBreakdownDefaults(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_events(self, data, metric: WebVitalsMetric):
+        for distinct_id, timestamps in data:
+            for timestamp, path, value in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$web_vitals",
+                    distinct_id=distinct_id,
+                    timestamp=timestamp,
+                    properties={f"$web_vitals_{metric.value}_value": value, "$pathname": path},
+                )
+        flush_persons_and_events()
+
+    # One sample per path so p75 collapses to that value; the good/needs/poor
+    # values straddle each metric's standard Google [good, poor] bands.
+    @parameterized.expand(
+        [
+            (WebVitalsMetric.LCP, 2000, 3000, 5000),
+            (WebVitalsMetric.INP, 100, 300, 600),
+            (WebVitalsMetric.CLS, 0.05, 0.2, 0.4),
+            (WebVitalsMetric.FCP, 1000, 2500, 3500),
+        ]
+    )
+    def test_metric_only_query_defaults_to_p75_and_standard_bands(self, metric, good_value, needs_value, poor_value):
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/good", good_value),
+                        ("2025-01-10", "/needs", needs_value),
+                        ("2025-01-10", "/poor", poor_value),
+                    ],
+                ),
+            ],
+            metric,
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            # Only `metric` is set: percentile and thresholds are omitted, so the
+            # runner must fall back to p75 and the metric's standard Google bands.
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=metric,
+                properties=[],
+            )
+            results = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query).calculate().results
+
+        self.assertEqual(["/good"], [item.path for item in results[0].good])
+        self.assertEqual(["/needs"], [item.path for item in results[0].needs_improvements])
+        self.assertEqual(["/poor"], [item.path for item in results[0].poor])

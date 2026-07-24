@@ -6261,18 +6261,15 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      percentile: WebVitalsPercentile;
+      /** Percentile to aggregate each page's samples at. Defaults to `p75` (the percentile the Google bands are defined at) when omitted. */
+      percentile?: WebVitalsPercentile | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebVitalsPathBreakdownQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
       /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /**
-         * @minItems 2
-         * @maxItems 2
-         */
-      thresholds: number[];
+      thresholds?: number[] | null;
       useSessionsTable?: boolean | null;
       /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
       useWebAnalyticsPrecompute?: boolean | null;
