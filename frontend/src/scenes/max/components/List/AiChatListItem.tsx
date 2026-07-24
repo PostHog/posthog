@@ -5,6 +5,7 @@ import { IconMessage, IconOpenSidebar, IconShare, IconTrash } from '@posthog/ico
 import { Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
@@ -48,27 +49,60 @@ function Content({
     )
 }
 
-function Actions({ conversationId }: { conversationId: string }): JSX.Element {
-    const { openSidePanelMax, deleteConversation } = useActions(maxGlobalLogic)
+function Actions({
+    conversationId,
+    isInternal,
+    sharedViaLink,
+}: {
+    conversationId: string
+    isInternal?: boolean
+    sharedViaLink?: boolean
+}): JSX.Element {
+    const { openSidePanelMax, deleteConversation, shareConversation } = useActions(maxGlobalLogic)
 
     return (
         <LinkListItem.Actions>
             <DropdownMenuGroup>
-                <BrowserLikeMenuItems
-                    MenuItem={DropdownMenuItem}
-                    href={getShareLink(conversationId)}
-                    onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
-                />
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                    <ButtonPrimitive
-                        menuItem
-                        onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
-                    >
-                        <IconShare className="size-4 text-tertiary" />
-                        Copy link to chat
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
+                {isInternal ? (
+                    // Internal chats (created while impersonating) never appear in a customer's history.
+                    // A plain copy-link would 404 for them until the chat is explicitly shared, so we
+                    // offer a single, clearly-labeled share action instead of the generic copy items.
+                    <DropdownMenuItem asChild>
+                        <Tooltip
+                            title={
+                                sharedViaLink
+                                    ? "This chat is shared. Anyone with the link and project access can open it, but it won't show up in their chat history."
+                                    : "Copies a link project members can open. The chat won't appear in their chat history, so only people with the link can see it."
+                            }
+                            placement="left"
+                        >
+                            <ButtonPrimitive menuItem onClick={() => shareConversation(conversationId)}>
+                                <IconShare className="size-4 text-tertiary" />
+                                {sharedViaLink ? 'Copy shared link' : 'Share chat with project'}
+                            </ButtonPrimitive>
+                        </Tooltip>
+                    </DropdownMenuItem>
+                ) : (
+                    <>
+                        <BrowserLikeMenuItems
+                            MenuItem={DropdownMenuItem}
+                            href={getShareLink(conversationId)}
+                            onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
+                        />
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() =>
+                                    copyToClipboard(getShareLink(conversationId), 'conversation sharing link')
+                                }
+                            >
+                                <IconShare className="size-4 text-tertiary" />
+                                Copy link to chat
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </>
+                )}
                 <DropdownMenuItem asChild>
                     <ButtonPrimitive
                         menuItem
@@ -104,6 +138,8 @@ interface AiChatListItemProps {
     onClick?: (e: React.MouseEvent) => void
     compact?: boolean
     showIcon?: boolean
+    isInternal?: boolean
+    sharedViaLink?: boolean
 }
 
 function AiChatListItemRoot({
@@ -114,6 +150,8 @@ function AiChatListItemRoot({
     isActive,
     onClick,
     compact,
+    isInternal,
+    sharedViaLink,
 }: AiChatListItemProps): JSX.Element {
     const displayTitle = title || 'Untitled conversation'
     const href = getHref(conversationId)
@@ -154,7 +192,7 @@ function AiChatListItemRoot({
                 </Link>
                 <LinkListItem.Trigger />
             </LinkListItem.Group>
-            <Actions conversationId={conversationId} />
+            <Actions conversationId={conversationId} isInternal={isInternal} sharedViaLink={sharedViaLink} />
         </LinkListItem.Root>
     )
 }

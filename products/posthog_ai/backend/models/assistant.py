@@ -91,6 +91,11 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         default=False,
         help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
     )
+    shared_via_link = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether an internal conversation has been explicitly shared for direct-link access. When true, project members who have the link can open the conversation even though it never appears in their history.",
+    )
     slack_thread_key = models.CharField(
         max_length=200,
         null=True,

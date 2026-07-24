@@ -33,6 +33,7 @@ _conversation_fields = [
     "updated_at",
     "type",
     "is_internal",
+    "shared_via_link",
     "slack_thread_key",
     "slack_workspace_domain",
 ]
