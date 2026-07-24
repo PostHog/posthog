@@ -281,7 +281,7 @@ which carries two origin allowlists and an optional default image:
   This is the knob for making the VM runtime the default for standard cloud runs;
   we widen it origin-by-origin (and, later, the flag's release condition) as the rollout expands.
 - `default_custom_image` — a Modal image name that VM runs fall back to when no custom image was picked.
-  Because the flag's payload variants are org-targeted, this routes *which default VM image an org gets*:
+  Because the flag's payload variants are org-targeted, this routes _which default VM image an org gets_:
   PostHog's own org points at the prebaked dev-stack image (below), everyone else keeps the plain VM base.
   A user- or environment-selected custom image always wins over this default,
   and provisioning falls back to the plain VM base if the named image is missing.
