@@ -2324,6 +2324,8 @@ export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
+    // Server-computed: on the free plan and within every product's free allocation this period.
+    is_under_free_allowance?: boolean
     billing_provider?: BillingProvider | null
     free_trial_until?: Dayjs
     stripe_portal_url?: string
