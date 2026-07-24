@@ -31,10 +31,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
-from posthog.hogql.transforms.json_property_pushdown import (
-    has_rewritable_json_extract,
-    rewrite_json_extract_to_property,
-)
+from posthog.hogql.transforms.json_property_pushdown import rewrite_json_extract_to_property
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -186,17 +183,18 @@ def prepare_ast_for_printing(
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
     # property access and re-resolves, so the resolver assigns types rather than us building them.
     # Must run after type resolution and before lazy-table resolution.
-    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
+    if dialect == "clickhouse":
         with context.timings.measure("rewrite_json_extract_to_property"):
-            node = rewrite_json_extract_to_property(node, context)
-        with context.timings.measure("resolve_types_after_json_pushdown"):
-            node = resolve_types(
-                node,
-                context,
-                dialect=dialect,
-                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
-                resolver_factory=resolver_factory,
-            )
+            node, json_extract_rewritten = rewrite_json_extract_to_property(node, context)
+        if json_extract_rewritten:
+            with context.timings.measure("resolve_types_after_json_pushdown"):
+                node = resolve_types(
+                    node,
+                    context,
+                    dialect=dialect,
+                    scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                    resolver_factory=resolver_factory,
+                )
 
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
