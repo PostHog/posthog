@@ -2060,9 +2060,23 @@ class SurveyFilterSet(FilterSet):
 )
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related(
-        "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
-    ).all()
+    queryset = (
+        Survey.objects.select_related(
+            "linked_flag",
+            "linked_insight",
+            "targeting_flag",
+            "internal_targeting_flag",
+            # Read per row by SurveySerializer: internal_response_sampling_flag in
+            # get_feature_flag_keys, created_by via UserBasicSerializer. Without these the
+            # list serializes N surveys with N extra FK queries each.
+            "internal_response_sampling_flag",
+            "created_by",
+        )
+        # get_conditions calls survey.actions.all() for every row; prefetch it (and each
+        # action's created_by, read by ActionSerializer) so a large list isn't one query per survey.
+        .prefetch_related("actions", "actions__created_by")
+        .all()
+    )
     filter_backends = [DjangoFilterBackend]
     filterset_class = SurveyFilterSet
 

@@ -15,7 +15,9 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from nanoid import generate
 from parameterized import parameterized
@@ -2803,6 +2805,38 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+    def test_listing_surveys_does_not_scale_queries_per_survey(self):
+        # SurveySerializer reads relations the base queryset must batch: get_conditions calls
+        # survey.actions.all(), get_feature_flag_keys reads internal_response_sampling_flag, and
+        # created_by is serialized. If any stops being select_related/prefetched, list latency
+        # grows with survey count and times out on large sets. Assert the query count is flat.
+        def create_survey(name: str) -> None:
+            sampling_flag = FeatureFlag.objects.create(team=self.team, key=f"sampling-{name}", created_by=self.user)
+            Survey.objects.create(
+                team=self.team,
+                name=name,
+                type="popover",
+                created_by=self.user,
+                internal_response_sampling_flag=sampling_flag,
+            )
+
+        create_survey("first survey")
+        # Warm process-level caches (instance settings, etc.) so both measured requests below
+        # share identical fixed overhead and the only variable is the number of surveys.
+        self.client.get(f"/api/projects/{self.team.id}/surveys/")
+        with CaptureQueriesContext(connection) as one_survey:
+            assert self.client.get(f"/api/projects/{self.team.id}/surveys/").status_code == status.HTTP_200_OK
+
+        for i in range(4):
+            create_survey(f"survey number {i}")
+        with CaptureQueriesContext(connection) as five_surveys:
+            assert self.client.get(f"/api/projects/{self.team.id}/surveys/").status_code == status.HTTP_200_OK
+
+        assert len(five_surveys) == len(one_survey), (
+            f"listing 5 surveys ran {len(five_surveys)} queries vs {len(one_survey)} for 1 — "
+            "query count scales per survey (N+1)"
+        )
 
     def test_list_surveys_excludes_product_tour_linked_surveys(self):
         regular_survey = Survey.objects.create(
