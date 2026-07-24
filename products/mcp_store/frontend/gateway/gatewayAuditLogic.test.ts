@@ -72,4 +72,43 @@ describe('gatewayAuditLogic', () => {
 
         expect(logic.values.auditResponse).toEqual({ count: 1, results: [freshEvent] })
     })
+
+    it('refreshes count badges after a filter change', async () => {
+        const refreshedCounts = { all: 4, agents: 3, approvals: 2, blocked: 1 }
+        mockAuditCountsRetrieve.mockResolvedValue(refreshedCounts)
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuickFilter('blocked')
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ counts: refreshedCounts })
+    })
+
+    it('discards an earlier count response that resolves after the latest one', async () => {
+        const staleCounts = { all: 1, agents: 1, approvals: 0, blocked: 0 }
+        const freshCounts = { all: 2, agents: 1, approvals: 0, blocked: 1 }
+        let resolveStale: (value: Awaited<ReturnType<typeof mcpGatewayAuditCountsRetrieve>>) => void = () => {}
+
+        mockAuditCountsRetrieve.mockReset()
+        mockAuditCountsRetrieve
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStale = resolve
+                    })
+            )
+            .mockResolvedValueOnce(freshCounts)
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuickFilter('agents')
+            logic.actions.setQuickFilter('blocked')
+        }).toDispatchActions(['loadCountsSuccess'])
+
+        expect(logic.values.counts).toEqual(freshCounts)
+
+        resolveStale(staleCounts)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.counts).toEqual(freshCounts)
+    })
 })

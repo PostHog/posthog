@@ -50,7 +50,7 @@ export interface gatewayAuditLogicActions {
         }
         payload?: void
     }
-    loadCounts: () => any
+    loadCounts: (_: void) => void
     loadCountsFailure: (
         error: string,
         errorObject?: any
@@ -60,10 +60,10 @@ export interface gatewayAuditLogicActions {
     }
     loadCountsSuccess: (
         counts: AuditCountsApi,
-        payload?: any
+        payload?: void
     ) => {
         counts: AuditCountsApi
-        payload?: any
+        payload?: void
     }
     setPage: (page: number) => {
         page: number
@@ -106,13 +106,20 @@ export const gatewayAuditLogic = kea<gatewayAuditLogicType>([
         counts: [
             null as AuditCountsApi | null,
             {
-                loadCounts: async () => await mcpGatewayAuditCountsRetrieve(currentProjectId()),
+                loadCounts: async (_: void, breakpoint) => {
+                    const counts = await mcpGatewayAuditCountsRetrieve(currentProjectId())
+                    breakpoint()
+                    return counts
+                },
             },
         ],
     })),
 
     listeners(({ actions }) => ({
-        setQuickFilter: () => actions.loadAudit(),
+        setQuickFilter: () => {
+            actions.loadAudit()
+            actions.loadCounts()
+        },
         setPage: () => actions.loadAudit(),
     })),
 
