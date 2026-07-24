@@ -209,7 +209,9 @@ async def test_resume_staging_file_short_circuits_when_fully_consumed():
     # Resume state that has already consumed the whole object: a range GET would 416.
     state = S3FileResumeState(
         offset=len(ipc_bytes),
-        schema=pa.schema([("id", pa.int64()), ("text", pa.string())]),
+        # Mypy takes the common suppertype of StringType and Int64Type, which is not
+        # datatype but object, so this fails. Until the stub is fixed, just ignore
+        schema=pa.schema([("id", pa.int64()), ("text", pa.string())]),  # type: ignore
         object_size=len(ipc_bytes),
         etag=FAKE_ETAG,
     )
