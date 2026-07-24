@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -835,6 +835,87 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+
+        // The configured project/org being inaccessible to the token surfaces as
+        // a 4xx on these best-effort fetches. It's a per-user config state, not a
+        // bug, so it must not mint error-tracking issues — especially since the
+        // analytics path runs on every tool call. Guards the catch-block
+        // classification that keeps expected client errors out of captureException.
+        const expectedClientErrors: [string, unknown][] = [
+            [
+                '404 not found',
+                new PostHogApiError({
+                    status: 404,
+                    statusText: 'Not Found',
+                    body: '{"detail":"Not found."}',
+                    url: 'https://us.posthog.com/api/projects/2/',
+                    method: 'GET',
+                }),
+            ],
+            [
+                '403 forbidden',
+                new PostHogApiError({
+                    status: 403,
+                    statusText: 'Forbidden',
+                    body: '{"detail":"Forbidden."}',
+                    url: 'https://us.posthog.com/api/projects/2/',
+                    method: 'GET',
+                }),
+            ],
+            [
+                'permission denied',
+                new PostHogPermissionError({
+                    detail: 'permission denied',
+                    missingScope: 'project:read',
+                    url: 'https://us.posthog.com/api/projects/2/',
+                    method: 'GET',
+                }),
+            ],
+        ]
+
+        it.each(expectedClientErrors)(
+            'does not capture an expected client error (%s) but still returns the cached value',
+            async (_label, error) => {
+                const cachedGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+                await cache.set(`groupTypes:${projectId}` as any, cachedGroupTypes as any)
+                await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+                const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+                const mockApi = stateManager as any
+                mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+                const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+                expect(result).toEqual(cachedGroupTypes)
+                expect(reportSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        const unexpectedErrors: [string, unknown][] = [
+            [
+                '500 server error',
+                new PostHogApiError({
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                    body: 'boom',
+                    url: 'https://us.posthog.com/api/projects/2/',
+                    method: 'GET',
+                }),
+            ],
+            ['network error', new Error('fetch failed')],
+        ]
+
+        it.each(unexpectedErrors)('still captures an unexpected failure (%s)', async (_label, error) => {
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(reportSpy).toHaveBeenCalledOnce()
         })
     })
 
