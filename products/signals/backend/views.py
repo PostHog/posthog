@@ -572,6 +572,10 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
 
 
+# The refund note travels on the analytics event for the weekly refund review, clipped well below
+# the 4000-char storage cap (same bound the scout harness uses for free text in telemetry).
+_REFUND_NOTE_ANALYTICS_MAX_LENGTH = 1000
+
 # User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
 # (`already_refunded` never reaches a 400 — it takes the idempotent 200 path instead).
 _REFUND_INELIGIBLE_MESSAGES = {
@@ -1992,6 +1996,7 @@ class SignalReportViewSet(
                 "billing_path": billing_path,
                 "credits": refund.credits,
                 "reason": refund.reason,
+                "note": refund.note[:_REFUND_NOTE_ANALYTICS_MAX_LENGTH] or None,
                 "pr_merged": pr_merged,
                 "days_since_pr": (now - billable_run.created_at).days,
             },

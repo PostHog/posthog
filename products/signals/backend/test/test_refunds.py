@@ -272,12 +272,13 @@ class TestSignalReportRefundAPI(APIBaseTest):
     def test_refund_fires_analytics_event(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         with patch("products.signals.backend.views.report_user_action") as mock_report:
-            self._refund(report)
+            self._refund(report, {"reason": "other", "note": "agent refactored the wrong module"})
         mock_report.assert_called_once()
         assert mock_report.call_args.args[1] == "signals_pr_refund_created"
         properties = mock_report.call_args.kwargs["properties"]
         assert properties["billing_path"] == "credited"
         assert properties["credits"] == 1500
+        assert properties["note"] == "agent refactored the wrong module"
         assert properties["pr_merged"] is False
         assert properties["days_since_pr"] == 5
 
@@ -358,6 +359,13 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is False
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
+
+    @freeze_time(_NOW)
+    def test_refund_analytics_event_without_note_sends_null(self, _flag):
+        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
+        with patch("products.signals.backend.views.report_user_action") as mock_report:
+            self._refund(report)
+        assert mock_report.call_args.kwargs["properties"]["note"] is None
 
     @freeze_time(_NOW)
     def test_restore_of_refunded_report_is_blocked(self, _flag):
