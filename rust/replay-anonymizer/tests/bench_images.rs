@@ -91,6 +91,7 @@ fn run(allow: &AllowLists, payload: &[u8], policy: ImagePolicy, iters: usize) ->
                 image_policy: policy,
                 ..Default::default()
             },
+            None,
         )
         .expect("bench payload must anonymize");
         samples.push(start.elapsed().as_micros());
