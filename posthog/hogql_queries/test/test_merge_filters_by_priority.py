@@ -206,9 +206,9 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
     def test_normalizes_single_layer_dict_properties_to_flat_list(self):
         prop = {"key": "$browser", "value": "Chrome", "type": "event"}
         query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
-        _, effective = resolve_effective_dashboard_filters(
+        effective = resolve_effective_dashboard_filters(
             query, {"date_from": "-7d", "properties": {"type": "AND", "values": [prop]}}, None
-        )
+        ).filters
         assert effective["properties"] == [prop]
         assert effective["date_from"] == "-7d"
 
@@ -279,9 +279,9 @@ class TestIgnoreDashboardFilters(SimpleTestCase):
     def test_flag_in_base_layer_does_not_reach_effective_filters(self):
         query = {"kind": "TrendsQuery", "series": []}
 
-        _, effective = resolve_effective_dashboard_filters(
+        effective = resolve_effective_dashboard_filters(
             query, {"ignoreDashboardFilters": True, "date_from": "-30d"}, None
-        )
+        ).filters
 
         assert effective == {"date_from": "-30d"}
         DashboardFilter(**effective)

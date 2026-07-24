@@ -223,9 +223,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    event_io = extract_event_io(event_type, properties)
+    input_data = extract_text_from_messages(event_io.input_raw)
+    output_data = extract_text_from_messages(event_io.output_raw)
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
     tag_names = [tag["name"] for tag in tags]
@@ -353,8 +353,10 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    event_io = extract_event_io(event_type, properties)
 
+    input_raw = event_io.input_raw
+    output_raw = event_io.output_raw
     input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
     output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
 

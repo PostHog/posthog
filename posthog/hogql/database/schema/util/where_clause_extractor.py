@@ -1,6 +1,7 @@
 import random
 import string
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, cast
 
@@ -1298,6 +1299,26 @@ def references_joined_table(
     return finder.found_joined_reference
 
 
+@dataclass(frozen=True)
+class PredicatePushdown:
+    """A WHERE clause split for pushdown into an events subquery.
+
+    `inner` is pushed into the subquery (None when nothing is pushable); `outer` stays in the outer
+    query (None when empty). Deliberately not a tuple so a positional unpack can't swap the two.
+    """
+
+    inner: Optional[ast.Expr]
+    outer: Optional[ast.Expr]
+
+
+@dataclass(frozen=True)
+class _ExpressionSplit:
+    """Same inner/outer split as `PredicatePushdown`, but before the parts are combined with AND."""
+
+    inner: list[ast.Expr]
+    outer: list[ast.Expr]
+
+
 class EventsPredicatePushdownExtractor:
     """
     Extracts predicates from a WHERE clause that can be pushed down into an events subquery.
@@ -1320,38 +1341,36 @@ class EventsPredicatePushdownExtractor:
         self.events_table_type = events_table_type
         self.select_aliases = select_aliases or {}
 
-    def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
+    def get_pushdown_predicates(self, where: ast.Expr) -> PredicatePushdown:
         """
         Split a WHERE expression into inner (pushable) and outer (non-pushable) parts.
 
-        Returns:
-            (inner_where, outer_where) tuple where:
-            - inner_where: Predicates to push into events subquery (or None if none)
-            - outer_where: Predicates to keep in outer query (or None if none)
+        Returns a `PredicatePushdown` where:
+            - inner: Predicates to push into events subquery (or None if none)
+            - outer: Predicates to keep in outer query (or None if none)
         """
-        inner_exprs, outer_exprs = self._split_expression(where)
+        split = self._split_expression(where)
 
-        inner_where = self._combine_with_and(inner_exprs)
-        outer_where = self._combine_with_and(outer_exprs)
+        return PredicatePushdown(
+            inner=self._combine_with_and(split.inner),
+            outer=self._combine_with_and(split.outer),
+        )
 
-        return (inner_where, outer_where)
-
-    def _split_expression(self, expr: ast.Expr) -> tuple[list[ast.Expr], list[ast.Expr]]:
+    def _split_expression(self, expr: ast.Expr) -> _ExpressionSplit:
         """
         Recursively split an expression into inner (pushable) and outer (non-pushable) parts.
 
-        Returns:
-            (inner_exprs, outer_exprs) - lists of expressions for inner and outer WHERE
+        Returns an `_ExpressionSplit` of expression lists for the inner and outer WHERE.
         """
         if isinstance(expr, ast.And):
             # For AND: we can split - pushable parts go inner, non-pushable stay outer
             inner_exprs: list[ast.Expr] = []
             outer_exprs: list[ast.Expr] = []
             for sub_expr in flatten_ands(expr.exprs):
-                sub_inner, sub_outer = self._split_expression(sub_expr)
-                inner_exprs.extend(sub_inner)
-                outer_exprs.extend(sub_outer)
-            return (inner_exprs, outer_exprs)
+                sub = self._split_expression(sub_expr)
+                inner_exprs.extend(sub.inner)
+                outer_exprs.extend(sub.outer)
+            return _ExpressionSplit(inner=inner_exprs, outer=outer_exprs)
 
         elif isinstance(expr, ast.Call):
             # Handle function calls like and(), or(), not(), equals(), etc.
@@ -1374,8 +1393,8 @@ class EventsPredicatePushdownExtractor:
             or contains_in_cohort(expr)
             or contains_subquery(expr)
         ):
-            return ([], [cloned])
-        return ([cloned], [])
+            return _ExpressionSplit(inner=[], outer=[cloned])
+        return _ExpressionSplit(inner=[cloned], outer=[])
 
     def _combine_with_and(self, exprs: list[ast.Expr]) -> Optional[ast.Expr]:
         """Combine a list of expressions with AND, or return None if empty."""

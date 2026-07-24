@@ -419,9 +419,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         new_prewhere = node.prewhere
 
         if node.where is not None:
-            inner_from_where, new_where = extractor.get_pushdown_predicates(node.where)
+            where_split = extractor.get_pushdown_predicates(node.where)
+            inner_from_where, new_where = where_split.inner, where_split.outer
         if node.prewhere is not None:
-            inner_from_prewhere, new_prewhere = extractor.get_pushdown_predicates(node.prewhere)
+            prewhere_split = extractor.get_pushdown_predicates(node.prewhere)
+            inner_from_prewhere, new_prewhere = prewhere_split.inner, prewhere_split.outer
 
         # PREWHERE is valid only on a physical scan, not a subquery. A fully-pushable PREWHERE moves into the
         # inner scan; a residual one would have to stay on the outer subquery (invalid), so bail.
