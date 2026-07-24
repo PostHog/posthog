@@ -1,7 +1,9 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use common_cookieless::{CookielessManagerError, SaltCacheError};
-use common_database::{extract_timeout_type, is_timeout_error, CustomDatabaseError};
+use common_database::{
+    extract_timeout_type, is_timeout_error, is_transient_error, CustomDatabaseError,
+};
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
 use serde::Serialize;
@@ -595,10 +597,16 @@ impl From<sqlx::Error> for FlagError {
         match e {
             sqlx::Error::RowNotFound => FlagError::RowNotFound,
             _ => {
-                // Check if it's a timeout-related SQL error
                 if is_timeout_error(&e) {
+                    // Timeouts get their own retryable classification (503) with a type tag.
                     FlagError::TimeoutError(extract_timeout_type(&e).map(|s| s.to_string()))
+                } else if is_transient_error(&e) {
+                    // Connection resets, serialization failures, and other transient
+                    // connection-level Postgres faults are retryable, so surface them as a
+                    // 503 rather than treating a DB blip as a hard 500 SDKs won't retry.
+                    FlagError::DatabaseUnavailable
                 } else {
+                    // Genuine internal faults (data corruption, unknown SQLSTATEs) stay 500.
                     FlagError::DatabaseError(e, None)
                 }
             }
@@ -743,6 +751,42 @@ mod tests {
         // Test that direct non-timeout sqlx errors are handled correctly
         let sqlx_error: FlagError = sqlx::Error::RowNotFound.into();
         assert!(matches!(sqlx_error, FlagError::RowNotFound));
+    }
+
+    #[test]
+    fn test_direct_sqlx_transient_conversion_is_503() {
+        // Transient/connection-level failures propagated via `?` must map to the retryable
+        // DatabaseUnavailable (503), not DatabaseError (500), so SDKs retry on a DB blip.
+        let pool_closed: FlagError = sqlx::Error::PoolClosed.into();
+        assert!(matches!(pool_closed, FlagError::DatabaseUnavailable));
+        assert_eq!(pool_closed.status_code(), 503);
+
+        let io_reset: FlagError = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection reset by peer",
+        ))
+        .into();
+        assert!(matches!(io_reset, FlagError::DatabaseUnavailable));
+        assert_eq!(io_reset.status_code(), 503);
+
+        let tls_error: FlagError =
+            sqlx::Error::Tls(Box::new(std::io::Error::other("TLS handshake failed"))).into();
+        assert!(matches!(tls_error, FlagError::DatabaseUnavailable));
+        assert_eq!(tls_error.status_code(), 503);
+    }
+
+    #[test]
+    fn test_direct_sqlx_internal_fault_stays_500() {
+        // Genuine internal faults (schema/config problems) are not transient and must
+        // remain DatabaseError (500) so they are not masked as retryable.
+        let column_error: FlagError = sqlx::Error::ColumnNotFound("missing".to_string()).into();
+        assert!(matches!(column_error, FlagError::DatabaseError(_, _)));
+        assert_eq!(column_error.status_code(), 500);
+
+        let config_error: FlagError =
+            sqlx::Error::Configuration("invalid connection string".into()).into();
+        assert!(matches!(config_error, FlagError::DatabaseError(_, _)));
+        assert_eq!(config_error.status_code(), 500);
     }
 
     #[test]
