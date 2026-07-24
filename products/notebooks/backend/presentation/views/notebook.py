@@ -79,6 +79,7 @@ from products.notebooks.backend.sql_v2_references import (
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
+from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -1106,9 +1107,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
         except Exception:
             logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
-            run.status = NotebookNodeRun.Status.FAILED
-            run.error = "Failed to start run."
-            run.save(update_fields=["status", "error", "updated_at"])
+            # Status-guarded: a dispatch that partially started before raising could still
+            # deliver a callback, which must keep the row and stay the only reporter.
+            finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
         return Response({"run_id": str(run.id)})
@@ -1271,14 +1272,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # runs to its bounded completion. Mark the row abandoned; the guarded update
             # yields to a completion that already landed, and sync_direct_run's own guard
             # can never overwrite this interrupt afterwards.
-            NotebookNodeRun.objects.for_team(self.team_id).filter(
-                id=run.id, status=NotebookNodeRun.Status.RUNNING
-            ).update(
-                status=NotebookNodeRun.Status.INTERRUPTED,
-                error="Run stopped.",
-                updated_at=now(),
-            )
-            run.refresh_from_db()
+            finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped.")
             return Response({"status": run.status})
 
         try:
@@ -1306,9 +1300,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # No reachable kernel anywhere: the callback can never arrive, so this is the
             # user's escape hatch out of a stuck RUNNING row. A late callback (e.g. the
             # sandbox comes back) simply overwrites with the real outcome.
-            run.status = NotebookNodeRun.Status.INTERRUPTED
-            run.error = "Kernel is not reachable, so the run was stopped."
-            run.save(update_fields=["status", "error", "updated_at"])
+            finish_node_run(
+                run, NotebookNodeRun.Status.INTERRUPTED, error="Kernel is not reachable, so the run was stopped."
+            )
             return Response({"status": run.status})
 
         if not known:
