@@ -4,17 +4,16 @@ Schedules the underlying Expo HTTP call as a Celery task via
 ``transaction.on_commit`` so nothing here can block a request/response cycle
 or a Temporal activity's event loop.
 
-Three guards before we enqueue:
+Guards before we enqueue:
 
-1. **Feature flag.** ``posthog-code-mobile-push`` must be enabled for the
-   user. Off by default — flip on once the mobile build is ready and
-   tokens start arriving.
-2. **Cooldown.** A per-``(task_run, kind)`` Redis lock collapses duplicate
+1. **Cooldown.** A per-``(task_run, kind)`` Redis lock collapses duplicate
    triggers in a short window. A workflow that retries ``mark_completed``
    or an agent that fires several rapid end-of-turn events results in one
    push, not five.
-3. **Anonymous task.** Runs without a ``created_by`` user get skipped
+2. **Anonymous task.** Runs without a ``created_by`` user get skipped
    silently — there's no one to notify.
+3. **Recipient access.** A user who has lost access to the task's team is
+   skipped so they don't receive task titles for runs they can't see.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ from django.db import InterfaceError, OperationalError, close_old_connections, t
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
@@ -41,7 +39,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 PUSH_TITLE = "PostHog Code"
-FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
 # they should only fire once per run lifetime — anything more is a retry.
@@ -85,9 +82,9 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     """Best-effort: this function MUST NOT raise.
 
     Wrap the whole body in a bare ``except Exception`` so a DB outage,
-    Redis hiccup, flag-service failure, or any other surprise can't bubble
-    out of ``mark_completed`` / ``mark_failed`` / the API cancel handler
-    and fail the surrounding task-lifecycle activity.
+    Redis hiccup, or any other surprise can't bubble out of
+    ``mark_completed`` / ``mark_failed`` / the API cancel handler and fail
+    the surrounding task-lifecycle activity.
     """
     try:
         _enqueue_inner(task_run, kind=kind, body=body)
@@ -126,21 +123,6 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
             run_id=str(task_run.id),
             team_id=task_run.team_id,
         )
-        return
-
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    try:
-        flag_enabled = posthoganalytics.feature_enabled(
-            FEATURE_FLAG_KEY,
-            distinct_id,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        # Failing closed on flag-evaluation errors keeps an outage from
-        # silently flipping pushes on for the whole user base.
-        logger.warning("push_dispatcher.flag_check_failed", user_id=user.id, exc_info=True)
-        return
-    if not flag_enabled:
         return
 
     cooldown_key = f"push_notification:{task_run.id}:{kind}"

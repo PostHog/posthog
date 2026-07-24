@@ -19,10 +19,10 @@ from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
 
 def _flag_check_factory():
-    """Return a side_effect that turns on both the tasks-access flag and the push flag."""
+    """Return a side_effect that turns on the tasks-access flag."""
 
     def check_flag(flag_name, *_args, **_kwargs):
-        return flag_name in {"tasks", "posthog-code-mobile-push"}
+        return flag_name == "tasks"
 
     return check_flag
 
@@ -220,9 +220,8 @@ class PresenceFanoutSuppressionTestCase(TestCase):
             ("presence_on_other_task_suppresses_none", "other_task_only", "none"),
         ]
     )
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_suppression_matrix(self, _name, scenario, expected, mock_delay, _flag) -> None:
+    def test_fanout_suppression_matrix(self, _name, scenario, expected, mock_delay) -> None:
         if scenario == "one_active":
             self._present(self.device_a, expires_in=timedelta(seconds=30))
         elif scenario == "both_active":
