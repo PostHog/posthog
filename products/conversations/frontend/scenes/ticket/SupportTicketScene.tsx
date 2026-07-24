@@ -5,11 +5,13 @@ import { useRef } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -55,7 +57,11 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
-    paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
+    // `id` must match supportTicketSceneLogic's `key((props) => props.id)` so the logic instance
+    // App.tsx binds via BindLogic (and that the side panel context reads) is the same keyed
+    // instance the component builds directly — otherwise the side panel reads a never-populated
+    // logic instance and the access control tab never appears.
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new', id: ticketId || 'new' }),
 }
 
 // The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
@@ -148,6 +154,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           }[emailReplyBlockedReason]
         : undefined
 
+    const sendDisabledReason =
+        getAccessControlDisabledReason(
+            AccessControlResourceType.Ticket,
+            AccessControlLevel.Editor,
+            ticket?.user_access_level
+        ) ?? undefined
+
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
@@ -229,11 +242,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
+                        sendDisabledReason={sendDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
                         latestAiMessageId={latestAiMessage?.id ?? null}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
+                        aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
@@ -400,6 +415,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
@@ -410,6 +426,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-start">
@@ -421,17 +438,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                 size="xxsmall"
                                                 type="tertiary"
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="text-accent">Assign to me</span>
                                             </LemonButton>
                                         )}
-                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                    <AssigneeSelect
+                                        assignee={assignee}
+                                        onChange={setAssignee}
+                                        disabledReason={sendDisabledReason}
+                                    >
                                         {(resolvedAssignee, isOpen) => (
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
                                                 active={isOpen}
                                                 sideIcon={<IconChevronDown />}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="flex items-center gap-1">
                                                     <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
@@ -459,24 +482,40 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     selectionPeriod="upcoming"
                                     clearable
                                     placeholder="Not snoozed"
-                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                    buttonProps={{
+                                        size: 'small',
+                                        type: 'secondary',
+                                        fullWidth: false,
+                                        disabledReason: sendDisabledReason,
+                                    }}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
-                                <TicketTags tags={tags} onChange={setTags} saving={false} />
+                                <TicketTags
+                                    tags={tags}
+                                    onChange={setTags}
+                                    saving={false}
+                                    disabledReason={sendDisabledReason}
+                                />
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                loading={ticketUpdating}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Ticket}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={ticket?.user_access_level}
                             >
-                                Save changes
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateTicket()}
+                                    loading={ticketUpdating}
+                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     </LemonCard>
 

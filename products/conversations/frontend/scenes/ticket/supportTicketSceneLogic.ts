@@ -26,6 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -200,6 +201,7 @@ export interface supportTicketSceneLogicValues {
     previousTicketsLoading: boolean
     priority: TicketPriority | null
     replyRecipientDescription: string
+    sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
     status: TicketStatus | null
     tags: string[]
@@ -410,6 +412,7 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
 
@@ -910,6 +913,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }
                 return null
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): SidePanelSceneContext | null => {
+                return ticket?.id
+                    ? {
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                      }
+                    : null
             },
         ],
     }),

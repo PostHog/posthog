@@ -41,6 +41,8 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
@@ -232,7 +234,7 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
@@ -278,6 +280,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "organization_id_source",
             "person",
             "tags",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -357,7 +360,7 @@ TICKET_ID_PARAM = OpenApiParameter(
     partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
-class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
@@ -583,6 +586,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         order_by = self.request.query_params.get("order_by", "-updated_at")
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
+
+        # Hide tickets the user has been explicitly denied object-level access to (list action only).
+        queryset = self._filter_queryset_by_access_level(queryset)
 
         return queryset.order_by(order_by)
 
@@ -821,7 +827,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
         instance = self.get_object()
-        if instance.unread_team_count > 0:
+        # Marking as read is a write to shared team state - gate it by editor access so a
+        # viewer can't clear the team's unread indicator just by opening a ticket.
+        can_edit = self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+        if can_edit and instance.unread_team_count > 0:
             instance.unread_team_count = 0
             instance.save(update_fields=["unread_team_count"])
             # Invalidate cache since unread count changed
@@ -1045,7 +1054,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """Update the status of multiple tickets in a single request.
 
         Only tickets belonging to the current team are affected; other-team UUIDs
-        are silently ignored.  Tickets already in the requested status are skipped.
+        are silently ignored. Tickets the caller lacks editor-level access to (denied
+        or view-only via object-level access control) are silently skipped too, the
+        same way single-ticket updates enforce object-level access via get_object().
+        Tickets already in the requested status are skipped.
         """
         serializer = BulkUpdateStatusRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1055,6 +1067,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         changed: list[tuple[Ticket, str]] = []
         with transaction.atomic():
             tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            self.user_access_control.preload_object_access_controls(tickets)
+            tickets = [
+                ticket
+                for ticket in tickets
+                if self.user_access_control.check_access_level_for_object(ticket, required_level="editor")
+            ]
             for ticket in tickets:
                 old_status = ticket.status
                 if old_status == new_status:
@@ -1091,8 +1109,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """
         Get total unread ticket count for the team.
 
-        Returns the sum of unread_team_count for all non-resolved tickets.
-        Cached in Redis for 30 seconds, invalidated on changes.
+        Returns the sum of unread_team_count for all non-resolved tickets visible to the
+        caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+        callers without object-level ticket restrictions, since it holds one unscoped total
+        per team - serving it to a restricted member would leak counts for tickets they can't
+        see.
         """
         team_id = self.team_id
 
@@ -1100,22 +1121,23 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not self.team.conversations_enabled:
             return Response({"count": 0})
 
-        # Try cache first
-        cached_count = get_cached_unread_count(team_id)
-        if cached_count is not None:
-            return Response({"count": cached_count})
+        uac = self.user_access_control
+        is_restricted = bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket")
+
+        if not is_restricted:
+            cached_count = get_cached_unread_count(team_id)
+            if cached_count is not None:
+                return Response({"count": cached_count})
 
         # Query database - only non-resolved tickets with unread messages
-        result = (
-            Ticket.objects.filter(team_id=team_id)
-            .exclude(status="resolved")
-            .filter(unread_team_count__gt=0)
-            .aggregate(total=Sum("unread_team_count"))
-        )
-        count = result["total"] or 0
+        queryset = Ticket.objects.filter(team_id=team_id).exclude(status="resolved").filter(unread_team_count__gt=0)
+        if is_restricted:
+            queryset = uac.filter_queryset_by_access_level(queryset)
 
-        # Cache the result
-        set_cached_unread_count(team_id, count)
+        count = queryset.aggregate(total=Sum("unread_team_count"))["total"] or 0
+
+        if not is_restricted:
+            set_cached_unread_count(team_id, count)
 
         return Response({"count": count})
 

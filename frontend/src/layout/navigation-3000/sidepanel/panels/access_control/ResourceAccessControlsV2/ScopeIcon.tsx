@@ -33,6 +33,7 @@ import {
     IconToolbar,
     IconTrends,
     IconWarning,
+    IconSupport,
 } from '@posthog/icons'
 
 import { APIScopeObject } from '~/types'
@@ -103,6 +104,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconShare />
         case 'survey':
             return <IconMessage />
+        case 'ticket':
+            return <IconSupport />
         case 'tagger':
             return <IconList />
         case 'task':

@@ -92,6 +92,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'toolbar'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.Ticket) {
+        return 'support'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
         // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
         return 'replay vision'

@@ -254,9 +254,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     Unfurl PostHog insight, dashboard, and support ticket links with title and description.
 
     Scope is always the Slack-connected project (`integration.team`); `resolve_slack_user` enforces
-    that the sharer can access it. Insights/dashboards add a per-resource access-control check;
-    tickets have no per-object ACL, but a link naming a different project is refused (ticket numbers
-    are per-project, so resolving by number could otherwise surface the wrong ticket).
+    that the sharer can access it. Insights, dashboards, and tickets add a per-resource
+    access-control check. Ticket links naming a different project are also refused because ticket
+    numbers are per-project and could otherwise resolve to the wrong ticket.
     """
     slack = SlackIntegration(integration)
     channel = event.get("channel")
@@ -338,9 +338,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             if url_team_id is not None and url_team_id != team.pk:
                 continue
             ticket = _find_ticket(team.pk, ref)
-            if not ticket:
+            if not ticket or not uac.check_access_level_for_object(ticket, required_level="viewer"):
                 continue
-            # Tickets have no per-object ACL — any member of the connected team may view them.
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
                 ticket=ticket,

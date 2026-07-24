@@ -682,7 +682,7 @@ export interface TicketPersonApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
     readonly id: string
@@ -768,6 +768,11 @@ export interface TicketApi {
     readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTicketListApi {
@@ -780,7 +785,7 @@ export interface PaginatedTicketListApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface PatchedTicketApi {
     readonly id?: string
@@ -866,6 +871,11 @@ export interface PatchedTicketApi {
     readonly organization_id_source?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**

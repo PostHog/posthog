@@ -1139,6 +1139,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    ticket: 'conversations/tickets',
                     heatmap: 'saved',
                     replay_scanner: 'vision/scanners',
                 }

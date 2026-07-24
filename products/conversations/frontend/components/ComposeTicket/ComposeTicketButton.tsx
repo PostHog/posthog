@@ -5,11 +5,14 @@ import { useState } from 'react'
 import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { composeTicketLogic } from './composeTicketLogic'
 
@@ -66,23 +69,28 @@ export function ComposeTicketButton({
                     </div>
                 }
             >
-                <LemonButton
-                    type={type}
-                    size={size}
-                    icon={<IconLetter />}
-                    tooltip={iconOnly ? 'New ticket' : undefined}
-                    onClick={() => {
-                        if (conversationsEnabled) {
-                            openComposeModal({ distinctId, email })
-                            onCompose?.()
-                        } else {
-                            setShowDisabledPopover(true)
-                        }
-                    }}
-                    data-attr="compose-ticket-button"
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Ticket}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    {iconOnly ? null : 'New ticket'}
-                </LemonButton>
+                    <LemonButton
+                        type={type}
+                        size={size}
+                        icon={<IconLetter />}
+                        tooltip={iconOnly ? 'New ticket' : undefined}
+                        onClick={() => {
+                            if (conversationsEnabled) {
+                                openComposeModal({ distinctId, email })
+                                onCompose?.()
+                            } else {
+                                setShowDisabledPopover(true)
+                            }
+                        }}
+                        data-attr="compose-ticket-button"
+                    >
+                        {iconOnly ? null : 'New ticket'}
+                    </LemonButton>
+                </AccessControlAction>
             </Popover>
         </>
     )
