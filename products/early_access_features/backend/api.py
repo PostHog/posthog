@@ -59,6 +59,35 @@ def assert_feature_flag_rbac_access(
         raise PermissionDenied("You don't have sufficient permissions to modify the linked feature flag.")
 
 
+def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
+    """Clear the enrollment marker on a feature's linked flag (feature demoted or deleted).
+
+    Cleanup must never fail: a linked flag can hold stored filter shapes the current
+    FeatureFlagSerializer rejects or crashes on (group-aggregated conditions, malformed
+    legacy properties, ...), and a rejection here would make the feature undeletable.
+    Prefer the gated facade write (validation, activity logging); fall back to a raw
+    model write when it raises. This is a system write (user=None): an enabled approval
+    policy must never block cleanup with a 409, and activity is logged as system.
+    """
+    cleared_filters = set_feature_enrollment(feature_flag.get_filters() or {}, None)
+    # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
+    # filters and returns the stored ones — silently skipping the cleanup entirely.
+    if "groups" in cleared_filters:
+        try:
+            update_flag(feature_flag, {"filters": cleared_filters}, team=team, user=None)
+            return
+        except Exception as exc:
+            # Stored legacy JSON can raise arbitrary exception types through the flag
+            # validator (ValidationError, TypeError, KeyError, ...), so catch broadly.
+            logger.warning(
+                "early_access_feature_enrollment_cleanup_fell_back_to_raw_write",
+                feature_flag_id=feature_flag.id,
+                error=str(exc),
+            )
+    feature_flag.filters = cleared_filters
+    feature_flag.save(update_fields=["filters"])
+
+
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
     A more minimal serializer, intended specificaly for non-generally-available features to be provided
@@ -209,14 +238,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     feature_flag_id=related_feature_flag.id,
                 )
                 assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-                # System write: clearing enrollment on stage demotion is cleanup, so an enabled
-                # approval policy must never block it with a 409. Activity is logged as system.
-                update_flag(
-                    related_feature_flag,
-                    {"filters": set_feature_enrollment(related_feature_flag.get_filters(), None)},
-                    team=self.context["get_team"](),
-                    user=None,
-                )
+                clear_feature_enrollment(related_feature_flag, team=self.context["get_team"]())
 
         updated_instance = super().update(instance, validated_data)
 
@@ -392,14 +414,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 resource_scope="early_access_feature:write",
             )
             assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
-            # System write: clearing enrollment when the feature is destroyed is cleanup, so an
-            # enabled approval policy must never block it with a 409. Activity is logged as system.
-            update_flag(
-                related_feature_flag,
-                {"filters": set_feature_enrollment(related_feature_flag.get_filters(), None)},
-                team=self.team,
-                user=None,
-            )
+            clear_feature_enrollment(related_feature_flag, team=self.team)
 
         return super().destroy(request, *args, **kwargs)
 

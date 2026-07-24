@@ -1933,3 +1933,65 @@ class TestEarlyAccessFeatureFlagFacadeWrites(APIBaseTest):
         log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
         assert log.is_system is True
         assert log.user is None
+
+    @parameterized.expand(
+        [
+            (
+                "property_missing_key_crashes_validator",
+                {
+                    "groups": [{"properties": [{"value": "ok", "type": "person"}], "rollout_percentage": 100}],
+                    "feature_enrollment": True,
+                },
+            ),
+            (
+                "group_aggregated_condition_rejected_for_linked_flags",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                    ],
+                    "feature_enrollment": True,
+                },
+            ),
+            (
+                "no_release_groups_hits_serializer_partial_patch_shortcut",
+                {
+                    "feature_enrollment": True,
+                    "super_groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$feature_enrollment/broken-legacy",
+                                    "type": "person",
+                                    "value": ["true"],
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_destroy_clears_enrollment_when_gated_write_cannot(self, _name, filters):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="broken-legacy",
+            created_by=self.user,
+            filters=filters,
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Broken legacy",
+            stage=EarlyAccessFeature.Stage.BETA,
+            feature_flag=flag,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not EarlyAccessFeature.objects.filter(id=feature.id).exists()
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        assert "super_groups" not in flag.filters
