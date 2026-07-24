@@ -1,5 +1,45 @@
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.meta_ads.template_meta_ads import template as template_meta_ads
+from posthog.cdp.validation import generate_template_bytecode
+
+from common.hogvm.python.execute import execute_bytecode
+
+
+class TestTemplateMetaAdsFbc(SimpleTestCase):
+    """The `fbc` default is a Hog template expression that only gets evaluated when inputs are
+    resolved, so BaseHogFunctionTemplateTest (which passes userData as literal values) never
+    exercises it. Compile and run the expression directly instead."""
+
+    def _render_fbc(self, person_properties: dict) -> str:
+        user_data = next(field for field in template_meta_ads.inputs_schema if field["key"] == "userData")
+        bytecode = generate_template_bytecode(user_data["default"]["fbc"], set())
+        return execute_bytecode(bytecode, {"person": {"properties": person_properties}}).result
+
+    @parameterized.expand(
+        [
+            ("fbclid", {"fbclid": "abc123"}, "abc123"),
+            ("initial_fbclid_fallback", {"$initial_fbclid": "def456"}, "def456"),
+        ]
+    )
+    def test_fbc_is_four_segments_with_integer_timestamp(self, _name, person_properties, expected_fbclid):
+        fbc = self._render_fbc(person_properties)
+
+        # Meta requires the four-segment format fb.{subdomain}.{creation_time}.{fbclid}; the
+        # creation_time must be an integer, otherwise a float timestamp adds a fifth "." segment
+        # and Meta rejects the event with "Click ID incorrectly formatted" (subcode 2804001).
+        segments = fbc.split(".")
+        assert len(segments) == 4, fbc
+        assert segments[0] == "fb"
+        assert segments[1] == "1"
+        assert segments[2].isdigit(), fbc
+        assert segments[3] == expected_fbclid
+
+    def test_fbc_is_empty_without_fbclid(self):
+        assert self._render_fbc({"email": "person@example.com"}) == ""
 
 
 class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
