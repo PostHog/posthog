@@ -1334,7 +1334,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
