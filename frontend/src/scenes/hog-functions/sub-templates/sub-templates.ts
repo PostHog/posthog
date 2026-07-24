@@ -47,6 +47,33 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'standard',
         filters: { events: [{ id: '$feature_enrollment_update', type: 'events' }] },
     },
+    'mcp-missing-capability': {
+        sub_template_id: 'mcp-missing-capability',
+        type: 'destination',
+        context_id: 'standard',
+        filters: { events: [{ id: '$mcp_missing_capability', type: 'events' }] },
+    },
+    'mcp-tool-error': {
+        sub_template_id: 'mcp-tool-error',
+        type: 'destination',
+        context_id: 'standard',
+        filters: {
+            events: [
+                {
+                    id: '$mcp_tool_call',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: '$mcp_is_error',
+                            type: PropertyFilterType.Event,
+                            value: ['true', true, 1],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+        },
+    },
     'activity-log': {
         sub_template_id: 'activity-log',
         type: 'internal_destination',
@@ -274,7 +301,159 @@ function buildHealthAlertSubTemplates(
     ]
 }
 
+// All $mcp_* text is producer-controlled and unbounded, so every interpolation is escaped
+// for the target chat format and truncated (post-escape, so entity expansion can't blow
+// past provider message limits: Slack 3000/section, Discord 2000/message).
+//
+// Discord worst case: message (template text + 3 fields x 200 + intent 600, all post-escape,
+// ~1260) + link (base ~80 + encoded tool name 480: encodeURLComponent percent-encodes each
+// UTF-8 byte, so an astral emoji becomes 12 chars, x 40) = ~1820 < 2000.
+const MCP_INTENT_MAX_LENGTH = 600
+const MCP_FIELD_MAX_LENGTH = 200
+// Truncated BEFORE encoding (truncating after could split a %XX escape); 12x expansion budgeted above.
+const MCP_URL_TOOL_MAX_LENGTH = 40
+
+type ChatEscaper = (expression: string, maxLength?: number) => string
+
+function slackEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
+    // concat, not toString: concat(null) renders '' (matching bare {} interpolation), toString(null) prints 'null'
+    return `substring(replaceAll(replaceAll(replaceAll(concat(${expression}), '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), 1, ${maxLength})`
+}
+
+function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
+    // Breaking the `](` adjacency is enough to neutralize masked links [text](url) in
+    // Discord and Teams; Discord mass mentions are already suppressed by the destination
+    // template's allowed_mentions, and Teams mentions can't be triggered from text.
+    return `substring(replaceAll(concat(${expression}), '](', '] ('), 1, ${maxLength})`
+}
+
+// In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
+// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
+const MCP_EFFECTIVE_TOOL_EXPR =
+    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+
+function mcpMissingCapabilityMessage(escape: ChatEscaper, bold: string): string {
+    return (
+        `An agent using ${bold}{${escape('event.properties.$mcp_client_name')}}${bold} looked for a capability your MCP server ` +
+        `${bold}{${escape('event.properties.$mcp_server_name')}}${bold} doesn't have: _{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}_`
+    )
+}
+
+function mcpToolErrorMessage(escape: ChatEscaper, bold: string): string {
+    return (
+        `${bold}{${escape(MCP_EFFECTIVE_TOOL_EXPR)}}${bold} failed on your MCP server ` +
+        `${bold}{${escape('event.properties.$mcp_server_name')}}${bold} ` +
+        `(client: {${escape('event.properties.$mcp_client_name')}}). ` +
+        `Agent intent: _{${escape('event.properties.$mcp_intent', MCP_INTENT_MAX_LENGTH)}}_`
+    )
+}
+
+const MCP_MISSING_CAPABILITY_SLACK_MESSAGE = mcpMissingCapabilityMessage(slackEscapeExpr, '*')
+const MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE = mcpMissingCapabilityMessage(markdownEscapeExpr, '**')
+const MCP_MISSING_CAPABILITY_LINK = '{project.url}/mcp-analytics/activity'
+
+const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolErrorMessage(slackEscapeExpr, '*')
+const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolErrorMessage(markdownEscapeExpr, '**')
+// Bound the tool name before encoding: percent-encoding can triple the length, and the link
+// rides inside Teams/Discord bodies that must stay under provider message limits.
+const MCP_TOOL_ERROR_LINK = `{project.url}/mcp-analytics/tool-quality/{encodeURLComponent(substring(concat(${MCP_EFFECTIVE_TOOL_EXPR}), 1, ${MCP_URL_TOOL_MAX_LENGTH}))}`
+
+interface MCPNotificationVariantsOptions {
+    subTemplateId: 'mcp-missing-capability' | 'mcp-tool-error'
+    nameSuffix: string
+    description: string
+    webhookDescription: string
+    slackMessage: string
+    slackFallbackText: string
+    markdownMessage: string
+    slackButton: { url: string; label: string }
+}
+
+function mcpNotificationVariants({
+    subTemplateId,
+    nameSuffix,
+    description,
+    webhookDescription,
+    slackMessage,
+    slackFallbackText,
+    markdownMessage,
+    slackButton,
+}: MCPNotificationVariantsOptions): HogFunctionSubTemplateType[] {
+    const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+
+    return [
+        {
+            ...commonProperties,
+            template_id: 'template-slack',
+            name: `Post to Slack ${nameSuffix}`,
+            description,
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'section', text: { type: 'mrkdwn', text: slackMessage } },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: slackButton.url,
+                                    text: { text: slackButton.label, type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: { value: slackFallbackText },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-microsoft-teams',
+            name: `Post to Microsoft Teams ${nameSuffix}`,
+            description,
+            inputs: {
+                text: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-discord',
+            name: `Post to Discord ${nameSuffix}`,
+            description,
+            inputs: {
+                content: { value: markdownMessage },
+            },
+        },
+        {
+            ...commonProperties,
+            template_id: 'template-webhook',
+            name: `HTTP Webhook ${nameSuffix}`,
+            description: webhookDescription,
+        },
+    ]
+}
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
+    'mcp-missing-capability': mcpNotificationVariants({
+        subTemplateId: 'mcp-missing-capability',
+        nameSuffix: 'when agents ask for a missing capability',
+        description: 'Agents report what they searched for and could not find, delivered as your MCP roadmap',
+        webhookDescription: 'Send the full missing-capability report to your own endpoint',
+        slackMessage: MCP_MISSING_CAPABILITY_SLACK_MESSAGE,
+        slackFallbackText: 'An agent hit a missing capability on your MCP server',
+        markdownMessage: `${MCP_MISSING_CAPABILITY_MARKDOWN_MESSAGE}\n\n${MCP_MISSING_CAPABILITY_LINK}`,
+        slackButton: { url: MCP_MISSING_CAPABILITY_LINK, label: 'View MCP activity' },
+    }),
+    'mcp-tool-error': mcpNotificationVariants({
+        subTemplateId: 'mcp-tool-error',
+        nameSuffix: 'when an MCP tool call fails',
+        description: 'Know the moment agents hit an error on one of your tools',
+        webhookDescription: 'Send failing tool calls to your own endpoint',
+        slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
+        slackFallbackText: 'An MCP tool call failed',
+        markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
+        slackButton: { url: MCP_TOOL_ERROR_LINK, label: 'View tool detail' },
+    }),
     'survey-response': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],

@@ -41,6 +41,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+        '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     },
     redirects: {
         // `landing=auto` marks "arrived via the bare URL": the scene resolves it to the
@@ -56,6 +57,7 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+        mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },
     setupProbe: {
         productKey: ProductKey.MCP_ANALYTICS,
