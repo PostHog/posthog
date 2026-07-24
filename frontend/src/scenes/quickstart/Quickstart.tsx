@@ -37,7 +37,6 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
@@ -254,7 +253,24 @@ function ProjectFactChip({
     )
 }
 
-function ProjectFactsBar(): JSX.Element | null {
+function ProjectTokenChip(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+
+    if (!currentTeam?.api_token) {
+        return null
+    }
+    return (
+        <ProjectFactChip
+            label="Project token"
+            value={currentTeam.api_token}
+            copyTooltip="Copy project token"
+            copyThing="project token"
+            action="copy_project_token"
+        />
+    )
+}
+
+function ProjectFactsHints({ children }: { children?: React.ReactNode }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -264,39 +280,31 @@ function ProjectFactsBar(): JSX.Element | null {
     const region = preflight?.region === Region.DEV ? 'DEV' : (preflight?.region ?? 'local')
 
     return (
-        <div className="flex flex-col gap-1">
-            <ProjectFactChip
-                label="Project token"
-                value={currentTeam.api_token}
-                copyTooltip="Copy project token"
-                copyThing="project token"
-                action="copy_project_token"
-            />
-            <div className="text-xs text-muted flex items-center gap-1">
-                <span
-                    className="cursor-pointer hover:text-primary"
-                    title="Copy project ID"
-                    onClick={() => {
-                        captureQuickstartAction('copy_project_id')
-                        void copyToClipboard(String(currentTeam.id), 'project ID')
-                    }}
-                    data-attr="quickstart-copy-project-id"
-                >
-                    Project ID {currentTeam.id}
-                </span>
-                <span>·</span>
-                <span
-                    className="cursor-pointer hover:text-primary"
-                    title={`Copy API host: ${apiHostOrigin()}`}
-                    onClick={() => {
-                        captureQuickstartAction('copy_api_host')
-                        void copyToClipboard(apiHostOrigin(), 'API host')
-                    }}
-                    data-attr="quickstart-copy-api-host"
-                >
-                    Region {region}
-                </span>
-            </div>
+        <div className="text-xs text-muted flex flex-wrap items-center gap-1">
+            <span
+                className="cursor-pointer hover:text-primary"
+                title="Copy project ID"
+                onClick={() => {
+                    captureQuickstartAction('copy_project_id')
+                    void copyToClipboard(String(currentTeam.id), 'project ID')
+                }}
+                data-attr="quickstart-copy-project-id"
+            >
+                Project ID {currentTeam.id}
+            </span>
+            <span>·</span>
+            <span
+                className="cursor-pointer hover:text-primary"
+                title={`Copy API host: ${apiHostOrigin()}`}
+                onClick={() => {
+                    captureQuickstartAction('copy_api_host')
+                    void copyToClipboard(apiHostOrigin(), 'API host')
+                }}
+                data-attr="quickstart-copy-api-host"
+            >
+                Region {region}
+            </span>
+            {children}
         </div>
     )
 }
@@ -390,9 +398,18 @@ function HeaderStat({ icon, children }: { icon: JSX.Element; children: React.Rea
     )
 }
 
-function QuickstartInstallationPrompt({ installationComplete }: { installationComplete: boolean }): JSX.Element | null {
+function QuickstartInstallationPrompt({
+    installationComplete,
+    showInstallLink = true,
+}: {
+    installationComplete: boolean
+    /** test2 offers setup via its own Back to setup hint, so the onboarding link stays out */
+    showInstallLink?: boolean
+}): JSX.Element | null {
     return (
-        <QuickstartWizardProgress fallback={installationComplete ? null : <QuickstartInstallationLink />}>
+        <QuickstartWizardProgress
+            fallback={installationComplete || !showInstallLink ? null : <QuickstartInstallationLink />}
+        >
             {(progress) => <QuickstartInstallationProgress progress={progress} />}
         </QuickstartWizardProgress>
     )
@@ -1874,27 +1891,38 @@ export function Quickstart(): JSX.Element {
                     <p className="text-secondary mb-0 mt-1 max-w-140">
                         Connect your product's context, configure Tools, and choose how you work with PostHog.
                     </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <ProjectFactsBar />
-                        {/* In focused-install mode the wizard progress renders as the page hero instead */}
-                        {!focusedInstall && (
-                            <QuickstartInstallationPrompt installationComplete={installationComplete} />
-                        )}
+                    <div className="mt-3 flex flex-col gap-1">
+                        <div className="flex flex-wrap items-stretch gap-2">
+                            <ProjectTokenChip />
+                            {/* In focused-install mode the wizard progress renders as the page hero instead */}
+                            {!focusedInstall && (
+                                <QuickstartInstallationPrompt
+                                    installationComplete={installationComplete}
+                                    showInstallLink={quickstartVariant !== 'test2'}
+                                />
+                            )}
+                        </div>
+                        <ProjectFactsHints>
+                            {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
+                                <>
+                                    <span>·</span>
+                                    <span>No events yet</span>
+                                    <span>·</span>
+                                    <Link
+                                        onClick={reopenFocusedInstall}
+                                        className="text-xs"
+                                        data-attr="quickstart-back-to-setup"
+                                    >
+                                        Back to setup
+                                    </Link>
+                                </>
+                            )}
+                        </ProjectFactsHints>
                     </div>
                 </section>
             </div>
 
             {focusedInstall && <QuickstartFocusedInstall onDismiss={dismissFocusedInstall} />}
-
-            {quickstartVariant === 'test2' && !installationComplete && installDismissed && (
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Back to setup', onClick: reopenFocusedInstall }}
-                    className="mb-0"
-                >
-                    No events have arrived in this project yet. Your tools light up once data starts flowing.
-                </LemonBanner>
-            )}
 
             {quickstartVariant === 'test2' && !focusedInstall && <QuickstartHeroAnswerCard />}
 

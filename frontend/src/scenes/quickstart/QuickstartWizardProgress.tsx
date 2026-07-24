@@ -98,8 +98,8 @@ function InstallationStatusDot({ progress }: { progress: InstallationProgress })
 }
 
 /**
- * Wizard progress as a one-line status chip on its own row below the project token, height-matched
- * to the token chip so the two stack as one quiet family. The whole chip opens the detailed dialog.
+ * Wizard progress as a one-line status chip next to the project token, height-matched so the
+ * two read as one quiet family. The whole chip opens the detailed dialog.
  */
 export function QuickstartInstallationProgress({ progress }: { progress: InstallationProgress }): JSX.Element {
     const { openDialog } = useActions(wizardSyncUiLogic)
@@ -107,12 +107,7 @@ export function QuickstartInstallationProgress({ progress }: { progress: Install
     const { completed, total } = stepCounts(progress.steps)
 
     return (
-        <div
-            className="basis-full min-w-0"
-            role="status"
-            aria-live="polite"
-            data-attr="quickstart-installation-progress"
-        >
+        <div className="min-w-0" role="status" aria-live="polite" data-attr="quickstart-installation-progress">
             <button
                 type="button"
                 onClick={openDialog}
