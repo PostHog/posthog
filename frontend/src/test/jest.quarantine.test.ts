@@ -163,6 +163,10 @@ describe('jest.quarantine', () => {
                             ...process.env,
                             CI: '1',
                             JEST_JUNIT_OUTPUT_DIR: tmpDir,
+                            // Mirror ci-frontend.yml: the CI reporter reads the `file` attribute to
+                            // rebuild each test's identity, so the junit shape must match CI's here.
+                            JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true',
+                            JEST_JUNIT_SUITE_NAME: '{filepath}',
                             POSTHOG_TEST_QUARANTINE_PATH: quarantinePath,
                         },
                     }
@@ -196,6 +200,30 @@ describe('jest.quarantine', () => {
                         `${fixtureSuiteId} parameterized describe A tolerates nested failure`,
                     ])
                 )
+
+                // The CI reporter (.github/scripts/report_test_timings.py) rebuilds each test's
+                // identity from junit as `<repo-relative file>::<name>` and matches it against the
+                // sidecar's `test_id` to restore failures quarantine masked as passes. This is the
+                // only place both sides run together, so drift in jest-junit's name/file templates
+                // or in the sidecar id would otherwise silently turn those back into clean passes.
+                const junitIds = [
+                    ...fs.readFileSync(path.join(tmpDir, 'junit.xml'), 'utf-8').matchAll(/<testcase\b[^>]*>/g),
+                ].flatMap(([element]) => {
+                    const file = /\bfile="([^"]*)"/.exec(element)?.[1]
+                    const name = /\bname="([^"]*)"/.exec(element)?.[1]
+                    if (file === undefined || name === undefined) {
+                        return []
+                    }
+                    const repoRelative = path.posix.normalize(path.posix.join('frontend', file))
+                    return [`${repoRelative}::${name.replace(/&quot;/g, '"').replace(/&amp;/g, '&')}`]
+                })
+                // beforeAll/afterAll tolerate at describe scope, so their id names no single test
+                // and has no testcase to attach to; every per-test id must still resolve to one.
+                const perTestToleratedIds = toleratedIds.filter(
+                    (id) => id !== fixtureSuiteId && id !== RUNTIME_FIXTURE_ID
+                )
+                expect(perTestToleratedIds.length).toBeGreaterThan(0)
+                expect(junitIds).toEqual(expect.arrayContaining(perTestToleratedIds))
             } finally {
                 fs.rmSync(tmpDir, { recursive: true, force: true })
             }
