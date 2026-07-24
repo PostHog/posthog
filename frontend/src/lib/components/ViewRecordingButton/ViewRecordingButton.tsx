@@ -13,6 +13,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
@@ -232,9 +233,17 @@ export default function ViewRecordingButton({
 export const recordingDisabledReason = (
     sessionId: string | undefined,
     recordingStatus: string | undefined,
-    hasRecording?: boolean
+    hasRecording?: boolean,
+    sessionRecordingOptIn?: boolean
 ): JSX.Element | string | null => {
-    if (!sessionId && hasRecording === false) {
+    if (sessionRecordingOptIn === false) {
+        return (
+            <>
+                Session replay is not enabled for this project, so there are no recordings to watch.{' '}
+                <Link to={urls.replaySettings()}>Enable session replay</Link> to start capturing them.
+            </>
+        )
+    } else if (!sessionId && hasRecording === false) {
         return 'No recording for this event'
     } else if (!sessionId) {
         return (
@@ -296,6 +305,7 @@ export function useRecordingButton({
 } {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { userClickedThrough } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
+    const { currentTeam } = useValues(teamLogic)
 
     const onClick = (): void => {
         userClickedThrough()
@@ -313,7 +323,13 @@ export function useRecordingButton({
         }
     }
 
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+    // `currentTeam` may be undefined before it loads; only treat replay as disabled once we know the setting is off.
+    const disabledReason = recordingDisabledReason(
+        sessionId,
+        recordingStatus,
+        hasRecording,
+        currentTeam ? currentTeam.session_recording_opt_in : undefined
+    )
     const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus, hasRecording)
 
     return { onClick, disabledReason, warningReason }
