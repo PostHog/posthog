@@ -1,4 +1,8 @@
 .BillingGaugeItem {
+    // Bars are absolutely-positioned siblings that stack by DOM order (higher-value bars paint
+    // on top), so a bar above would otherwise intercept hover for the label/sections beneath it.
+    // Only the interactive children opt back into pointer events.
+    pointer-events: none;
     animation: BillingGaugeItem__expand 800ms cubic-bezier(0.15, 0.15, 0.2, 1) forwards;
 
     .BillingGaugeItem__info {
@@ -10,6 +14,7 @@
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
+        pointer-events: auto;
         background-color: var(--color-bg-light);
         border-left: 1px solid var(--border-light);
 
@@ -37,6 +42,36 @@
 
         &.BillingGaugeItem--within-usage-limit {
             background: var(--brand-blue);
+        }
+
+        // When split at the billing limit, the two sections below paint the bar instead.
+        &.BillingGaugeItem--split {
+            background: transparent;
+        }
+    }
+
+    .BillingGaugeItem__section {
+        pointer-events: auto;
+
+        // Usage at or below the billing limit — what the user actually pays for.
+        &--paid {
+            background: var(--brand-blue);
+        }
+
+        // Actual usage above the billing limit — real, but not charged. Desaturated grey, and
+        // angled the opposite way (135deg) to the projected/forecast stripes (-45deg) so the two
+        // striped bars never read as the same thing where they overlap. Both stops must use defined
+        // tokens: a single undefined custom property makes the whole gradient invalid, which would
+        // silently drop the stripes to a transparent background.
+        &--over-limit {
+            background: repeating-linear-gradient(
+                135deg,
+                var(--muted),
+                var(--muted) 3px,
+                var(--color-border-primary) 3px,
+                var(--color-border-primary) 7px
+            );
+            opacity: 0.7;
         }
     }
 

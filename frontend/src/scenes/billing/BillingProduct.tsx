@@ -233,6 +233,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <BillingGauge
                                         items={combinedMonetaryGaugeItems}
                                         product={{ ...product, unit: '$' }}
+                                        billing={billing}
                                     />
                                 </div>
                                 <Tooltip
@@ -333,6 +334,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     : createGaugeItems(variant.product)
                                                             }
                                                             product={variant.product}
+                                                            billing={billing}
                                                         />
                                                     </div>
                                                     <BillingProductPricingTable product={variant.product} />
@@ -361,7 +363,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <h4 className="font-bold">{variant.displayName}</h4>
                                             <div className="sm:flex w-full items-center gap-x-8">
                                                 <div className="grow -my-4">
-                                                    <BillingGauge items={variantGaugeItems} product={variant.product} />
+                                                    <BillingGauge
+                                                        items={variantGaugeItems}
+                                                        product={variant.product}
+                                                        billing={billing}
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
@@ -396,7 +402,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         {isTemporaryFreeProduct ? (
                                             <div className="grow">
                                                 <div className="grow">
-                                                    <BillingGauge items={billingGaugeItems} product={product} />
+                                                    <BillingGauge
+                                                        items={billingGaugeItems}
+                                                        product={product}
+                                                        billing={billing}
+                                                    />
                                                 </div>
                                                 {/* TODO: rms: remove this notice after August 8 2024 */}
                                                 {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -429,7 +439,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         />
                                                     )}
                                                     <div className="grow">
-                                                        <BillingGauge items={billingGaugeItems} product={product} />
+                                                        <BillingGauge
+                                                            items={billingGaugeItems}
+                                                            product={product}
+                                                            billing={billing}
+                                                        />
                                                     </div>
                                                 </div>
                                                 {product.subscribed ? (
