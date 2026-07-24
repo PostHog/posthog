@@ -102,6 +102,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
+        slackIntegrationInactiveMessage,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
     const [localValue, setLocalValue] = useState<string | null>(null)
@@ -244,6 +245,23 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 }
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {slackIntegrationInactiveMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    <div className="flex justify-between gap-2 items-center">
+                        <span>{slackIntegrationInactiveMessage}</span>
+                        <Link
+                            to={api.integrations.authorizeUrl({
+                                kind: 'slack',
+                                next: window.location.pathname + '?target_type=slack',
+                            })}
+                            disableClientSideRouting
+                        >
+                            Reconnect Slack
+                        </Link>
+                    </div>
+                </LemonBanner>
+            ) : null}
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">
