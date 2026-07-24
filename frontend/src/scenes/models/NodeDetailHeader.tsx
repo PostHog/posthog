@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
+import { NODE_DESCRIPTION_MAX_LENGTH } from './nodeDetailConstants'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 function SaveDiscardActions({
@@ -81,6 +82,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
             resourceType={{ type: 'sql_editor' }}
             canEdit={canEdit}
             onDescriptionChange={canEdit ? (description) => updateNodeDescription(description) : undefined}
+            descriptionMaxLength={NODE_DESCRIPTION_MAX_LENGTH}
             isLoading={nodeLoading && !node}
             renameDebounceMs={500}
             saveOnBlur
