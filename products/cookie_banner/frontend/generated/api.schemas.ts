@@ -159,14 +159,17 @@ export interface UserBasicApi {
 }
 
 export interface CookieBannerConfigApi {
+    /** Unique id of the banner config. */
     readonly id: string
     /** Whether the banner is served to your website. Defaults to false. */
     enabled?: boolean
     /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
     appearance?: CookieBannerAppearanceApi
+    /** When the banner config was created. */
     readonly created_at: string
     /** User who created the banner. */
     readonly created_by: UserBasicApi
+    /** When the banner config was last updated. */
     readonly updated_at: string
 }
 
@@ -180,14 +183,17 @@ export interface PaginatedCookieBannerConfigListApi {
 }
 
 export interface PatchedCookieBannerConfigApi {
+    /** Unique id of the banner config. */
     readonly id?: string
     /** Whether the banner is served to your website. Defaults to false. */
     enabled?: boolean
     /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
     appearance?: CookieBannerAppearanceApi
+    /** When the banner config was created. */
     readonly created_at?: string
     /** User who created the banner. */
     readonly created_by?: UserBasicApi
+    /** When the banner config was last updated. */
     readonly updated_at?: string
 }
 

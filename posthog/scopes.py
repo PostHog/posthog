@@ -175,6 +175,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Alpha product behind the cookie-banner feature flag; PAT-grantable but not
+        # advertised to OAuth clients until it launches.
+        "cookie_banner",
     }
 )
 

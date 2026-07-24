@@ -23,4 +23,6 @@ class CookieBannerConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        # Project-wide, not team_id: the row lives on the project's root team even when
+        # the request comes through a child environment's URL
+        return queryset.filter(team__project_id=self.project_id)

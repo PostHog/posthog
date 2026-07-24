@@ -14,6 +14,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ColorInput } from 'scenes/surveys/wizard/ColorInput'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -28,6 +29,12 @@ import { ART_STYLE_LABELS, POSITION_LABELS, THEME_PALETTES, ThemePreset } from '
 import { cookieBannerLogic } from './cookieBannerLogic'
 import { CookieBannerPreview } from './CookieBannerPreview'
 import type { CookieBannerAppearanceApi } from './generated/api.schemas'
+import {
+    cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax,
+    cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax,
+    cookieBannerCreateBodyAppearanceOneDescriptionMax,
+    cookieBannerCreateBodyAppearanceOneTitleMax,
+} from './generated/api.zod'
 
 export const scene: SceneExport = {
     component: CookieBannerScene,
@@ -36,10 +43,23 @@ export const scene: SceneExport = {
 }
 
 const TEXT_FIELDS: { key: keyof CookieBannerAppearanceApi; label: string; maxLength: number; textarea?: boolean }[] = [
-    { key: 'title', label: 'Title', maxLength: 200 },
-    { key: 'description', label: 'Description', maxLength: 1000, textarea: true },
-    { key: 'acceptButtonText', label: 'Accept button', maxLength: 100 },
-    { key: 'declineButtonText', label: 'Decline button', maxLength: 100 },
+    { key: 'title', label: 'Title', maxLength: cookieBannerCreateBodyAppearanceOneTitleMax },
+    {
+        key: 'description',
+        label: 'Description',
+        maxLength: cookieBannerCreateBodyAppearanceOneDescriptionMax,
+        textarea: true,
+    },
+    {
+        key: 'acceptButtonText',
+        label: 'Accept button',
+        maxLength: cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax,
+    },
+    {
+        key: 'declineButtonText',
+        label: 'Decline button',
+        maxLength: cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax,
+    },
 ]
 
 const COLOR_FIELDS: { key: keyof CookieBannerAppearanceApi; label: string }[] = [
@@ -50,8 +70,7 @@ const COLOR_FIELDS: { key: keyof CookieBannerAppearanceApi; label: string }[] = 
 ]
 
 export function CookieBannerScene(): JSX.Element {
-    const { activeTheme, configLoading, enabledDraft, effectiveAppearance, isDirty, saving } =
-        useValues(cookieBannerLogic)
+    const { activeTheme, configLoading, enabledDraft, effectiveAppearance, isDirty } = useValues(cookieBannerLogic)
     const { setEnabled, setAppearanceValue, setAppearanceValues, save } = useActions(cookieBannerLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -66,7 +85,7 @@ export function CookieBannerScene(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={() => save()}
-                        loading={saving}
+                        loading={configLoading}
                         disabledReason={configLoading ? 'Loading…' : !isDirty ? 'No changes to save' : undefined}
                         data-attr="cookie-banner-save"
                     >
@@ -169,16 +188,9 @@ export function CookieBannerScene(): JSX.Element {
                             {COLOR_FIELDS.map(({ key, label }) => (
                                 <div key={key}>
                                     <LemonLabel className="mb-1">{label}</LemonLabel>
-                                    <LemonInput
+                                    <ColorInput
                                         value={String(effectiveAppearance[key])}
                                         onChange={(value) => setAppearanceValue(key, value)}
-                                        prefix={
-                                            <span
-                                                className="inline-block w-4 h-4 rounded border"
-                                                style={{ backgroundColor: String(effectiveAppearance[key]) }}
-                                            />
-                                        }
-                                        data-attr={`cookie-banner-${key}`}
                                     />
                                 </div>
                             ))}

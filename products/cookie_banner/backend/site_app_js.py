@@ -13,6 +13,7 @@ for the team. Only the selected art style is shipped; keep each art asset under 
 """
 
 import json
+import functools
 from typing import Any
 
 # Art is server-owned static markup (never user input) so it is safe to inject via
@@ -102,8 +103,21 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         } catch (e) {}
     }
 
+    function applyConsent(status) {
+        try {
+            if (status === 'accepted') { posthog.opt_in_capturing(); } else { posthog.opt_out_capturing(); }
+        } catch (e) {}
+    }
+
     var storedChoice = getStoredChoice();
     if (storedChoice) {
+        try {
+            // Re-align posthog-js when its own consent record diverged from the stored
+            // choice (cleared SDK storage, rotated project token) so a declined visitor
+            // is never tracked and an accepted one never goes dark
+            var aligned = storedChoice === 'accepted' ? posthog.has_opted_in_capturing() : posthog.has_opted_out_capturing();
+            if (!aligned) { applyConsent(storedChoice); }
+        } catch (e) {}
         dispatchConsent(storedChoice, 'stored');
         return;
     }
@@ -112,7 +126,10 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
         if (document.querySelector('[data-posthog-cookie-banner]')) { return; }
         var host = document.createElement('div');
         host.setAttribute('data-posthog-cookie-banner', '');
-        var root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
+        // No Shadow DOM, no banner: falling back to the light DOM would leak the
+        // stylesheet's generic selectors (.banner, .title, ...) into the host page
+        if (!host.attachShadow) { return; }
+        var root = host.attachShadow({ mode: 'open' });
 
         var style = document.createElement('style');
         style.textContent = CSS;
@@ -146,9 +163,7 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
 
         function choose(status) {
             storeChoice(status);
-            try {
-                if (status === 'accepted') { posthog.opt_in_capturing(); } else { posthog.opt_out_capturing(); }
-            } catch (e) {}
+            applyConsent(status);
             dispatchConsent(status, 'user');
             if (host.parentNode) { host.parentNode.removeChild(host); }
         }
@@ -200,8 +215,9 @@ _RUNTIME_JS_TEMPLATE = """function (posthog, cfg) {
 }"""
 
 
+@functools.cache  # deterministic per art style; runs on every config rebuild
 def _runtime_js(art_style: str) -> str:
-    # Only ship the one SVG the banner actually uses, to keep config.js small
+    # Only ship the one asset the banner actually uses, to keep config.js small
     art = {art_style: COOKIE_BANNER_ART[art_style]} if art_style in COOKIE_BANNER_ART else {}
     return _RUNTIME_JS_TEMPLATE.replace("__ART__", json.dumps(art)).replace("__CSS__", json.dumps(_BANNER_CSS))
 

@@ -397,12 +397,13 @@ class RemoteConfig(UUIDTModel):
                 logger.exception(f"Failed to build JS for site function {site_function.id}")
                 pass
 
-        # Deferred like the error_tracking facade import in build_config: this module loads
-        # during the posthog app's model import, before product apps are ready
-        from products.cookie_banner.backend.facade import build_cookie_banner_site_app_js
-
         cookie_banner_js = []
         try:
+            # Deferred like the error_tracking facade import in build_config: this module loads
+            # during the posthog app's model import, before product apps are ready. Inside the
+            # try so even an import failure can't take down config builds for every team.
+            from products.cookie_banner.backend.facade import build_cookie_banner_site_app_js
+
             entry = build_cookie_banner_site_app_js(self.team)
             if entry:
                 cookie_banner_js.append(indent_js(entry))
@@ -558,7 +559,18 @@ def survey_saved(sender, instance: "Survey", created, **kwargs):
 @receiver(post_save, sender="cookie_banner.CookieBannerConfig")
 @receiver(post_delete, sender="cookie_banner.CookieBannerConfig")
 def cookie_banner_config_changed(sender, instance, **kwargs):
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+    def _on_commit():
+        # The config row lives on the project's root team but is delivered into every
+        # environment's config.js, so rebuild all of the project's teams
+        try:
+            project_id = Team.objects.only("project_id").get(id=instance.team_id).project_id
+            team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
+        except Team.DoesNotExist:
+            team_ids = [instance.team_id]
+        for team_id in team_ids:
+            _update_team_remote_config(team_id)
+
+    transaction.on_commit(_on_commit)
 
 
 def sync_team_product_tours_opt_in(team: Team) -> None:

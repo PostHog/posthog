@@ -1,22 +1,19 @@
 """Appearance schema shared by the API serializer and the remote config payload builder."""
 
-ART_STYLE_NONE = "none"
-ART_STYLE_POSTHOG_LOGO = "posthog-logo"
-ART_STYLE_HEDGEHOG_BUILDER = "hedgehog-builder"
-ART_STYLE_HEDGEHOG_BUSINESS = "hedgehog-business"
-ART_STYLE_HEDGEHOG_HOGZILLA = "hedgehog-hogzilla"
-ART_STYLE_HEDGEHOG_ROBOT = "hedgehog-robot"
-
+# Values here must match the COOKIE_BANNER_ART keys in site_app_js.py and the
+# ART_STYLE_LABELS keys in frontend/constants.ts
 ART_STYLES: list[str] = [
-    ART_STYLE_NONE,
-    ART_STYLE_POSTHOG_LOGO,
-    ART_STYLE_HEDGEHOG_BUILDER,
-    ART_STYLE_HEDGEHOG_BUSINESS,
-    ART_STYLE_HEDGEHOG_HOGZILLA,
-    ART_STYLE_HEDGEHOG_ROBOT,
+    "none",
+    "posthog-logo",
+    "hedgehog-builder",
+    "hedgehog-business",
+    "hedgehog-hogzilla",
+    "hedgehog-robot",
 ]
 
 POSITIONS: list[str] = ["bottom-left", "bottom-right", "bottom-bar"]
+
+HEX_COLOR_REGEX = r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
 
 # Styled after the posthog.com cookie banner: cream background, near-black text,
 # PostHog orange call to action.
@@ -25,7 +22,7 @@ DEFAULT_APPEARANCE: dict[str, str | bool] = {
     "description": "We use cookies to understand how you use our site and to improve your experience. You can accept or decline analytics cookies below.",
     "acceptButtonText": "Accept",
     "declineButtonText": "Decline",
-    "artStyle": ART_STYLE_POSTHOG_LOGO,
+    "artStyle": "posthog-logo",
     "position": "bottom-right",
     "backgroundColor": "#eeefe9",
     "textColor": "#151515",
@@ -33,6 +30,8 @@ DEFAULT_APPEARANCE: dict[str, str | bool] = {
     "buttonTextColor": "#ffffff",
     "whiteLabel": False,
 }
+
+COLOR_KEYS: list[str] = ["backgroundColor", "textColor", "buttonColor", "buttonTextColor"]
 
 MAX_TEXT_LENGTHS: dict[str, int] = {
     "title": 200,

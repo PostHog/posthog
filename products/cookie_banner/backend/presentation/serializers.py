@@ -9,17 +9,15 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 
-from products.cookie_banner.backend.constants import ART_STYLES, MAX_TEXT_LENGTHS, POSITIONS
+from products.cookie_banner.backend.constants import ART_STYLES, HEX_COLOR_REGEX, MAX_TEXT_LENGTHS, POSITIONS
 from products.cookie_banner.backend.models import CookieBannerConfig
-
-_HEX_COLOR_REGEX = r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
 
 _ALREADY_EXISTS_ERROR = "A cookie banner already exists for this project. Update the existing one instead."
 
 
 def _color_field(help_text: str) -> serializers.RegexField:
     return serializers.RegexField(
-        regex=_HEX_COLOR_REGEX,
+        regex=HEX_COLOR_REGEX,
         required=False,
         help_text=help_text,
         error_messages={"invalid": "Must be a hex color, e.g. #f54e00"},
@@ -85,6 +83,11 @@ class CookieBannerConfigSerializer(serializers.ModelSerializer):
         model = CookieBannerConfig
         fields = ["id", "enabled", "appearance", "created_at", "created_by", "updated_at"]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+        extra_kwargs = {
+            "id": {"help_text": "Unique id of the banner config."},
+            "created_at": {"help_text": "When the banner config was created."},
+            "updated_at": {"help_text": "When the banner config was last updated."},
+        }
 
     def validate_appearance(self, value: dict[str, Any]) -> dict[str, Any]:
         if value.get("whiteLabel") and not self.context["get_organization"]().is_feature_available(

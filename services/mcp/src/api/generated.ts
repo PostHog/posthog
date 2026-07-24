@@ -15411,14 +15411,17 @@ export namespace Schemas {
     }
 
     export interface CookieBannerConfig {
+      /** Unique id of the banner config. */
       readonly id: string;
       /** Whether the banner is served to your website. Defaults to false. */
       enabled?: boolean;
       /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
       appearance?: CookieBannerAppearance;
+      /** When the banner config was created. */
       readonly created_at: string;
       /** User who created the banner. */
       readonly created_by: UserBasic;
+      /** When the banner config was last updated. */
       readonly updated_at: string;
     }
 
@@ -46882,14 +46885,17 @@ export namespace Schemas {
     }
 
     export interface PatchedCookieBannerConfig {
+      /** Unique id of the banner config. */
       readonly id?: string;
       /** Whether the banner is served to your website. Defaults to false. */
       enabled?: boolean;
       /** Appearance and copy overrides. Omitted keys use the PostHog-styled defaults. */
       appearance?: CookieBannerAppearance;
+      /** When the banner config was created. */
       readonly created_at?: string;
       /** User who created the banner. */
       readonly created_by?: UserBasic;
+      /** When the banner config was last updated. */
       readonly updated_at?: string;
     }
 
