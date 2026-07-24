@@ -1,0 +1,31 @@
+[project]
+name = "posthog-signals-pipeline-training"
+version = "0.2.0"
+description = "Standalone labeling, training, evaluation, and packaging pipeline for Signals grouping"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy==2.1.3",
+    "onnx==1.21.0",
+    "pandas==2.2.3",
+    "pyarrow==18.1.0",
+    "scikit-learn==1.7.2",
+    "torch==2.8.0",
+]
+
+[project.scripts]
+signals-training = "signals_training.orchestrator:main"
+signals-training-record-label = "signals_training.ledger:main"
+
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+exclude = ["builders"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

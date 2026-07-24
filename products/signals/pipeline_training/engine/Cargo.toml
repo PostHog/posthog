@@ -1,0 +1,26 @@
+[package]
+name = "signals-training-engine"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "signals-training-engine"
+path = "src/main.rs"
+
+[features]
+default = ["neural-onnx"]
+neural-onnx = ["dep:flate2", "dep:sha2", "dep:tract-onnx"]
+
+[dependencies]
+anyhow = "1"
+flate2 = { version = "1", optional = true }
+rayon = "1"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "0.10", optional = true }
+tract-onnx = { version = "0.22", optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4

@@ -1,0 +1,27 @@
+# Direct, transitive, and build-tool versions for the reference build on macOS ARM64.
+# Install this lock first, then install the project with --no-deps --no-build-isolation.
+filelock==3.20.3
+fsspec==2025.9.0
+Jinja2==3.1.6
+joblib==1.5.1
+MarkupSafe==3.0.2
+ml_dtypes==0.5.4
+mpmath==1.3.0
+networkx==3.5
+numpy==2.1.3
+onnx==1.21.0
+pandas==2.2.3
+protobuf==5.29.6
+pyarrow==18.1.0
+python-dateutil==2.9.0.post0
+pytz==2023.3
+scikit-learn==1.7.2
+scipy==1.15.3
+setuptools==80.9.0
+six==1.17.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+torch==2.8.0
+typing_extensions==4.15.0
+tzdata==2025.2
+wheel==0.45.1

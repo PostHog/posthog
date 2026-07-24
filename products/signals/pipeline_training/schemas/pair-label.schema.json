@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/signals/pipeline-training/pair-label.schema.json",
+    "title": "Atomic signal-pair judgment",
+    "type": "object",
+    "required": ["candidate_revision", "signal_a", "signal_b", "same_concern", "provenance", "confidence"],
+    "properties": {
+        "candidate_revision": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "signal_a": { "type": "string", "minLength": 1 },
+        "signal_b": { "type": "string", "minLength": 1 },
+        "same_concern": { "type": "boolean" },
+        "provenance": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reader": { "type": ["string", "null"] },
+        "rationale": { "type": ["string", "null"] },
+        "raw_response_ref": { "type": ["string", "null"] }
+    },
+    "additionalProperties": false
+}

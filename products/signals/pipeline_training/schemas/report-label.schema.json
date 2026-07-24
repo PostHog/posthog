@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://posthog.com/signals/pipeline-training/report-label.schema.json",
+    "title": "Source-report judgment",
+    "type": "object",
+    "required": ["candidate_revision", "report_id", "provenance", "confidence"],
+    "properties": {
+        "candidate_revision": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "report_id": { "type": "string", "minLength": 1 },
+        "coherent": { "type": ["boolean", "null"] },
+        "gold_positive": { "type": "boolean", "default": false },
+        "known_overgroup": { "type": "boolean", "default": false },
+        "components": {
+            "type": ["array", "null"],
+            "description": "Optional exact concern components for a known overgroup.",
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+            }
+        },
+        "outcome": { "type": ["string", "null"] },
+        "provenance": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reader": { "type": ["string", "null"] },
+        "rationale": { "type": ["string", "null"] },
+        "raw_response_ref": { "type": ["string", "null"] }
+    },
+    "anyOf": [
+        { "properties": { "coherent": { "type": "boolean" } }, "required": ["coherent"] },
+        { "properties": { "gold_positive": { "const": true } }, "required": ["gold_positive"] },
+        { "properties": { "known_overgroup": { "const": true } }, "required": ["known_overgroup"] },
+        { "properties": { "components": { "type": "array" } }, "required": ["components"] },
+        { "properties": { "outcome": { "type": "string", "minLength": 1 } }, "required": ["outcome"] }
+    ],
+    "additionalProperties": false
+}
