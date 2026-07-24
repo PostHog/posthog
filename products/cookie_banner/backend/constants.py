@@ -2,14 +2,18 @@
 
 ART_STYLE_NONE = "none"
 ART_STYLE_POSTHOG_LOGO = "posthog-logo"
-ART_STYLE_HEDGEHOG_WAVE = "hedgehog-wave"
-ART_STYLE_HEDGEHOG_HEART = "hedgehog-heart"
+ART_STYLE_HEDGEHOG_BUILDER = "hedgehog-builder"
+ART_STYLE_HEDGEHOG_BUSINESS = "hedgehog-business"
+ART_STYLE_HEDGEHOG_HOGZILLA = "hedgehog-hogzilla"
+ART_STYLE_HEDGEHOG_ROBOT = "hedgehog-robot"
 
 ART_STYLES: list[str] = [
     ART_STYLE_NONE,
     ART_STYLE_POSTHOG_LOGO,
-    ART_STYLE_HEDGEHOG_WAVE,
-    ART_STYLE_HEDGEHOG_HEART,
+    ART_STYLE_HEDGEHOG_BUILDER,
+    ART_STYLE_HEDGEHOG_BUSINESS,
+    ART_STYLE_HEDGEHOG_HOGZILLA,
+    ART_STYLE_HEDGEHOG_ROBOT,
 ]
 
 POSITIONS: list[str] = ["bottom-left", "bottom-right", "bottom-bar"]

@@ -59,13 +59,20 @@ export const CookieBannerCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe("Label for the button that opts the visitor out of tracking. Defaults to 'Decline'."),
             artStyle: zod
-                .enum(['none', 'posthog-logo', 'hedgehog-wave', 'hedgehog-heart'])
+                .enum([
+                    'none',
+                    'posthog-logo',
+                    'hedgehog-builder',
+                    'hedgehog-business',
+                    'hedgehog-hogzilla',
+                    'hedgehog-robot',
+                ])
                 .describe(
-                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart'
+                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot'
                 )
                 .optional()
                 .describe(
-                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart"
+                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot"
                 ),
             position: zod
                 .enum(['bottom-left', 'bottom-right', 'bottom-bar'])
@@ -160,13 +167,20 @@ export const CookieBannerUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe("Label for the button that opts the visitor out of tracking. Defaults to 'Decline'."),
             artStyle: zod
-                .enum(['none', 'posthog-logo', 'hedgehog-wave', 'hedgehog-heart'])
+                .enum([
+                    'none',
+                    'posthog-logo',
+                    'hedgehog-builder',
+                    'hedgehog-business',
+                    'hedgehog-hogzilla',
+                    'hedgehog-robot',
+                ])
                 .describe(
-                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart'
+                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot'
                 )
                 .optional()
                 .describe(
-                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart"
+                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot"
                 ),
             position: zod
                 .enum(['bottom-left', 'bottom-right', 'bottom-bar'])
@@ -261,13 +275,20 @@ export const CookieBannerPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe("Label for the button that opts the visitor out of tracking. Defaults to 'Decline'."),
             artStyle: zod
-                .enum(['none', 'posthog-logo', 'hedgehog-wave', 'hedgehog-heart'])
+                .enum([
+                    'none',
+                    'posthog-logo',
+                    'hedgehog-builder',
+                    'hedgehog-business',
+                    'hedgehog-hogzilla',
+                    'hedgehog-robot',
+                ])
                 .describe(
-                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart'
+                    '\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot'
                 )
                 .optional()
                 .describe(
-                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-wave` - hedgehog-wave\n\* `hedgehog-heart` - hedgehog-heart"
+                    "Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.\n\n\* `none` - none\n\* `posthog-logo` - posthog-logo\n\* `hedgehog-builder` - hedgehog-builder\n\* `hedgehog-business` - hedgehog-business\n\* `hedgehog-hogzilla` - hedgehog-hogzilla\n\* `hedgehog-robot` - hedgehog-robot"
                 ),
             position: zod
                 .enum(['bottom-left', 'bottom-right', 'bottom-bar'])

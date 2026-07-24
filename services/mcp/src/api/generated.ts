@@ -9896,8 +9896,10 @@ export namespace Schemas {
     /**
      * * `none` - none
      * * `posthog-logo` - posthog-logo
-     * * `hedgehog-wave` - hedgehog-wave
-     * * `hedgehog-heart` - hedgehog-heart
+     * * `hedgehog-builder` - hedgehog-builder
+     * * `hedgehog-business` - hedgehog-business
+     * * `hedgehog-hogzilla` - hedgehog-hogzilla
+     * * `hedgehog-robot` - hedgehog-robot
      */
     export type ArtStyleEnum = typeof ArtStyleEnum[keyof typeof ArtStyleEnum];
 
@@ -9905,8 +9907,10 @@ export namespace Schemas {
     export const ArtStyleEnum = {
       None: 'none',
       PosthogLogo: 'posthog-logo',
-      HedgehogWave: 'hedgehog-wave',
-      HedgehogHeart: 'hedgehog-heart',
+      HedgehogBuilder: 'hedgehog-builder',
+      HedgehogBusiness: 'hedgehog-business',
+      HedgehogHogzilla: 'hedgehog-hogzilla',
+      HedgehogRobot: 'hedgehog-robot',
     } as const;
 
     export interface Artifact {
@@ -15362,8 +15366,10 @@ export namespace Schemas {
        *
        * * `none` - none
        * * `posthog-logo` - posthog-logo
-       * * `hedgehog-wave` - hedgehog-wave
-       * * `hedgehog-heart` - hedgehog-heart */
+       * * `hedgehog-builder` - hedgehog-builder
+       * * `hedgehog-business` - hedgehog-business
+       * * `hedgehog-hogzilla` - hedgehog-hogzilla
+       * * `hedgehog-robot` - hedgehog-robot */
       artStyle?: ArtStyleEnum;
       /** Where the banner appears on the page. Defaults to 'bottom-right'.
        *

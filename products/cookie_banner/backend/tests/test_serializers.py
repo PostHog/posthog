@@ -39,7 +39,7 @@ class TestCookieBannerAppearanceValidation(SimpleTestCase):
                 "description": "Details here",
                 "acceptButtonText": "OK",
                 "declineButtonText": "No",
-                "artStyle": "hedgehog-wave",
+                "artStyle": "hedgehog-builder",
                 "position": "bottom-bar",
                 "backgroundColor": "#ffffff",
                 "textColor": "#000",

@@ -20,8 +20,10 @@ export const DEFAULT_APPEARANCE: Required<CookieBannerAppearanceApi> = {
 export const ART_STYLE_LABELS: Record<Required<CookieBannerAppearanceApi>['artStyle'], string> = {
     none: 'No art',
     'posthog-logo': 'PostHog logo',
-    'hedgehog-wave': 'Waving hedgehog',
-    'hedgehog-heart': 'Hedgehog with heart',
+    'hedgehog-builder': 'Builder hedgehog',
+    'hedgehog-business': 'Business hedgehog',
+    'hedgehog-hogzilla': 'Hogzilla',
+    'hedgehog-robot': 'Robo hedgehog',
 }
 
 export const POSITION_LABELS: Record<Required<CookieBannerAppearanceApi>['position'], string> = {

@@ -13,7 +13,7 @@ const CONFIG_RESULT: CookieBannerConfigApi = {
     enabled: true,
     appearance: {
         title: 'We use cookies',
-        artStyle: 'hedgehog-wave',
+        artStyle: 'hedgehog-builder',
     },
     created_at: '2023-04-27T11:29:30.798968Z',
     updated_at: '2023-04-27T11:29:30.798968Z',
