@@ -239,9 +239,9 @@ class UsageReportCounters:
 
     # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
     posthog_code_credits_used_in_period: int
+    sandbox_compute_credits_used_in_period: int
 
-    # Cloud task sandbox compute, all task origins (raw user-attributed usage from the
-    # SandboxSession ledger — unpriced until a billing model is decided; pre-warm time excluded)
+    # Cloud task sandbox compute, all task origins (raw user-attributed usage; pre-warm time excluded)
     task_sandbox_seconds_in_period: int
     task_sandbox_cpu_core_seconds_in_period: int
     task_sandbox_memory_gib_seconds_in_period: int
@@ -2429,6 +2429,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
+        or report.sandbox_compute_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
@@ -2701,6 +2702,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_sandbox_compute_credits_used_in_period": task_sandbox_usage.sandbox_compute_credits,
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
@@ -2887,6 +2889,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+        sandbox_compute_credits_used_in_period=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(
+            team.id, 0
+        ),
         task_sandbox_seconds_in_period=all_data["teams_with_task_sandbox_seconds_in_period"].get(team.id, 0),
         task_sandbox_cpu_core_seconds_in_period=all_data["teams_with_task_sandbox_cpu_core_seconds_in_period"].get(
             team.id, 0

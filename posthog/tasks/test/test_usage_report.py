@@ -4695,6 +4695,7 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         self.assertEqual(usage.seconds, [(self.team.id, 7 * 3600)])
         self.assertEqual(usage.cpu_core_seconds, [(self.team.id, 7 * 3600 * 4)])
         self.assertEqual(usage.memory_gib_seconds, [(self.team.id, 7 * 3600 * 16)])
+        self.assertEqual(usage.sandbox_compute_credits, [(self.team.id, 74)])
 
     def test_has_non_zero_usage_counts_task_sandbox_seconds(self) -> None:
         import dataclasses
@@ -4705,6 +4706,17 @@ class TestTaskSandboxUsageReport(APIBaseTest):
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
+
+    def test_has_non_zero_usage_counts_sandbox_compute_credits(self) -> None:
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
+        report = UsageReportCounters(**{**zero, "sandbox_compute_credits_used_in_period": 1})
+        self.assertTrue(has_non_zero_usage(report))
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

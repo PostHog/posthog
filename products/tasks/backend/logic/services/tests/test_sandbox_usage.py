@@ -14,7 +14,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.models import Loop, SandboxSession, Task, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -24,10 +24,14 @@ def _config(**overrides) -> SandboxConfig:
 
 
 class SandboxUsageBase(APIBaseTest):
-    def _run(self, *, state: dict | None = None) -> TaskRun:
-        task = Task.objects.create(
-            team=self.team, title="t", description="", origin_product=Task.OriginProduct.USER_CREATED
-        )
+    def _run(
+        self,
+        *,
+        state: dict | None = None,
+        origin_product: Task.OriginProduct = Task.OriginProduct.USER_CREATED,
+        loop: Loop | None = None,
+    ) -> TaskRun:
+        task = Task.objects.create(team=self.team, title="t", description="", origin_product=origin_product, loop=loop)
         return TaskRun.objects.create(task=task, team=self.team, state=state or {})
 
 
@@ -179,8 +183,14 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
     BEGIN = datetime(2026, 1, 2, tzinfo=UTC)
     END = datetime(2026, 1, 3, tzinfo=UTC)
 
-    def _session(self, **overrides) -> SandboxSession:
-        run = self._run()
+    def _session(
+        self,
+        *,
+        task_origin_product: Task.OriginProduct = Task.OriginProduct.USER_CREATED,
+        loop: Loop | None = None,
+        **overrides,
+    ) -> SandboxSession:
+        run = self._run(origin_product=task_origin_product, loop=loop)
         defaults: dict = {
             "team": self.team,
             "task_run": run,
@@ -210,6 +220,81 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         assert usage.seconds == [(self.team.id, 3600)]
         assert usage.cpu_core_seconds == [(self.team.id, 3600 * 4)]
         assert usage.memory_gib_seconds == [(self.team.id, 3600 * 16)]
+        assert usage.sandbox_compute_credits == [(self.team.id, 11)]
+
+    def test_prices_burstable_request_floors(self):
+        self._session(
+            burstable=True,
+            cpu_request_cores=0.5,
+            memory_request_mb=1024,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 4)]
+        assert isinstance(usage.sandbox_compute_credits[0][1], int)
+
+    def test_compute_credits_include_direct_app_origins(self):
+        self._session(sandbox_id="sb-user-created")
+        self._session(
+            sandbox_id="sb-image-builder",
+            task_origin_product=Task.OriginProduct.IMAGE_BUILDER,
+            origin_product=Task.OriginProduct.IMAGE_BUILDER,
+        )
+        self._session(
+            sandbox_id="sb-automation",
+            task_origin_product=Task.OriginProduct.AUTOMATION,
+            origin_product=Task.OriginProduct.AUTOMATION,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 32)]
+
+    def test_compute_credits_default_deny_other_origins(self):
+        self._session(sandbox_id="sb-null", origin_product=None)
+        self._session(sandbox_id="sb-known-other", origin_product=Task.OriginProduct.POSTHOG_AI)
+        self._session(sandbox_id="sb-unknown", origin_product="future_product")
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == [(self.team.id, 3 * 3600)]
+        assert usage.sandbox_compute_credits == []
+
+    def test_compute_credits_include_only_non_internal_loops(self):
+        user_loop = Loop.objects.unscoped().create(
+            team=self.team, name="User loop", instructions="Run", runtime_adapter="claude", internal=False
+        )
+        internal_loop = Loop.objects.unscoped().create(
+            team=self.team, name="Internal loop", instructions="Run", runtime_adapter="claude", internal=True
+        )
+        self._session(
+            sandbox_id="sb-user-loop",
+            task_origin_product=Task.OriginProduct.LOOP,
+            origin_product=Task.OriginProduct.LOOP,
+            loop=user_loop,
+        )
+        self._session(
+            sandbox_id="sb-internal-loop",
+            task_origin_product=Task.OriginProduct.LOOP,
+            origin_product=Task.OriginProduct.LOOP,
+            loop=internal_loop,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 11)]
+
+    def test_rounds_each_duration_and_final_credits_up(self):
+        self._session(
+            cpu_cores=0.01,
+            memory_gb=0.01,
+            ended_at=datetime(2026, 1, 2, 1, 0, 0, 1, tzinfo=UTC),
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 1)]
 
     def test_apportions_sessions_spanning_period_boundaries(self):
         # Attributed the previous day, ends mid-period: only the in-period slice counts.

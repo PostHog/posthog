@@ -200,6 +200,7 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
         "seconds": usage.seconds,
         "cpu_core_seconds": usage.cpu_core_seconds,
         "memory_gib_seconds": usage.memory_gib_seconds,
+        "sandbox_compute_credits": usage.sandbox_compute_credits,
     }
 
 
@@ -469,6 +470,7 @@ QUERIES: list[QuerySpec] = [
             "seconds": "teams_with_task_sandbox_seconds_in_period",
             "cpu_core_seconds": "teams_with_task_sandbox_cpu_core_seconds_in_period",
             "memory_gib_seconds": "teams_with_task_sandbox_memory_gib_seconds_in_period",
+            "sandbox_compute_credits": "teams_with_sandbox_compute_credits_used_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------

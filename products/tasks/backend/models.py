@@ -2071,7 +2071,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
     # sandbox may consume — raw usage metrics derive from these; the burstable request
-    # floors are recorded for future pricing-policy work only (Modal bills max(request, actual)).
+    # floors determine priced compute for burstable sessions (Modal bills max(request, actual)).
     cpu_cores = models.FloatField(help_text="CPU core limit")
     memory_gb = models.FloatField(help_text="Memory limit in GiB")
     ttl_seconds = models.IntegerField(help_text="Hard TTL after which the provider kills the sandbox")
