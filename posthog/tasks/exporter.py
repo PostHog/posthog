@@ -170,4 +170,13 @@ def export_asset_direct(
         )
 
         _record_export_failure(exported_asset, e)
+
+        # User-config errors (invalid query, bad parameters) are already fully recorded on the
+        # ExportedAsset above and surfaced to the user via the failure toast, so nothing downstream
+        # needs the exception. Re-raising them propagates through the Temporal activity interceptor
+        # into error tracking, flooding it with expected, non-actionable failures. Only re-raise
+        # genuine system/timeout errors, which Temporal must see to drive its retry policy.
+        if is_user_error:
+            return
+
         raise

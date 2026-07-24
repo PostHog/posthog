@@ -11,8 +11,8 @@ from django.conf import settings
 import temporalio.workflow
 from asgiref.sync import sync_to_async
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from temporalio.client import Client, WorkflowFailureError
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.client import Client
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -90,32 +90,31 @@ async def test_export_asset_activity_success(mock_exporter: MagicMock, team):
 
 
 @patch("posthog.temporal.exports.activities.exporter")
-async def test_export_asset_activity_propagates_user_errors(mock_exporter: MagicMock, team):
+async def test_export_asset_activity_does_not_fail_on_user_errors(mock_exporter: MagicMock, team):
     asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team,
         export_format=ExportedAsset.ExportFormat.PNG,
     )
 
+    # export_asset_direct records user-config failures on the asset and returns without raising, so
+    # the activity and workflow must complete cleanly — otherwise the failure surfaces through the
+    # PostHog Temporal interceptor and floods error tracking with expected, non-actionable errors.
     def fake_export(asset_obj, **kwargs):
         asset_obj.failure_type = "user"
-        asset_obj.exception_type = "ExcelColumnLimitExceeded"
+        asset_obj.exception_type = ExcelColumnLimitExceeded.__name__
         asset_obj.save(update_fields=["failure_type", "exception_type"])
-        raise ExcelColumnLimitExceeded()
 
     mock_exporter.export_asset_direct = fake_export
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with export_worker(env.client):
-            with pytest.raises(WorkflowFailureError) as exc_info:
-                await run_export_workflow(env.client, asset.id)
+            result = await run_export_workflow(env.client, asset.id)
 
-    wf_error = exc_info.value
-    assert isinstance(wf_error, WorkflowFailureError)
-    activity_error = wf_error.cause
-    assert isinstance(activity_error, ActivityError)
-    app_error = activity_error.cause
-    assert app_error is not None
-    assert "ExcelColumnLimitExceeded" in str(app_error) or "18,278 columns" in str(app_error)
+    assert result.exported_asset_id == asset.id
+    assert result.success is False
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert asset.failure_type == "user"
 
 
 @pytest.mark.parametrize(

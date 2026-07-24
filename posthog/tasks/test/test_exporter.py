@@ -129,3 +129,38 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception == ClickHouseAtCapacity.default_detail
         assert asset.exception_type == "ClickHouseAtCapacity"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
+
+    @parameterized.expand(
+        [
+            # User-config errors are recorded but swallowed, so they don't propagate through the
+            # Temporal activity interceptor into error tracking.
+            ("user_error", QueryError("Invalid query syntax"), FAILURE_TYPE_USER, False),
+            # System errors must re-raise so Temporal's retry policy can act on them.
+            (
+                "system_error",
+                CHQueryErrorTooManySimultaneousQueries("Too many queries"),
+                FAILURE_TYPE_SYSTEM,
+                True,
+            ),
+        ]
+    )
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_export_asset_direct_reraises_only_system_errors(
+        self,
+        _name: str,
+        exception: Exception,
+        expected_failure_type: str,
+        should_raise: bool,
+        mock_export: MagicMock,
+    ) -> None:
+        mock_export.side_effect = exception
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
+
+        if should_raise:
+            with self.assertRaises(type(exception)):
+                exporter.export_asset_direct(asset)
+        else:
+            exporter.export_asset_direct(asset)
+
+        asset.refresh_from_db()
+        assert asset.failure_type == expected_failure_type
