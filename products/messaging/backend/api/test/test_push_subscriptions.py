@@ -10,9 +10,15 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.team.team_caching import set_team_in_cache
+
+from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token
 
 
 class TestPushSubscriptionsAPI(BaseTest):
+    # Realistic length (>= 32 bytes) so signing/verification exercises a real phs_ secret.
+    SECRET = "phs_project_secret_0123456789abcdef0123"
+
     def setUp(self):
         super().setUp()
         self.client = Client()
@@ -47,6 +53,14 @@ class TestPushSubscriptionsAPI(BaseTest):
             data=json.dumps(payload),
             content_type="application/json",
         )
+
+    def _enable_identity_verification(self, mode: str):
+        self.firebase_integration.config["push_identity_verification"] = mode
+        self.firebase_integration.save()
+        self.team.secret_api_token = self.SECRET
+        self.team.save()
+        # The endpoint resolves the team from the token cache, so refresh it with the secret set.
+        set_team_in_cache(self.team.api_token, self.team)
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_register_android_token(self, mock_capture: MagicMock):
@@ -318,3 +332,111 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
         mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_accepts_a_valid_identity_token(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+        self._enable_identity_verification("required")
+        token = sign_push_identity_token(self.SECRET, "user-1", "my-firebase-project")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+                "identity_token": token,
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_rejects_registration_without_a_token(self, mock_capture: MagicMock):
+        self._enable_identity_verification("required")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "identity_verification_failed"
+        mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_rejects_a_token_minted_for_another_distinct_id(self, mock_capture: MagicMock):
+        # The takeover guard: a token the attacker legitimately minted for their own distinct_id
+        # cannot authorize binding a device to the victim's distinct_id.
+        self._enable_identity_verification("required")
+        attacker_token = sign_push_identity_token(self.SECRET, "attacker", "my-firebase-project")
+
+        response = self._post(
+            {
+                "distinct_id": "victim",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+                "identity_token": attacker_token,
+            }
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_optional_mode_stores_even_without_a_token(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+        self._enable_identity_verification("optional")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_rejects_unregister_without_a_token(self, mock_capture: MagicMock):
+        self._enable_identity_verification("required")
+
+        response = self._delete(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_required_mode_accepts_a_valid_token_for_unregister(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+        self._enable_identity_verification("required")
+        token = sign_push_identity_token(self.SECRET, "user-1", "my-firebase-project")
+
+        response = self._delete(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+                "identity_token": token,
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()

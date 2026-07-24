@@ -4,6 +4,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
 
@@ -19,6 +20,18 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
+
+from products.messaging.backend.api.push_identity_tokens import verify_push_identity_token
+
+# Identity verification is opt-in per integration via config["push_identity_verification"]:
+#   "disabled" (default) — no token required; anyone with the public project token can register.
+#   "optional"           — a token is verified and recorded when present, but never required.
+#   "required"           — registration/unregistration is rejected without a valid identity token.
+PUSH_IDENTITY_VERIFICATION_COUNTER = Counter(
+    "push_subscription_identity_verification",
+    "Outcome of push subscription identity token verification.",
+    labelnames=["mode", "operation", "outcome"],
+)
 
 VALID_PLATFORMS = ("android", "ios")
 
@@ -41,7 +54,7 @@ def _find_integration(team_id: int, app_id: str) -> Integration | None:
     return (
         Integration.objects.filter(team_id=team_id)
         .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
-        .only("id")
+        .only("id", "config")
         .first()
     )
 
@@ -189,6 +202,31 @@ def push_subscriptions(request: Request):
                 status_code=status.HTTP_400_BAD_REQUEST,
             ),
         )
+
+    operation = "register" if request.method == "POST" else "unregister"
+    verification_mode = integration.config.get("push_identity_verification", "disabled")
+    if verification_mode in ("optional", "required"):
+        identity_token = data.get("identity_token")
+        verified = isinstance(identity_token, str) and verify_push_identity_token(
+            identity_token, team, distinct_id, app_id
+        )
+        PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
+            mode=verification_mode,
+            operation=operation,
+            outcome="verified" if verified else "unverified",
+        ).inc()
+        if not verified and verification_mode == "required":
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "push_subscriptions",
+                    "A valid identity token is required for this device. Your backend must mint one for "
+                    "the signed-in user with the project's secret API key.",
+                    type="authentication_error",
+                    code="identity_verification_failed",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
 
     property_key = f"$device_push_subscription_{app_id}"
 
