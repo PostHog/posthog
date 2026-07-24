@@ -847,6 +847,21 @@ class TestTaskRun(TestCase):
         self.assertEqual(len(props["error_message"]), 500)
         self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
 
+    @parameterized.expand(
+        [
+            ("loop_run", {"loop_id": "loop-abc", "loop_trigger_id": "trig-xyz"}, "loop-abc", "trig-xyz"),
+            ("non_loop_run", {}, None, None),
+        ]
+    )
+    def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            self.task.create_run(extra_state=extra_state or None)
+        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
+        self.assertEqual(len(created), 1)
+        props = created[0].kwargs["properties"]
+        self.assertEqual(props["loop_id"], expected_loop_id)
+        self.assertEqual(props["loop_trigger_id"], expected_trigger_id)
+
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
             task=self.task,
