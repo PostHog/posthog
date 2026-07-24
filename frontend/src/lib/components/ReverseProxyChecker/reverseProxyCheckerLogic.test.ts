@@ -3,6 +3,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -115,6 +118,31 @@ describe('reverseProxyCheckerLogic', () => {
         )
 
         toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('should not capture transient network failures to error tracking', async () => {
+        // Regression test: `fetch` failures (offline, ad-blocker, aborted navigation) are wrapped by
+        // `api` into a status-less ApiError with a "Failed to fetch" message. These are ubiquitous
+        // network blips, not defects, and previously each one minted fresh error-tracking noise.
+        const queryHogQLSpy = jest
+            .spyOn(api, 'queryHogQL')
+            .mockRejectedValue(new ApiError(String(new TypeError('Failed to fetch'))))
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: null,
+            })
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+
+        queryHogQLSpy.mockRestore()
         captureExceptionSpy.mockRestore()
     })
 })
