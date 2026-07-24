@@ -1,1 +1,1 @@
-0019_backfill_logs_distinct_id_attribute_keys
+0020_alter_teamlogsconfig_distinct_id_keys_default

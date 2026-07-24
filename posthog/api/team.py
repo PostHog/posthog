@@ -121,8 +121,8 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "Log attribute keys whose values should match a person's distinct_id — a log "
             "links to a person when any of these attributes equals one of their distinct IDs. "
             "Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to "
-            "['posthogDistinctId'] — the convention documented at "
-            "https://posthog.com/docs/logs/link-session-replay and the key the "
+            "['posthogDistinctId', 'distinctId'] — the keys documented at "
+            "https://posthog.com/docs/logs/link-session-replay that the "
             "posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your "
             "pipeline emits the person identifier under different attributes."
         ),
