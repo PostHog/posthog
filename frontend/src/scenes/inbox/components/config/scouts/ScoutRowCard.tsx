@@ -8,8 +8,17 @@ import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
-import { formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import type {
+    PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
+    SignalScoutConfigApi as SignalScoutConfig,
+} from 'products/signals/frontend/generated/api.schemas'
+
+import {
+    dailyCronToTime,
+    formatRunIntervalShort,
+    prettifyScoutSkillName,
+    ScoutRollup,
+} from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -25,6 +34,7 @@ export function ScoutRowCard({
     onUpdate,
     onDelete,
     deleting = false,
+    updating = false,
     asHeader = false,
 }: {
     config: SignalScoutConfig
@@ -35,6 +45,8 @@ export function ScoutRowCard({
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
     deleting?: boolean
+    /** True while this scout's config update request is in flight. */
+    updating?: boolean
     /** When rendered as the scout detail header the name is plain text (the row IS the page). */
     asHeader?: boolean
 }): JSX.Element {
@@ -110,7 +122,14 @@ export function ScoutRowCard({
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
-                        <span>{formatRunIntervalShort(config.run_interval_minutes)}</span>
+                        {/* A cron schedule overrides the rolling interval, so the badge shows it instead. */}
+                        <span>
+                            {config.run_cron_schedule
+                                ? dailyCronToTime(config.run_cron_schedule)
+                                    ? `daily at ${dailyCronToTime(config.run_cron_schedule)}`
+                                    : config.run_cron_schedule
+                                : formatRunIntervalShort(config.run_interval_minutes)}
+                        </span>
                         {rollup && rollup.emittedCount > 0 ? (
                             <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                         ) : null}
@@ -127,7 +146,7 @@ export function ScoutRowCard({
                     </div>
                 ) : null}
                 <div className="flex items-center gap-2 shrink-0">
-                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
+                    <ScoutEnabledSwitch config={config} onUpdate={onUpdate} updating={updating} />
                     <Tooltip title="Scout settings">
                         <LemonButton
                             size="small"
@@ -141,7 +160,13 @@ export function ScoutRowCard({
             </div>
             {settingsOpen ? (
                 <div className="mt-3 border-t border-primary pt-3">
-                    <ScoutConfigForm config={config} onUpdate={onUpdate} onDelete={onDelete} deleting={deleting} />
+                    <ScoutConfigForm
+                        config={config}
+                        onUpdate={onUpdate}
+                        onDelete={onDelete}
+                        deleting={deleting}
+                        updating={updating}
+                    />
                 </div>
             ) : null}
         </div>

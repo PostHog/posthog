@@ -263,7 +263,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
