@@ -2201,6 +2201,42 @@ class TestPrinter(BaseTest):
 
         self.assertNotIn("enable_analyzer=1", result)
 
+    @parameterized.expand(
+        [
+            (
+                "bare_column_table_join",
+                "SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event",
+                "ON equals(q1.event, q2.event)",
+            ),
+            (
+                "cte_join",
+                "WITH exposed AS (SELECT event, distinct_id FROM events), "
+                "first_event AS (SELECT event, distinct_id FROM events) "
+                "SELECT e.distinct_id FROM exposed AS e JOIN first_event AS f USING (distinct_id)",
+                "ON equals(e.distinct_id, f.distinct_id)",
+            ),
+            (
+                "multiple_columns_subquery_join",
+                "SELECT a.event FROM (SELECT event, distinct_id FROM events) AS a "
+                "JOIN (SELECT event, distinct_id FROM events) AS b USING (event, distinct_id)",
+                "ON and(equals(a.event, b.event), equals(a.distinct_id, b.distinct_id))",
+            ),
+        ],
+    )
+    def test_join_using_desugars_to_on_constraint(self, _name: str, query: str, expected_constraint: str):
+        printed = self._select(query)
+        self.assertIn(expected_constraint, printed)
+        self.assertNotIn("USING", printed)
+
+    def test_join_using_unknown_right_column_raises(self):
+        with self.assertRaisesMessage(
+            QueryError, "Unable to resolve USING column 'event' on the right-hand table \"b\" of the join"
+        ):
+            self._select(
+                "SELECT a.event FROM (SELECT event FROM events) AS a "
+                "JOIN (SELECT distinct_id FROM events) AS b USING event"
+            )
+
     def test_select_array_join(self):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),

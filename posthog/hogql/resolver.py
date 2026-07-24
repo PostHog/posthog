@@ -1140,6 +1140,14 @@ class Resolver(CloningVisitor):
         if isinstance(node.table, ast.HogQLXTag):
             node.table = expand_hogqlx_query(node.table, self.context.team_id)
 
+        # Capture the bare column names of a USING constraint before resolution qualifies its
+        # fields, so the constraint can be desugared into an ON constraint once the joined
+        # table is in scope. SQL dialects require unqualified, both-sided column names inside
+        # USING, but we resolve and print fields fully qualified.
+        using_column_names: Optional[list[str]] = None
+        if node.constraint and node.constraint.constraint_type == "USING":
+            using_column_names = self._using_constraint_column_names(node.constraint)
+
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
             table_name_alias = "__".join(table_name_chain)
@@ -1176,8 +1184,7 @@ class Resolver(CloningVisitor):
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
-                if node.constraint and node.constraint.constraint_type == "ON":
-                    node.constraint = self.visit_join_constraint(node.constraint)
+                node.constraint = self._resolve_join_constraint(node, using_column_names)
                 node.sample = self.visit(node.sample)
 
                 return node
@@ -1310,8 +1317,7 @@ class Resolver(CloningVisitor):
                             next_join.join_type = f"GLOBAL {next_join.join_type}"
                             next_join = next_join.next_join
 
-            if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit_join_constraint(node.constraint)
+            node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
@@ -1405,14 +1411,16 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
-            if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit_join_constraint(node.constraint)
+            node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
 
             return node
 
         elif isinstance(node.table, ast.ValuesQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.table = cast(ast.ValuesQuery, self.visit(node.table))
 
             # Auto-generate alias and column_aliases when omitted so the
@@ -1449,8 +1457,7 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
             node.next_join = self.visit(node.next_join)
-            if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit_join_constraint(node.constraint)
+            node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
 
             return node
@@ -1476,8 +1483,7 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
             node.next_join = self.visit(node.next_join)
-            if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit_join_constraint(node.constraint)
+            node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
 
             return node
@@ -1502,13 +1508,78 @@ class Resolver(CloningVisitor):
                 scope.anonymous_tables.append(cast(ast.SelectQueryType, node.type))
 
             node.next_join = self.visit(node.next_join)
-            if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit_join_constraint(node.constraint)
+            node.constraint = self._resolve_join_constraint(node, using_column_names)
             node.sample = self.visit(node.sample)
 
             return node
         else:
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
+
+    def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
+        exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
+        column_names: list[str] = []
+        for expr in exprs:
+            if not isinstance(expr, ast.Field) or len(expr.chain) == 0 or not isinstance(expr.chain[-1], str):
+                raise QueryError("JOIN ... USING expects a column name or a list of column names")
+            column_names.append(expr.chain[-1])
+        return column_names
+
+    def _resolve_join_constraint(
+        self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
+    ) -> Optional[ast.JoinConstraint]:
+        if node.constraint is None:
+            return None
+        if node.constraint.constraint_type == "USING":
+            return self._desugar_using_constraint(node, using_column_names)
+        return self.visit_join_constraint(node.constraint)
+
+    def _desugar_using_constraint(
+        self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
+    ) -> ast.JoinConstraint:
+        """Rewrite `JOIN t USING (col)` into `JOIN t ON left.col = t.col`.
+
+        The USING expression was resolved before the joined table entered the scope, so it
+        points at the left-hand column and prints fully qualified — which SQL dialects reject
+        inside USING. Resolve the same column names against the joined table alone and emit
+        an equivalent ON constraint instead.
+        """
+        constraint = node.constraint
+        assert constraint is not None
+        left_exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
+        if using_column_names is None or len(using_column_names) != len(left_exprs):
+            raise ImpossibleASTError("USING constraint columns are out of sync with its resolved expressions")
+        compare_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=left_expr,
+                right=self._resolve_using_column_on_joined_table(node, column_name),
+                type=ast.BooleanType(nullable=False),
+            )
+            for left_expr, column_name in zip(left_exprs, using_column_names)
+        ]
+        expr: ast.Expr = (
+            compare_exprs[0]
+            if len(compare_exprs) == 1
+            else ast.And(exprs=compare_exprs, type=ast.BooleanType(nullable=False))
+        )
+        return ast.JoinConstraint(expr=expr, constraint_type="ON")
+
+    def _resolve_using_column_on_joined_table(self, node: ast.JoinExpr, column_name: str) -> ast.Expr:
+        assert node.type is not None
+        # An isolated scope containing only the joined table, so the column can't resolve
+        # ambiguously against the left-hand tables. The scope key never reaches the printed
+        # SQL - fields print via their resolved type.
+        scope_name = node.alias or "__using_join_table"
+        self.scopes.append(ast.SelectQueryType(tables={scope_name: node.type}))
+        try:
+            return self.visit(ast.Field(chain=[scope_name, column_name]))
+        except (QueryError, ResolutionError) as err:
+            table_name = f' "{node.alias}"' if node.alias else ""
+            raise QueryError(
+                f"Unable to resolve USING column '{column_name}' on the right-hand table{table_name} of the join"
+            ) from err
+        finally:
+            self.scopes.pop()
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         if node.kind in HOGQLX_TAGS or node.kind in HOGQLX_COMPONENTS:
