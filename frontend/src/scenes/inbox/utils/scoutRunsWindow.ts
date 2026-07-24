@@ -1,4 +1,4 @@
-// Ported from PostHog Code desktop `packages/core/src/scouts/scoutRunsWindow.ts`
+// Ported from PostHog Desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
 // configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
 // `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the

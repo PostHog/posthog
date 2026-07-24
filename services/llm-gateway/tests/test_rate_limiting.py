@@ -263,7 +263,7 @@ class TestFreeTierModelGateErrorBody:
     ) -> None:
         """Pins the gate 403's wire shape end-to-end (raise site + exception-handler
         unwrap): a top-level error envelope, never FastAPI's {"detail": ...} nesting.
-        Pre-cutover PostHog Code clients route this 403 by the "(rate_limit)"
+        Pre-cutover PostHog Desktop clients route this 403 by the "(rate_limit)"
         substring in the message and newer clients read the code — a regression in
         either strands installed builds in fatal-session teardown."""
         from llm_gateway.auth.models import AuthenticatedUser
@@ -275,7 +275,7 @@ class TestFreeTierModelGateErrorBody:
         get_settings.cache_clear()
         try:
             app = create_test_app(mock_db_pool)
-            # OAuth caller on the Code app whose org isn't billed for Code usage
+            # OAuth caller on the Desktop app whose org isn't billed for Desktop usage
             # (the conftest quota resolver reports code_usage_billing_active=False).
             app.dependency_overrides[get_authenticated_user] = lambda: AuthenticatedUser(
                 user_id=7,

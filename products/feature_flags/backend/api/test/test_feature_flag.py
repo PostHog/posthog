@@ -64,7 +64,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -8895,6 +8895,58 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    @parameterized.expand(
+        [
+            (
+                "event_filter_in_person_scope",
+                {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"},
+                "does not work in 'person' scope",
+            ),
+            (
+                "non_numeric_cohort_id",
+                {"key": "id", "type": "cohort", "value": "not-a-cohort-id"},
+                "expected a number",
+            ),
+            (
+                "missing_cohort",
+                {"key": "id", "type": "cohort", "value": 999999999},
+                "does not exist",
+            ),
+        ]
+    )
+    def test_user_blast_radius_rejects_unevaluable_filters(self, _name, prop, message_fragment):
+        from rest_framework.exceptions import ValidationError  # noqa: PLC0415
+
+        with self.assertRaises(ValidationError) as ctx:
+            get_user_blast_radius(self.team, {"properties": [prop]})
+        self.assertIn(message_fragment, str(ctx.exception))
+
+    def test_user_blast_radius_execution_value_error_is_not_masked_as_caller_error(self):
+        # A bare ValueError from query execution is a server fault, not invalid filters.
+        with (
+            patch(
+                "products.feature_flags.backend.user_blast_radius._get_person_blast_radius",
+                side_effect=ValueError("could not load timezone"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            get_user_blast_radius(
+                self.team,
+                {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
+            )
+
+    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
 
     def test_user_blast_radius_with_flag_dependency(self):
         for i in range(10):

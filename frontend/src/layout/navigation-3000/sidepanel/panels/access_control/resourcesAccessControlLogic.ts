@@ -30,6 +30,7 @@ const RESOURCE_FEATURE_REQUIREMENTS: Partial<Record<AccessControlResourceType, A
 export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlResourceType, string>> = {
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
     [AccessControlResourceType.Endpoint]: FEATURE_FLAGS.ENDPOINTS,
+    [AccessControlResourceType.McpAnalytics]: FEATURE_FLAGS.MCP_ANALYTICS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
@@ -179,8 +180,10 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.ExternalDataSource,
                     AccessControlResourceType.WarehouseObjects,
                     AccessControlResourceType.FeatureFlag,
+                    AccessControlResourceType.Heatmap,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
+                    AccessControlResourceType.McpAnalytics,
                     AccessControlResourceType.Tagger,
                     AccessControlResourceType.LlmSkill,
                     AccessControlResourceType.AiObservabilityClusters,

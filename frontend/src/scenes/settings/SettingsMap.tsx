@@ -46,8 +46,12 @@ import { AISection } from 'products/conversations/frontend/scenes/settings/AISec
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
+import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
-import { WarehousePersonPropertiesSetting } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import {
+    WarehouseGroupPropertiesSetting,
+    WarehousePersonPropertiesSetting,
+} from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -354,7 +358,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'mcp-servers-manage',
                 title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Code agents.',
+                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
@@ -441,13 +445,31 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['accounts', 'group', 'b2b'],
             },
             {
+                id: 'customer-analytics-event-stream',
+                title: 'Event stream',
+                description:
+                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
+                component: <CustomerAnalyticsEventStream />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
+            },
+            {
                 id: 'customer-analytics-person-properties',
-                title: 'Person properties from the warehouse',
+                title: 'Person properties',
                 description:
                     'Sync warehouse table columns onto matching people as person properties, and manage their schedule, backfills, and run history.',
                 component: <WarehousePersonPropertiesSetting />,
                 flag: 'WAREHOUSE_PERSON_PROPERTIES',
                 keywords: ['warehouse', 'person', 'properties', 'sync', 'backfill'],
+            },
+            {
+                id: 'customer-analytics-group-properties',
+                title: 'Group properties',
+                description:
+                    'Sync warehouse table columns onto matching groups as group properties, and manage their schedule, backfills, and run history.',
+                component: <WarehouseGroupPropertiesSetting />,
+                flag: 'WAREHOUSE_PERSON_PROPERTIES',
+                keywords: ['warehouse', 'group', 'properties', 'sync', 'backfill'],
             },
         ],
     },
