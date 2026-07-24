@@ -146,6 +146,10 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 kind: NodeKind.EventsQuery,
                 select: columnsToUse,
                 event: definition.name,
+                // EventsQuery defaults to the last 24h, so an event whose "Last seen" is older looks empty here.
+                // Show all matching events (most recent first) so this tab agrees with the metadata above.
+                after: 'all',
+                orderBy: ['timestamp DESC'],
             },
             full: true,
             showEventFilter: false,
@@ -462,7 +466,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     <SceneDivider />
                     <SceneSection
                         title="Matching events"
-                        description="This is the list of recent events that match this definition."
+                        description="Events that match this definition, most recent first. Use the date filter to narrow the range."
                     >
                         <Query query={memoizedQuery} />
                     </SceneSection>
