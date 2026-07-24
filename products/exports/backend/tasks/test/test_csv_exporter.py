@@ -17,7 +17,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
-from requests.exceptions import HTTPError
+from requests.exceptions import ConnectionError, HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
@@ -400,6 +400,28 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(HTTPError):
                 csv_exporter.export_tabular(exported_asset)
+
+    def test_transient_connection_error_is_retried(self) -> None:
+        # A worker that can momentarily not DNS-resolve its own hostname raises a ConnectionError
+        # on the loopback API call. That should be retried, not fail the whole export.
+        with (
+            patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request,
+            patch("time.sleep"),  # skip the retry backoff waits
+        ):
+            exported_asset = self._create_asset()
+
+            success = Mock()
+            success.status_code = 200
+            success.json.return_value = {"next": None, "results": [{"id": "abc", "distinct_id": "1"}]}
+
+            patched_request.side_effect = [ConnectionError("Name or service not known"), success]
+
+            with self.settings(OBJECT_STORAGE_ENABLED=False):
+                csv_exporter.export_tabular(exported_asset)
+
+            assert patched_request.call_count == 2
+            assert exported_asset.content is not None
+            assert b"abc" in exported_asset.content
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
