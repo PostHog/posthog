@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -672,6 +673,21 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             )
         }
 
+        // Sources load debounced, so the list is null briefly after mount; a toggle click then
+        // misreads it as "no source connected" and opens the connect form, duplicating a source.
+        // Cap the wait: a hard load failure pins loading true with a null list, so never spin forever.
+        async function ensureSourcesLoaded(breakpoint: BreakPointFunction): Promise<void> {
+            if (values.dataWarehouseSources !== null) {
+                return
+            }
+            if (!values.dataWarehouseSourcesLoading) {
+                actions.loadSources()
+            }
+            for (let i = 0; i < 50 && values.dataWarehouseSources === null; i++) {
+                await breakpoint(100)
+            }
+        }
+
         return {
             loadCiSignalsConfigFailure: ({ error, errorObject }) => {
                 // Silent failure would leave the card claiming setup is required for an armed source.
@@ -681,11 +697,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // Load external data sources so we can check connectivity when user toggles a source
                 actions.loadSources()
             },
-            initiateDataWarehouseSourceToggle: async ({ source }) => {
+            initiateDataWarehouseSourceToggle: async ({ source }, breakpoint) => {
                 const { dwSourceType, requiredTables, completion } = WAREHOUSE_SOURCE_SETUP[source]
                 const sourceConfig = getWarehouseSourceConfig(values, source)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
+                    await ensureSourcesLoaded(breakpoint)
                     const hasSource =
                         values.dataWarehouseSources?.results?.some(
                             (s: ExternalDataSource) => s.source_type === dwSourceType
@@ -819,6 +836,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The setup wizard just connected GitHub with the CI tables preselected, so both
                 // checks below would race the still-refreshing sources list — skip them.
                 if (desiredEnabled && !viaSetupWizard) {
+                    await ensureSourcesLoaded(breakpoint)
                     const hasGithubSource =
                         values.dataWarehouseSources?.results?.some(
                             (s: ExternalDataSource) => s.source_type === 'Github'
