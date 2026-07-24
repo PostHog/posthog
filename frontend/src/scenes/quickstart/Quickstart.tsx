@@ -1593,11 +1593,46 @@ function QuickstartRunStatus({
         )
     }
     return (
-        <div className="flex items-center gap-2" role="status" aria-live="polite" data-attr="quickstart-run-status">
-            <Spinner className="text-base" />
-            <span className="text-sm font-medium">
-                {currentTaskLabel(progress) ?? 'The agent is working on your integration'}
-            </span>
+        <div className="flex flex-col gap-3" role="status" aria-live="polite" data-attr="quickstart-run-status">
+            <div className="flex items-center gap-2">
+                <Spinner className="text-base" />
+                <span className="text-sm font-medium">
+                    {progress.steps.length > 0
+                        ? 'The agent is working on your integration'
+                        : (currentTaskLabel(progress) ?? 'The agent is working on your integration')}
+                </span>
+            </div>
+            {progress.steps.length > 0 && (
+                <ul className="flex flex-col gap-1.5 mb-0">
+                    {progress.steps.map((step) => (
+                        <li key={step.id} className="flex items-start gap-2 text-sm">
+                            {step.status === 'completed' ? (
+                                <IconCheckCircle className="text-success mt-0.5 shrink-0" />
+                            ) : step.status === 'in_progress' ? (
+                                <Spinner className="mt-0.5 shrink-0" />
+                            ) : (
+                                <span className="mt-1.5 ml-0.5 size-1.5 rounded-full bg-muted-alt shrink-0" />
+                            )}
+                            <span className="min-w-0">
+                                <span
+                                    className={
+                                        step.status === 'pending'
+                                            ? 'text-muted'
+                                            : step.status === 'completed'
+                                              ? 'text-secondary'
+                                              : 'text-primary font-medium'
+                                    }
+                                >
+                                    {step.label}
+                                </span>
+                                {step.status === 'in_progress' && step.detail && (
+                                    <span className="block text-xs text-secondary truncate">{step.detail}</span>
+                                )}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
         </div>
     )
 }
