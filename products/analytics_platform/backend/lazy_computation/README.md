@@ -199,6 +199,8 @@ Web analytics (`web_lazy_precompute_common.py`, trigger `webAnalyticsStaleRevali
 
 A stale-served response is correct but old, and a fresh version is already being computed — the requester should be able to know that. Runners stamp `preComputeStale=True` on responses built from a stale-served read (`stale_policy.was_served_stale()`), alongside the existing `preComputeStrategy` field. Clients can treat it as "data is stale; a background revalidation is in flight; refetching shortly will return fresh data". Served-fresh responses omit the field entirely.
 
+Two follow-ups to this surface are sketched in § TODOs below: a `preComputeAgeSeconds` field (how stale, not just whether) and an automatic frontend refetch when `preComputeStale` is set.
+
 ## Observability
 
 Each invocation of the executor emits both a structured log and Prometheus counters. The executor-level counter answers "is the caller getting served"; the job-level counters answer "are PG jobs flowing as fast as we're creating them".
@@ -311,3 +313,11 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
 - The stale enum value isn't used for anything, we just mark stale jobs as errored
 - Add posthog logging for state transitions
+- Surface `preComputeAgeSeconds` alongside `preComputeStale` — how stale, not just whether. Only a boolean crosses the response boundary today, but the executor already knows each served job's `computed_at`, so the serve-stale path could put the oldest one on `LazyComputationResult` and runners could stamp `preComputeAgeSeconds` next to the flag. That lets the UI say "data as of 25 minutes ago" instead of showing a bare indicator, and lets API clients pace refetches by actual staleness instead of a guessed delay. Wiring notes for whoever picks this up:
+  - Extend `mark_served_stale()` to accept the age and keep the **max** across a request's ensures (current + compare period; marketing's touchpoints/conversions/costs) — the oldest served data wins.
+  - A lazy read that fails after marking must drop the age together with the stale mark (`clear_served_stale()`), for the same don't-mislabel-the-fallback reason.
+  - Deliberately parked until a concrete consumer wants it — don't add the field speculatively.
+- Auto-refetch on `preComputeStale` in the frontend. The flag's contract makes this safe: by the time a client sees it, a debounced background revalidation is already enqueued (web gives it a ~20s head start) and will replace both the precompute jobs and the HogQL result cache entry, so a refetch shortly after usually lands on fresh data. The shape that fits:
+  - In `dataNodeLogic`, when a response carries `preComputeStale`, schedule **one** silent `loadData` roughly 60–90s later, using a cache-respecting refresh mode (`blocking` / `async_except_on_cache_miss`) — not `force_*`, which skips the very cache entry the revalidation refreshes and recomputes instead.
+  - If the refetch still comes back with `preComputeStale`, stop — the revalidation may have failed and the serve-stale grace (hours) is the ceiling; looping only adds load.
+  - Debounce per query key, cancel on unmount or a user-initiated refresh, and consider gating behind a flag: this roughly doubles read volume for stale serves, which is a product call.
