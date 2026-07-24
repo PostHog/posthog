@@ -8,6 +8,7 @@ rules, and the audit log. Personal/shared credentials stay on
 
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When
 
 import structlog
@@ -63,6 +64,8 @@ logger = structlog.get_logger(__name__)
 RESOLVED_DECIDED_BY_CHOICES = ["rule", "scope", "team", "preset", "legacy", "default"]
 
 AUDIT_QUICK_FILTER_CHOICES = ["all", "agents", "approvals", "blocked"]
+
+MAX_TOOL_POLICIES_PER_REQUEST = 1_000
 
 AGENT_SERVER_CONNECTION_STATE_CHOICES = [
     "ready",
@@ -404,7 +407,7 @@ class MCPGatewayServerUpdateSerializer(serializers.ModelSerializer):
 
 
 class ToolPolicyEntrySerializer(serializers.Serializer):
-    tool_name = serializers.CharField(help_text="Tool to set the policy for.")
+    tool_name = serializers.CharField(max_length=200, help_text="Tool to set the policy for.")
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="State to apply for this scope.")
 
 
@@ -424,7 +427,11 @@ class GatewayPoliciesQuerySerializer(serializers.Serializer):
 
 
 class GatewayPoliciesUpsertSerializer(GatewayPoliciesQuerySerializer):
-    policies = ToolPolicyEntrySerializer(many=True, help_text="Per-tool states to upsert for the scope.")
+    policies = ToolPolicyEntrySerializer(
+        many=True,
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,  # type: ignore[call-arg]
+        help_text=f"Per-tool states to upsert for the scope. At most {MAX_TOOL_POLICIES_PER_REQUEST} entries.",
+    )
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -651,7 +658,11 @@ class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
         many=True,
         required=False,
         default=list,
-        help_text="Optional agent-scope tool policies to set alongside the grant.",
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,  # type: ignore[call-arg]
+        help_text=(
+            "Optional agent-scope tool policies to set alongside the grant. "
+            f"At most {MAX_TOOL_POLICIES_PER_REQUEST} entries."
+        ),
     )
 
 
@@ -975,16 +986,17 @@ class MCPGatewayServerViewSet(
                 )
             )
 
-        for entry in data["policies"]:
-            MCPToolPolicy.objects.update_or_create(
-                team_id=self.team_id,
-                gateway_server=server,
-                tool_name=entry["tool_name"],
-                scope_type=scope_type,
-                scope_user=scope_user,
-                scope_service_account=scope_account,
-                defaults={"state": entry["policy_state"]},
-            )
+        with transaction.atomic():
+            for entry in data["policies"]:
+                MCPToolPolicy.objects.update_or_create(
+                    team_id=self.team_id,
+                    gateway_server=server,
+                    tool_name=entry["tool_name"],
+                    scope_type=scope_type,
+                    scope_user=scope_user,
+                    scope_service_account=scope_account,
+                    defaults={"state": entry["policy_state"]},
+                )
 
         report_user_action(
             cast(User, request.user),
@@ -1108,33 +1120,35 @@ class MCPServiceAccountViewSet(
                 raise serializers.ValidationError(
                     {"gateway_server_id": "Connect this server before sharing access with an agent."}
                 )
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
-                service_account=account,
-                gateway_server=server,
-                defaults={
-                    "team_id": self.team_id,
-                    "installation": installation,
-                    "granted_by": cast(User, request.user),
-                },
-            )
-            for entry in policies:
-                MCPToolPolicy.objects.update_or_create(
-                    team_id=self.team_id,
+            with transaction.atomic():
+                MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
+                    service_account=account,
                     gateway_server=server,
-                    tool_name=entry["tool_name"],
-                    scope_type="agent",
-                    scope_user=None,
-                    scope_service_account=account,
-                    defaults={"state": entry["policy_state"]},
+                    defaults={
+                        "team_id": self.team_id,
+                        "installation": installation,
+                        "granted_by": cast(User, request.user),
+                    },
                 )
+                for entry in policies:
+                    MCPToolPolicy.objects.update_or_create(
+                        team_id=self.team_id,
+                        gateway_server=server,
+                        tool_name=entry["tool_name"],
+                        scope_type="agent",
+                        scope_user=None,
+                        scope_service_account=account,
+                        defaults={"state": entry["policy_state"]},
+                    )
         else:
-            MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
-                service_account=account,
-                gateway_server=server,
-            ).delete()
-            MCPToolPolicy.objects.for_team(self.team_id).filter(
-                gateway_server=server, scope_type="agent", scope_service_account=account
-            ).delete()
+            with transaction.atomic():
+                MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
+                    service_account=account,
+                    gateway_server=server,
+                ).delete()
+                MCPToolPolicy.objects.for_team(self.team_id).filter(
+                    gateway_server=server, scope_type="agent", scope_service_account=account
+                ).delete()
 
         report_user_action(
             cast(User, request.user),

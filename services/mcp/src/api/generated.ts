@@ -31988,7 +31988,10 @@ export namespace Schemas {
     } as const;
 
     export interface ToolPolicyEntry {
-      /** Tool to set the policy for. */
+      /**
+         * Tool to set the policy for.
+         * @maxLength 200
+         */
       tool_name: string;
       /** State to apply for this scope.
        *
@@ -32009,7 +32012,7 @@ export namespace Schemas {
       scope_user_id?: number;
       /** Agent scope target. Required when scope_type is agent. */
       scope_service_account_id?: string;
-      /** Per-tool states to upsert for the scope. */
+      /** Per-tool states to upsert for the scope. At most 1000 entries. */
       policies: ToolPolicyEntry[];
     }
 
@@ -61750,7 +61753,7 @@ export namespace Schemas {
       gateway_server_id: string;
       /** True grants access, false revokes it. */
       enabled: boolean;
-      /** Optional agent-scope tool policies to set alongside the grant. */
+      /** Optional agent-scope tool policies to set alongside the grant. At most 1000 entries. */
       policies?: ToolPolicyEntry[];
     }
 

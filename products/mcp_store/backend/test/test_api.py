@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core.signing import SignatureExpired
 from django.http import HttpResponse
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -33,6 +33,10 @@ from products.mcp_store.backend.models import (
     MCPServiceAccountServerAccess,
     MCPToolPolicy,
     TeamMCPGatewayConfig,
+)
+from products.mcp_store.backend.presentation.gateway_views import (
+    MAX_TOOL_POLICIES_PER_REQUEST,
+    GatewayPoliciesUpsertSerializer,
 )
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
@@ -100,6 +104,21 @@ class TestMCPServerTemplateIconKeyNormalization(TestCase):
         )
         template.refresh_from_db()
         assert template.icon_domain == expected
+
+
+class TestGatewayPoliciesUpsertSerializer(SimpleTestCase):
+    def test_rejects_oversized_policy_batches(self) -> None:
+        serializer = GatewayPoliciesUpsertSerializer(
+            data={
+                "policies": [
+                    {"tool_name": f"tool_{index}", "policy_state": "approved"}
+                    for index in range(MAX_TOOL_POLICIES_PER_REQUEST + 1)
+                ]
+            }
+        )
+
+        assert not serializer.is_valid()
+        assert serializer.errors["policies"]["non_field_errors"][0].code == "max_length"
 
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -382,6 +401,22 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert legacy_tool["team_state"] == "needs_approval"
         assert legacy_tool["decided_by"] == "team"
         assert legacy_tool["locked"] is False
+
+    def test_policy_upsert_rejects_oversized_tool_names_without_writes(self) -> None:
+        self._make_admin()
+        server, _installation, _tool = self._server_with_personal_tool()
+
+        response = self.client.post(
+            self._api_url(f"{server.id}/policies/"),
+            data={
+                "scope_type": "team",
+                "policies": [{"tool_name": "x" * 201, "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not MCPToolPolicy.objects.for_team(self.team.id).filter(gateway_server=server).exists()
 
     def test_member_can_choose_below_team_ceiling_but_not_above_it(self) -> None:
         self._make_admin()
