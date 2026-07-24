@@ -1809,15 +1809,33 @@ class TestExportFanOut:
         assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == row_group_size_bytes
         assert export_call.kwargs["settings"]["output_format_parquet_row_group_size"] == 250_000
 
-    @patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target")
-    def test_events_run_rejects_writer_buffers_before_resolving_target(self, resolve_target):
+    def test_events_export_automatically_caps_fanout_to_writer_buffer_budget(self, target):
         config = DucklingBackfillConfig(
             events_parquet_row_group_size_bytes=512 * 1024 * 1024,
-            max_s3_file_fanout=65,
+            max_s3_file_fanout=MAX_S3_FILE_FANOUT,
+        )
+
+        insert_sql, _count_sql, _glob, _ = self._run_export(
+            export_events_to_duckling_s3,
+            target,
+            row_count=10_000_000_000,
+            config=config,
+            team_id=2,
+            date=datetime(2026, 6, 17),
+        )
+
+        # The 32 GiB nominal staging budget fits at most 64 x 512 MiB writers.
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 64)" in insert_sql
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target")
+    def test_events_run_rejects_when_one_writer_exceeds_buffer_budget(self, resolve_target):
+        config = DucklingBackfillConfig(
+            events_parquet_row_group_size_bytes=32 * 1024 * 1024 * 1024 + 1,
+            max_s3_file_fanout=1,
         )
         context = MagicMock(partition_key="2_2026-06-17")
 
-        with pytest.raises(ValueError, match="exceed the 32 GiB events Parquet writer buffer budget"):
+        with pytest.raises(ValueError, match="one events Parquet writer exceeds the 32 GiB"):
             _run_duckling_events_backfill(context, config)
 
         resolve_target.assert_not_called()

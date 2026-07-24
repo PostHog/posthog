@@ -637,25 +637,25 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # MAX_S3_FILE_FANOUT is bounded by WRITER MEMORY, not file count: ClickHouse's
 # PartitionedSink keeps one Parquet writer open per active bucket for the whole
 # INSERT (a footer is written only at stream close), and a uniform hash key activates
-# all N buckets at once. Each writer buffers at most one in-progress row group, so
-# peak ≈ N × output_format_parquet_row_group_size_bytes (× parallel-encoding
-# overhead). At the default byte cap (see PARQUET_WRITER_SETTINGS), 256 × 128 MiB
-# ≈ 32 GiB stays comfortably under the 100 GiB max_memory_usage ceiling. Events
-# overrides must stay within the same aggregate buffer budget.
+# all N buckets at once. Each writer stages an in-progress row group, while parallel
+# encoding can retain additional groups and buffers. N × the row-group byte target
+# is therefore a nominal staging baseline, not a total-memory bound. Events fan-out
+# is automatically limited to keep that baseline within 32 GiB; ClickHouse's 100 GiB
+# max_memory_usage remains the hard query limit.
 # N may exceed ClickHouse's max_partitions_per_insert_block (default 100) safely —
 # that limit gates MergeTree part creation, not the s3() PartitionedSink.
 TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES = 128 * 1024 * 1024
-EVENTS_PARQUET_WRITER_BUFFER_BUDGET_BYTES = 32 * ONE_GB_IN_BYTES
+EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES = 32 * ONE_GB_IN_BYTES
 
-# Parquet writer defaults shared by every export. The byte cap is the load-bearing one:
-# it bounds each open partition writer's in-progress row group, so aggregate writer
-# memory scales as fan-out × this value (see MAX_S3_FILE_FANOUT). For wide event rows it
-# is also the binding row-group flush trigger (the row pin below only binds for the
-# narrower persons rows, which flush on rows first). Events may override the byte cap
-# through DucklingBackfillConfig; persons always use this default.
+# Parquet writer defaults shared by every export. The byte target sets the nominal size
+# of each open partition writer's staging row group, so baseline memory scales as fan-out
+# × this value (see MAX_S3_FILE_FANOUT). For wide event rows it is also the binding
+# row-group flush trigger (the row target below only binds for narrower persons rows).
+# Events may override the byte target through DucklingBackfillConfig; persons always use
+# this default.
 PARQUET_WRITER_SETTINGS: dict[str, Any] = {
     "output_format_parquet_row_group_size_bytes": DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES,
     "output_format_parquet_row_group_size": 250_000,  # secondary cap; binds for narrow persons rows
@@ -833,26 +833,23 @@ class DucklingBackfillConfig(Config):
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
-        description="Byte cap for each Parquet row group written by the events export.",
+        description="Uncompressed byte target for each Parquet row group written by the events export.",
     )
     # Dynamic S3 fan-out: each export is split into ~ceil(row_count / target_rows_per_file)
-    # Parquet files, clamped to [1, max_s3_file_fanout]. Huge team-days produce many
-    # right-sized files; tiny ones stay a single file. The fan-out also drives writer
-    # memory (peak ≈ fan-out × per-partition row-group buffer; see PARQUET_WRITER_SETTINGS),
-    # so for teams with unusually wide rows, lowering target_rows_per_file both keeps files
-    # in range AND raises fan-out — pair it with a lower max_s3_file_fanout if memory is tight.
+    # Parquet files, capped by max_s3_file_fanout and the nominal row-group buffer budget.
+    # Huge team-days produce many right-sized files; tiny ones stay a single file.
     target_rows_per_file: int = TARGET_ROWS_PER_FILE
     max_s3_file_fanout: int = MAX_S3_FILE_FANOUT
 
 
-def _validate_events_parquet_writer_buffer_budget(config: DucklingBackfillConfig) -> None:
-    max_open_writer_buffers = max(1, config.max_s3_file_fanout)
-    requested_buffer_bytes = config.events_parquet_row_group_size_bytes * max_open_writer_buffers
-    if requested_buffer_bytes > EVENTS_PARQUET_WRITER_BUFFER_BUDGET_BYTES:
+def _events_row_group_buffer_fanout_limit(config: DucklingBackfillConfig) -> int:
+    fanout_limit = EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES // config.events_parquet_row_group_size_bytes
+    if fanout_limit < 1:
         raise ValueError(
-            "events_parquet_row_group_size_bytes and max_s3_file_fanout exceed the 32 GiB events Parquet "
-            "writer buffer budget; lower either value"
+            "one events Parquet writer exceeds the 32 GiB nominal row-group buffer budget; "
+            "lower events_parquet_row_group_size_bytes"
         )
+    return fanout_limit
 
 
 def parse_partition_key(key: str) -> tuple[int, str]:
@@ -1491,7 +1488,9 @@ def export_events_to_duckling_s3(
     Returns:
         S3 glob matching every file this run produced for the day, or None if dry_run.
     """
-    _validate_events_parquet_writer_buffer_budget(config)
+    row_group_buffer_fanout_limit = _events_row_group_buffer_fanout_limit(config)
+    configured_max_fanout = max(1, config.max_s3_file_fanout)
+    effective_max_fanout = min(configured_max_fanout, row_group_buffer_fanout_limit)
 
     year = date.strftime("%Y")
     month = date.strftime("%m")
@@ -1519,11 +1518,9 @@ def export_events_to_duckling_s3(
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
     # Event rows are wide (large properties/person_properties JSON). With PARTITION BY,
-    # writer memory is dominated by the per-partition row-group buffers (one open writer
-    # per active bucket), so we cap the row group by bytes. The typed events override is
-    # validated together with max_s3_file_fanout before execution; the 100 GiB ceiling is
-    # headroom on top. See the PARQUET_WRITER_SETTINGS / MAX_S3_FILE_FANOUT comments for
-    # the fan-out × buffer memory model.
+    # writer memory includes one row-group staging buffer per active bucket, so the byte
+    # target also derives an automatic fan-out limit. ClickHouse's 100 GiB ceiling covers
+    # encoding and other query memory beyond that nominal baseline.
     export_settings = settings.copy()
     export_settings.update(PARQUET_WRITER_SETTINGS)
     export_settings["output_format_parquet_row_group_size_bytes"] = config.events_parquet_row_group_size_bytes
@@ -1534,13 +1531,20 @@ def export_events_to_duckling_s3(
     if config.dry_run:
         context.log.info(
             f"[DRY RUN] Would estimate row count for {info} and fan the export across up to "
-            f"{config.max_s3_file_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
+            f"{effective_max_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
         )
         return None
 
     # Size the fan-out to this team-day's actual volume.
     row_count = _estimate_export_row_count(client, f"SELECT count() FROM events WHERE {where_clause}", settings)
-    fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
+    configured_fanout = _compute_fanout(row_count, config.target_rows_per_file, configured_max_fanout)
+    fanout = min(configured_fanout, row_group_buffer_fanout_limit)
+
+    if fanout < configured_fanout:
+        context.log.info(
+            f"Limiting events export fan-out from {configured_fanout} to {fanout} writers "
+            "to fit the nominal row-group buffer budget"
+        )
 
     # ClickHouse uses its EC2 instance role - no credentials needed
     # The duckling bucket policy allows the ClickHouse EC2 role
@@ -1565,6 +1569,12 @@ def export_events_to_duckling_s3(
         s3_glob=s3_glob,
         row_count=row_count,
         fanout=fanout,
+        configured_fanout=configured_fanout,
+        configured_max_fanout=configured_max_fanout,
+        row_group_buffer_fanout_limit=row_group_buffer_fanout_limit,
+        effective_max_fanout=effective_max_fanout,
+        row_group_target_bytes=config.events_parquet_row_group_size_bytes,
+        nominal_row_group_buffer_bytes=fanout * config.events_parquet_row_group_size_bytes,
     )
 
     try:
@@ -2403,7 +2413,7 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
        b. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
        c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
-    _validate_events_parquet_writer_buffer_budget(config)
+    _events_row_group_buffer_fanout_limit(config)
 
     team_id, dates = parse_partition_key_dates(context.partition_key)
     # 16 hex chars (64 bits): the file prefix that scopes each run's glob. The exactly-once
