@@ -48,10 +48,18 @@ def persons_db_url(*, writer: bool = True) -> str:
     return os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL
 
 
+# Force UTF-8 for the client encoding so SQL containing non-ASCII bytes (e.g. a
+# stray em-dash in a migration comment) can't fail to encode on deploys whose
+# server/client default resolves to SQL_ASCII.
+_CLIENT_ENCODING = "UTF8"
+
+
 @contextmanager
 def persons_db_connection(*, writer: bool = True, autocommit: bool = False) -> Iterator[psycopg.Connection[Any]]:
     """Synchronous raw psycopg connection to the persons database (context-managed)."""
-    with psycopg.connect(persons_db_url(writer=writer), autocommit=autocommit) as conn:
+    with psycopg.connect(
+        persons_db_url(writer=writer), autocommit=autocommit, client_encoding=_CLIENT_ENCODING
+    ) as conn:
         yield conn
 
 
@@ -60,5 +68,7 @@ async def persons_db_aconnection(
     *, writer: bool = True, autocommit: bool = False
 ) -> AsyncIterator[psycopg.AsyncConnection[Any]]:
     """Asynchronous raw psycopg connection to the persons database (context-managed)."""
-    async with await psycopg.AsyncConnection.connect(persons_db_url(writer=writer), autocommit=autocommit) as conn:
+    async with await psycopg.AsyncConnection.connect(
+        persons_db_url(writer=writer), autocommit=autocommit, client_encoding=_CLIENT_ENCODING
+    ) as conn:
         yield conn
