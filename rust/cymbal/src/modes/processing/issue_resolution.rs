@@ -26,6 +26,12 @@ use crate::{
 
 const ERROR_TRACKING_EVENT_PROPERTIES_KEY_PREFIX: &str = "error_tracking:event_properties:v1";
 
+// Upper bounds on the issue name and description we persist. Exception types and values are
+// attacker-controlled and occasionally enormous (crash reporters embedding base64 minidumps,
+// serialized blobs, etc.), so we cap both before writing to Postgres and Kafka.
+const MAX_ISSUE_NAME_CHARS: usize = 255;
+const MAX_ISSUE_DESCRIPTION_CHARS: usize = 255;
+
 #[derive(Debug, Clone)]
 pub struct IssueFingerprintOverride {
     pub id: Uuid,
@@ -139,8 +145,15 @@ impl Issue {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        // Truncate the description to 255 characters, we've seen very large exception values
-        let description = description.chars().take(255).collect();
+        // Truncate name and description, we've seen very large exception values (e.g. crash
+        // reporters that stuff an entire base64-encoded minidump into the exception type).
+        // An unbounded name also produces oversized fingerprint-issue-state Kafka messages,
+        // which fail the produce with MessageSizeTooLarge.
+        let name = name.chars().take(MAX_ISSUE_NAME_CHARS).collect();
+        let description = description
+            .chars()
+            .take(MAX_ISSUE_DESCRIPTION_CHARS)
+            .collect();
         let issue = Self {
             id: Uuid::now_v7(),
             team_id,
