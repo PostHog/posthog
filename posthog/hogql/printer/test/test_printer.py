@@ -2800,6 +2800,69 @@ class TestPrinter(BaseTest):
         assert "2026" not in printed, printed
         assert "BestEffort" not in printed, printed
 
+    @parameterized.expand(
+        [
+            ("z_micros", "2026-06-30T09:59:12.988000Z", 6, "2026-06-30 09:59:12.988000"),
+            ("offset_utc_micros", "2026-06-30T09:59:12.988000+00:00", 6, "2026-06-30 09:59:12.988000"),
+            ("z_millis_precision_3", "2026-07-14T18:06:29.299Z", 3, "2026-07-14 18:06:29.299000"),
+            ("z_no_micros", "2026-06-30T09:59:12Z", 6, "2026-06-30 09:59:12.000000"),
+        ]
+    )
+    def test_zoned_datetime_string_in_toDateTime64_is_normalized(
+        self, _name: str, value: str, precision: int, expected_naive: str
+    ):
+        # 'Z'/offset strings fail ClickHouse's strict parser, so they must be inlined as naive strings.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events", context)
+        assert f"toDateTime64('{expected_naive}', {precision}, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "UTC"
+        # Checked via context.values, not the SQL text — the column alias echoes the original string.
+        assert value not in context.values.values(), context.values
+
+    def test_zoned_datetime_string_in_toDateTime64_converted_to_arg_timezone(self):
+        # The instant must be converted into the explicit tz argument ClickHouse interprets the string in.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(
+            "SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, 'US/Pacific') FROM events", context
+        )
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "US/Pacific"
+
+    def test_zoned_datetime_string_in_toDateTime64_converted_to_project_timezone(self):
+        # Without an explicit tz argument, the conversion must match the project timezone the printer appends.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z') FROM events", context)
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, %(hogql_val_0)s)" in printed, printed
+        assert context.values["hogql_val_0"] == "US/Pacific"
+
+    @parameterized.expand(
+        [
+            ("already_naive_micros", "2026-06-30 09:59:12.988000", 6),
+            ("invalid_zoned_string", "2026-30-06T00:00:00Z", 6),  # looks zoned but invalid
+            ("beyond_microsecond_precision", "2026-06-30T09:59:12.988654321Z", 9),  # rewriting would drop digits
+        ]
+    )
+    def test_toDateTime64_left_unchanged(self, _name: str, value: str, precision: int):
+        # Strings the rewrite can't re-express exactly must reach ClickHouse verbatim and keep erroring loudly.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(f"SELECT toDateTime64('{value}', {precision}, 'UTC') FROM events", context)
+        assert f"toDateTime64(%(hogql_val_0)s, {precision}, %(hogql_val_1)s)" in printed, printed
+        assert context.values["hogql_val_0"] == value
+
+    def test_toDateTime64_with_non_constant_timezone_left_unchanged(self):
+        # A tz expression can't be evaluated here; rewriting with a guessed tz would silently shift the instant.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self._select("SELECT toDateTime64('2026-06-30T09:59:12.988000Z', 6, concat('UT', 'C')) FROM events", context)
+        assert "2026-06-30T09:59:12.988000Z" in context.values.values(), context.values
+
+    def test_toDateTime64_dst_ambiguous_instant_left_unchanged(self):
+        # 09:30Z is in US/Pacific's repeated fall-back hour, where a naive string maps to two instants.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self._select("SELECT toDateTime64('2026-11-01T09:30:00Z', 6, 'US/Pacific') FROM events", context)
+        assert "2026-11-01T09:30:00Z" in context.values.values(), context.values
+
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()
