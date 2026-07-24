@@ -1091,7 +1091,23 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="recalculation_id",
+                location=OpenApiParameter.PATH,
+                # Keep the URL's UUID pattern in the schema; declaring a bare UUID type drops it.
+                type={
+                    "type": "string",
+                    "pattern": r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                },
+                description=(
+                    "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id."
+                ),
+            )
+        ],
+        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+    )
     @action(
         methods=["GET"],
         detail=True,
