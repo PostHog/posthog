@@ -44,6 +44,7 @@ import {
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
+import { DOCS_URLS } from './constants'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
@@ -394,17 +395,6 @@ function AIObservabilityGenerations(): JSX.Element {
     )
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
-const DOCS_URLS_BY_TAB: Record<string, string> = {
-    traces: 'https://posthog.com/docs/ai-observability/traces',
-    reviews: 'https://posthog.com/docs/ai-observability/trace-reviews',
-    generations: 'https://posthog.com/docs/ai-observability/generations',
-    sessions: 'https://posthog.com/docs/ai-observability/sessions',
-    errors: 'https://posthog.com/docs/ai-observability/errors',
-    tools: 'https://posthog.com/docs/ai-observability/tools',
-    sentiment: 'https://posthog.com/docs/ai-observability/sentiment',
-}
-
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your AI usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
@@ -620,7 +610,7 @@ function AIObservabilitySceneContent(): JSX.Element {
                 actions={
                     <>
                         <LemonButton
-                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            to={DOCS_URLS[activeTab] || DOCS_URLS.installation}
                             type="secondary"
                             targetBlank
                             size="small"

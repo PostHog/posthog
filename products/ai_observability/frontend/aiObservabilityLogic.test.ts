@@ -311,6 +311,8 @@ describe('aiObservabilitySessionsViewLogic', () => {
     it('reloads URL-applied session filters while the sessions tab is visible', async () => {
         setActiveTab('aiObservabilitySessions')
         querySpy.mockClear()
+        // Non-empty so the empty-state probe doesn't fire a second query.
+        querySpy.mockResolvedValue(sessionResponse([1]))
 
         sharedLogic.actions.applyUrlState(urlState)
         await settleListeners()
@@ -349,6 +351,26 @@ describe('aiObservabilitySessionsViewLogic', () => {
         await settleListeners()
         expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-2'])
         expect(querySpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('drops a superseded response without surfacing an error when filters change on a hidden tab', async () => {
+        setActiveTab('aiObservabilityTraces')
+        const staleResponse = deferredResponse()
+        querySpy.mockImplementationOnce(() => staleResponse.promise)
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        // No reload fires for a hidden tab, so only the stale-source bail catches this response.
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
+
+        staleResponse.resolve(sessionResponse([1]))
+        await settleListeners()
+
+        expect(logic.values.sessions).toHaveLength(0)
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsError).toBeNull()
     })
 
     it('ignores stale load-more responses after a first-page reload', async () => {
@@ -425,6 +447,71 @@ describe('aiObservabilitySessionsViewLogic', () => {
         } finally {
             titleLogic.unmount()
         }
+    })
+
+    it('surfaces a retryable timeout state when the sessions query hangs', async () => {
+        jest.useFakeTimers()
+        try {
+            querySpy.mockImplementation(() => deferredResponse().promise)
+
+            logic.actions.loadSessions()
+            await settleListeners()
+            expect(logic.values.sessionsLoading).toBe(true)
+
+            jest.advanceTimersByTime(60_000)
+            await settleListeners()
+
+            expect(logic.values.sessionsLoading).toBe(false)
+            expect(logic.values.sessionsError).toBe('timeout')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('surfaces a retryable error state when the sessions query fails', async () => {
+        querySpy.mockRejectedValue(new Error('boom'))
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsError).toBe('error')
+        expect(logic.values.sessions).toHaveLength(0)
+    })
+
+    it.each([
+        ['no-session-ids', [[1]]],
+        ['no-data', []],
+    ])('classifies an empty list as %s when the probe returns %j', async (expectedReason, probeResults) => {
+        querySpy
+            .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
+            .mockResolvedValueOnce({ results: probeResults })
+
+        logic.actions.loadSessions()
+        await settleListeners()
+        await settleListeners()
+
+        expect(logic.values.sessions).toHaveLength(0)
+        expect(logic.values.sessionsEmptyReason).toBe(expectedReason)
+    })
+
+    it('holds the loading state until the empty-reason probe settles', async () => {
+        const probe = deferredResponse()
+        querySpy
+            .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
+            .mockImplementationOnce(() => probe.promise)
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        expect(logic.values.sessionsLoading).toBe(true)
+        expect(logic.values.sessions).toHaveLength(0)
+
+        probe.resolve({ columns: [], results: [[1]] })
+        await settleListeners()
+
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsEmptyReason).toBe('no-session-ids')
     })
 })
 

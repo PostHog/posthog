@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -20,6 +21,21 @@ import type { DateRangeFilter } from '../types'
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 
 const SESSIONS_PAGE_SIZE = 50
+const SESSIONS_QUERY_TIMEOUT_MS = 60_000
+
+const EMPTY_REASON_PROBE_QUERY = `
+SELECT 1
+FROM events
+WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+    AND isNotNull(properties.$ai_trace_id)
+    AND properties.$ai_trace_id != ''
+    AND {filters}
+LIMIT 1
+`
+const EMPTY_REASON_PROBE_TIMEOUT_MS = 15_000
+
+export type SessionsErrorKind = 'error' | 'timeout' | null
+export type SessionsEmptyReason = 'no-data' | 'no-session-ids' | null
 
 export interface SessionListRow {
     sessionId: string
@@ -163,8 +179,13 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
         loadSessions: (payload?: { refresh?: RefreshType }) => ({ refresh: payload?.refresh }),
-        loadSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({ sessions, hasMoreSessions }),
-        loadSessionsFailure: true,
+        loadSessionsSuccess: (
+            sessions: SessionListRow[],
+            hasMoreSessions: boolean,
+            emptyReason: SessionsEmptyReason = null
+        ) => ({ sessions, hasMoreSessions, emptyReason }),
+        loadSessionsFailure: (timedOut: boolean = false) => ({ timedOut }),
+        loadSessionsSuperseded: true,
         loadMoreSessions: true,
         loadMoreSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({
             sessions,
@@ -187,6 +208,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadSessions: () => true,
                 loadSessionsSuccess: () => false,
                 loadSessionsFailure: () => false,
+                loadSessionsSuperseded: () => false,
             },
         ],
         moreSessionsLoading: [
@@ -204,6 +226,22 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 loadSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
                 loadMoreSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
                 loadSessionsFailure: () => false,
+                loadSessionsSuperseded: () => false,
+            },
+        ],
+        sessionsError: [
+            null as SessionsErrorKind,
+            {
+                loadSessions: () => null,
+                loadSessionsSuccess: () => null,
+                loadSessionsFailure: (_, { timedOut }) => (timedOut ? 'timeout' : 'error'),
+            },
+        ],
+        sessionsEmptyReason: [
+            null as SessionsEmptyReason,
+            {
+                loadSessions: () => null,
+                loadSessionsSuccess: (_, { emptyReason }) => emptyReason,
             },
         ],
         selectedSessionId: [
@@ -230,6 +268,21 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             }
         }
 
+        // A cached answer is fine here, so `refresh` is deliberately not forwarded.
+        const classifyEmptyReason = async (source: HogQLQuery): Promise<SessionsEmptyReason> => {
+            try {
+                const response = await withTimeout(
+                    (signal) =>
+                        api.query({ ...source, query: EMPTY_REASON_PROBE_QUERY }, { requestOptions: { signal } }),
+                    EMPTY_REASON_PROBE_TIMEOUT_MS,
+                    'AI sessions empty-reason probe timed out'
+                )
+                return (response.results?.length ?? 0) > 0 ? 'no-session-ids' : 'no-data'
+            } catch {
+                return null
+            }
+        }
+
         return {
             loadSessions: async ({ refresh }) => {
                 const requestId = ++loadSessionsRequestId
@@ -238,19 +291,36 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 const source = values.sessionsQuery.source as HogQLQuery
                 try {
                     // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
-                    const response = await api.query(source, { refresh })
+                    const response = await withTimeout(
+                        (signal) => api.query(source, { refresh, requestOptions: { signal } }),
+                        SESSIONS_QUERY_TIMEOUT_MS,
+                        'AI sessions query timed out'
+                    )
                     if (requestId !== loadSessionsRequestId) {
                         return
                     }
                     if (values.sessionsQuery.source !== source) {
-                        actions.loadSessionsFailure()
+                        actions.loadSessionsSuperseded()
                         return
                     }
                     const sessions = parseSessionsResponse(response)
-                    actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
-                } catch {
+                    if (sessions.length > 0) {
+                        actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+                        return
+                    }
+                    // Hold the loading state until the reason is known — avoids flashing the generic empty copy.
+                    const reason = await classifyEmptyReason(source)
+                    if (requestId !== loadSessionsRequestId) {
+                        return
+                    }
+                    if (values.sessionsQuery.source !== source) {
+                        actions.loadSessionsSuperseded()
+                        return
+                    }
+                    actions.loadSessionsSuccess(sessions, false, reason)
+                } catch (error) {
                     if (requestId === loadSessionsRequestId) {
-                        actions.loadSessionsFailure()
+                        actions.loadSessionsFailure(error instanceof PromiseTimeoutError)
                     }
                 }
             },
@@ -263,10 +333,12 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 const source = values.sessionsQuery.source as HogQLQuery
                 const offset = values.sessions.length
                 try {
-                    const response = await api.query({
-                        ...source,
-                        query: buildSessionsQuery(values.sessionsSort, offset),
-                    })
+                    const paginatedSource = { ...source, query: buildSessionsQuery(values.sessionsSort, offset) }
+                    const response = await withTimeout(
+                        (signal) => api.query(paginatedSource, { requestOptions: { signal } }),
+                        SESSIONS_QUERY_TIMEOUT_MS,
+                        'AI sessions query timed out'
+                    )
                     if (requestId !== loadMoreSessionsRequestId) {
                         return
                     }
