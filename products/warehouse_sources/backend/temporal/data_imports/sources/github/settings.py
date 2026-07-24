@@ -54,6 +54,15 @@ class GithubEndpointConfig:
     # repo history. The webhook carries steady-state, so only the one-off backfill
     # needs a bound; later syncs advance from the stored watermark and ignore this.
     initial_lookback_days: Optional[int] = None
+    # Steady-state reconciliation for a webhook-fed fan-out child whose events GitHub does not
+    # always deliver: after each webhook drain, re-fan parents created within this many days so
+    # child rows that never got a webhook (deployment statuses marked inactive) are still
+    # collected from the list API. None = webhook drain only.
+    webhook_reconcile_lookback_days: Optional[int] = None
+    # Parent field bumped whenever a child row is created (deployments.updated_at). When set,
+    # an incremental fan-out skips parents whose value predates the child watermark — they can
+    # hold no unseen children — keeping the reconciliation window cheap to re-walk every sync.
+    fan_out_parent_recency_field: Optional[str] = None
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -314,10 +323,15 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # The raw status only carries the deployment API URL, so inject the deployment id for
         # trivial attribution joins against the deployments table (mirrors reviews' pr_number).
         fan_out_include_parent_fields={"id": "deployment_id"},
-        # One /statuses call per deployment: the deployment_status webhook is the source of truth,
-        # and the poll only re-fans the tiny window since the latest synced status. Repos that want
-        # history should run a deliberate one-off backfill, not pay for it on every connect.
+        # Webhook-first (zero first-sync backfill), but not webhook-alone: GitHub never fires a
+        # deployment_status webhook for the inactive state, so a pure webhook feed would miss
+        # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
+        # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
+        # deployments created in the last 30 days; the updated_at recency skip keeps that to
+        # parents that actually gained a status since the child watermark.
         initial_lookback_days=0,
+        webhook_reconcile_lookback_days=30,
+        fan_out_parent_recency_field="updated_at",
         # A deployment status is append-only (each transition is a new, immutable id), so no
         # webhook dedupe is needed — unlike reviews/runs, one id never emits multiple events.
     ),
