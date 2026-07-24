@@ -247,6 +247,9 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 }
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    // The native webhook is an internal building block; the public HTTP Webhook
+                    // destination covers this use case, so keep it out of the chooser entirely.
+                    .filter((x) => x.id !== 'native-webhook')
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
                     .filter(
