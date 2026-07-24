@@ -177,14 +177,33 @@ describe('BlockProxy', () => {
             expect(blockRequest.respond).toHaveBeenCalledWith({ status: 500, body: 'internal error' })
         })
 
-        it('returns 502 when upstream fetch throws', async () => {
+        it('responds 502 with the real cause when upstream fetch throws', async () => {
             const proxy = await createProxyWithBlocks()
 
-            mockInternalFetch.mockRejectedValue(new Error('network timeout'))
+            mockInternalFetch.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6738'))
             const blockRequest = mockBlockRequest('/__blocks/0')
             await proxy.handleRequest(blockRequest as any, '/__blocks/0')
 
-            expect(blockRequest.respond).toHaveBeenCalledWith({ status: 502, body: 'block proxy error' })
+            expect(blockRequest.respond).toHaveBeenCalledWith({
+                status: 502,
+                body: expect.stringContaining('connect ECONNREFUSED 127.0.0.1:6738'),
+            })
+        })
+
+        it.each([
+            ['TimeoutError name', Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' })],
+            ['undici code', Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })],
+        ])('responds 504 for an upstream timeout (%s)', async (_label, err) => {
+            const proxy = await createProxyWithBlocks()
+
+            mockInternalFetch.mockRejectedValue(err)
+            const blockRequest = mockBlockRequest('/__blocks/0')
+            await proxy.handleRequest(blockRequest as any, '/__blocks/0')
+
+            expect(blockRequest.respond).toHaveBeenCalledWith({
+                status: 504,
+                body: expect.stringContaining((err as Error).message),
+            })
         })
     })
 })
