@@ -151,7 +151,7 @@ def set_feature_enrollment(current_filters: dict, enrolled: bool | None, *, grou
     new_filters = {**current_filters, "feature_enrollment": enrolled}
     new_filters.pop("super_groups", None)
     if groups is not None:
-        new_filters["groups"] = groups
+        new_filters["groups"] = deepcopy(groups)
     return new_filters
 
 

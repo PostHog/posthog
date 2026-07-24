@@ -59,8 +59,8 @@ def _serializer_context(team: Team, user: Any, request: Any | None, *, method: s
     if user is None and request_has_user:
         raise ValueError("user=None is a system write; do not pass a user-bearing request with it")
     if isinstance(request, ServiceRequest):
-        # Caller-built shims default to POST — rebuild so the method matches this write.
-        request = ServiceRequest(request.user, is_system=request.is_system, method=method)
+        # Caller-built shims default to POST — align the method with this write.
+        request.method = method
     flag_request = request if request_has_user else ServiceRequest(user, is_system=user is None, method=method)
     return {
         "request": flag_request,

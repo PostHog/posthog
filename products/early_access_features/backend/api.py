@@ -372,7 +372,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             }
 
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
-                filters["feature_enrollment"] = True
+                filters = set_feature_enrollment(filters, True)
 
             feature_flag = create_flag(
                 {

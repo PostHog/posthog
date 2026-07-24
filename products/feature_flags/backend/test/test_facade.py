@@ -14,8 +14,9 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
-from products.feature_flags.backend.encrypted_flag_payloads import flag_payload_codec
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
+    _redact_unchanged_encrypted_payloads,
     _roll_out_variant,
     archive_flag,
     create_flag,
@@ -123,6 +124,32 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.archived is False
         assert flag.active is True
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_gated_update_change_request_records_patch_and_resource_id(self, _mock_enabled):
+        # resource_id extraction skips POST requests, and applying an approved change
+        # replays with the stored http_method — a shim reporting POST would break
+        # duplicate detection and re-run create-only validation on apply.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._create_flag(active=True)
+
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(flag, False, team=self.team, user=self.user)
+
+        change_request = ChangeRequest.objects.get(team=self.team)
+        assert change_request.intent["http_method"] == "PATCH"
+        assert change_request.resource_id == str(flag.id)
 
     def test_system_create_logs_system_activity(self):
         with self.captureOnCommitCallbacks(execute=True):
@@ -244,6 +271,24 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is True
+
+
+class TestRedactUnchangedEncryptedPayloads:
+    def test_only_redacts_byte_identical_stored_values(self):
+        flag = FeatureFlag(
+            has_encrypted_payloads=True,
+            filters={"payloads": {"same": "CIPHER", "changed": "OLD"}},
+        )
+
+        out = _redact_unchanged_encrypted_payloads(
+            flag, {"filters": {"payloads": {"same": "CIPHER", "changed": "NEW", "fresh": "PLAIN"}}}
+        )
+
+        assert out["filters"]["payloads"] == {
+            "same": REDACTED_PAYLOAD_VALUE,
+            "changed": "NEW",
+            "fresh": "PLAIN",
+        }
 
 
 class TestRollOutVariant:

@@ -1857,6 +1857,8 @@ class TestEarlyAccessFeatureFlagFacadeWrites(APIBaseTest):
         assert flag.filters["feature_enrollment"] == expected_enrollment
         assert "super_groups" not in flag.filters
         assert flag.filters["payloads"] == self.LEGACY_FLAG_FILTERS["payloads"]
+        # Non-encrypted flag: the facade's redaction must not fire in the response either.
+        assert response.json()["feature_flag"]["filters"]["payloads"] == self.LEGACY_FLAG_FILTERS["payloads"]
         groups = [
             {key: value for key, value in group.items() if key != "aggregation_group_type_index"}
             for group in flag.filters["groups"]
