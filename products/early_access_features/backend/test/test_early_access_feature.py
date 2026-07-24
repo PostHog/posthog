@@ -21,6 +21,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.surveys.backend.models import Survey as SurveyModel
@@ -94,6 +95,8 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
+        assert response_data["created_by"]["id"] == self.user.id
+        assert EarlyAccessFeature.objects.get(id=response_data["id"]).created_by_id == self.user.id
 
     def test_can_create_early_access_feature_in_alpha_stage(self):
         response = self.client.post(
@@ -640,6 +643,174 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "beta"
         assert feature.name == "Mouse-up counter"
 
+    def test_create_sets_created_by_and_defaults_assignee_to_creator(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Assignable feature",
+                "description": "A feature with an owner.",
+                "stage": "concept",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["created_by"]["id"] == self.user.id
+        assert response_data["assignee"] == {"type": "user", "id": self.user.id}
+
+        feature = EarlyAccessFeature.objects.get(id=response_data["id"])
+        assert feature.created_by == self.user
+        assert feature.assigned_user == self.user
+        assert feature.assigned_role is None
+
+    def test_can_create_feature_with_explicit_role_assignee(self):
+        role = Role.objects.create(name="Data Modeling", organization=self.organization)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Assignable feature",
+                "stage": "concept",
+                "assignee": {"type": "role", "id": str(role.id)},
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["assignee"] == {"type": "role", "id": str(role.id)}
+
+        feature = EarlyAccessFeature.objects.get(id=response_data["id"])
+        assert feature.assigned_user is None
+        assert feature.assigned_role == role
+
+    def test_can_create_feature_with_explicit_null_assignee(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Assignable feature",
+                "stage": "concept",
+                "assignee": None,
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["assignee"] is None
+        assert response_data["created_by"]["id"] == self.user.id
+
+        feature = EarlyAccessFeature.objects.get(id=response_data["id"])
+        assert feature.assigned_user is None
+        assert feature.assigned_role is None
+
+    def test_can_update_assignee(self):
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Click counter",
+            description="A revolution in usability research: now you can count clicks!",
+            stage="beta",
+            assigned_user=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "other-assignee@posthog.com", None)
+        role = Role.objects.create(name="AI Research", organization=self.organization)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"assignee": {"type": "user", "id": other_user.id}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["assignee"] == {"type": "user", "id": other_user.id}
+        # Re-fetch instead of refresh_from_db: mypy's narrowing of the assigned_* attributes
+        # would otherwise persist across the refresh and flag later assertions as unreachable
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
+        assert feature.assigned_user == other_user
+        assert feature.assigned_role is None
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"assignee": {"type": "role", "id": str(role.id)}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["assignee"] == {"type": "role", "id": str(role.id)}
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
+        assert feature.assigned_user is None
+        assert feature.assigned_role == role
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"assignee": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["assignee"] is None
+        feature = EarlyAccessFeature.objects.get(id=feature.id)
+        assert feature.assigned_user is None
+        assert feature.assigned_role is None
+
+    def test_cannot_assign_user_outside_organization(self):
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Click counter",
+            stage="beta",
+        )
+        stranger = User.objects.create_user("stranger@example.com", None, "Stranger")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"assignee": {"type": "user", "id": stranger.id}},
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "does not belong to this organization" in str(response_data)
+        feature.refresh_from_db()
+        assert feature.assigned_user is None
+
+    def test_cannot_assign_role_outside_organization(self):
+        from posthog.models.organization import Organization
+
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Click counter",
+            stage="beta",
+        )
+        other_organization = Organization.objects.create(name="Other org")
+        other_role = Role.objects.create(name="Other role", organization=other_organization)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            data={"assignee": {"type": "role", "id": str(other_role.id)}},
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "does not belong to this organization" in str(response_data)
+
+    def test_rejects_malformed_assignee(self):
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Click counter",
+            stage="beta",
+        )
+
+        for bad_assignee in [
+            {"type": "group", "id": 1},
+            {"type": "user"},
+            "someone",
+            42,
+            {"type": "role", "id": "not-a-uuid"},
+        ]:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+                data={"assignee": bad_assignee},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_can_list_features(self):
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -658,7 +829,9 @@ class TestEarlyAccessFeature(APIBaseTest):
             "previous": None,
             "results": [
                 {
+                    "assignee": None,
                     "created_at": ANY,
+                    "created_by": None,
                     "description": "A revolution in usability research: now you can count clicks!",
                     "documentation_url": "",
                     "feature_flag": None,
@@ -938,6 +1111,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -995,6 +1169,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1041,6 +1216,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1110,6 +1286,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1205,8 +1382,74 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": payload,
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
+            )
+
+    def test_early_access_features_includes_assignee_display_name_in_preview(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket",
+            key="sprocket",
+            created_by=self.user,
+        )
+        feature_flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket 2",
+            key="sprocket2",
+            created_by=self.user,
+        )
+        feature_flag3 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket 3",
+            key="sprocket3",
+            created_by=self.user,
+        )
+        role = Role.objects.create(name="Data Modeling", organization=self.organization)
+        named_user = User.objects.create_and_join(self.organization, "named@posthog.com", None, first_name="Ada")
+        nameless_user = User.objects.create_and_join(self.organization, "nameless@posthog.com", None, first_name="")
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+            assigned_user=named_user,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket 2",
+            description="An even fancier sprocket.",
+            stage="beta",
+            feature_flag=feature_flag2,
+            assigned_role=role,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket 3",
+            description="A nameless sprocket.",
+            stage="beta",
+            feature_flag=feature_flag3,
+            assigned_user=nameless_user,
+        )
+
+        self.client.logout()
+
+        # The assignee join must not introduce per-feature queries
+        with self.assertNumQueries(2):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+
+            assignees = {f["flagKey"]: f["assignee"] for f in response.json()["earlyAccessFeatures"]}
+            self.assertEqual(
+                assignees,
+                {
+                    "sprocket": {"type": "user", "name": "Ada"},
+                    "sprocket2": {"type": "role", "name": "Data Modeling"},
+                    # A user with no name serializes as unassigned rather than a blank name.
+                    "sprocket3": None,
+                },
             )
 
 

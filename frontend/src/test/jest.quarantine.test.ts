@@ -131,6 +131,9 @@ describe('jest.quarantine', () => {
                     runtimeEntry(fixtureSuiteId),
                     runtimeEntry(`${fixtureSuiteId} tolerates body failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates async rejection`),
+                    runtimeEntry(`${fixtureSuiteId} tolerates each row 1`),
+                    runtimeEntry(`${fixtureSuiteId} tolerates each done row 3`),
+                    runtimeEntry(`${fixtureSuiteId} parameterized describe A tolerates nested failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates beforeEach failure`),
                     runtimeEntry(`${fixtureSuiteId} tolerates afterEach failure`),
                     runtimeEntry(`${fixtureSuiteId} skips body`, 'skip'),
@@ -156,7 +159,20 @@ describe('jest.quarantine', () => {
                     {
                         cwd: FRONTEND_DIR,
                         encoding: 'utf-8',
-                        env: { ...process.env, CI: '1', POSTHOG_TEST_QUARANTINE_PATH: quarantinePath },
+                        env: {
+                            ...process.env,
+                            CI: '1',
+                            JEST_JUNIT_OUTPUT_DIR: tmpDir,
+                            // Mirror ci-frontend.yml: the CI reporter reads the `file` attribute to
+                            // rebuild each test's identity, so the junit shape must match CI's here.
+                            // Every JEST_JUNIT_* var is pinned rather than inherited — under CI this
+                            // process already has them set, and an inherited output name would land
+                            // the report somewhere this test doesn't look.
+                            JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true',
+                            JEST_JUNIT_SUITE_NAME: '{filepath}',
+                            JEST_JUNIT_OUTPUT_NAME: 'junit.xml',
+                            POSTHOG_TEST_QUARANTINE_PATH: quarantinePath,
+                        },
                     }
                 )
                 const output = `${result.stdout}\n${result.stderr}`
@@ -167,8 +183,51 @@ describe('jest.quarantine', () => {
                 expect(output).toContain('quarantined body failure')
                 expect(output).toContain('quarantined beforeEach failure')
                 expect(output).toContain('quarantined afterEach failure')
+                expect(output).toContain('quarantined each row failure')
+                expect(output).toContain('quarantined each done row failure')
+                expect(output).toContain('quarantined parameterized describe failure')
                 expect(output).toContain('[quarantine] skipping')
                 expect(output).not.toContain('skipped body should not run')
+                const toleratedIds = fs
+                    .readdirSync(tmpDir)
+                    .filter((filename) => filename.startsWith('posthog-jest-quarantine-'))
+                    .flatMap((filename) =>
+                        fs
+                            .readFileSync(path.join(tmpDir, filename), 'utf-8')
+                            .trim()
+                            .split('\n')
+                            .map((line) => (JSON.parse(line) as { test_id: string }).test_id)
+                    )
+                expect(toleratedIds).toEqual(
+                    expect.arrayContaining([
+                        `${fixtureSuiteId} tolerates each done row 3`,
+                        `${fixtureSuiteId} parameterized describe A tolerates nested failure`,
+                    ])
+                )
+
+                // The CI reporter (.github/scripts/report_test_timings.py) rebuilds each test's
+                // identity from junit as `<repo-relative file>::<name>` and matches it against the
+                // sidecar's `test_id` to restore failures quarantine masked as passes. This is the
+                // only place both sides run together, so drift in jest-junit's name/file templates
+                // or in the sidecar id would otherwise silently turn those back into clean passes.
+                const junitIds = [
+                    ...fs.readFileSync(path.join(tmpDir, 'junit.xml'), 'utf-8').matchAll(/<testcase\b[^>]*>/g),
+                ].flatMap(([element]) => {
+                    const file = /\bfile="([^"]*)"/.exec(element)?.[1]
+                    const name = /\bname="([^"]*)"/.exec(element)?.[1]
+                    if (file === undefined || name === undefined) {
+                        return []
+                    }
+                    const repoRelative = path.posix.normalize(path.posix.join('frontend', file))
+                    return [`${repoRelative}::${name.replace(/&quot;/g, '"').replace(/&amp;/g, '&')}`]
+                })
+                // beforeAll/afterAll tolerate at describe scope, so their id names no single test
+                // and has no testcase to attach to; every per-test id must still resolve to one.
+                const perTestToleratedIds = toleratedIds.filter(
+                    (id) => id !== fixtureSuiteId && id !== RUNTIME_FIXTURE_ID
+                )
+                expect(perTestToleratedIds.length).toBeGreaterThan(0)
+                expect(junitIds).toEqual(expect.arrayContaining(perTestToleratedIds))
             } finally {
                 fs.rmSync(tmpDir, { recursive: true, force: true })
             }

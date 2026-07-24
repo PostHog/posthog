@@ -694,7 +694,9 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.conversations",
+    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -764,6 +766,7 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.access_control",
     "products.cohorts",
     "ee",
     "posthog",

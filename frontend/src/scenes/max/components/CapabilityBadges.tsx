@@ -34,7 +34,7 @@ export interface CapabilityBadgesProps {
     className?: string
 }
 
-/** Row of PostHog AI capability badges (+ the Code beta badge). Selection is owned by the parent. */
+/** Row of PostHog AI capability badges (+ the Desktop beta badge). Selection is owned by the parent. */
 export function CapabilityBadges({
     capabilities,
     selectedKey,

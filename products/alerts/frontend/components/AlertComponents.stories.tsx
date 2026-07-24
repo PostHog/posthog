@@ -165,8 +165,8 @@ function NotificationsStory(): JSX.Element {
     const [pendingDestinations, setPendingDestinations] = useState<PendingAlertNotificationDestinationView[]>([
         {
             key: 'pending-webhook',
-            label: 'Webhook: https://example.com/pending',
-            status: '(pending, save alert to apply)',
+            title: 'Webhook',
+            detail: 'https://example.com/pending',
             onRemove: () => setPendingDestinations([]),
         },
     ])
@@ -179,8 +179,8 @@ function NotificationsStory(): JSX.Element {
             ...destinations,
             {
                 key: `pending-${destinations.length}`,
-                label: `Webhook: ${urlValue}`,
-                status: '(pending, save alert to apply)',
+                title: 'Webhook',
+                detail: urlValue,
                 onRemove: () => setPendingDestinations([]),
             },
         ])
@@ -211,6 +211,10 @@ function NotificationsStory(): JSX.Element {
                 }}
                 slack={{
                     notificationType: 'slack',
+                    integrationsLoading: false,
+                    integrationsFailed: false,
+                    onRetryIntegrations: () => {},
+                    integrations: [],
                     channelValue: slackChannelValue,
                     onChannelValueChange: setSlackChannelValue,
                 }}

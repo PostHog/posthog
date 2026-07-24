@@ -13,10 +13,6 @@ use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{Person, SplitResult};
 
-const PERSON_UUIDV5_NAMESPACE: Uuid = Uuid::from_bytes([
-    0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc, 0x22,
-]);
-
 /// Version offset for split person/PDI rows — mirrors the Django convention.
 const SPLIT_VERSION_OFFSET: i64 = 101;
 
@@ -782,12 +778,7 @@ impl PersonLookup for PostgresStorage {
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
         let new_uuids: Vec<Uuid> = dids
             .iter()
-            .map(|did| {
-                Uuid::new_v5(
-                    &PERSON_UUIDV5_NAMESPACE,
-                    format!("{team_id}:{did}").as_bytes(),
-                )
-            })
+            .map(|did| personhog_common::persons::person_uuid(team_id, did))
             .collect();
         let pdi_versions: Vec<i64> = dids
             .iter()

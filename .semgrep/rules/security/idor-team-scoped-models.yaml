@@ -130,6 +130,8 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventStream
+                              |EventStreamMember
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -198,6 +200,7 @@ rules:
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
+                              |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |MarketingAnalyticsGoalMapping
@@ -449,6 +452,8 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventStream
+                        |EventStreamMember
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -513,6 +518,7 @@ rules:
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
+                        |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |MarketingAnalyticsGoalMapping

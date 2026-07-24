@@ -28,7 +28,7 @@ export function TaskPanelSkeleton(): JSX.Element {
     )
 }
 
-/** Skeleton for the title-bar action buttons (Open in PostHog Code / View PR / Run). */
+/** Skeleton for the title-bar action buttons (Open in PostHog Desktop / View PR / Run). */
 export function TaskHeaderActionsSkeleton(): JSX.Element {
     return (
         <div className="flex items-center gap-2">

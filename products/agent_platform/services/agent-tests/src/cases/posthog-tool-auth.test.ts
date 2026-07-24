@@ -140,7 +140,7 @@ describe('PostHog tools: act as the calling user, not the agent team', () => {
                     {
                         kind: 'client',
                         id: 'get_context',
-                        description: 'Read the current PostHog Code context.',
+                        description: 'Read the current PostHog Desktop context.',
                         args_schema: { type: 'object', properties: {}, additionalProperties: false },
                     },
                 ],

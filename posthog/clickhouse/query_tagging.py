@@ -85,6 +85,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TRACING = "tracing"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -151,6 +152,7 @@ class FallbackTags(TypedDict):
 # fallback. The `None` rows double as breadcrumbs so the absence of a common scene is loud.
 SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
+    "CustomerAnalytics": {"product": Product.CUSTOMER_ANALYTICS, "feature": Feature.QUERY},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
@@ -258,16 +260,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ACTORS_PROPERTY_TAXONOMY_QUERY
         ):
             return {"product": Product.MAX_AI}
-        case (
-            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
-            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
-            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
-            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
-            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
-        ):
-            return {"product": Product.REVENUE_ANALYTICS}
         case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY

@@ -1,3 +1,4 @@
+import pickle
 import asyncio
 from typing import cast
 from uuid import uuid4
@@ -6,13 +7,23 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 import redis.exceptions as redis_exceptions
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    AssistantUpdateEvent,
+    FailureMessage,
+    HumanMessage,
+    ReasoningMessage,
+    SubagentUpdateEvent,
 )
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -20,16 +31,20 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_PREFIX,
     CONVERSATION_STREAM_TIMEOUT,
+    ApprovalEvent,
+    ConversationEvent,
     ConversationRedisStream,
     ConversationStreamSerializer,
+    GenerationStatusEvent,
     MessageEvent,
     StatusPayload,
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    UpdateEvent,
     get_subagent_stream_key,
 )
-from ee.hogai.utils.types.base import AssistantOutput
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
 class TestRedisStream(BaseTest):
@@ -600,3 +615,96 @@ class TestGetSubagentStreamKey(BaseTest):
         key1 = get_subagent_stream_key(conv_id_1, tool_call_id)
         key2 = get_subagent_stream_key(conv_id_2, tool_call_id)
         self.assertNotEqual(key1, key2)
+
+
+class TestConversationStreamSerializerJson(SimpleTestCase):
+    # Phase 1 of the pickle->JSON migration: the reader must parse JSON entries (and still read
+    # legacy pickle) before any writer emits JSON. The inner payload union is resolved by pydantic
+    # smart mode, so each member — especially the three that share only `content: str` — is a
+    # distinct resolution case that could misresolve or drop fields on the validate-back leg.
+    @parameterized.expand(
+        [
+            ("assistant", AssistantMessage(content="hi")),
+            ("human", HumanMessage(content="hi")),
+            ("reasoning", ReasoningMessage(content="thinking")),
+            ("failure", FailureMessage()),
+            ("tool_call", AssistantToolCallMessage(content="done", tool_call_id="tc_1")),
+        ]
+    )
+    def test_deserialize_json_message_preserves_payload(self, _name, payload):
+        serializer = ConversationStreamSerializer()
+        event = StreamEvent(event=MessageEvent(type=AssistantEventType.MESSAGE, payload=payload))
+        json_bytes = event.model_dump_json().encode("utf-8")
+        assert json_bytes[:1] == b"{"  # the byte the reader branches on to pick JSON over pickle
+
+        result = serializer.deserialize({b"data": json_bytes})
+
+        self.assertEqual(result.event.type, AssistantEventType.MESSAGE)
+        self.assertIs(type(result.event.payload), type(payload))  # smart-union resolved to same member
+        self.assertEqual(result.event.payload, payload)  # no data lost on round-trip
+
+    @parameterized.expand(
+        [
+            ("conversation", ConversationEvent(type="conversation", payload=uuid4())),
+            (
+                "generation_status",
+                GenerationStatusEvent(
+                    type=AssistantEventType.STATUS,
+                    payload=AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR),
+                ),
+            ),
+            (
+                "update_assistant",
+                UpdateEvent(
+                    type=AssistantEventType.UPDATE,
+                    payload=AssistantUpdateEvent(content="progress", id="u1", tool_call_id="tc1"),
+                ),
+            ),
+            (
+                "update_subagent",
+                UpdateEvent(
+                    type=AssistantEventType.UPDATE,
+                    payload=SubagentUpdateEvent(
+                        content=AssistantToolCall(id="tc2", name="run", args={"x": 1}), id="u2", tool_call_id="tc2"
+                    ),
+                ),
+            ),
+            ("stream_status", StreamStatusEvent(payload=StatusPayload(status="complete"))),
+            (
+                "approval",
+                ApprovalEvent(
+                    type=AssistantEventType.APPROVAL,
+                    payload=ApprovalPayload(
+                        proposal_id="p1",
+                        decision_status="pending",
+                        tool_name="run",
+                        preview="preview",
+                        payload={},
+                        original_tool_call_id=None,
+                        message_id=None,
+                    ),
+                ),
+            ),
+        ]
+    )
+    def test_deserialize_json_event_branch_round_trips(self, _name, event):
+        # Every StreamEventUnion branch must survive the JSON round trip before the writer cutover.
+        # UpdateEvent.payload is a second smart-mode union (AssistantUpdateEvent | SubagentUpdateEvent),
+        # the same resolution risk as MessageEvent's payload.
+        serializer = ConversationStreamSerializer()
+        stream_event = StreamEvent(event=event)
+
+        result = serializer.deserialize({b"data": stream_event.model_dump_json().encode("utf-8")})
+
+        self.assertIs(type(result.event), type(event))
+        self.assertEqual(result.event, event)
+
+    def test_deserialize_still_reads_legacy_pickle(self):
+        serializer = ConversationStreamSerializer()
+        event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
+
+        result = serializer.deserialize({b"data": pickle.dumps(event)})
+
+        self.assertEqual(result.event.type, "STREAM_STATUS")
+        payload = cast(StatusPayload, result.event.payload)
+        self.assertEqual(payload.status, "complete")

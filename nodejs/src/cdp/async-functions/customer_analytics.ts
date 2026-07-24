@@ -147,15 +147,22 @@ registerAsyncFunction('postHogSetAccountProperties', {
 
         const team = await getTeamWithSecretToken(context, 'postHogSetAccountProperties')
 
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${team.secret_api_token}`,
+        }
+
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
+        }
+
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url: `${context.siteUrl}/api/customer_analytics/external/account/custom_property_values`,
             method: 'PATCH',
             body: JSON.stringify({ external_id: externalId, properties }),
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${team.secret_api_token}`,
-            },
+            headers,
         })
     },
 

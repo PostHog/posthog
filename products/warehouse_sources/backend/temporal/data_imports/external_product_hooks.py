@@ -149,13 +149,15 @@ class PersonPropertySyncSource:
     the sync job (owned by warehouse_sources) never imports the customer_analytics config models.
     ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column`` holds
     the identifier (a person's distinct_id, or a group's key) and ``column_property_map`` maps
-    warehouse column -> property name. ``target`` is "person" or "group"; ``group_type_index`` is the
+    warehouse column -> property name. ``property_descriptions`` maps property name -> description
+    (only the properties given one). ``target`` is "person" or "group"; ``group_type_index`` is the
     group type (0-4) for group targets, else None."""
 
     source_id: str
     definition_id: str
     key_column: str
     column_property_map: dict[str, str]
+    property_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     target: str = "person"
     group_type_index: int | None = None
 

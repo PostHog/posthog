@@ -1,5 +1,7 @@
 import re
+import gzip
 import json
+import time
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +27,7 @@ from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.storage import object_storage
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import SHARED_BACKGROUND_WARMING_TRIGGERS
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
@@ -98,6 +101,19 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 # counting them would double-count demand for teams on those strategies.
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
+
+# Request kind (top-level log_comment `kind`) excluded from demand selection.
+# Temporal-kind requests are batch/scheduled workflows that run web queries
+# across nearly every team; counting them made the selection reflect background
+# traffic rather than real dashboard usage. UI and personal-API-key requests are
+# kept — those are the reads warming is meant to keep fast.
+EXCLUDED_REQUEST_KIND = "temporal"
+
+# Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
+# query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
+# finite value (~150 TiB, generous headroom for fleet growth) rather than 0, so
+# the ClickHouse kill switch's overload cap still clamps it during an overload.
+_SELECTION_MAX_BYTES_TO_READ = 150 * 1024**4
 
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
@@ -243,10 +259,23 @@ def queries_to_keep_fresh(
     # to offline nodes, while the user traffic we want to replay lands on other
     # replicas. (metrics_query_log_mv only looks usable — its DDL in
     # posthog/models/query_metrics/sql.py was never migrated, the table does not
-    # exist in production.) Grouping by the query JSON alone (hash only kept for
-    # logging) collapses strategy variants of one shape into one replay, and
-    # demand is counted as distinct query_ids so duplicated log rows for one
-    # request can't inflate it. The
+    # exist in production.) Grouping by the query JSON alone collapses strategy
+    # variants of one shape into one replay, and demand is counted as distinct
+    # query_ids so duplicated log rows for one request can't inflate it. The
+    # per-shape hash is derived from the JSON we already read out of log_comment
+    # (cityHash64 of the group key) rather than normalizedQueryHash(query): the
+    # latter reads the full `query` SQL-text column — the largest column in
+    # query_log — across the whole window purely for a logging id, which over a
+    # multi-day scan dominates the read cost.
+    #
+    # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
+    # exceeds the default max_bytes_to_read, so the cap is raised to
+    # _SELECTION_MAX_BYTES_TO_READ — a finite value, not 0, so the ClickHouse
+    # kill switch's overload byte cap still clamps it (min(kill_switch_cap, ours))
+    # and the giant scan is refused rather than piled on during an overload. The
+    # run is also bounded by max_execution_time and by the demand-selection cache
+    # upstream, so this heavy scan happens on the cache TTL cadence, not every run.
+    #
     # trigger/feature exclusions keep the warmer's own replays — and every other
     # background warmer — out of the demand counts, otherwise a once-warmed shape
     # would keep itself hot forever. LIKE literals are %%-escaped because
@@ -258,23 +287,35 @@ def queries_to_keep_fresh(
             team_id,
             query_json_raw,
             uniqExact(query_id) AS query_count,
-            any(normalized_query_hash) AS normalized_query_hash
+            cityHash64(query_json_raw) AS normalized_query_hash
         FROM (
             SELECT
                 JSONExtractInt(log_comment, 'team_id') AS team_id,
-                JSONExtractString(log_comment, 'query', 'kind') AS query_kind,
+                -- aliased away from the native `query_kind` column so the PREWHERE
+                -- below binds to the column (Select/Insert/…), not this JSON kind
+                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
+                -- collision would resolve `query_kind = 'Select'` against the alias
+                -- and silently select nothing.
+                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
                 JSONExtractString(log_comment, 'query_type') AS query_type,
                 JSONExtractString(log_comment, 'trigger') AS trigger,
                 JSONExtractString(log_comment, 'feature') AS feature,
+                JSONExtractString(log_comment, 'kind') AS request_kind,
                 JSONExtractRaw(log_comment, 'query') AS query_json_raw,
-                normalizedQueryHash(query) AS normalized_query_hash,
                 query_id
             FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            -- Filter the cheap native columns first so the big log_comment String
+            -- is read only for surviving rows. is_initial_query alone drops roughly
+            -- nine-tenths of the window (the rest are distributed subqueries), and
+            -- query_kind excludes the warmer's own INSERT replays without a JSON
+            -- parse — every warmable web query executes as a Select.
+            PREWHERE
+                type = 'QueryFinish'
+                AND is_initial_query
+                AND query_kind = 'Select'
             WHERE
                 event_date >= toDate(now() - INTERVAL %(days)s DAY)
                 AND event_time >= now() - INTERVAL %(days)s DAY
-                AND type = 'QueryFinish'
-                AND is_initial_query
                 -- cheap substring prefilter before any JSON extraction; a
                 -- superset of the kind filter below, false positives re-checked
                 AND log_comment LIKE '%%{WARMABLE_QUERY_KIND_PREFIX}%%'
@@ -282,11 +323,17 @@ def queries_to_keep_fresh(
         WHERE
             team_id != 0
             AND query_json_raw != ''
-            AND startsWith(query_kind, %(kind_prefix)s)
-            AND query_kind NOT IN %(unwarmable_kinds)s
+            AND startsWith(web_query_kind, %(kind_prefix)s)
+            AND web_query_kind NOT IN %(unwarmable_kinds)s
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
             AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
+            -- Demand should reflect real product usage, not background query
+            -- traffic. Temporal-kind requests (batch/scheduled workflows) run
+            -- web queries across nearly every team — left in, they dominated the
+            -- selection and filled the cap with shapes no dashboard reader ever
+            -- loads. UI and personal-API-key traffic are kept.
+            AND request_kind != %(excluded_request_kind)s
         GROUP BY
             team_id,
             query_json_raw
@@ -306,7 +353,9 @@ def queries_to_keep_fresh(
             "unwarmable_kinds": UNWARMABLE_QUERY_KINDS,
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
+            "excluded_request_kind": EXCLUDED_REQUEST_KIND,
         },
+        settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
 
     return [
@@ -320,22 +369,93 @@ def queries_to_keep_fresh(
     ]
 
 
+# The demand selection scans terabytes of query_log fleet-wide, so its result is
+# cached in Redis and shared across warming runs: the hourly warmer replays the
+# cached shape list and the scan only re-runs once the cache expires
+# (WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS). This is what lets the lookback
+# window grow to weeks without multiplying the scan by the warming cadence.
+#
+# The payload is stored in object storage rather than Redis: at the default cap
+# it is already ~34 MiB uncompressed (~890 bytes per shape × max_shapes) and
+# grows linearly as max_shapes is raised for coverage, which is a poor fit for a
+# single Redis value. The cached blob embeds the selection parameters and a
+# timestamp so a settings change or an entry older than the TTL is treated as a
+# miss — object storage has no per-key expiry of its own.
+#
+# The vN suffix versions the selection *logic*: the cache only validates the
+# settings params (days/min/max), not the query itself, so a change to the
+# selection query (new filter, different grouping) would otherwise keep replaying
+# a stale blob written by the old logic until its TTL expired. Bump the version
+# whenever the selection query changes so the new logic takes effect on deploy.
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v2.json.gz"
+
+
+def _read_cached_warmable_queries(
+    days: int, minimum_query_count: int, max_shapes: int, ttl_seconds: int
+) -> Optional[list[dict]]:
+    # Fail open: any storage, decode, or unexpected-payload problem is treated as
+    # a miss so warming falls back to a fresh scan rather than erroring. The field
+    # access stays inside the try so a decodable-but-malformed blob (wrong shape,
+    # bad field type) misses rather than crashing the hourly run.
+    try:
+        raw = object_storage.read_bytes(_WARMABLE_QUERIES_STORAGE_KEY, missing_ok=True)
+        if raw is None:
+            return None
+        payload = json.loads(gzip.decompress(raw))
+        params_match = (payload["days"], payload["minimum_query_count"], payload["max_shapes"]) == (
+            days,
+            minimum_query_count,
+            max_shapes,
+        )
+        is_fresh = time.time() - payload["generated_at"] < ttl_seconds
+        if not params_match or not is_fresh:
+            return None
+        return payload["queries"]
+    except Exception:
+        logger.warning("web_analytics_warming_cache_read_failed", exc_info=True)
+        return None
+
+
+def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shapes: int, queries: list[dict]) -> None:
+    payload = {
+        "days": days,
+        "minimum_query_count": minimum_query_count,
+        "max_shapes": max_shapes,
+        "generated_at": time.time(),
+        "queries": queries,
+    }
+    try:
+        object_storage.write(_WARMABLE_QUERIES_STORAGE_KEY, gzip.compress(json.dumps(payload).encode()))
+    except Exception:
+        logger.warning("web_analytics_warming_cache_write_failed", exc_info=True)
+
+
 @dagster.op
 def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
     max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
+    ttl_seconds = get_instance_setting("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS")
 
-    queries = queries_to_keep_fresh(context, days=days, minimum_query_count=minimum_query_count, max_shapes=max_shapes)
+    queries = _read_cached_warmable_queries(days, minimum_query_count, max_shapes, ttl_seconds)
+    from_cache = queries is not None
+    if queries is None:
+        queries = queries_to_keep_fresh(
+            context, days=days, minimum_query_count=minimum_query_count, max_shapes=max_shapes
+        )
+        _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
+
     team_count = len({q["team_id"] for q in queries})
 
     WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
-    context.log.info(f"Selected {len(queries)} hot query shapes across {team_count} teams")
+    source = "cached" if from_cache else "freshly selected"
+    context.log.info(f"Warming {len(queries)} {source} hot query shapes across {team_count} teams")
     context.add_output_metadata(
         {
             "query_count": len(queries),
             "team_count": team_count,
             "cap_reached": len(queries) >= max_shapes,
+            "from_cache": from_cache,
         }
     )
     return queries
