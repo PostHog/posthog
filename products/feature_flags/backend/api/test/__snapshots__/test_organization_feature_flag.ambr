@@ -2037,7 +2037,10 @@
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
          "posthog_earlyaccessfeature"."payload",
-         "posthog_earlyaccessfeature"."created_at"
+         "posthog_earlyaccessfeature"."created_at",
+         "posthog_earlyaccessfeature"."created_by_id",
+         "posthog_earlyaccessfeature"."assigned_user_id",
+         "posthog_earlyaccessfeature"."assigned_role_id"
   FROM "posthog_earlyaccessfeature"
   WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 99999
   '''
