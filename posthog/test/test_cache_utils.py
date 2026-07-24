@@ -5,7 +5,9 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
-from posthog.cache_utils import cache_for
+from django.test import SimpleTestCase
+
+from posthog.cache_utils import OrjsonJsonSerializer, cache_for
 
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
@@ -27,6 +29,18 @@ def fn_background(number: float) -> int:
 
     order_of_events("Background task finished")
     return value
+
+
+class TestOrjsonJsonSerializer(SimpleTestCase):
+    def test_dumps_handles_non_utf8_bytes(self) -> None:
+        # A HogQL/ClickHouse result column can hold raw non-UTF-8 bytes; strict decoding
+        # would raise UnicodeDecodeError and fail the whole cache write (and any export
+        # relying on it). Encoding must be lenient instead.
+        serializer = OrjsonJsonSerializer({})
+
+        serialized = serializer.dumps({"results": [b"ab\xffcd"]})
+
+        assert serializer.loads(serialized) == {"results": ["ab�cd"]}
 
 
 class TestCacheUtils(APIBaseTest):

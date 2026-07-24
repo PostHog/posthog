@@ -86,10 +86,20 @@ def instance_memoize(callback):
     return _inner
 
 
+def _default_encoder(obj: Any) -> Any:
+    # DRF's JSONEncoder decodes bytes with a strict UTF-8 `.decode()`, which raises
+    # UnicodeDecodeError on raw non-UTF-8 bytes (e.g. binary column data in a query
+    # result) and fails the whole cache write. Decode leniently instead so encoding
+    # can't blow up on binary blobs.
+    if isinstance(obj, (bytes, bytearray)):
+        return bytes(obj).decode(errors="replace")
+    return JSONEncoder().default(obj)
+
+
 class OrjsonJsonSerializer(BaseSerializer):
     def dumps(self, value: Any) -> bytes:
         option = orjson.OPT_UTC_Z
-        return orjson.dumps(value, default=JSONEncoder().default, option=option)
+        return orjson.dumps(value, default=_default_encoder, option=option)
 
     def loads(self, value: bytes) -> Any:
         return orjson.loads(value)
