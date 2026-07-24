@@ -246,7 +246,7 @@ procs:
             tech: Python
 
     docker-compose:
-        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f; fi'
+        shell: 'if [ "${POSTHOG_SANDBOX:-}" = "1" ]; then echo "Sandbox: infra managed by docker compose externally" && echo "docker-compose ready" && sleep infinity; else docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile etcd --profile localstack --profile observability --profile replay --profile temporal up --pull always -d && echo "docker-compose ready" && docker compose -p posthog -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile etcd --profile localstack --profile observability --profile replay --profile temporal logs --tail=100 -f; fi'
         capability: core_infra
         ready_pattern: 'docker-compose ready'
         groups:

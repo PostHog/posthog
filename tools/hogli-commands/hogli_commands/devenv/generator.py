@@ -12,11 +12,15 @@ import sys
 import shlex
 import shutil
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel
+
+from .registry import create_mprocs_registry, find_repo_file
 
 if TYPE_CHECKING:
     from .registry import ProcessRegistry
@@ -68,6 +72,97 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
         return f"{base} {profile_flags} {action}"
     return f"{base} {action}"
+
+
+# The proc's ready_pattern in bin/mprocs.yaml and bin/mprocs-e2e.yaml must match
+# this literal, or mprocs waits forever for a signal that never comes.
+_READY_MARKER = "docker-compose ready"
+
+
+def _build_docker_compose_shell(profiles: list[str]) -> str:
+    """Sandboxes have no docker CLI, so the shell short-circuits instead of failing on `docker compose`."""
+    up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
+    logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
+    sandbox_cmd = (
+        f'echo "Sandbox: infra managed by docker compose externally" && echo "{_READY_MARKER}" && sleep infinity'
+    )
+    dev_cmd = f'{up_cmd} && echo "{_READY_MARKER}" && {logs_cmd}'
+    return f'if [ "${{POSTHOG_SANDBOX:-}}" = "1" ]; then {sandbox_cmd}; else {dev_cmd}; fi'
+
+
+# bin/mprocs.yaml has no intent resolution: every proc in it autostarts, so it
+# needs every profile those procs depend on (temporal-worker and
+# recording-rasterizer wait on `temporal`; personhog-etcd-init docker-execs
+# into `etcd`; session replay needs `replay`) — this reproduces master's
+# unprofiled `docker-compose.dev.yml` service set exactly.
+_STATIC_MPROCS_PROFILES = ["dev_tools", "etcd", "localstack", "observability", "replay", "temporal"]
+
+
+def build_static_docker_compose_shell() -> str:
+    """bin/mprocs.yaml's docker-compose shell — every proc autostarts, so every legacy profile is active."""
+    return _build_docker_compose_shell(_STATIC_MPROCS_PROFILES)
+
+
+def build_e2e_docker_compose_shell() -> str:
+    """bin/mprocs-e2e.yaml's docker-compose shell: never sandboxed, plus an explicit
+    `up` for personhog-replica/router under the ingestion profile."""
+    up_cmd = build_docker_compose_command([], "up --pull always -d")
+    personhog_cmd = build_docker_compose_command(["ingestion"], "up -d personhog-replica personhog-router")
+    logs_cmd = build_docker_compose_command([], "logs --tail=100 -f")
+    return f'{up_cmd} && {personhog_cmd} && echo "{_READY_MARKER}" && {logs_cmd}'
+
+
+# Matches the docker-compose proc's `shell:` scalar in a checked-in mprocs YAML
+# file (bin/mprocs.yaml or bin/mprocs-e2e.yaml). Anchored on the exact
+# indentation/key ordering of that block rather than parsed as YAML, so
+# regeneration can rewrite just this one line and leave the rest of the
+# hand-maintained file (comments, formatting, other procs) untouched.
+_DOCKER_COMPOSE_SHELL_LINE_RE = re.compile(r"(?P<prefix>^    docker-compose:\n        shell: )'[^\n]*'$", re.M)
+
+
+def is_mprocs_shell_up_to_date(mprocs_path: Path, expected: str) -> bool:
+    """Whether mprocs_path's docker-compose proc shell already matches expected."""
+    current_shell = create_mprocs_registry(mprocs_path).get_processes()["docker-compose"].shell
+    return current_shell == expected
+
+
+def regenerate_mprocs_shell(mprocs_path: Path, expected: str) -> bool:
+    """Sync mprocs_path's docker-compose proc shell with expected.
+
+    Returns True if the file was rewritten, False if it was already up to date.
+    """
+    if is_mprocs_shell_up_to_date(mprocs_path, expected):
+        return False
+    # The entry is single-quoted YAML; a literal `'` would need escaping this
+    # substitution doesn't do.
+    if "'" in expected:
+        raise ValueError("Generated docker-compose shell contains a single quote; update the YAML quoting logic")
+    text = mprocs_path.read_text()
+    new_text, replaced = _DOCKER_COMPOSE_SHELL_LINE_RE.subn(lambda m: f"{m.group('prefix')}'{expected}'", text, count=1)
+    if not replaced:
+        raise ValueError(
+            f"{mprocs_path}: no docker-compose `shell:` line matched _DOCKER_COMPOSE_SHELL_LINE_RE. "
+            "The proc's key order, indentation, or quoting changed; update the pattern."
+        )
+    mprocs_path.write_text(new_text)
+    return True
+
+
+@dataclass(frozen=True)
+class TrackedMprocsFile:
+    """A checked-in mprocs YAML file whose docker-compose proc shell is kept in
+    sync with a Python-built string, by `hogli dev:regenerate-mprocs` and the
+    ci_preflight "mprocs" check."""
+
+    name: str  # repo-relative path, for display and as a preflight trigger glob
+    path: Path
+    build_shell: Callable[[], str]
+
+
+TRACKED_MPROCS_FILES: list[TrackedMprocsFile] = [
+    TrackedMprocsFile("bin/mprocs.yaml", find_repo_file("bin/mprocs.yaml"), build_static_docker_compose_shell),
+    TrackedMprocsFile("bin/mprocs-e2e.yaml", find_repo_file("bin/mprocs-e2e.yaml"), build_e2e_docker_compose_shell),
+]
 
 
 class ConfigGenerator(ABC):
@@ -328,11 +423,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         else:
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
-        up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
-
-        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
-        proc_config["ready_pattern"] = "docker-compose ready"
+        proc_config["shell"] = message + _build_docker_compose_shell(profiles)
+        proc_config["ready_pattern"] = _READY_MARKER
         return proc_config
 
     def _add_nodejs_capability_groups(
