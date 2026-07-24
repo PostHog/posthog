@@ -30,11 +30,11 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "products/*/mcp/prompts/*",
         "services/mcp/definitions/*",
         "services/mcp/schema/tool-definitions.json",
+        "services/mcp/src/templates/sections/*",
         # The generator formats its output, so lint/format scope decides the bytes
         # that land in the generated trees — a config-only edit silently invalidates them.
         ".oxfmtrc.json",
         ".oxlintrc.json",
-        "services/mcp/src/templates/sections/*",
     ),
     "build:grammar": ("posthog/hogql/grammar/*",),
     "build:taxonomy-json": ("posthog/taxonomy/*",),
