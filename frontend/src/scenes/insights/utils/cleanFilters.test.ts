@@ -360,7 +360,7 @@ describe('cleanFilters', () => {
                 expect(cleanedFilters).not.toHaveProperty('show_values_on_series')
             })
         })
-        ;[(InsightType.PATHS, InsightType.FUNNELS, InsightType.RETENTION)].forEach((insight) => {
+        ;[InsightType.PATHS, InsightType.FUNNELS, InsightType.RETENTION].forEach((insight) => {
             it(`removes show values on series for ${insight}`, () => {
                 const cleanedFilters = cleanFilters({
                     insight,
