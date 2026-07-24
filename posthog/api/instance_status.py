@@ -216,12 +216,28 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def queries(self, request: Request) -> Response:
-        queries = {"postgres_running": self.get_postgres_running_queries()}
-
         from posthog.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
-        queries["clickhouse_running"] = get_clickhouse_running_queries()
-        queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
+        # Each sub-query hits a different backend (Postgres / ClickHouse) and can fail or time out
+        # independently. Isolate them so one hiccup returns partial results with an error field
+        # instead of a blanket 500 on this staff-only diagnostics page.
+        queries: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+
+        for key, fetch in (
+            ("postgres_running", self.get_postgres_running_queries),
+            ("clickhouse_running", get_clickhouse_running_queries),
+            ("clickhouse_slow_log", get_clickhouse_slow_log),
+        ):
+            try:
+                queries[key] = fetch()
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
+                queries[key] = []
+                errors[key] = str(e)
+
+        if errors:
+            queries["errors"] = errors
 
         return Response({"results": queries})
 

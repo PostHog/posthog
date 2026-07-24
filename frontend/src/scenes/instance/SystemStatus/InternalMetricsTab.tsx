@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
@@ -24,8 +24,22 @@ export function InternalMetricsTab(): JSX.Element {
         loadQueries()
     }
 
+    const queryErrors = queries?.errors && Object.entries(queries.errors)
+
     return (
         <>
+            {queryErrors && queryErrors.length > 0 && (
+                <LemonBanner type="warning" className="mb-4">
+                    Some diagnostics could not be loaded:
+                    <ul className="list-disc ml-4 mt-1">
+                        {queryErrors.map(([key, message]) => (
+                            <li key={key}>
+                                <span className="font-semibold">{key}</span>: {message}
+                            </li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
             <LemonCollapse
                 activeKeys={openSections}
                 className="bg-surface-primary"

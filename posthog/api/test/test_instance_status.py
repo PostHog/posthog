@@ -124,6 +124,23 @@ class TestInstanceStatus(APIBaseTest):
             },
         )
 
+    # patched at the module level because it is locally imported in the target code
+    @patch("posthog.clickhouse.system_status.get_clickhouse_slow_log")
+    @patch("posthog.clickhouse.system_status.get_clickhouse_running_queries")
+    def test_queries_returns_partial_results_when_subquery_fails(self, mock_running, mock_slow_log):
+        mock_running.side_effect = Exception("clickhouse unavailable")
+        mock_slow_log.return_value = []
+
+        response = self.client.get("/api/instance_status/queries")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        # Postgres sub-query still ran despite ClickHouse failing
+        self.assertIn("postgres_running", results)
+        self.assertEqual(results["clickhouse_running"], [])
+        self.assertIn("clickhouse_running", results["errors"])
+        self.assertNotIn("clickhouse_slow_log", results.get("errors", {}))
+
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.is_redis_alive")
     @patch("posthog.api.instance_status.is_plugin_server_alive")

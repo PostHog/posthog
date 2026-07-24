@@ -3380,6 +3380,7 @@ export interface SystemStatusQueriesResult {
     postgres_running: QuerySummary[]
     clickhouse_running?: QuerySummary[]
     clickhouse_slow_log?: QuerySummary[]
+    errors?: Record<string, string>
 }
 
 export interface SystemStatusAnalyzeResult {
