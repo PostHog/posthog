@@ -260,7 +260,7 @@ async function findFlagVariantsRemovedAt(flagId?: number | null): Promise<string
         return null
     }
     try {
-        const response = await api.activity.list({ scope: ActivityScope.FEATURE_FLAG, item_id: flagId })
+        const response = await api.activity.list({ scope: ActivityScope.FEATURE_FLAG, item_id: String(flagId) })
         for (const item of response.results ?? []) {
             for (const change of item.detail?.changes ?? []) {
                 if (change.field !== 'filters') {
@@ -3606,8 +3606,14 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
-        flagVariantsRemoved: [(s) => [s.flagVariantsRemovedInfo], (info): boolean => info !== null],
-        flagVariantsRemovedAt: [(s) => [s.flagVariantsRemovedInfo], (info): string | null => info?.changedAt ?? null],
+        flagVariantsRemoved: [
+            (s) => [s.flagVariantsRemovedInfo],
+            (info: { changedAt: string | null } | null): boolean => info !== null,
+        ],
+        flagVariantsRemovedAt: [
+            (s) => [s.flagVariantsRemovedInfo],
+            (info: { changedAt: string | null } | null): string | null => info?.changedAt ?? null,
+        ],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,

@@ -8,7 +8,7 @@ from django.forms.models import model_to_dict
 from django.test import override_settings
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
 
@@ -1730,8 +1730,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         with self.assertRaises(ValidationError) as cm:
             ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        self.assertEqual(cm.exception.detail[0].code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
-        self.assertIn("no longer defines any variants", str(cm.exception.detail[0]))
+        detail = cm.exception.detail
+        assert isinstance(detail, list)
+        error_detail = detail[0]
+        assert isinstance(error_detail, ErrorDetail)
+        self.assertEqual(error_detail.code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
+        self.assertIn("no longer defines any variants", str(error_detail))
 
     def test_date_range_follows_query_not_model(self):
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window

@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -65,8 +65,12 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         with self.assertRaises(ValidationError) as cm:
             ExperimentQueryRunner(query=experiment_query, team=self.team)
 
-        self.assertEqual(cm.exception.detail[0].code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
-        self.assertIn("no longer defines any variants", str(cm.exception.detail[0]))
+        detail = cm.exception.detail
+        assert isinstance(detail, list)
+        error_detail = detail[0]
+        assert isinstance(error_detail, ErrorDetail)
+        self.assertEqual(error_detail.code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
+        self.assertIn("no longer defines any variants", str(error_detail))
 
     def test_deleted_feature_flag_tombstone_uses_original_key_for_query_builder(self):
         feature_flag = self.create_feature_flag(key="deleted-experiment-flag")
