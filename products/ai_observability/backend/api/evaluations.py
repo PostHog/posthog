@@ -1098,9 +1098,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
 
-            input_raw, output_raw = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(input_raw)[:200]
-            output_preview = extract_text_from_messages(output_raw)[:200]
+            event_io = extract_event_io(event_type, properties)
+            input_preview = extract_text_from_messages(event_io.input_raw)[:200]
+            output_preview = extract_text_from_messages(event_io.output_raw)[:200]
 
             results.append(
                 {

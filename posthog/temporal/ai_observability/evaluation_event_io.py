@@ -1,10 +1,24 @@
+from dataclasses import dataclass
 from typing import Any
 
 
-def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, Any]:
+@dataclass(frozen=True)
+class EventIO:
+    """An event's raw input and output values, for Hog eval globals and preview display.
+
+    Not a tuple so a positional unpack can't silently swap input for output (which would grade the
+    wrong side of the conversation).
+    """
+
+    input_raw: Any
+    output_raw: Any
+
+
+def extract_event_io(event_type: str, properties: dict[str, Any]) -> EventIO:
     """Extract raw input and output values from event properties.
 
-    Returns (input_raw, output_raw) for use in Hog eval globals and preview display.
+    Returns an `EventIO` with `input_raw` and `output_raw` for use in Hog eval globals and preview
+    display.
 
     Invariant: `properties` must already contain the heavy `$ai_*` keys when present
     on the source event. Heavy columns live only on the dedicated `ai_events` table —
@@ -28,7 +42,7 @@ def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, 
     else:
         input_raw = properties.get("$ai_input_state", "")
         output_raw = properties.get("$ai_output_state", "")
-    return input_raw, output_raw
+    return EventIO(input_raw=input_raw, output_raw=output_raw)
 
 
 def extract_event_tools(properties: dict[str, Any]) -> Any:

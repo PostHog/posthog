@@ -1239,12 +1239,10 @@ class InsightSerializer(InsightBasicSerializer):
                 )
                 # Same dashboard+tile+insight precedence the compute path applies in calculate_results.py,
                 # so the returned query matches what the cached result was actually computed with.
-                query, effective_filters = resolve_effective_dashboard_filters(
-                    query, base_filters, tile_filters_override
-                )
+                effective = resolve_effective_dashboard_filters(query, base_filters, tile_filters_override)
                 query = apply_dashboard_filters_to_dict(
-                    query,
-                    effective_filters,
+                    effective.query,
+                    effective.filters,
                     instance.team,
                 )
 

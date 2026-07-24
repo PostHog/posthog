@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
@@ -264,9 +265,22 @@ def _has_data_warehouse_series(query: dict) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class EffectiveDashboardFilters:
+    """Result of combining dashboard and tile filter layers.
+
+    `query` is the input query with any properties the filters override stripped out; `filters` is
+    the merged filter layer to apply and to reconstruct for display. Deliberately not a tuple so a
+    positional unpack at a call site can't silently swap the two dicts.
+    """
+
+    query: dict
+    filters: dict
+
+
 def resolve_effective_dashboard_filters(
     query: dict, base_filters: dict | None, tile_filters_override: dict | None
-) -> tuple[dict, dict]:
+) -> EffectiveDashboardFilters:
     """Combine dashboard and tile filters for query execution and display reconstruction."""
     effective_filters = (
         merge_filters_by_priority(base_filters, tile_filters_override)
@@ -278,7 +292,7 @@ def resolve_effective_dashboard_filters(
     effective_filters = normalize_dashboard_filters_properties(effective_filters)
     if effective_filters and not _has_data_warehouse_series(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
-    return query, effective_filters
+    return EffectiveDashboardFilters(query=query, filters=effective_filters)
 
 
 def dashboard_filter_from_dict(filters: dict) -> DashboardFilter:

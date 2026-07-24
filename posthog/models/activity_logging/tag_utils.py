@@ -1,9 +1,22 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from posthog.models.tagged_item import RELATED_OBJECTS
 
 
-def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Optional[str], Optional[str]]:
+@dataclass(frozen=True)
+class TaggedItemRelatedObject:
+    """The related object's type, id, and name for a tagged item (all None when there is none).
+
+    Not a tuple so a positional unpack can't silently reorder these same-typed strings.
+    """
+
+    type: Optional[str]
+    id: Optional[str]
+    name: Optional[str]
+
+
+def get_tagged_item_related_object_info(tagged_item) -> TaggedItemRelatedObject:
     related_object_type = None
     related_object_id = None
     related_object_name = None
@@ -26,4 +39,8 @@ def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Opt
                 related_object_name = related_obj.label
             break
 
-    return related_object_type, related_object_id, related_object_name
+    return TaggedItemRelatedObject(
+        type=related_object_type,
+        id=related_object_id,
+        name=related_object_name,
+    )

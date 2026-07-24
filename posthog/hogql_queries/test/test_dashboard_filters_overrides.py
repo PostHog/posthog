@@ -153,9 +153,7 @@ class TestDashboardPropertyOverrides(BaseTest):
             ]
         ).model_dump()
 
-        query, effective_filters = resolve_effective_dashboard_filters(
-            query, {"properties": [dashboard_property]}, None
-        )
-        result = apply_dashboard_filters_to_dict(query, effective_filters, self.team)
+        effective = resolve_effective_dashboard_filters(query, {"properties": [dashboard_property]}, None)
+        result = apply_dashboard_filters_to_dict(effective.query, effective.filters, self.team)
 
         assert [prop["value"] for prop in result["series"][0]["properties"]] == ["US"]

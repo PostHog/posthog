@@ -42,16 +42,16 @@ def handle_batch_export_change(
         return
 
     destination_type = get_batch_export_destination_type(batch_export)
-    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_export_created_by_info(batch_export)
+    created_by = get_batch_export_created_by_info(batch_export)
     detail_name = get_batch_export_detail_name(batch_export, destination_type)
 
     context = BatchExportContext(
         name=batch_export.name or "Unnamed Export",
         destination_type=destination_type,
         interval=batch_export.interval or "",
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
+        created_by_user_id=created_by.user_id,
+        created_by_user_email=created_by.user_email,
+        created_by_user_name=created_by.user_name,
     )
 
     log_activity(

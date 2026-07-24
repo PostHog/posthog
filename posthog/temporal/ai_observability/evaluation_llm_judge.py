@@ -242,11 +242,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     if _is_errored_trace(properties):
         return _build_errored_trace_result(allows_na)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    event_io = extract_event_io(event_type, properties)
     tools_raw = extract_event_tools(properties)
 
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    input_data = extract_text_from_messages(event_io.input_raw)
+    output_data = extract_text_from_messages(event_io.output_raw)
     tools_data = format_tool_definitions(tools_raw)
 
     system_prompt = build_system_prompt(prompt, allows_na)
