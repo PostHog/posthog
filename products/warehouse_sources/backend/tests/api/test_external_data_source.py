@@ -469,7 +469,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
+            # The MCP tool injects `mcp`; a wizard or PostHog Desktop user agent upgrades it.
             ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
             ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
             # The wizard's self-driving program marks its UA distinctly → self_driving, not plain wizard.
@@ -601,7 +601,7 @@ class TestExternalDataSource(APIBaseTest):
         [
             ("garbage_value", "hacker"),
             # `wizard` and `self_driving` are derived server-side; a caller must not be able to
-            # self-label as wizard- or PostHog Code-created.
+            # self-label as wizard- or PostHog Desktop-created.
             ("wizard_is_not_caller_settable", ExternalDataSource.CreatedVia.WIZARD),
             ("self_driving_is_not_caller_settable", ExternalDataSource.CreatedVia.SELF_DRIVING),
         ]

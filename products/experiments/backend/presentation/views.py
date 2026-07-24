@@ -371,7 +371,7 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
-        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # Ending or shipping with open_cleanup_pr=true starts a Desktop task that opens a pull
         # request. Starting a task is a task write, so require task:write on the token, not
         # just experiment:write.
         if self.action in ("end", "ship_variant"):
@@ -382,11 +382,11 @@ class EnterpriseExperimentsViewSet(
         return None
 
     def _check_cleanup_pr_access(self, request: Request) -> None:
-        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        """Opening a cleanup PR starts a Desktop task on the user's behalf. The task:write
         scope only gates token auth (see dangerously_get_required_scopes); session auth
-        has no scopes, so gate every caller on PostHog Code product access instead."""
+        has no scopes, so gate every caller on PostHog Desktop product access instead."""
         if not has_tasks_access(cast(User, request.user)):
-            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Desktop.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -577,9 +577,9 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def flag_cleanup_task(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Status of the flag-cleanup Code task opened for this experiment.
+        Status of the flag-cleanup Desktop task opened for this experiment.
 
-        When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+        When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
         removes the experiment's feature-flag code and opens a draft pull request. This
         returns that task's latest run status and the PR URL once one is opened. Poll
         until is_terminal is true. Returns 404 when no cleanup task was opened.

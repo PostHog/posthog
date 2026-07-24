@@ -31,7 +31,7 @@ export interface GitHubRepositoryComboboxProps {
 }
 
 /**
- * GitHub repository picker built on Quill's Combobox, mirroring the PostHog Code repo picker: a button
+ * GitHub repository picker built on Quill's Combobox, mirroring the PostHog Desktop repo picker: a button
  * trigger, an in-popover search field driving server-side search, a paginated "Load more" footer, and a
  * refresh control. Searching and pagination are delegated to {@link githubRepositorySearchLogic} so large
  * accounts never load the full repository list up front.
