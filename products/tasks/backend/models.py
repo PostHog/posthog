@@ -144,6 +144,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
         # GitHub event or API. See products/tasks/docs/LOOPS.md.
         LOOP = "loop", "Loop"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1675,6 +1677,8 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
+        self._mirror_logs_to_posthog_logs(entries)
+
         if is_new_file and ttl_days is not None:
             try:
                 object_storage.tag(
@@ -1691,6 +1695,41 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
+
+        Fire-and-forget: mirroring failures must never break the run's log write.
+        """
+        from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
+        from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
+
+        if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
+            return
+
+        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
+        # state at dispatch; fail closed while the stamp is absent.
+        if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
+            return
+
+        try:
+            origin_product = self.task.origin_product
+            if not mirroring_enabled(origin_product):
+                return
+
+            mirror_entries(
+                entries,
+                team_id=self.team_id,
+                task_id=str(self.task_id),
+                run_id=str(self.id),
+                origin_product=origin_product,
+            )
+        except Exception as e:
+            logger.warning(
+                "task_run.mirror_logs_to_posthog_logs_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def effective_rtk(self) -> bool | None:
         """rtk posture for analytics: the launch-persisted effective value, falling

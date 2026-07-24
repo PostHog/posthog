@@ -188,6 +188,41 @@ def _first_error_string(detail: Any) -> Optional[str]:
     return None
 
 
+# The literal template_id each fixed-template node type requires. A saved library template
+# (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
+# putting its UUID in template_id is the dominant authoring mistake on these nodes.
+_FIXED_TEMPLATE_IDS = {
+    "function_email": "template-email",
+    "function_sms": "template-twilio",
+    "function_push": "template-native-push",
+}
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid_mod.UUID(value)
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _describe_unknown_template(action: dict, template_id: str) -> str:
+    fixed_id = _FIXED_TEMPLATE_IDS.get(action.get("type", ""))
+    if fixed_id and _looks_like_uuid(template_id):
+        return (
+            f"Template not found. template_id must be the literal '{fixed_id}' for this step type. "
+            "To use a saved template from the library, set config.template_uuid to its UUID instead."
+        )
+    if fixed_id:
+        return f"Template not found. template_id must be the literal '{fixed_id}' for this step type."
+    if _looks_like_uuid(template_id):
+        return (
+            "Template not found. Function steps reference a destination template id like "
+            "'template-webhook' (discover them with the template catalog), not a UUID."
+        )
+    return "Template not found"
+
+
 def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
@@ -586,7 +621,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 if strict:
-                    raise serializers.ValidationError({"template_id": "Template not found"})
+                    raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
@@ -2379,7 +2414,14 @@ class HogFlowViewSet(
                     {"use_draft": "Pass either use_draft or an explicit configuration override, not both."}
                 )
             if not hog_flow or not hog_flow.draft:
-                raise exceptions.ValidationError({"use_draft": "This workflow has no staged draft to test."})
+                raise exceptions.ValidationError(
+                    {
+                        "use_draft": (
+                            "This workflow has no staged draft to test. Stage one by editing the "
+                            "workflow first, or omit use_draft to test the live config."
+                        )
+                    }
+                )
             payload["configuration"] = hog_flow.draft
 
         res = create_hog_flow_invocation_test(

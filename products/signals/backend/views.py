@@ -133,6 +133,7 @@ from products.signals.backend.temporal.deletion import SignalReportDeletionWorkf
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_for_scout_names,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -714,6 +715,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
@@ -835,6 +837,18 @@ class SignalReportViewSet(
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
+
+    def _apply_signal_report_scout_filter(self, queryset):
+        scout_filter = self.request.query_params.get("scout")
+        if not scout_filter:
+            return queryset
+
+        scout_names = [s.strip() for s in scout_filter.split(",") if s.strip()]
+        if not scout_names:
+            return queryset
+
+        report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
+        return queryset.filter(id__in=report_ids_with_scout)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
@@ -1291,6 +1305,17 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of source products to include. Reports are kept if at least one of "
                     "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+                ),
+            ),
+            OpenApiParameter(
+                name="scout",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). "
+                    "Reports are kept if at least one of their contributing signals was authored by one of "
+                    "these scouts. Combines with source_product as an AND."
                 ),
             ),
             OpenApiParameter(
