@@ -13,6 +13,7 @@ import {
     IconCopy,
     IconFolder,
     IconGear,
+    IconGithub,
     IconGraduationCap,
     IconLogomark,
     IconPeople,
@@ -1520,21 +1521,29 @@ function QuickstartHeroAnswerCard(): JSX.Element | null {
 
 type QuickstartInstallMode = 'cloud' | 'local' | 'manual'
 
-const INSTALL_MODE_CARDS: { value: QuickstartInstallMode; title: string; description: string }[] = [
+const INSTALL_MODE_CARDS: {
+    value: QuickstartInstallMode
+    title: string
+    description: string
+    icon: JSX.Element
+}[] = [
     {
         value: 'cloud',
         title: 'Agent opens a pull request',
         description: 'We run the setup agent on your repo. Review the PR and merge it.',
+        icon: <IconGithub />,
     },
     {
         value: 'local',
         title: 'Agent runs in your terminal',
         description: 'One command. It edits your code locally and you commit.',
+        icon: <IconTerminal />,
     },
     {
         value: 'manual',
         title: 'Install it yourself',
         description: 'Follow the SDK guide for your framework.',
+        icon: <IconBook />,
     },
 ]
 
@@ -1575,7 +1584,7 @@ function QuickstartInstallSwitcher(): JSX.Element {
                             disabled={disabled}
                             title={disabled ? 'A cloud run is in progress.' : undefined}
                             className={cn(
-                                'text-left rounded border p-3 bg-bg-light transition-colors',
+                                'text-left rounded border p-3 bg-bg-light transition-colors flex flex-col justify-start gap-1',
                                 selected ? 'border-accent' : 'hover:border-secondary',
                                 disabled && 'opacity-50 cursor-not-allowed'
                             )}
@@ -1589,8 +1598,9 @@ function QuickstartInstallSwitcher(): JSX.Element {
                             }}
                             data-attr={`quickstart-wizard-mode-${card.value}`}
                         >
-                            <div className="font-semibold text-sm">{card.title}</div>
-                            <div className="text-secondary text-xs mt-1">{card.description}</div>
+                            <span className="text-lg">{card.icon}</span>
+                            <div className="font-semibold text-sm min-h-10">{card.title}</div>
+                            <div className="text-secondary text-xs">{card.description}</div>
                         </button>
                     )
                 })}
@@ -1601,24 +1611,39 @@ function QuickstartInstallSwitcher(): JSX.Element {
                 ) : effectiveMode === 'local' ? (
                     <WizardCommandBlock hideHog align="start" />
                 ) : (
-                    <div className="flex flex-wrap gap-2">
-                        {featuredProducts.map((product) => (
-                            <LemonButton
-                                key={product.key}
-                                type="secondary"
-                                size="small"
-                                icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
-                                onClick={() => {
-                                    captureQuickstartAction('set_up_product', product.key, {
-                                        source: 'focused_install',
-                                    })
-                                    openToolSetupModal(product.key)
-                                }}
-                                data-attr={`quickstart-focused-setup-${product.key}`}
-                            >
-                                {product.name}
-                            </LemonButton>
-                        ))}
+                    <div className="flex flex-col gap-2">
+                        <p className="text-secondary text-sm mb-0">
+                            Pick a tool to open its install guide with instructions for every SDK and framework.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {featuredProducts.map((product) => (
+                                <LemonButton
+                                    key={product.key}
+                                    type="secondary"
+                                    size="small"
+                                    icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
+                                    onClick={() => {
+                                        captureQuickstartAction('set_up_product', product.key, {
+                                            source: 'focused_install',
+                                        })
+                                        openToolSetupModal(product.key)
+                                    }}
+                                    data-attr={`quickstart-focused-setup-${product.key}`}
+                                >
+                                    {product.name}
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <Link
+                            to="https://posthog.com/docs/libraries"
+                            target="_blank"
+                            className="text-sm"
+                            onClick={() =>
+                                captureQuickstartAction('open_sdk_docs', undefined, { source: 'focused_install' })
+                            }
+                        >
+                            Browse all SDK docs
+                        </Link>
                     </div>
                 )}
             </div>
