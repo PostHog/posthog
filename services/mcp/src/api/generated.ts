@@ -27062,6 +27062,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion
+     */
+    export type SourceRoleEnum = typeof SourceRoleEnum[keyof typeof SourceRoleEnum];
+
+
+    export const SourceRoleEnum = {
+      Source: 'source',
+      Step: 'step',
+      Numerator: 'numerator',
+      Denominator: 'denominator',
+      RetentionStart: 'retention_start',
+      RetentionCompletion: 'retention_completion',
+    } as const;
+
+    /**
+     * One event/action source of a metric with at least one matching event in a session recording.
+     */
+    export interface ExperimentSessionMetricSourceHit {
+      /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+       *
+       * * `source` - source
+       * * `step` - step
+       * * `numerator` - numerator
+       * * `denominator` - denominator
+       * * `retention_start` - retention_start
+       * * `retention_completion` - retention_completion */
+      source_role: SourceRoleEnum;
+      /** Display name of the source event or action. */
+      source_name: string;
+      /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+      source_index: number;
+      /** Total number of sources the metric is defined over. */
+      source_total: number;
+      /** Number of events in the session matching this source. */
+      event_count: number;
+      /** Timestamp of the first event in the session matching this source. */
+      first_timestamp: string;
+      /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+      timestamps: string[];
+    }
+
+    /**
      * One experiment metric with at least one matching event in a session recording.
      */
     export interface ExperimentSessionMetricHit {
@@ -27075,6 +27122,8 @@ export namespace Schemas {
       first_timestamp: string;
       /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
       timestamps: string[];
+      /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose window opens a day or more after the start event contributes no completion source: the return visit it measures happens in a later session. */
+      sources: ExperimentSessionMetricSourceHit[];
     }
 
     /**

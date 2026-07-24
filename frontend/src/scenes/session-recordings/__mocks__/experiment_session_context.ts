@@ -38,6 +38,23 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
                         '2023-05-01T14:46:31.000000Z',
                         '2023-05-01T14:46:44.000000Z',
                     ],
+                    // A mean metric's single source: no role qualifier, so it renders as the flat
+                    // metric name plus its seek chips.
+                    sources: [
+                        {
+                            source_role: 'source',
+                            source_name: 'purchase completed',
+                            source_index: 0,
+                            source_total: 1,
+                            event_count: 3,
+                            first_timestamp: '2023-05-01T14:46:26.000000Z',
+                            timestamps: [
+                                '2023-05-01T14:46:26.000000Z',
+                                '2023-05-01T14:46:31.000000Z',
+                                '2023-05-01T14:46:44.000000Z',
+                            ],
+                        },
+                    ],
                 },
                 {
                     metric_uuid: 'metric-2',
@@ -46,6 +63,57 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
                     // Outside the recording bounds (backend ±1h slack) — renders without a jump link.
                     first_timestamp: '2023-05-01T15:20:00.000000Z',
                     timestamps: ['2023-05-01T15:20:00.000000Z'],
+                    sources: [
+                        {
+                            source_role: 'source',
+                            source_name: 'checkout started',
+                            source_index: 0,
+                            source_total: 1,
+                            event_count: 1,
+                            first_timestamp: '2023-05-01T15:20:00.000000Z',
+                            timestamps: ['2023-05-01T15:20:00.000000Z'],
+                        },
+                    ],
+                },
+                {
+                    metric_uuid: 'metric-3',
+                    metric_name: 'Signup funnel',
+                    event_count: 2,
+                    first_timestamp: '2023-05-01T14:46:25.000000Z',
+                    timestamps: ['2023-05-01T14:46:25.000000Z', '2023-05-01T14:46:29.000000Z'],
+                    // Only the middle step fired — the breakdown is what stops this reading as
+                    // "completed the funnel".
+                    sources: [
+                        {
+                            source_role: 'step',
+                            source_name: 'activated',
+                            source_index: 1,
+                            source_total: 3,
+                            event_count: 2,
+                            first_timestamp: '2023-05-01T14:46:25.000000Z',
+                            timestamps: ['2023-05-01T14:46:25.000000Z', '2023-05-01T14:46:29.000000Z'],
+                        },
+                    ],
+                },
+                {
+                    metric_uuid: 'metric-4',
+                    metric_name: '7-day retention',
+                    event_count: 1,
+                    first_timestamp: '2023-05-01T14:46:27.000000Z',
+                    timestamps: ['2023-05-01T14:46:27.000000Z'],
+                    // The return visit lands in a later session, so a retention metric can only
+                    // ever contribute its start event here.
+                    sources: [
+                        {
+                            source_role: 'retention_start',
+                            source_name: '$pageview',
+                            source_index: 0,
+                            source_total: 1,
+                            event_count: 1,
+                            first_timestamp: '2023-05-01T14:46:27.000000Z',
+                            timestamps: ['2023-05-01T14:46:27.000000Z'],
+                        },
+                    ],
                 },
             ],
         }),

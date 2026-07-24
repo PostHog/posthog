@@ -12,7 +12,12 @@ from posthog.schema import ActionsNode, EventsNode
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
-from products.experiments.backend.metric_events import MetricHit, resolve_metric_events, scan_session_for_metric_events
+from products.experiments.backend.metric_events import (
+    MetricHit,
+    MetricSourceRole,
+    resolve_metric_events,
+    scan_session_for_metric_events,
+)
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -47,14 +52,19 @@ def _metric(metric_type: str, name: Optional[str] = "Metric", **type_fields: Any
     }
 
 
-def _retention_metric(start_event: dict[str, Any], completion_event: dict[str, Any]) -> dict[str, Any]:
+def _retention_metric(
+    start_event: dict[str, Any],
+    completion_event: dict[str, Any],
+    retention_window_start: int = 0,
+    retention_window_unit: str = "day",
+) -> dict[str, Any]:
     return _metric(
         "retention",
         start_event=start_event,
         completion_event=completion_event,
-        retention_window_start=0,
+        retention_window_start=retention_window_start,
         retention_window_end=7,
-        retention_window_unit="day",
+        retention_window_unit=retention_window_unit,
         start_handling="first_seen",
     )
 
@@ -92,8 +102,26 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
                 ("purchase", "$pageview"),
             ),
             (
-                "retention",
+                "retention_window_opening_on_the_start_event",
                 _retention_metric(_events_node("signed up"), _events_node("uploaded file")),
+                ("signed up", "uploaded file"),
+            ),
+            # A retention window that opens a day or more later measures a return visit, which by
+            # construction lands in a later session — scanning for it here would report every
+            # session containing the start event as a return.
+            (
+                "retention_window_opening_a_day_later",
+                _retention_metric(_events_node("signed up"), _events_node("uploaded file"), retention_window_start=1),
+                ("signed up",),
+            ),
+            (
+                "retention_window_opening_hours_later",
+                _retention_metric(
+                    _events_node("signed up"),
+                    _events_node("uploaded file"),
+                    retention_window_start=2,
+                    retention_window_unit="hour",
+                ),
                 ("signed up", "uploaded file"),
             ),
         ]
@@ -107,8 +135,10 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
 
         assert len(sources) == 1
         assert sources[0].metric_uuid == metric["uuid"]
-        assert len(sources[0].nodes) == len(expected_events)
-        assert tuple(node.event for node in sources[0].nodes if isinstance(node, EventsNode)) == expected_events
+        assert (
+            tuple(source.node.event for source in sources[0].sources if isinstance(source.node, EventsNode))
+            == expected_events
+        )
         assert sources[0].session_linkable is True
 
     @parameterized.expand(
@@ -151,8 +181,8 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         sources = resolve_metric_events(experiment)
 
         assert len(sources) == 1
-        assert len(sources[0].nodes) == 1
-        node = sources[0].nodes[0]
+        assert len(sources[0].sources) == 1
+        node = sources[0].sources[0].node
         assert isinstance(node, ActionsNode)
         assert int(node.id) == action.pk
         assert sources[0].session_linkable is True
@@ -168,10 +198,13 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
         dw_only, mixed = resolve_metric_events(experiment)
 
         assert dw_only.session_linkable is False
-        assert dw_only.nodes == ()
+        assert dw_only.sources == ()
         assert mixed.session_linkable is True
-        assert len(mixed.nodes) == 1
-        assert [node.event for node in mixed.nodes if isinstance(node, EventsNode)] == ["purchase"]
+        assert len(mixed.sources) == 1
+        # The surviving numerator keeps its position in the metric, so a breakdown can still say
+        # which side of the ratio it is even though the denominator has no session events.
+        assert mixed.sources[0].role == MetricSourceRole.NUMERATOR
+        assert (mixed.sources[0].index, mixed.sources[0].total) == (0, 2)
 
     def test_includes_secondary_and_saved_metrics(self) -> None:
         primary = _metric("mean", source=_events_node("purchase"))
@@ -321,6 +354,74 @@ class TestScanSessionForMetricEvents(ClickhouseTestMixin, MetricEventsTestMixin)
         hits = self._scan([first, second], "s1")
 
         assert sorted(hit.metric_uuid for hit in hits) == sorted([first["uuid"], second["uuid"]])
+        assert all(hit.event_count == 1 for hit in hits)
+
+    def test_hit_reports_which_sources_fired(self) -> None:
+        # A funnel hit must say which step fired: without the breakdown, a session that only fired
+        # the last step reads as "reached this metric", which is what the analysis would deny.
+        funnel = _metric(
+            "funnel",
+            name="Signup funnel",
+            series=[_events_node("signed up"), _events_node("activated"), _events_node("upgraded")],
+        )
+        self._create_session_event("upgraded", "s1")
+        flush_persons_and_events()
+
+        hits = self._scan([funnel], "s1")
+
+        assert len(hits) == 1
+        assert [(source.role, source.name, source.index, source.total) for source in hits[0].sources] == [
+            (MetricSourceRole.STEP, "upgraded", 2, 3)
+        ]
+
+    def test_metric_total_counts_an_event_matching_two_sources_once(self) -> None:
+        # A ratio measuring the same event on both sides (and retention metrics, which routinely
+        # reuse one event) must not double count: the metric's own total is the OR across its
+        # sources, while each source still reports its own count.
+        ratio = _metric(
+            "ratio",
+            name="Purchases per purchase",
+            numerator=_events_node("purchase"),
+            denominator=_events_node("purchase"),
+        )
+        self._create_session_event("purchase", "s1")
+        flush_persons_and_events()
+
+        hits = self._scan([ratio], "s1")
+
+        assert hits[0].event_count == 1
+        assert [(source.role, source.event_count) for source in hits[0].sources] == [
+            (MetricSourceRole.NUMERATOR, 1),
+            (MetricSourceRole.DENOMINATOR, 1),
+        ]
+
+    def test_metric_over_the_aggregate_cap_keeps_its_total_without_the_breakdown(self) -> None:
+        # Funnel step counts are user-configurable, so the aggregate ceiling can bite. Degrading
+        # must cost the per-source breakdown, never the hit itself.
+        funnel = _metric("funnel", name="Signup funnel", series=[_events_node("signed up"), _events_node("activated")])
+        self._create_session_event("signed up", "s1")
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_AGGREGATE_GROUPS", 1):
+            hits = self._scan([funnel], "s1")
+
+        assert len(hits) == 1
+        assert hits[0].event_count == 1
+        assert hits[0].sources == ()
+
+    def test_aggregate_cap_never_drops_a_metric_below_its_own_totals(self) -> None:
+        # With more metrics than the ceiling, the cap must still only trim per-source breakdowns —
+        # every metric that fired keeps its totals. Guards against the ceiling swallowing whole
+        # metrics once the metric count (not just the step count) exceeds it.
+        metrics = [_metric("mean", name=event, source=_events_node(event)) for event in ("a", "b", "c")]
+        for event in ("a", "b", "c"):
+            self._create_session_event(event, "s1")
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.metric_events.MAX_AGGREGATE_GROUPS", 1):
+            hits = self._scan(metrics, "s1")
+
+        assert sorted(hit.metric_name for hit in hits) == ["a", "b", "c"]
         assert all(hit.event_count == 1 for hit in hits)
 
     def test_scan_caps_number_of_scanned_metrics(self) -> None:
