@@ -540,6 +540,11 @@ export interface JiraIssueSignalExtraApi {
     updated: string | null
 }
 
+export interface ConversationsTicketImageApi {
+    url: string
+    author: string
+}
+
 export interface ConversationsTicketSignalExtraApi {
     ticket_number: number
     channel_source: string
@@ -548,6 +553,7 @@ export interface ConversationsTicketSignalExtraApi {
     priority: string | null
     created_at: string
     email_subject: string | null
+    images?: ConversationsTicketImageApi[] | null
 }
 
 export interface ErrorTrackingSignalExtraApi {
