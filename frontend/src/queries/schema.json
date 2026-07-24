@@ -14108,6 +14108,14 @@
                         "conversion_goal_name": {
                             "type": "string"
                         },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -14194,6 +14202,14 @@
                         "conversion_goal_name": {
                             "type": "string"
                         },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "custom_name": {
                             "type": "string"
                         },
@@ -14268,6 +14284,14 @@
                         },
                         "conversion_goal_name": {
                             "type": "string"
+                        },
+                        "counts_as_customer": {
+                            "description": "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "counts_as_revenue": {
+                            "description": "Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false.",
+                            "type": "boolean"
                         },
                         "custom_name": {
                             "type": "string"
@@ -30786,7 +30810,7 @@
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
+            "enum": ["channel", "channel_source", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {

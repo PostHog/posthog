@@ -9,6 +9,7 @@ from posthog.schema import (
     BingAdsDefaultSources,
     BingAdsTableExclusions,
     BingAdsTableKeywords,
+    DefaultChannelTypes,
     GoogleAdsDefaultSources,
     GoogleAdsTableExclusions,
     GoogleAdsTableKeywords,
@@ -70,6 +71,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
+CHANNEL_SESSIONS_CTE_NAME = "channel_sessions"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -81,6 +83,15 @@ TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
+TOTAL_SESSIONS_FIELD = "total_sessions"
+
+# Sessions come from the sessions table, not from an ad platform, so this column is only
+# available at levels that can be derived from session data (channel_source).
+SESSIONS_COLUMN_ALIAS = "Sessions"
+
+# The label every side of the query falls back to when channel can't be derived. Sourced from the
+# enum so the sides can't drift apart and split one row in two.
+UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
@@ -357,6 +368,17 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
                 MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE: {
+        # Channel is the grouping alias; Source survives as the second column so a channel's
+        # rows break down into the sources that make it up.
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
             }
         ),
     },

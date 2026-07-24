@@ -49,7 +49,10 @@ import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
 } from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
-import { ErrorTrackingSDKInstructions } from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
+import {
+    ErrorTrackingSDKDocsLinkOverrides,
+    ErrorTrackingSDKInstructions,
+} from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from 'scenes/onboarding/legacy/sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/legacy/sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { useAdblockDetection } from 'scenes/onboarding/legacy/sdks/hooks/useAdblockDetection'
@@ -82,6 +85,7 @@ import {
     BillingProductV2Type,
     OnboardingStepKey,
     SDK,
+    SDKDocsLinkOverrides,
     SDKInstructionsMap,
     SDKKey,
     SDKTagOverrides,
@@ -826,12 +830,23 @@ function QuickstartProductCard({
 }
 
 const PRODUCT_SDK_SETUP: Partial<
-    Record<ProductKey, { instructionsMap: SDKInstructionsMap; tagOverrides?: SDKTagOverrides; verifyingName?: string }>
+    Record<
+        ProductKey,
+        {
+            instructionsMap: SDKInstructionsMap
+            docsLinkOverrides?: SDKDocsLinkOverrides
+            tagOverrides?: SDKTagOverrides
+            verifyingName?: string
+        }
+    >
 > = {
     [ProductKey.PRODUCT_ANALYTICS]: { instructionsMap: ProductAnalyticsSDKInstructions },
     [ProductKey.WEB_ANALYTICS]: { instructionsMap: WebAnalyticsSDKInstructions },
     [ProductKey.SESSION_REPLAY]: { instructionsMap: SessionReplaySDKInstructions },
-    [ProductKey.ERROR_TRACKING]: { instructionsMap: ErrorTrackingSDKInstructions },
+    [ProductKey.ERROR_TRACKING]: {
+        instructionsMap: ErrorTrackingSDKInstructions,
+        docsLinkOverrides: ErrorTrackingSDKDocsLinkOverrides,
+    },
     [ProductKey.SURVEYS]: { instructionsMap: SurveysSDKInstructions },
     [ProductKey.FEATURE_FLAGS]: { instructionsMap: FeatureFlagsSDKInstructions },
     [ProductKey.EXPERIMENTS]: { instructionsMap: ExperimentsSDKInstructions },
@@ -854,6 +869,7 @@ function ToolSetupModalContent({
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const {
         setAvailableSDKInstructionsMap,
+        setSDKDocsLinkOverrides,
         setSDKTagOverrides,
         selectSDK,
         setSelectedSDK,
@@ -864,10 +880,11 @@ function ToolSetupModalContent({
     const adblockResult = useAdblockDetection()
 
     useEffect(() => {
+        setSDKDocsLinkOverrides(setup?.docsLinkOverrides ?? {})
         setSDKTagOverrides(setup?.tagOverrides ?? {})
         setAvailableSDKInstructionsMap(setup?.instructionsMap ?? {})
         setSelectedSDK(null)
-    }, [setup, setAvailableSDKInstructionsMap, setSDKTagOverrides, setSelectedSDK])
+    }, [setup, setAvailableSDKInstructionsMap, setSDKDocsLinkOverrides, setSDKTagOverrides, setSelectedSDK])
 
     if (!setup) {
         return <p className="text-secondary mb-0">Follow the setup guide to get {product.name} running.</p>

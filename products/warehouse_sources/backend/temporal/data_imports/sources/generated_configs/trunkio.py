@@ -6,4 +6,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TrunkIoSourceConfig(config.Config):
-    pass
+    api_token: str
+    org_url_slug: str
+    repo_host: str
+    repo_owner: str
+    repo_name: str
