@@ -303,6 +303,10 @@ impl Stack {
                     "personhog-test-harness-writer".to_string(),
                 ),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
+                // Pair the fallback with the spawned writer's target: the
+                // dirty index treats an unmarked person's PG row as
+                // current, which is only true of the writer's own table.
+                ("FALLBACK_TABLE", self.config.pg_target_table.clone()),
                 (
                     "METRICS_PORT",
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),

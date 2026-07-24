@@ -13,6 +13,8 @@ from redis.cluster import RedisCluster
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# The alias constant lives here because this module is loaded from settings (via the
+# CONNECTION_FACTORY string) and must not import app code.
 QUERY_CACHE_ALIAS = "query_cache"
 
 
@@ -105,10 +107,11 @@ def prewarm_query_cache_cluster() -> None:
     first cacheable query, putting it on a user's query critical path. Both
     wsgi.py and asgi.py call this (via the background helper) from a first-request
     post-fork hook, so discovery runs in the worker process and is warm before the
-    first real query. Safe to call when the query_cache alias is not configured —
-    it is a no-op then.
+    first real query. Safe to call when no dedicated cluster is configured — it is
+    a no-op then (the query_cache alias points at the default Redis, which needs no
+    topology discovery).
     """
-    if QUERY_CACHE_ALIAS not in settings.CACHES:
+    if not settings.QUERY_CACHE_REDIS_CLUSTER_URL:
         return
     try:
         caches[QUERY_CACHE_ALIAS].get("__prewarm__")

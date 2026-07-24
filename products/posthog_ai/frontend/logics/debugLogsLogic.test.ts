@@ -34,10 +34,10 @@ describe('debugLogsLogic', () => {
         logic?.unmount()
     })
 
-    it('defaults to showing debug logs for staff with no stored preference', () => {
+    it('hides debug logs for staff with no stored preference until explicitly enabled', () => {
         setup({ user: { is_staff: true }, isDev: false })
-        expect(logic.values.debugLogsEnabled).toBe(true)
-        expect(logic.values.showDebugLogs).toBe(true)
+        expect(logic.values.debugLogsEnabled).toBe(false)
+        expect(logic.values.showDebugLogs).toBe(false)
     })
 
     it('offers no toggle to a staff user who is also impersonating, but still forces logs on', () => {

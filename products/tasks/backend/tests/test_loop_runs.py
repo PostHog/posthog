@@ -13,6 +13,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.logic.services.loop_runs import (
+    DISABLED_REASON_REPEATED_FAILURES,
+    DISABLED_REASON_USAGE_LIMITED,
     LOOP_AUTO_PAUSE_THRESHOLD,
     LOOP_RATE_CAP_PER_DAY,
     LOOP_TEAM_RATE_CAP_PER_DAY,
@@ -217,6 +219,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 1)
         self.assertEqual(loop.last_error, "cloud usage limit exceeded")
+        self.assertIsNone(loop.disabled_reason)
         self.assertEqual(Task.objects.filter(team=self.team).count(), 0)
         mock_dispatch.assert_called_once_with(loop, "needs_attention", {"reason": "gate_blocked"})
 
@@ -233,6 +236,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_USAGE_LIMITED)
         self.assertEqual(loop.consecutive_failures, LOOP_AUTO_PAUSE_THRESHOLD)
         mock_pause.assert_called_once()
         mock_dispatch.assert_any_call(
@@ -767,6 +771,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         self.assertEqual(loop.consecutive_failures, 1)
         self.assertEqual(loop.last_error, "boom")
         self.assertTrue(loop.enabled)
+        self.assertIsNone(loop.disabled_reason)
         mock_dispatch.assert_called_once_with(
             loop,
             "run_failed",
@@ -783,6 +788,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_REPEATED_FAILURES)
         self.assertEqual(loop.consecutive_failures, LOOP_AUTO_PAUSE_THRESHOLD)
         mock_pause.assert_called_once()
         mock_dispatch.assert_any_call(

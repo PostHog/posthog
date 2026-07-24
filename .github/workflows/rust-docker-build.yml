@@ -195,6 +195,9 @@ jobs:
                     - release: personhog-writer
                       digest_key: personhog-writer
                       values_key: image
+                    - release: personhog-test-harness
+                      digest_key: personhog-test-harness
+                      values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner
                       values_key: image

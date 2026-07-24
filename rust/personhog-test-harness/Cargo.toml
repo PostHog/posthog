@@ -7,12 +7,15 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
+common-metrics = { path = "../common/metrics" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 
 anyhow = { workspace = true }
+axum = { workspace = true }
+metrics = { workspace = true }
 chrono = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 humantime = { workspace = true }
