@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
@@ -435,6 +435,65 @@ describe('MetricCard', () => {
 
             const valueOnly = render(<MetricCard title={null} value={42} />)
             expect(valueOnly.container.querySelector('[data-attr="metric-card-subtitle"]')).toBeNull()
+        })
+    })
+
+    describe('interactive props (loading, titleTooltip, onClick, footer)', () => {
+        it('renders a skeleton and hides the value while loading', () => {
+            const { container } = render(<MetricCard title="Revenue" value={8800} loading />)
+            expect(container.querySelector('[data-attr="metric-card-loading-sparkline"]')).not.toBeNull()
+            expect(container.textContent).not.toContain('8,800')
+        })
+
+        it('shows the title info icon only when titleTooltip is set', () => {
+            const without = render(<MetricCard title="Revenue" value={8800} />)
+            expect(without.container.querySelector('[data-attr="metric-card-title-info"]')).toBeNull()
+
+            const withTooltip = render(<MetricCard title="Revenue" value={8800} titleTooltip="What this counts" />)
+            expect(withTooltip.container.querySelector('[data-attr="metric-card-title-info"]')).not.toBeNull()
+        })
+
+        it('makes the card a button that fires onClick on click and on Enter', () => {
+            const onClick = jest.fn()
+            const { container } = render(<MetricCard title="Revenue" value={8800} onClick={onClick} />)
+            const card = container.querySelector('[role="button"]') as HTMLElement
+            expect(card).not.toBeNull()
+            expect(container.querySelector('[data-attr="metric-card-drill"]')).not.toBeNull()
+            fireEvent.click(card)
+            fireEvent.keyDown(card, { key: 'Enter' })
+            expect(onClick).toHaveBeenCalledTimes(2)
+        })
+
+        it('renders a footer and stops footer clicks from triggering the card onClick', () => {
+            const onClick = jest.fn()
+            const { container } = render(
+                <MetricCard title="Revenue" value={8800} onClick={onClick} footer={<span>Details</span>} />
+            )
+            const footer = container.querySelector('[data-attr="metric-card-footer"]') as HTMLElement
+            expect(footer?.textContent).toBe('Details')
+            fireEvent.click(footer)
+            expect(onClick).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('multi-series sparkline', () => {
+        it('totals the series per index for the headline and renders the sparkline', () => {
+            const { container } = renderHogChart(
+                <MetricCard
+                    title="Messages"
+                    series={[
+                        { key: 'a', label: 'A', data: [10, 20] },
+                        { key: 'b', label: 'B', data: [30, 40] },
+                    ]}
+                    labels={['Jan', 'Feb']}
+                    theme={THEME}
+                    animationMs={0}
+                    formatValue={(v) => `${Math.round(v)}`}
+                />
+            )
+            // Headline is the last-index total across both series: 20 + 40.
+            expect(container.textContent).toContain('60')
+            expect(container.querySelector('canvas')).not.toBeNull()
         })
     })
 })

@@ -71,8 +71,8 @@ export type EmailMetricRow = {
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
 // display name so the same label reads the same color everywhere — in the summary tiles and in the
-// trends chart below them. Pass this to `AppMetricsTrends` as `seriesColors` and to `AppMetricSummary`
-// so tiles and charts never drift apart.
+// trends chart below them. The trends charts take this as `AppMetricsTrends` `seriesColors`; each
+// summary tile (`WorkflowMetricCard`) reads a single color for its metric by name, so they never drift.
 //
 // Only `success`/`blue`/`purple`/`warning`/`danger` exist as themed color vars; the rest (`orange`,
 // `indigo`, `red`, `primary`) resolve to white in dark mode. The whole-workflow summary mostly uses

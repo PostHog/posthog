@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import type { ChartTheme } from '../../core/types'
+import type { ChartTheme, Series, TooltipContext } from '../../core/types'
 import {
+    ArrowRightIcon,
     type ChangeColor,
     ChangePill,
     computeFallbackChangePercent,
@@ -11,6 +12,8 @@ import {
     DEFAULT_FORMAT_VALUE,
     DEFAULT_NEGATIVE_COLOR,
     DEFAULT_POSITIVE_COLOR,
+    HoverTooltip,
+    InfoIcon,
 } from './internals'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
@@ -27,6 +30,10 @@ export interface MetricCardProps {
     /** Series values. When present, a sparkline renders below the headline and hovering a point
      *  swaps the headline. */
     data?: number[]
+    /** Multi-series sparkline (one line per series). When set, `data`, `color`, and
+     *  `sparklineDashedFromIndex` are ignored — express those per series. The headline, hover, and
+     *  change pill operate on the per-index total across all series. */
+    series?: Series[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
     /** Required when `data` is present. */
@@ -40,6 +47,9 @@ export interface MetricCardProps {
     sparklineClassName?: string
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
+    /** Render prop for the sparkline's hover tooltip. Off by default (hovering only scrubs the
+     *  headline); supply this — e.g. `(ctx) => <DefaultTooltip {...ctx} />` — to also show a tooltip. */
+    sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -68,6 +78,17 @@ export interface MetricCardProps {
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
      *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
     hoverIntentMs?: number
+    /** Info tooltip shown on a small icon next to the title (e.g. what the metric measures). */
+    titleTooltip?: React.ReactNode
+    /** Makes the whole card clickable (e.g. to drill into the underlying rows) — adds a pointer
+     *  cursor, a keyboard-activatable role, and a drill affordance next to the title. */
+    onClick?: () => void
+    /** Tooltip shown on the drill affordance when `onClick` is set. */
+    onClickTooltip?: string
+    /** Render a skeleton placeholder instead of the card contents while data loads. */
+    loading?: boolean
+    /** Content rendered below the sparkline, e.g. a deep-link to the underlying data. */
+    footer?: React.ReactNode
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
@@ -86,6 +107,7 @@ function MetricCardInner({
     title,
     value,
     data,
+    series,
     labels,
     theme,
     color,
@@ -94,6 +116,7 @@ function MetricCardInner({
     sparklineFillOpacity = 0.35,
     sparklineClassName = 'mt-4',
     sparklineDashedFromIndex,
+    sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -109,10 +132,24 @@ function MetricCardInner({
     hoverChangeFromPreviousPoint = false,
     animationMs = 350,
     hoverIntentMs = 140,
+    titleTooltip,
+    onClick,
+    onClickTooltip,
+    loading = false,
+    footer,
     className,
     dataAttr,
 }: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    // Multi-series draws N lines; the metric engine (headline, hover, change) still runs on a single
+    // number[] — the per-index total across those series — so a stat tile reads as one number.
+    const multiSeries = series != null && series.length > 0 && theme != null ? series : null
+    const sparklineData = useMemo<number[] | null>(() => {
+        if (multiSeries) {
+            const length = Math.max(0, ...multiSeries.map((s) => s.data.length))
+            return Array.from({ length }, (_, i) => multiSeries.reduce((acc, s) => acc + (s.data[i] ?? 0), 0))
+        }
+        return data != null && data.length > 0 && theme != null ? data : null
+    }, [multiSeries, data, theme])
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
@@ -124,6 +161,24 @@ function MetricCardInner({
     const animatedValue = useAnimatedNumber(animationTarget, animationMs)
 
     const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])
+
+    if (loading) {
+        return (
+            <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
+                {title != null && <div className="h-4 w-24 animate-pulse rounded bg-current opacity-10" />}
+                <div
+                    className={`h-9 w-28 animate-pulse rounded bg-current opacity-10${title != null ? ' mt-3' : ''}`}
+                />
+                <div
+                    className="mt-4 w-full animate-pulse rounded bg-current opacity-10"
+                    // Dynamic height mirrors the eventual sparkline so the card doesn't jump on load.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ height: sparklineFill ? '100%' : sparklineHeight }}
+                    data-attr="metric-card-loading-sparkline"
+                />
+            </div>
+        )
+    }
 
     if (restingValue == null) {
         return null
@@ -166,11 +221,52 @@ function MetricCardInner({
         </div>
     )
 
+    const clickable = onClick != null
+    const interactiveProps = clickable
+        ? {
+              role: 'button' as const,
+              tabIndex: 0,
+              onClick,
+              onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onClick?.()
+                  }
+              },
+          }
+        : {}
+
     return (
-        <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
+        <div
+            className={`flex flex-col w-full${clickable ? ' cursor-pointer transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50' : ''} ${className ?? ''}`}
+            data-attr={dataAttr}
+            {...interactiveProps}
+        >
             {showHeader && (
                 <div className={`flex items-start gap-2 ${headerJustify}`}>
-                    {title != null && <div className="text-sm font-medium">{title}</div>}
+                    {title != null && (
+                        <div className="flex items-center gap-1 text-sm font-medium">
+                            <span>{title}</span>
+                            {titleTooltip != null && (
+                                <HoverTooltip content={titleTooltip}>
+                                    <span
+                                        className="inline-flex cursor-help opacity-50"
+                                        data-attr="metric-card-title-info"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <InfoIcon />
+                                    </span>
+                                </HoverTooltip>
+                            )}
+                            {clickable && (
+                                <HoverTooltip content={onClickTooltip ?? 'View details'}>
+                                    <span className="inline-flex opacity-40" data-attr="metric-card-drill">
+                                        <ArrowRightIcon />
+                                    </span>
+                                </HoverTooltip>
+                            )}
+                        </div>
+                    )}
                     {headerDelta != null && (
                         <ChangePill
                             positive={positive}
@@ -206,7 +302,8 @@ function MetricCardInner({
 
             {sparklineData && theme && (
                 <Sparkline
-                    data={sparklineData}
+                    data={multiSeries ? undefined : sparklineData}
+                    series={multiSeries ?? undefined}
                     labels={labels}
                     theme={theme}
                     color={color}
@@ -214,10 +311,22 @@ function MetricCardInner({
                     fill={sparklineFill}
                     fillOpacity={sparklineFillOpacity}
                     dashedFromIndex={sparklineDashedFromIndex}
+                    tooltip={sparklineTooltip}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
                 />
+            )}
+
+            {footer != null && (
+                <div
+                    className="mt-2 text-center text-xs"
+                    data-attr="metric-card-footer"
+                    // A footer link should navigate, not trigger the card's drill onClick.
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {footer}
+                </div>
             )}
         </div>
     )

@@ -137,3 +137,66 @@ export const NumberOnly: Story = {
         </Stage>
     ),
 }
+
+export const ClickableWithTooltipAndFooter: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={340}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Total Revenue"
+                        data={REVENUE}
+                        labels={MONTHS}
+                        theme={theme}
+                        color="#22d3ee"
+                        titleTooltip="Sum of all invoices paid in the selected range."
+                        onClick={() => undefined}
+                        onClickTooltip="View paid invoices"
+                        footer={<span className="cursor-pointer underline">View paid invoices</span>}
+                        sparklineClassName="mt-4"
+                        formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}
+
+export const Loading: Story = {
+    render: () => (
+        <Stage width={360} height={320}>
+            <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                <MetricCard title="Total Revenue" loading />
+            </div>
+        </Stage>
+    ),
+}
+
+const EMAILS = [1800, 2100, 1950, 2400, 2600, 2500, 2800, 3000, 3100, 3300, 3500, 3800]
+const PUSH = [900, 1100, 1050, 1200, 1400, 1300, 1500, 1600, 1700, 1800, 1900, 2100]
+
+export const MultiSeries: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const total = EMAILS.reduce((a, b) => a + b, 0) + PUSH.reduce((a, b) => a + b, 0)
+        return (
+            <Stage width={360} height={320}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Messages sent"
+                        value={total}
+                        series={[
+                            { key: 'email', label: 'Emails sent', data: EMAILS, color: '#1d4aff' },
+                            { key: 'push', label: 'Push notifications sent', data: PUSH, color: '#42827e' },
+                        ]}
+                        labels={MONTHS}
+                        theme={theme}
+                        sparklineClassName="mt-4 -mx-5 -mb-5"
+                        formatValue={(v) => Math.round(v).toLocaleString()}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}

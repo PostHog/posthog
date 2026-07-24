@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 import { METRIC_COLORS, WORKFLOW_PUSH_METRICS } from './workflowMetricsSummaryLogic'
 
 const PUSH_METRIC_KEYS = Object.keys(WORKFLOW_PUSH_METRICS) as (keyof typeof WORKFLOW_PUSH_METRICS)[]
@@ -37,7 +37,7 @@ export function PushMetricsSummary({ logicKey }: { logicKey: string }): JSX.Elem
                 {PUSH_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_PUSH_METRICS[key]
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={key}
                             name={metric.name}
                             description={metric.description}
