@@ -96,7 +96,17 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
+        dataOps: (tab?: string, dagId?: string): string => {
+            const params = new URLSearchParams()
+            if (tab) {
+                params.set('tab', tab)
+            }
+            if (dagId) {
+                params.set('dag', dagId)
+            }
+            const query = params.toString()
+            return query ? `/data-ops?${query}` : '/data-ops'
+        },
         models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
         nodeDetail: (id: string): string => `/models/${id}`,
         sources: (): string => '/data-management/sources',
