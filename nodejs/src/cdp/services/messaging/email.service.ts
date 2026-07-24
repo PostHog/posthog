@@ -172,6 +172,26 @@ export class EmailService {
         let assetRow: MessageAssetRow | null = null
 
         try {
+            // Team-level kill switch: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability. Same choke-point placement as the
+            // suppression check below so no upstream route can bypass it. Test sends are blocked
+            // too — they hit SES and count against the tenant all the same.
+            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
+                addLog('warn', 'Skipping send: email sending is suspended for this project')
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
