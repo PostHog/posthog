@@ -10,6 +10,7 @@ import {
     getNewModelName,
     requireSpecialCost,
 } from './cost-model-matching'
+import { finiteNumberOrUndefined } from './cost-utils'
 import { calculateInputCost } from './input-costs'
 import { extractModalityTokens } from './modality-tokens'
 import { calculateOutputCost } from './output-costs'
@@ -120,22 +121,24 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
-    // If custom token pricing is provided, use it to calculate costs
-    const hasCustomPricing =
-        event.properties['$ai_input_token_price'] !== undefined &&
-        event.properties['$ai_output_token_price'] !== undefined
+    // If custom token pricing is provided, use it to calculate costs. Prices are
+    // sanitised through finiteNumberOrUndefined so a non-numeric value (e.g. a
+    // string like "$0.001", null, or an object) falls through to model-based
+    // pricing instead of crashing js-big-decimal with "Parameter is not a number".
+    const inputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_input_token_price'])
+    const outputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_output_token_price'])
 
-    if (hasCustomPricing) {
+    if (inputTokenPrice !== undefined && outputTokenPrice !== undefined) {
         const customCost: ResolvedModelCost = {
             model: 'custom',
             provider: 'custom',
             cost: {
-                prompt_token: event.properties['$ai_input_token_price'],
-                completion_token: event.properties['$ai_output_token_price'],
-                cache_read_token: event.properties['$ai_cache_read_token_price'],
-                cache_write_token: event.properties['$ai_cache_write_token_price'],
-                request: event.properties['$ai_request_price'],
-                web_search: event.properties['$ai_web_search_price'],
+                prompt_token: inputTokenPrice,
+                completion_token: outputTokenPrice,
+                cache_read_token: finiteNumberOrUndefined(event.properties['$ai_cache_read_token_price']),
+                cache_write_token: finiteNumberOrUndefined(event.properties['$ai_cache_write_token_price']),
+                request: finiteNumberOrUndefined(event.properties['$ai_request_price']),
+                web_search: finiteNumberOrUndefined(event.properties['$ai_web_search_price']),
             },
         }
 

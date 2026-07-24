@@ -6,6 +6,17 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
+/**
+ * Multiply a per-token rate by a token count via js-big-decimal, coercing a
+ * non-finite rate to zero first. `bigDecimal.multiply` throws "Parameter is not
+ * a number" on any non-numeric operand, so this guards the rate operand against
+ * a malformed custom price or a corrupt model-cost row reaching the library.
+ */
+const multiplyRate = (rate: number | undefined, tokens: string | number): string => {
+    const safeRate = typeof rate === 'number' && Number.isFinite(rate) ? rate : 0
+    return bigDecimal.multiply(safeRate, tokens)
+}
+
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
     if (!event.properties) {
         return false
@@ -96,9 +107,9 @@ const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost, audi
     }
     if (cost.cost.audio === undefined) {
         warnMissingModalityRate(event, cost, 'audio')
-        return bigDecimal.multiply(cost.cost.prompt_token, audioInputTokens)
+        return multiplyRate(cost.cost.prompt_token, audioInputTokens)
     }
-    return bigDecimal.multiply(cost.cost.audio, audioInputTokens)
+    return multiplyRate(cost.cost.audio, audioInputTokens)
 }
 
 const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost, imageInputTokens: number): string => {
@@ -107,9 +118,9 @@ const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost, imag
     }
     if (cost.cost.image === undefined) {
         warnMissingModalityRate(event, cost, 'image')
-        return bigDecimal.multiply(cost.cost.prompt_token, imageInputTokens)
+        return multiplyRate(cost.cost.prompt_token, imageInputTokens)
     }
-    return bigDecimal.multiply(cost.cost.image, imageInputTokens)
+    return multiplyRate(cost.cost.image, imageInputTokens)
 }
 
 /**
@@ -127,13 +138,13 @@ const computeCachedAudioInputCost = (
         return '0'
     }
     if (cost.cost.input_audio_cache !== undefined) {
-        return bigDecimal.multiply(cost.cost.input_audio_cache, cachedAudioTokens)
+        return multiplyRate(cost.cost.input_audio_cache, cachedAudioTokens)
     }
     warnMissingModalityRate(event, cost, 'audio_cache')
     if (cost.cost.cache_read_token !== undefined) {
-        return bigDecimal.multiply(cost.cost.cache_read_token, cachedAudioTokens)
+        return multiplyRate(cost.cost.cache_read_token, cachedAudioTokens)
     }
-    return bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cachedAudioTokens)
+    return bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 0.5), cachedAudioTokens)
 }
 
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
@@ -181,13 +192,13 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
         const writeCost =
             cost.cost.cache_write_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_write_token, cacheWriteTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+                ? multiplyRate(cost.cost.cache_write_token, cacheWriteTokens)
+                : bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 1.25), cacheWriteTokens)
 
         const cacheReadCost =
             cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedTextTokens)
+                ? multiplyRate(cost.cost.cache_read_token, cachedTextTokens)
+                : bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 0.1), cachedTextTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const baseUncachedTokens = exclusive
@@ -197,7 +208,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
             hasModalityTokens
         )
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
+        const uncachedCost = multiplyRate(cost.cost.prompt_token, uncachedTextTokens)
 
         return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
@@ -212,7 +223,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     if (cost.cost.cache_read_token !== undefined) {
         // Use explicit cache read cost if available
-        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
+        cacheReadCost = multiplyRate(cost.cost.cache_read_token, cachedTextTokens)
     } else {
         // Use default multiplier of 0.5 for all providers when cache_read_token is not defined
         const multiplier = 0.5
@@ -225,10 +236,10 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             })
         }
 
-        cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
+        cacheReadCost = bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, multiplier), cachedTextTokens)
     }
 
-    const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
+    const regularCost = multiplyRate(cost.cost.prompt_token, regularTextTokens)
 
     return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
 }

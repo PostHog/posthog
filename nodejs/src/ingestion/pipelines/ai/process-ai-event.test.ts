@@ -927,6 +927,43 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_provider).toBe('openai')
         })
 
+        // A non-numeric custom price used to sail past the `!== undefined` guard and
+        // reach js-big-decimal, which throws "Parameter is not a number". It must now
+        // be treated as unset and fall through to model-based pricing instead.
+        it.each<{ description: string; inputPrice: unknown; outputPrice: unknown }>([
+            { description: 'non-numeric string input price', inputPrice: '$0.001', outputPrice: 0.002 },
+            { description: 'null input price', inputPrice: null, outputPrice: 0.002 },
+            { description: 'object input price', inputPrice: { value: 0.001 }, outputPrice: 0.002 },
+            { description: 'non-numeric string output price', inputPrice: 0.001, outputPrice: '$0.002' },
+            { description: 'NaN output price', inputPrice: 0.001, outputPrice: Number.NaN },
+        ])('falls back to model pricing for $description', ({ inputPrice, outputPrice }) => {
+            event.properties!.$ai_input_token_price = inputPrice as any
+            event.properties!.$ai_output_token_price = outputPrice as any
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(20, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
+        })
+
+        it('accepts numeric-string custom prices', () => {
+            event.properties!.$ai_input_token_price = '0.001'
+            event.properties!.$ai_output_token_price = '0.002'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
         it('works without provider when using custom pricing', () => {
             delete event.properties!.$ai_provider
             event.properties!.$ai_input_token_price = 0.001
