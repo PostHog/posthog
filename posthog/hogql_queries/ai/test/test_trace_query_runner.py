@@ -577,9 +577,11 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
 
     def test_capture_range_includes_long_running_trace(self):
         _create_person(distinct_ids=["person1"], team=self.team)
-        # Trace anchored at date_from with spans spread over hours; every span must land in the
+        # Trace anchored at date_from with spans spread over days; every span must land in the
         # tree even though the later ones fall well past the backward capture buffer (#43310).
-        forward_offsets_minutes = [0, 45, 180, 720]
+        # The multi-day offset covers a chat resumed after the first day, which a sub-day forward
+        # bound truncates.
+        forward_offsets_minutes = [0, 45, 180, 720, 3 * 24 * 60]
         for offset in forward_offsets_minutes:
             _create_ai_generation_event(
                 distinct_id="person1",

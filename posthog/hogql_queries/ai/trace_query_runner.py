@@ -54,19 +54,19 @@ class TraceQueryDateRange(QueryDateRange):
 
     The window is asymmetric because a trace grows *forward* in time from its first event: the
     backward buffer only needs to absorb minor clock skew, while the forward buffer must cover the
-    trace's full duration (e.g. queue-throttled traces that run for tens of minutes to hours).
+    trace's full duration (e.g. one trace per chat, where the chat is resumed a day or two later).
 
     The forward bound can be generous cheaply: `events` is `PARTITION BY toYYYYMM(timestamp)` and
-    ordered by `(team_id, toDate(timestamp), ...)`, so a window kept inside the trace's day prunes
-    the same monthly partition and scans at day granularity whether it spans 30 minutes or several
-    hours. The selective predicate is the exact `trace_id`, not the timestamp.
+    ordered by `(team_id, toDate(timestamp), ...)`, and `trace_id` is not in the sort key, so
+    widening the bound does not move the scan. The reader hits the same team/day block either way,
+    and the selective predicate is the exact `trace_id`, not the timestamp.
     """
 
     # Backward buffer: clock skew / the small negative anchor the frontend applies to date_from.
     CAPTURE_RANGE_MINUTES = 10
-    # Forward buffer: an upper bound on a single trace's duration, day-scoped so it stays within
-    # one or two monthly partitions.
-    FORWARD_CAPTURE_RANGE_MINUTES = 24 * 60
+    # Forward buffer: an upper bound on a single trace's duration. A trace that maps to a chat can
+    # stay open across days, so a sub-day bound silently truncates it.
+    FORWARD_CAPTURE_RANGE_MINUTES = 7 * 24 * 60
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
