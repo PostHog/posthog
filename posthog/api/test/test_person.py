@@ -1728,13 +1728,33 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["uuid"] == str(person.uuid)
         assert response["distinct_ids"] == ["123456789"]
 
-    def test_retrieve_person_by_distinct_id_with_useful_error(self):
-        response = self.client.get(f"/api/person/NOT_A_UUID").json()
+    @parameterized.expand(
+        [
+            ("plain", "a_distinct_id"),
+            # A distinct id can be UUID-shaped (e.g. a session/event id). It passes the person-UUID
+            # gate but matches no person by UUID, so it must fall through to distinct-id resolution
+            # instead of 404ing — this is the case that broke the persons-retrieve MCP tool.
+            ("uuid_shaped", str(uuid4())),
+        ]
+    )
+    def test_retrieve_person_by_distinct_id(self, _name: str, distinct_id: str):
+        person = create_person(team=self.team, distinct_ids=[distinct_id])
 
-        assert (
-            response["detail"]
-            == "The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id=NOT_A_UUID instead."
-        )
+        response = self.client.get(f"/api/person/{distinct_id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["id"] == person.id
+        assert body["uuid"] == str(person.uuid)
+        assert distinct_id in body["distinct_ids"]
+
+    def test_retrieve_person_unknown_id_returns_structured_not_found(self):
+        response = self.client.get("/api/person/NOT_A_UUID")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        detail = response.json()["detail"]
+        assert "No person found for 'NOT_A_UUID'" in detail
+        assert "/persons?distinct_id=NOT_A_UUID" in detail
 
     def _get_person_activity(
         self,

@@ -139,7 +139,11 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export const PersonsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
+    id: zod
+        .string()
+        .describe(
+            "A value identifying this person. Accepts a person's numeric ID, a person's UUID, or one of the person's distinct IDs (including UUID-shaped distinct IDs). Person ID/UUID is tried first, then distinct ID."
+        ),
     project_id: zod
         .string()
         .describe(
@@ -155,7 +159,11 @@ export const PersonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export const PersonsDeletePropertyCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
+    id: zod
+        .string()
+        .describe(
+            "A value identifying this person. Accepts a person's numeric ID, a person's UUID, or one of the person's distinct IDs (including UUID-shaped distinct IDs). Person ID/UUID is tried first, then distinct ID."
+        ),
     project_id: zod
         .string()
         .describe(
@@ -175,7 +183,11 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export const PersonsUpdatePropertyCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
+    id: zod
+        .string()
+        .describe(
+            "A value identifying this person. Accepts a person's numeric ID, a person's UUID, or one of the person's distinct IDs (including UUID-shaped distinct IDs). Person ID/UUID is tried first, then distinct ID."
+        ),
     project_id: zod
         .string()
         .describe(

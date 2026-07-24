@@ -7052,7 +7052,7 @@
         }
     },
     "persons-retrieve": {
-        "description": "Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.",
+        "description": "Retrieve a single person by their PostHog person UUID, numeric person ID, or any of the person's distinct IDs. Distinct IDs are accepted even when UUID-shaped (e.g. a session or event identifier): the id is resolved as a person UUID/ID first, then as a distinct id. Returns the person's properties, distinct IDs, and metadata. Returns 404 with a message explaining what was tried if nothing matches — in that case list candidates with the `persons-list` tool (distinct_id filter) to confirm the distinct id exists.",
         "category": "Persons",
         "feature": "persons",
         "summary": "Get person",
