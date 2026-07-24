@@ -5,7 +5,8 @@
     },
     "dependencies": {
         "kea": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
