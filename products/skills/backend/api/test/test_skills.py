@@ -2,6 +2,8 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 
