@@ -261,7 +261,9 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
 
                     <Markdown>
                         {dedent`
-                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP traces and logs over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. Exporters append \`/v1/traces\` and \`/v1/logs\` to the base endpoint. Log EventRecords named \`gen_ai.evaluation.result\` become \`$ai_evaluation\` events. PostHog groups records with the same evaluation name as one imported evaluator while retaining a separate replay-stable identity for each record.
+                            **Direct OTLP export.** If you run an OpenTelemetry Collector, or want to export from a language that isn't Python or Node.js, point any OTLP/HTTP exporter directly at PostHog's AI ingestion endpoint. PostHog accepts OTLP traces and logs over HTTP in both \`application/x-protobuf\` and \`application/json\`, authenticated with a \`Bearer\` token. Exporters append \`/v1/traces\` and \`/v1/logs\` to the base endpoint.
+
+                            Log EventRecords named \`gen_ai.evaluation.result\` become \`$ai_evaluation\` events when their attributes include a non-empty \`gen_ai.evaluation.name\` and either a non-empty \`gen_ai.evaluation.score.label\` or a finite \`gen_ai.evaluation.score.value\`. PostHog groups records with the same evaluation name as one imported evaluator while retaining a separate replay-stable identity for each record. Include valid OTLP \`traceId\` and \`spanId\` fields to attach the result to a specific span; without them, the evaluation is imported but isn't linked to a trace span.
                         `}
                     </Markdown>
 
@@ -308,6 +310,28 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                           receivers: [otlp]
                                           processors: [memory_limiter, batch]
                                           exporters: [otlphttp/posthog]
+                                `,
+                            },
+                            {
+                                language: 'json',
+                                file: 'Evaluation log',
+                                code: dedent`
+                                    {
+                                      "resourceLogs": [{
+                                        "scopeLogs": [{
+                                          "logRecords": [{
+                                            "timeUnixNano": "1784900000000000000",
+                                            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+                                            "spanId": "00f067aa0ba902b7",
+                                            "eventName": "gen_ai.evaluation.result",
+                                            "attributes": [
+                                              { "key": "gen_ai.evaluation.name", "value": { "stringValue": "helpfulness" } },
+                                              { "key": "gen_ai.evaluation.score.value", "value": { "doubleValue": 0.9 } }
+                                            ]
+                                          }]
+                                        }]
+                                      }]
+                                    }
                                 `,
                             },
                         ]}
