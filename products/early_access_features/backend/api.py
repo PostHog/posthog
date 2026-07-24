@@ -71,11 +71,16 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
     A more minimal serializer, intended specificaly for non-generally-available features to be provided
     to posthog-js via the /early_access_features/ endpoint. Sync with posthog-js's FeaturePreview interface!
+
+    The assignee only carries a display name (no user ID or email): the endpoint is public
+    (project-token auth), so consumers like posthog.com's roadmap can attribute a feature to
+    its owner without exposing anything else about the person or role.
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
     payload = serializers.SerializerMethodField()
+    assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -87,12 +92,30 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentationUrl",
             "flagKey",
             "payload",
+            "assignee",
         ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DictField(help_text="Feature flag payload for this early access feature"))
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
+
+    @extend_schema_field(
+        serializers.DictField(
+            help_text="Display name of the person or role this feature is assigned to, e.g. "
+            '{"type": "user", "name": "Ada Lovelace"} or {"type": "role", "name": "Data Modeling"}.',
+            allow_null=True,
+        )
+    )
+    def get_assignee(self, obj):
+        # Callers serializing many features should select_related assigned_user/assigned_role;
+        # for unassigned features the *_id checks avoid touching the relations entirely.
+        if obj.assigned_user_id and obj.assigned_user:
+            name = f"{obj.assigned_user.first_name} {obj.assigned_user.last_name}".strip()
+            return {"type": "user", "name": name}
+        if obj.assigned_role_id and obj.assigned_role:
+            return {"type": "role", "name": obj.assigned_role.name}
+        return None
 
 
 class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -490,7 +513,7 @@ def early_access_features(request: Request):
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
         EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
-            "feature_flag"
+            "feature_flag", "assigned_user", "assigned_role"
         ),
         many=True,
     ).data

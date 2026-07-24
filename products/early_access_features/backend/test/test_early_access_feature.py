@@ -1107,6 +1107,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1164,6 +1165,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1210,6 +1212,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1279,6 +1282,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": {},
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
             )
@@ -1374,8 +1378,57 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "documentationUrl": "",
                         "payload": payload,
                         "flagKey": "sprocket",
+                        "assignee": None,
                     }
                 ],
+            )
+
+    def test_early_access_features_includes_assignee_display_name_in_preview(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket",
+            key="sprocket",
+            created_by=self.user,
+        )
+        feature_flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Feature Flag for Feature Sprocket 2",
+            key="sprocket2",
+            created_by=self.user,
+        )
+        role = Role.objects.create(name="Data Modeling", organization=self.organization)
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+            assigned_user=self.user,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket 2",
+            description="An even fancier sprocket.",
+            stage="beta",
+            feature_flag=feature_flag2,
+            assigned_role=role,
+        )
+
+        self.client.logout()
+
+        # The assignee join must not introduce per-feature queries
+        with self.assertNumQueries(2):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+
+            assignees = {f["flagKey"]: f["assignee"] for f in response.json()["earlyAccessFeatures"]}
+            expected_user_name = f"{self.user.first_name} {self.user.last_name}".strip()
+            self.assertEqual(
+                assignees,
+                {
+                    "sprocket": {"type": "user", "name": expected_user_name},
+                    "sprocket2": {"type": "role", "name": "Data Modeling"},
+                },
             )
 
 

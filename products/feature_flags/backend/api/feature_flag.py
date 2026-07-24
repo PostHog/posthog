@@ -2885,9 +2885,17 @@ class FeatureFlagViewSet(
         )
 
         if self.action == "list":
+            from products.early_access_features.backend.models import EarlyAccessFeature
+
             queryset = (
                 queryset.filter(deleted=False)
-                .prefetch_related("features")
+                .prefetch_related(
+                    Prefetch(
+                        "features",
+                        # MinimalEarlyAccessFeatureSerializer resolves the assignee's name
+                        queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
+                    )
+                )
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
