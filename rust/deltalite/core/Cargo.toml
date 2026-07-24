@@ -2,6 +2,9 @@
 name = "deltalite-core"
 version = "0.1.0"
 edition = "2021"
+# CI compiles with this exact toolchain; cargo's MSRV-aware resolver uses it to
+# avoid picking dependency versions CI cannot build (aws-* crates move MSRV often).
+rust-version = "1.91.1"
 publish = false
 
 [lib]

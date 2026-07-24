@@ -57,6 +57,12 @@ use crate::schema::{cast_to_schema, unknown_columns};
 /// One logical group of work: a partition value (or the whole table when unpartitioned).
 const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 
+/// First-iteration pre-decode budget reservation for full-width row groups; adapts to
+/// the observed batch size after the first decode.
+const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
+/// First-iteration pre-decode reservation for narrow PK-column probe batches.
+const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+
 /// How the set of existing files to rewrite is chosen within each affected partition.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PruneStrategy {
@@ -275,18 +281,26 @@ impl RowSel {
 #[derive(Debug)]
 struct PartitionSource {
     batches: Arc<Vec<RecordBatch>>,
-    /// One selection per source batch, in batch order.
-    sel: Vec<RowSel>,
+    /// Selections for the batches that contribute rows, as (batch index, selection)
+    /// in batch order. Sparse on purpose: a dense per-batch vector would make the
+    /// planning structures O(distinct partitions x batches), which a highly chunked
+    /// source with many partition values could blow up regardless of its Arrow size.
+    sel: Vec<(usize, RowSel)>,
     /// Total selected rows across all batches.
     rows: usize,
 }
 
 impl PartitionSource {
-    /// The selected rows of one column (by table-schema index), per batch, skipping
-    /// batches that contribute no rows. Narrow: used for PK columns only.
+    /// The contributing (batch, selection) pairs, in batch order.
+    fn parts(&self) -> impl Iterator<Item = (&RecordBatch, &RowSel)> {
+        self.sel.iter().map(|(bi, sel)| (&self.batches[*bi], sel))
+    }
+
+    /// The selected rows of one column (by table-schema index), per contributing
+    /// batch. Narrow: used for PK columns only.
     fn select_column(&self, col_idx: usize) -> Result<Vec<Arc<dyn Array>>> {
         let mut out = Vec::new();
-        for (b, sel) in self.batches.iter().zip(&self.sel) {
+        for (b, sel) in self.parts() {
             if sel.len(b.num_rows()) == 0 {
                 continue;
             }
@@ -318,7 +332,14 @@ struct PartitionOutcome {
 /// A unit of byte budget: one permit from the per-call budget and one from the
 /// process-global budget. Both ride with a batch from decode until the writer has
 /// copied it into its buffer.
-type BudgetPermit = (OwnedSemaphorePermit, OwnedSemaphorePermit);
+struct BudgetPermit {
+    local: OwnedSemaphorePermit,
+    global: OwnedSemaphorePermit,
+    /// KiB currently held against the per-call budget (capped at its capacity).
+    held_local_kb: u32,
+    /// KiB currently held against the process-global budget (capped at its capacity).
+    held_global_kb: u32,
+}
 
 /// Per-call view of the budget semaphores plus their process-global counterparts.
 #[derive(Clone)]
@@ -329,19 +350,60 @@ struct Budgets {
 }
 
 impl Budgets {
+    fn kb(bytes: usize) -> u64 {
+        (bytes / 1024).max(1) as u64
+    }
+
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
     /// larger than either budget still makes progress. Local before global, the fixed
     /// order used everywhere (see `crate::limits` module docs).
     async fn acquire_bytes(&self, bytes: usize) -> Result<BudgetPermit> {
-        let kb = ((bytes / 1024).max(1) as u64).min(self.local_cap_kb as u64) as u32;
+        let want = Self::kb(bytes);
+        let local_kb = want.min(self.local_cap_kb as u64) as u32;
+        let global_kb = want.min(self.limits.buffer_cap_kb() as u64) as u32;
         let local = self
             .local
             .clone()
-            .acquire_many_owned(kb)
+            .acquire_many_owned(local_kb)
             .await
             .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_buffer_kb(kb).await?;
-        Ok((local, global))
+        let global = self.limits.acquire_buffer_kb(global_kb).await?;
+        Ok(BudgetPermit {
+            local,
+            global,
+            held_local_kb: local_kb,
+            held_global_kb: global_kb,
+        })
+    }
+
+    /// Grow `permit` so it covers `total_bytes` (used after a decode turns out larger
+    /// than the pre-decode estimate). Total held stays capped at each budget's
+    /// capacity, preserving the oversized-batch progress guarantee; a decode smaller
+    /// than the estimate keeps the estimate's permits until release, which only errs
+    /// conservative.
+    async fn top_up(&self, permit: &mut BudgetPermit, total_bytes: usize) -> Result<()> {
+        let want = Self::kb(total_bytes);
+        let want_local = want.min(self.local_cap_kb as u64) as u32;
+        if want_local > permit.held_local_kb {
+            let extra = self
+                .local
+                .clone()
+                .acquire_many_owned(want_local - permit.held_local_kb)
+                .await
+                .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
+            permit.local.merge(extra);
+            permit.held_local_kb = want_local;
+        }
+        let want_global = want.min(self.limits.buffer_cap_kb() as u64) as u32;
+        if want_global > permit.held_global_kb {
+            let extra = self
+                .limits
+                .acquire_buffer_kb(want_global - permit.held_global_kb)
+                .await?;
+            permit.global.merge(extra);
+            permit.held_global_kb = want_global;
+        }
+        Ok(())
     }
 }
 
@@ -751,7 +813,7 @@ fn plan_partition_sources(
             WHOLE_TABLE.to_string(),
             PartitionSource {
                 batches: batches.clone(),
-                sel: (0..n_batches).map(|_| RowSel::All).collect(),
+                sel: (0..n_batches).map(|bi| (bi, RowSel::All)).collect(),
                 rows: total_rows,
             },
         )]);
@@ -759,8 +821,10 @@ fn plan_partition_sources(
 
     // Preserve first-seen order for deterministic behaviour.
     let mut order: Vec<String> = Vec::new();
-    // partition value -> per-batch ascending row indices.
-    let mut indices: HashMap<String, Vec<Vec<u32>>> = HashMap::new();
+    // partition value -> (batch index, ascending row indices) for contributing
+    // batches only. Sparse: cost is O(total rows + contributing pairs), never
+    // O(partitions x batches).
+    let mut indices: HashMap<String, Vec<(usize, Vec<u32>)>> = HashMap::new();
     let mut row_base = 0usize;
 
     for (bi, batch) in batches.iter().enumerate() {
@@ -792,11 +856,14 @@ fn plan_partition_sources(
             let v = as_str.value(i);
             if !indices.contains_key(v) {
                 order.push(v.to_string());
-                indices.insert(v.to_string(), vec![Vec::new(); n_batches]);
+                indices.insert(v.to_string(), Vec::new());
             }
             // The key was just inserted if absent, so this lookup cannot fail.
-            if let Some(per_batch) = indices.get_mut(v) {
-                per_batch[bi].push(i as u32);
+            if let Some(parts) = indices.get_mut(v) {
+                match parts.last_mut() {
+                    Some((last_bi, rows)) if *last_bi == bi => rows.push(i as u32),
+                    _ => parts.push((bi, vec![i as u32])),
+                }
             }
         }
         row_base += batch.num_rows();
@@ -804,14 +871,16 @@ fn plan_partition_sources(
 
     let mut out = Vec::with_capacity(order.len());
     for v in order {
-        let per_batch = indices.remove(&v).ok_or_else(|| {
+        let parts = indices.remove(&v).ok_or_else(|| {
             Error::Generic("internal: partition index vanished during planning".into())
         })?;
-        let rows: usize = per_batch.iter().map(Vec::len).sum();
-        let sel: Vec<RowSel> = per_batch
+        let rows: usize = parts.iter().map(|(_, idx)| idx.len()).sum();
+        let sel: Vec<(usize, RowSel)> = parts
             .into_iter()
-            .zip(batches.iter())
-            .map(|(idx, b)| RowSel::from_indices(idx, b.num_rows()))
+            .map(|(bi, idx)| {
+                let n = batches[bi].num_rows();
+                (bi, RowSel::from_indices(idx, n))
+            })
             .collect();
         out.push((
             v,
@@ -1098,6 +1167,7 @@ fn build_pk_columns(
 /// Exactness of the negative answer is what licenses skipping the file: a PK column
 /// absent from the file reads as all-NULL, and SQL NULL never matches, so such a file
 /// is an exact negative without any I/O beyond the footer.
+#[allow(clippy::too_many_arguments)]
 async fn probe_file(
     store: &Arc<dyn ObjectStore>,
     f: &TargetFile,
@@ -1106,6 +1176,7 @@ async fn probe_file(
     partition_col: &Option<String>,
     partition_value: &str,
     opts: &UpsertOptions,
+    budgets: &Budgets,
 ) -> Result<bool> {
     let path = Path::parse(&f.path)
         .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
@@ -1159,7 +1230,18 @@ async fn probe_file(
         .with_batch_size(opts.read_batch_size)
         .build()?;
 
-    while let Some(batch) = stream.try_next().await? {
+    // Probe batches are narrow (PK columns only) but still decoded data; budget them
+    // like the rewrite path so `probe_concurrency x partitions x upserts` cannot hold
+    // unaccounted memory. Estimate-then-top-up, same as `filter_file`.
+    let mut estimate_bytes = INITIAL_PROBE_ESTIMATE_BYTES;
+    loop {
+        let mut permit = budgets.acquire_bytes(estimate_bytes).await?;
+        let Some(batch) = stream.try_next().await? else {
+            break;
+        };
+        let actual = batch.get_array_memory_size();
+        budgets.top_up(&mut permit, actual).await?;
+        estimate_bytes = actual.max(16 * 1024);
         let cols = build_pk_columns(
             &opts.primary_keys,
             &sources,
@@ -1168,7 +1250,9 @@ async fn probe_file(
             partition_value,
             &pk_types,
         )?;
-        if pkset.contains_any_columns(&cols, batch.num_rows())? {
+        let hit = pkset.contains_any_columns(&cols, batch.num_rows())?;
+        drop(permit);
+        if hit {
             return Ok(true);
         }
     }
@@ -1177,6 +1261,7 @@ async fn probe_file(
 
 /// Probe `files` with bounded concurrency, splitting them into (files that contain at
 /// least one match, count of files proven match-free). Order is preserved.
+#[allow(clippy::too_many_arguments)]
 async fn probe_files(
     store: &Arc<dyn ObjectStore>,
     files: Vec<TargetFile>,
@@ -1185,6 +1270,7 @@ async fn probe_files(
     partition_col: &Option<String>,
     partition_value: &str,
     opts: &UpsertOptions,
+    budgets: &Budgets,
 ) -> Result<(Vec<TargetFile>, usize)> {
     let results: Vec<(TargetFile, bool)> = futures::stream::iter(files.into_iter().map(|f| {
         let store = store.clone();
@@ -1197,6 +1283,7 @@ async fn probe_files(
                 partition_col,
                 partition_value,
                 opts,
+                budgets,
             )
             .await?;
             Ok::<_, Error>((f, hit))
@@ -1252,15 +1339,25 @@ async fn filter_file(
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
+    // Pre-decode budget estimate, adapted to the last decoded batch so steady state
+    // reserves roughly the right amount up front.
+    let mut estimate_bytes = INITIAL_DECODE_ESTIMATE_BYTES;
 
-    while let Some(batch) = stream.try_next().await? {
-        // Budget the decoded batch *immediately*: without this, every concurrent
-        // reader holds an unaccounted row group through probe/filter and the knob
-        // product (partitions x files x concurrent upserts) multiplies resident
-        // memory. The permits ride with the data through probe, filter, and the
-        // writer queue, and are released by the writer only after write(); a reader
-        // that cannot get budget parks here, before doing any further allocation.
-        let permit = budgets.acquire_bytes(batch.get_array_memory_size()).await?;
+    loop {
+        // Budget BEFORE decoding: `try_next()` fully materialises a batch, so
+        // acquiring afterwards would let every concurrent reader hold one unaccounted
+        // decoded batch and the knob product (partitions x files x concurrent
+        // upserts) would multiply resident memory. Reserve the estimate first, decode,
+        // then top the permit up if the batch came out larger. The permits ride with
+        // the data through filter and the writer queue, and are released by the
+        // writer only after write().
+        let mut permit = budgets.acquire_bytes(estimate_bytes).await?;
+        let Some(batch) = stream.try_next().await? else {
+            break;
+        };
+        let actual = batch.get_array_memory_size();
+        budgets.top_up(&mut permit, actual).await?;
+        estimate_bytes = actual.max(64 * 1024);
 
         // Old files may predate a column addition, and never carry the partition
         // column; restore both before probing so PK encodings line up.
@@ -1324,7 +1421,7 @@ async fn rewrite_partition(
             })?);
         }
         let mut duplicates = 0usize;
-        for (b, sel) in source.batches.iter().zip(&source.sel) {
+        for (b, sel) in source.parts() {
             let n = sel.len(b.num_rows());
             if n == 0 {
                 continue;
@@ -1372,6 +1469,7 @@ async fn rewrite_partition(
                 &partition_col,
                 &value,
                 opts,
+                &budgets,
             )
             .await?;
             rewrite = keep;
@@ -1464,7 +1562,7 @@ async fn rewrite_partition(
     // `write` has copied it into the compressed buffer. Sub-batches are written in
     // batch order and rows in ascending order within each, preserving exactly the row
     // order the eager concat-then-split produced.
-    for (b, sel) in source.batches.iter().zip(&source.sel) {
+    for (b, sel) in source.parts() {
         if sel.len(b.num_rows()) == 0 {
             continue;
         }
@@ -1638,7 +1736,7 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].0, WHOLE_TABLE);
         assert_eq!(groups[0].1.rows, 2);
-        assert!(matches!(groups[0].1.sel[0], RowSel::All));
+        assert!(matches!(groups[0].1.sel[0], (0, RowSel::All)));
     }
 
     #[test]
@@ -1650,6 +1748,60 @@ mod tests {
         .unwrap();
         let err = plan_partition_sources(&Arc::new(vec![b]), Some("p")).unwrap_err();
         assert!(err.to_string().contains("NULL"), "{err}");
+    }
+
+    #[test]
+    fn plan_stores_selections_sparsely_per_contributing_batch() {
+        // 3 batches, each contributing to exactly one of 3 partitions: the dense
+        // representation would hold 9 selections, the sparse one holds 3.
+        let batches = Arc::new(vec![
+            part_batch(&["a", "a"]),
+            part_batch(&["b"]),
+            part_batch(&["c", "c"]),
+        ]);
+        let groups = plan_partition_sources(&batches, Some("p")).unwrap();
+        assert_eq!(groups.len(), 3);
+        for (_, source) in &groups {
+            assert_eq!(source.sel.len(), 1, "only contributing batches are stored");
+        }
+        // And the sparse pairs point at the right batches.
+        let sel_batches: Vec<usize> = groups.iter().map(|(_, s)| s.sel[0].0).collect();
+        assert_eq!(sel_batches, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn plan_merges_contiguous_rows_of_one_batch_into_one_selection() {
+        let batches = Arc::new(vec![part_batch(&["a", "b", "a", "a"])]);
+        let groups = plan_partition_sources(&batches, Some("p")).unwrap();
+        let a = &groups[0].1;
+        assert_eq!(a.sel.len(), 1, "one (batch, selection) pair per batch");
+        assert_eq!(a.rows, 3);
+    }
+
+    #[tokio::test]
+    async fn budget_permit_tops_up_and_caps_at_capacity() {
+        let limits = Arc::new(crate::limits::ProcessLimits::new(1, 1, 1024 * 1024));
+        let budgets = Budgets {
+            local: Arc::new(Semaphore::new(512)), // 512 KiB per-call budget
+            local_cap_kb: 512,
+            limits: limits.clone(),
+        };
+        // Pre-acquire a small estimate, then top up to something bigger.
+        let mut p = budgets.acquire_bytes(64 * 1024).await.unwrap();
+        assert_eq!(p.held_local_kb, 64);
+        budgets.top_up(&mut p, 256 * 1024).await.unwrap();
+        assert_eq!(p.held_local_kb, 256);
+        // Topping up beyond both capacities caps instead of deadlocking.
+        budgets.top_up(&mut p, usize::MAX).await.unwrap();
+        assert_eq!(p.held_local_kb, 512);
+        assert_eq!(p.held_global_kb, 1024);
+        // A smaller "total" never shrinks or over-releases.
+        budgets.top_up(&mut p, 1).await.unwrap();
+        assert_eq!(p.held_local_kb, 512);
+        drop(p);
+        // Everything was released exactly once: the full budget is available again.
+        let q = budgets.acquire_bytes(512 * 1024).await.unwrap();
+        assert_eq!(q.held_local_kb, 512);
     }
 
     #[test]
@@ -1750,7 +1902,7 @@ mod tests {
         let batches = Arc::new(vec![part_batch(&["a", "a"]), part_batch(&["a"])]);
         let source = PartitionSource {
             batches: batches.clone(),
-            sel: vec![RowSel::All, RowSel::All],
+            sel: vec![(0, RowSel::All), (1, RowSel::All)],
             rows: 3,
         };
         // Column 1 is v: [0, 1] and [0].

@@ -82,13 +82,16 @@ fn realign_buffer(buf: &Buffer, align: usize) -> Buffer {
         return buf.clone();
     }
     let bytes = buf.as_slice();
-    let n = bytes.len().div_ceil(16);
-    let mut v: Vec<i128> = vec![0; n];
-    // SAFETY: `v` holds `n * 16 >= bytes.len()` bytes and the ranges cannot overlap
-    // (freshly allocated destination).
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), v.as_mut_ptr() as *mut u8, bytes.len());
-    }
+    // Copy through `i128` lanes so the fresh allocation is 16-byte aligned; the final
+    // partial chunk is zero-padded and sliced back off below.
+    let v: Vec<i128> = bytes
+        .chunks(16)
+        .map(|chunk| {
+            let mut lane = [0u8; 16];
+            lane[..chunk.len()].copy_from_slice(chunk);
+            i128::from_ne_bytes(lane)
+        })
+        .collect();
     Buffer::from_vec(v).slice_with_length(0, bytes.len())
 }
 
@@ -171,8 +174,11 @@ mod tests {
         let builder = ArrayData::builder(DataType::Decimal128(38, 10))
             .len(values.len())
             .add_buffer(buf);
-        // SAFETY: layout is valid by construction; skipping validation is the point --
-        // validation would reject the misalignment we are testing the repair of.
+        // SAFETY: length/buffer layout are valid by construction; the only invariant
+        // violated is 16-byte alignment, which is exactly the (real, FFI-produced)
+        // condition this test exists to reproduce -- validated `build()` would reject
+        // the input before the repair under test could run.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe { builder.build_unchecked() }
     }
 
