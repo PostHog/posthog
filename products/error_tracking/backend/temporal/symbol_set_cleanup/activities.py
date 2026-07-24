@@ -54,10 +54,13 @@ def _delete_symbol_set_batch(symbol_set_ids: list[str]) -> tuple[int, set[str]]:
         return left_deleted + right_deleted, left_failed | right_failed
 
 
-def _delete_symbol_set_contents_with_pacing(storage_ptrs: list[str]) -> list[str]:
+def _delete_symbol_set_contents_with_pacing(storage_ptrs: list[str], *, pace_first_request: bool) -> list[str]:
     failed_storage_ptrs: list[str] = []
     for batch_number, storage_ptr_batch in enumerate(batched(storage_ptrs, _DELETE_REQUEST_BATCH_SIZE, strict=False)):
-        if batch_number > 0:
+        # Pace before every S3 DeleteObjects request except the very first of the whole run,
+        # so bursts across outer batches and >1000-object sub-batches alike stay under S3's
+        # rate limit instead of only pausing inside a single oversized delete.
+        if pace_first_request or batch_number > 0:
             time.sleep(_DELETE_REQUEST_PACING_SECONDS)
         failed_storage_ptrs.extend(delete_symbol_set_contents_many(list(storage_ptr_batch)))
     return failed_storage_ptrs
@@ -99,6 +102,7 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     total_db_failed = 0
     total_storage_failed = 0
     failed_ids: set[str] = set()
+    has_deleted_storage = False
 
     while total_processed < inputs.total_per_run:
         remaining = inputs.total_per_run - total_processed
@@ -129,8 +133,12 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
             if storage_ptr and symbol_set_id not in batch_failed_ids
         ]
         if deleted_storage_ptrs:
+            pace_first_request = has_deleted_storage
+            has_deleted_storage = True
             try:
-                failed_storage_ptrs = _delete_symbol_set_contents_with_pacing(deleted_storage_ptrs)
+                failed_storage_ptrs = _delete_symbol_set_contents_with_pacing(
+                    deleted_storage_ptrs, pace_first_request=pace_first_request
+                )
             except Exception as exc:
                 failed_storage_ptrs = deleted_storage_ptrs
                 logger.exception(
