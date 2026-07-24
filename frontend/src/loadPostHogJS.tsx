@@ -10,6 +10,24 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
+// Firefox on iOS injects a `window.__firefox__.reader` global for its reader-mode feature and
+// references it in page-global code before that global is ready, throwing
+// `TypeError: undefined is not an object (evaluating 'window.__firefox__.reader')`. It's browser
+// noise, not a PostHog defect, so drop it before it reaches our own error tracking. Exported for
+// unit testing.
+export function dropBrowserInjectedNoise<T extends { event?: string; properties?: Record<string, any> } | null>(
+    event: T
+): T | null {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const list = (event.properties?.$exception_list ?? []) as Array<{ value?: string }>
+    if (list.some((ex) => typeof ex?.value === 'string' && ex.value.includes('window.__firefox__.reader'))) {
+        return null
+    }
+    return event
+}
+
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
@@ -56,7 +74,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // Always drop known browser-injected noise, then run any caller-provided filters.
+            before_send: [dropBrowserInjectedNoise, options.beforeSend].flat().filter((fn): fn is BeforeSendFn => !!fn),
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
