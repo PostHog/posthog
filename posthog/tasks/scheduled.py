@@ -108,6 +108,7 @@ from products.streamlit_apps.backend.facade.api import (
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
+    refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
@@ -289,6 +290,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="45"),
         bake_dev_stack_image_task.s(),
         name="bake prebaked dev-stack VM image",
+    )
+
+    # Fast lane mirroring the custom-image refresh above: rebake the prebaked
+    # dev-stack image when the VM base image digest changes (e.g. a new
+    # agent-server release), at most once per new digest.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_dev_stack_image_task.s(),
+        name="refresh prebaked dev-stack VM image on base change",
+        expires_seconds=10 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

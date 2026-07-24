@@ -36,3 +36,13 @@ def bake_dev_stack_image_task() -> None:
     )
 
     execute_bake_dev_stack_image_workflow()
+
+
+@shared_task(ignore_result=True)
+def refresh_dev_stack_image_task() -> None:
+    """Rebake the prebaked dev-stack image when the VM base image digest changes."""
+    from products.tasks.backend.logic.services.dev_stack_image import (  # noqa: PLC0415 — keeps the service deps off the import path
+        refresh_dev_stack_image_if_base_changed,
+    )
+
+    refresh_dev_stack_image_if_base_changed()
