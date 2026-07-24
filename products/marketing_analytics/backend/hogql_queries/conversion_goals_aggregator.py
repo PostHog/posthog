@@ -10,7 +10,10 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
 
-from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    UNKNOWN_CHANNEL,
+)
 
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
@@ -164,6 +167,16 @@ class ConversionGoalsAggregator:
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
             ]
             group_by_exprs: list[ast.Expr] = [campaign_field_expr]
+        elif level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
+            # campaign_field holds the channel; source stays a real key. No campaign name
+            # mappings here — they key off campaign, which this level doesn't group by.
+            final_select = [
+                ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr),
+                ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                ast.Alias(alias=self.config.source_field, expr=source_field_expr),
+                ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+            ]
+            group_by_exprs = [campaign_field_expr, source_field_expr]
         else:
             # Campaign level — apply campaign name mappings
             mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
@@ -399,17 +412,21 @@ class ConversionGoalsAggregator:
         level = self.config.drill_down_level
         group_by_fields = self.config.group_by_fields
 
+        # CHANNEL_SOURCE only needs the grouping alias here; `_append_sessions_join` overwrites it
+        # with a coalesce that also spans the sessions side.
         if level in (
             MarketingAnalyticsDrillDownLevel.CHANNEL,
+            MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
             MarketingAnalyticsDrillDownLevel.SOURCE,
             MarketingAnalyticsDrillDownLevel.MEDIUM,
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
             campaign_field = self.config.campaign_field
-            # "Unknown" = DefaultChannelTypes.UNKNOWN; "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
+            # "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
             fallback_map = {
-                MarketingAnalyticsDrillDownLevel.CHANNEL: "Unknown",
+                MarketingAnalyticsDrillDownLevel.CHANNEL: UNKNOWN_CHANNEL,
+                MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE: UNKNOWN_CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE: self.config.organic_source,
                 MarketingAnalyticsDrillDownLevel.MEDIUM: "(none)",
                 MarketingAnalyticsDrillDownLevel.CONTENT: "(none)",
