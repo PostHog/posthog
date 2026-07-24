@@ -18,7 +18,7 @@ from posthog.models.user import User
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _account_type, find_task_run
 
 
@@ -444,6 +444,38 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
+
+    @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_repairs_missing_artifact_for_existing_pr_url(
+        self, mock_capture, mock_get_secret, mock_feature_enabled
+    ) -> None:
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/780"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/missing-artifact",
+            output={"pr_url": pr_url},
+        )
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "feature/missing-artifact", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task, payload__pr_url=pr_url).exists()
+        )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

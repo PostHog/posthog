@@ -1581,6 +1581,10 @@ class BaseTestMigrations(QueryMatchingTest):
         super().setUpClass()  # type: ignore[misc]
 
     def setUp(self):
+        # In-process reruns (pytest --reruns) re-enter setUp without setUpClass, and a
+        # connection can also drop after class setup, so reset again here — otherwise the
+        # dead wrapper is reused and the test can never recover.
+        reset_unusable_db_connections()
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )

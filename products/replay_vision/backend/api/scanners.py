@@ -12,7 +12,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -40,6 +40,10 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
+from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
@@ -1086,6 +1090,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
         )
+        if outcome is WorkflowStartOutcome.CAPPED:
+            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
+            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},
@@ -1125,7 +1132,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
         # the user knows which limit they hit. Decrementing a local counter as we start models each new
         # in-flight row without re-querying (a started scan consumes exactly one slot).
-        max_starts, skip_reason = self._bulk_observe_headroom(scanner)
+        max_starts, skip_reason, team_rows, scanner_rows = self._bulk_observe_headroom(scanner)
         results: list[dict[str, str]] = []
         started = 0
         for session_id in session_ids:
@@ -1133,7 +1140,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 results.append({"session_id": session_id, "scan_outcome": skip_reason})
                 continue
             workflow_id, outcome = start_apply_scanner_workflow(
-                scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
+                scanner,
+                session_id,
+                triggered_by_user_id=user.id,
+                trigger=ObservationTrigger.ON_DEMAND,
+                # Row counts are this request's snapshot; the atomic claim inside makes racing
+                # requests visible to each other, which the snapshot alone cannot.
+                team_in_flight_rows=team_rows,
+                scanner_in_flight_rows=scanner_rows,
             )
             if outcome is WorkflowStartOutcome.STARTED:
                 started += 1
@@ -1141,6 +1155,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
                 # Already in flight — counted in the caps already, so it consumes no new headroom.
                 results.append({"session_id": session_id, "scan_outcome": "already_running"})
+            elif outcome is WorkflowStartOutcome.CAPPED:
+                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
+                results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
+                max_starts = started
+                skip_reason = "skipped_limit"
             else:
                 results.append({"session_id": session_id, "scan_outcome": "failed"})
 
@@ -1149,15 +1168,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             status=status.HTTP_202_ACCEPTED,
         )
 
-    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str]:
-        """(max_starts, skip_reason): how many new scans can start, and the reason once that's used up."""
+    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
+        """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
+        reason once that's used up, and the row counts reused by the per-start slot claims."""
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
         scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
+        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
         in_flight_limit = max(
             0,
             min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight - pending_enqueue_claims_for_scanner(scanner.id),
+                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(self.team_id),
             ),
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
@@ -1166,8 +1187,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
-            return quota_limit, "skipped_quota"
-        return in_flight_limit, "skipped_limit"
+            return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
+        return in_flight_limit, "skipped_limit", team_in_flight, scanner_in_flight
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(

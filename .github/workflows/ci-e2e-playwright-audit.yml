@@ -1,8 +1,7 @@
 # Nightly flake-rate audit for the Playwright suite.
 #
-# The main E2E Playwright workflow retries each test 3 times, which masks per-test
-# flake rate (a test failing 50% of the time still shows green 93.75% of the time
-# across 4 attempts). This workflow re-runs the same suite with PLAYWRIGHT_RETRIES=0
+# The main E2E Playwright workflow retries each test once as a flake safety net.
+# This workflow re-runs the same suite with PLAYWRIGHT_RETRIES=0
 # on a nightly cron, so we can rank tests by raw failure rate and feed that signal
 # back into prioritization.
 #
