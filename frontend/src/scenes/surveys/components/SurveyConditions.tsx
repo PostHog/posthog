@@ -7,6 +7,7 @@ import {
     IconCursorClick,
     IconFlag,
     IconGlobe,
+    IconInfo,
     IconLaptop,
     IconPerson,
 } from '@posthog/icons'
@@ -28,7 +29,7 @@ export function SurveyConditionsList({ conditions }: { conditions: SurveyConditi
     return (
         <div className="flex flex-col gap-1.5">
             {conditions.map(({ type, label, value }) => {
-                const Icon = SURVEY_CONDITION_ICON[type]
+                const Icon = SURVEY_CONDITION_ICON[type] ?? IconInfo
                 return (
                     <div key={type} className="flex items-center gap-2 text-sm">
                         <Icon className="text-muted shrink-0 text-base" />
