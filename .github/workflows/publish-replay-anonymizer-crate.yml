@@ -80,7 +80,9 @@ jobs:
 
     publish:
         name: Publish to crates.io
-        runs-on: depot-ubuntu-24.04
+        # Not on a Depot runner: this job holds CARGO_REGISTRY_TOKEN and Depot injects the shared
+        # sccache WebDAV credentials ambiently, which a malicious dependency build script could read.
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
         permissions:
@@ -140,14 +142,9 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              if: steps.version.outputs.publish-needed == 'true'
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-
-            - name: Install sccache
-              if: steps.version.outputs.publish-needed == 'true'
-              uses: ./.github/actions/setup-sccache
-
+            # No sccache here: cargo publish runs dependency build scripts with CARGO_REGISTRY_TOKEN
+            # present, so it must not read the fork-writable shared compiler cache. rust-cache is
+            # GitHub's own cache (fork-isolated, master-write-only below), so it stays.
             - name: Cache Rust dependencies
               if: steps.version.outputs.publish-needed == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
