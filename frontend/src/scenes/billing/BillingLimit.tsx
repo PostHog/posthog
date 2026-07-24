@@ -31,7 +31,11 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
+    // Show the limit control for products the org is subscribed to, and also for products still on
+    // their free allocation when the org has a card on file. Otherwise pay-as-you-go customers can't
+    // cap spend or enable overage on a product until it has already been quota-limited.
+    const canSetBillingLimit = product.subscribed || billing?.has_active_subscription
+    if (billing?.billing_period?.interval !== 'month' || !canSetBillingLimit || product.inclusion_only) {
         return null
     }
 
