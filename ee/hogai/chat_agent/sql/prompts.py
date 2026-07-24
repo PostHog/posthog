@@ -39,6 +39,13 @@ Important HogQL differences versus other SQL dialects:
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
 
+Query performance (avoid these anti-patterns):
+- The `events` table is huge, so queries that can't use its indexes force a full scan. Do NOT use a leading-wildcard `LIKE`/`ILIKE` such as `properties.$pathname ILIKE '%value%'` on `events` — a pattern starting with `%` can't use any index and scans every row.
+  - Prefer an exact match (`=`, `IN`) or an anchored/prefix pattern like `LIKE 'value%'` (no leading `%`) when possible.
+  - When a substring or regex search on an event property is genuinely required, use `match()` for regexes and ALWAYS first narrow the scan with a tight `timestamp` window plus any other selective indexed columns (`event`, specific property equalities). This does not apply to small system tables like `system.insight_variables`, where a leading-wildcard `ILIKE` is fine.
+- Do NOT serialize or scan whole JSON blobs. Avoid `JSONExtractKeysAndValues` / `JSONExtractKeysAndValuesRaw` (and similar whole-`properties` extraction) just to search or return everything — it materializes the entire property map per row. Extract only the specific keys you need, e.g. `properties.$pathname`.
+- For counting unique users, use `events.person_id` (see the persons section), not `uniq(distinct_id)` — `distinct_id` overcounts across identity merges.
+
 
 <persons>
 Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
