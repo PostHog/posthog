@@ -79,6 +79,32 @@ describe('reverseProxyCheckerLogic', () => {
             })
     })
 
+    it('should treat a null response as no reverse proxy without capturing an exception', async () => {
+        // Regression test: when the HogQL query resolves to a null body, reading `res.results`
+        // threw a TypeError that the catch re-reported via captureException on every scene mount.
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [200, null],
+            },
+        })
+
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: false,
+            })
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+
+        captureExceptionSpy.mockRestore()
+    })
+
     it('should swallow server errors silently instead of showing a toast', async () => {
         // Regression test: previously a 500 from the HogQL endpoint would propagate
         // through kea-loaders and surface a user-visible
