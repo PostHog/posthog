@@ -24,17 +24,8 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonSkeleton,
-    LemonTag,
-    Spinner,
-    SpinnerOverlay,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -45,7 +36,6 @@ import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -211,118 +201,84 @@ function LiveUsersRightNow(): JSX.Element {
     )
 }
 
-// Quiet reference chip for the facts every setup flow asks for (token, project ID, region)
+// The facts every setup flow asks for, as three identically built chips: label | value | copy
 function ProjectFactChip({
     label,
     value,
+    display,
     mono = true,
-    copy,
+    copyTooltip,
+    copyThing,
+    action,
 }: {
     label: string
     value: string
+    /** Shown in the chip when it should differ from the copied value (e.g. region vs API host) */
+    display?: string
     mono?: boolean
-    copy?: { tooltip: string; thing: string; action: string }
+    copyTooltip: string
+    copyThing: string
+    action: string
 }): JSX.Element {
     return (
         <div className="inline-flex items-stretch rounded border bg-bg-light overflow-hidden max-w-full min-w-0">
             <span className="flex items-center px-3 border-r bg-fill-tertiary text-xs font-medium text-secondary whitespace-nowrap">
                 {label}
             </span>
-            <span className={cnFactValue(mono)}>{value}</span>
-            {copy && (
-                <div className="flex items-center px-2 border-l">
-                    <LemonButton
-                        noPadding
-                        icon={<IconCopy />}
-                        tooltip={copy.tooltip}
-                        onClick={() => {
-                            captureQuickstartAction(copy.action)
-                            void copyToClipboard(value, copy.thing)
-                        }}
-                        data-attr={`quickstart-${copy.action.replace(/_/g, '-')}`}
-                    />
-                </div>
-            )}
+            <span className={`${mono ? 'font-mono ' : ''}text-xs min-w-0 max-w-80 px-3 py-2 truncate`}>
+                {display ?? value}
+            </span>
+            <div className="flex items-center px-2 border-l">
+                <LemonButton
+                    noPadding
+                    icon={<IconCopy />}
+                    tooltip={copyTooltip}
+                    onClick={() => {
+                        captureQuickstartAction(action)
+                        void copyToClipboard(value, copyThing)
+                    }}
+                    data-attr={`quickstart-${action.replace(/_/g, '-')}`}
+                />
+            </div>
         </div>
     )
 }
 
-function cnFactValue(mono: boolean): string {
-    return `${mono ? 'font-mono ' : ''}text-xs min-w-0 max-w-80 px-3 py-2 truncate`
-}
-
-function ProjectFacts(): JSX.Element | null {
+function ProjectFactsBar(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
 
-    if (!currentTeam) {
+    if (!currentTeam?.api_token) {
         return null
     }
     const region = preflight?.region === Region.DEV ? 'DEV' : (preflight?.region ?? 'local')
 
     return (
         <>
-            <Tooltip title="Copy project ID" placement="top">
-                <LemonTag
-                    className="cursor-pointer font-mono"
-                    onClick={() => {
-                        captureQuickstartAction('copy_project_id')
-                        void copyToClipboard(String(currentTeam.id), 'project ID')
-                    }}
-                    data-attr="quickstart-copy-project-id"
-                >
-                    ID {currentTeam.id}
-                </LemonTag>
-            </Tooltip>
-            <Tooltip title={`Region – click to copy the API host: ${apiHostOrigin()}`} placement="top">
-                <LemonTag
-                    className="cursor-pointer"
-                    onClick={() => {
-                        captureQuickstartAction('copy_api_host')
-                        void copyToClipboard(apiHostOrigin(), 'API host')
-                    }}
-                    data-attr="quickstart-copy-api-host"
-                >
-                    {region}
-                </LemonTag>
-            </Tooltip>
-        </>
-    )
-}
-
-function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-
-    if (!currentTeam?.api_token) {
-        return null
-    }
-    const projectToken = currentTeam.api_token
-
-    // Once data is flowing the token is reference material, not a setup step, so it
-    // collapses to a quiet single line
-    if (inline) {
-        return (
             <ProjectFactChip
                 label="Project token"
-                value={projectToken}
-                copy={{ tooltip: 'Copy project token', thing: 'project token', action: 'copy_project_token' }}
+                value={currentTeam.api_token}
+                copyTooltip="Copy project token"
+                copyThing="project token"
+                action="copy_project_token"
             />
-        )
-    }
-
-    return (
-        <div
-            className="flex flex-col gap-1 w-fit max-w-full min-w-0"
-            onClick={() => captureQuickstartAction('copy_project_token')}
-            data-attr="quickstart-copy-project-token"
-        >
-            <LemonLabel info="Every SDK snippet uses it. Write-only, so it's safe in public apps.">
-                Project token
-            </LemonLabel>
-            <CodeSnippet compact wrap thing="project token">
-                {projectToken}
-            </CodeSnippet>
-        </div>
+            <ProjectFactChip
+                label="Project ID"
+                value={String(currentTeam.id)}
+                copyTooltip="Copy project ID"
+                copyThing="project ID"
+                action="copy_project_id"
+            />
+            <ProjectFactChip
+                label="Region"
+                value={apiHostOrigin()}
+                display={region}
+                mono={false}
+                copyTooltip={`Copy API host: ${apiHostOrigin()}`}
+                copyThing="API host"
+                action="copy_api_host"
+            />
+        </>
     )
 }
 
@@ -1677,8 +1633,7 @@ export function Quickstart(): JSX.Element {
                         Connect your product's context, configure Tools, and choose how you work with PostHog.
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <ProjectToken inline />
-                        <ProjectFacts />
+                        <ProjectFactsBar />
                         {/* In focused-install mode the wizard progress renders as the page hero instead */}
                         {!focusedInstall && (
                             <QuickstartInstallationPrompt installationComplete={installationComplete} />
