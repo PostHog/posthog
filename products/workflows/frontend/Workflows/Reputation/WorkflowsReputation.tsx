@@ -55,10 +55,11 @@ function formatRate(rate: number): string {
     return percentage(rate, 2, true)
 }
 
-// Must match the evaluator's window config (nodejs/src/cdp/services/email-reputation: n=1,000, nHours=24)
-// and the endpoint's cap (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
+// Must match the evaluator's window config (nodejs/src/cdp/services/email-reputation: representative
+// volume = max(1,000, 3× the biggest sending day), min window 24h, 30d lookback) and the endpoint's
+// cap (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
 const EVALUATION_WINDOW_TOOLTIP =
-    'Rates are calculated over your most recent sending: at least the last 24 hours and at least the last 1,000 emails, whichever covers more (up to 30 days back). Whole hourly batches are included, so the count can land just past 1,000.'
+    'Rates are calculated over your most recent sending: roughly 3 times your biggest sending day of the last 30 days (at least 1,000 emails, and at least the last 24 hours), so a single campaign never dominates the score. The window looks back up to 30 days.'
 const WORKFLOW_LIMIT = 50
 
 function MetricLabel({ label, tooltip }: { label: string; tooltip: string }): JSX.Element {
