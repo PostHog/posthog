@@ -184,6 +184,53 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
             self.run_function(inputs=self.create_inputs())
         assert e.value.message == "Error from intercom api (status 400): {'error': 'error'}"
 
+    def test_conflict_on_create_falls_back_to_update(self):
+        self.fetch_responses = {
+            "https://api.intercom.io/contacts/search": {
+                "status": 200,
+                "body": {"total_count": 0},
+            },
+            "https://api.intercom.io/contacts": {
+                "status": 409,
+                "body": {
+                    "type": "error.list",
+                    "errors": [
+                        {
+                            "code": "conflict",
+                            "message": "A contact matching those details already exists with id=63a4f",
+                        }
+                    ],
+                },
+            },
+            "https://api.intercom.io/contacts/63a4f": {
+                "status": 200,
+                "body": {"ok": True},
+            },
+        }
+
+        self.run_function(inputs=self.create_inputs())
+
+        # The losing invocation should update the contact the winner created instead of throwing.
+        assert self.get_mock_fetch_calls()[2] == (
+            "https://api.intercom.io/contacts/63a4f",
+            {
+                "method": "PUT",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
+                },
+                "body": {
+                    "email": "max@posthog.com",
+                    "custom_attributes": {},
+                    "name": "Max AI",
+                    "phone": "+1234567890",
+                    "last_seen_at": "1234567890",
+                },
+            },
+        )
+
     def test_function_errors_on_multiple_contacts(self):
         self.mock_fetch_response = lambda *args: {  # type: ignore
             "status": 200,
