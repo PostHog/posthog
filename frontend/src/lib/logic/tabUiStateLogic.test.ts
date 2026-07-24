@@ -66,28 +66,27 @@ describe('tabUiStateLogic', () => {
         expect(tabUiStateLogic.values.expandedRowsFor(undefined, 'unknown-viz')).toEqual([])
     })
 
-    it('survives dataTableLogic unmount and remount with the same tabId/vizKey', () => {
-        // Mount, toggle a row, then unmount — simulating React tab switch.
+    it('survives dataTableLogic unmount and remount with the same vizKey', () => {
+        // Mount, toggle a row, then unmount — simulating React tab switch. dataTableLogic has no
+        // tabId prop — every DataTable shares the NO_TAB bucket, distinguished only by vizKey.
         let logic = dataTableLogic({
             dataKey: 'dk',
             vizKey: VIZ_KEY,
-            tabId: TAB_A,
             query: dataTableQuery,
         })
         logic.mount()
         logic.actions.toggleRowExpanded(4)
-        expect(logic.values.expandedRows).toEqual([4])
+        expect(logic.values.expandedRowKeys).toEqual([4])
         logic.unmount()
 
         // Remount with the same identity — state must come back from tabUiStateLogic.
         logic = dataTableLogic({
             dataKey: 'dk',
             vizKey: VIZ_KEY,
-            tabId: TAB_A,
             query: dataTableQuery,
         })
         logic.mount()
-        expect(logic.values.expandedRows).toEqual([4])
+        expect(logic.values.expandedRowKeys).toEqual([4])
         logic.unmount()
     })
 
@@ -95,7 +94,6 @@ describe('tabUiStateLogic', () => {
         const logicA = dataTableLogic({
             dataKey: 'dk-a',
             vizKey: `viz-${TAB_A}`,
-            tabId: TAB_A,
             query: dataTableQuery,
         })
         logicA.mount()
@@ -104,15 +102,14 @@ describe('tabUiStateLogic', () => {
         const logicB = dataTableLogic({
             dataKey: 'dk-b',
             vizKey: `viz-${TAB_B}`,
-            tabId: TAB_B,
             query: dataTableQuery,
         })
         logicB.mount()
-        expect(logicB.values.expandedRows).toEqual([])
+        expect(logicB.values.expandedRowKeys).toEqual([])
         logicB.actions.toggleRowExpanded(2)
 
-        expect(logicA.values.expandedRows).toEqual([1])
-        expect(logicB.values.expandedRows).toEqual([2])
+        expect(logicA.values.expandedRowKeys).toEqual([1])
+        expect(logicB.values.expandedRowKeys).toEqual([2])
 
         logicA.unmount()
         logicB.unmount()

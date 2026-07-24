@@ -14,6 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { type ExpandedRowKey } from 'lib/logic/tabUiStateLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -31,7 +32,13 @@ import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import {
+    DataTableLogicProps,
+    DataTableRow,
+    dataTableLogic,
+    dedupeRowKeys,
+    isExpandableRow,
+} from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
@@ -216,7 +223,8 @@ export function DataTable({
         queryWithDefaults,
         canSort,
         sourceFeatures,
-        expandedRows,
+        expandedRowKeys,
+        getExpandedRowKey,
     } = useValues(dataTableLogic(dataTableLogicProps))
     const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
@@ -741,9 +749,12 @@ export function DataTable({
                 ? contextExpandable
                 : expandable && columnsInResponse?.includes('*')
                   ? {
-                        isRowExpanded: (_: DataTableRow, rowIndex: number) => expandedRows.includes(rowIndex),
-                        onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
-                        onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
+                        isRowExpanded: (row: DataTableRow, rowIndex: number) =>
+                            expandedRowKeys.includes(getExpandedRowKey(row, rowIndex)),
+                        onRowExpand: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(getExpandedRowKey(row, rowIndex)),
+                        onRowCollapse: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(getExpandedRowKey(row, rowIndex)),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
                             if (isEventsQuery(query.source) && Array.isArray(result)) {
                                 return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
@@ -752,12 +763,37 @@ export function DataTable({
                                 return <EventDetails event={result as EventType} />
                             }
                         },
-                        rowExpandable: ({ result }: DataTableRow) => !!result,
+                        rowExpandable: isExpandableRow,
                         noIndent: true,
                     }
                   : undefined,
-        [contextExpandable, expandable, columnsInResponse, expandedRows, toggleRowExpanded, query.source]
+        [
+            contextExpandable,
+            expandable,
+            columnsInResponse,
+            expandedRowKeys,
+            toggleRowExpanded,
+            query.source,
+            getExpandedRowKey,
+        ]
     )
+
+    // Identity-based React keys are only used where this table actually drives expansion by event
+    // identity — the same guard as `expandableConfig` above. Everywhere else (and whenever expansion
+    // is owned by `context.expandable`) LemonTable keeps its positional keys, so the change can't
+    // alter reconciliation for the many other DataTable consumers. Within that scope, duplicate
+    // event ids are disambiguated so no two rows share a React key.
+    const getTableRowKey = useMemo<((row: DataTableRow, rowIndex: number) => ExpandedRowKey) | undefined>(() => {
+        const identityKeyed = !contextExpandable && expandable && !!columnsInResponse?.includes('*')
+        if (!identityKeyed) {
+            return undefined
+        }
+        const rows = dataTableRows ?? []
+        const uniqueKeys = dedupeRowKeys(rows.map((row, rowIndex) => getExpandedRowKey(row, rowIndex)))
+        const keyByRow = new Map<DataTableRow, ExpandedRowKey>(rows.map((row, i) => [row, uniqueKeys[i]]))
+        return (row: DataTableRow, rowIndex: number): ExpandedRowKey =>
+            keyByRow.get(row) ?? getExpandedRowKey(row, rowIndex)
+    }, [contextExpandable, expandable, columnsInResponse, dataTableRows, getExpandedRowKey])
 
     const rowActions = useMemo(
         () =>
@@ -1032,9 +1068,12 @@ export function DataTable({
                                     ) /* Bust the LemonTable cache when columns change */
                                 }
                                 dataSource={dataTableRows ?? NO_ROWS}
-                                rowKey={(_, rowIndex) => {
-                                    return rowIndex
-                                }}
+                                // For expandable event tables, key rows by the same stable identity
+                                // used for expansion so a refresh that reorders events keeps each
+                                // row's React key (and its expanded EventDetails subtree) instead of
+                                // remounting it. `undefined` elsewhere keeps LemonTable's positional
+                                // keys for every other DataTable consumer.
+                                rowKey={getTableRowKey}
                                 sorting={null}
                                 useURLForSorting={false}
                                 emptyState={
