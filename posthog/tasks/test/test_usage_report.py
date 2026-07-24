@@ -83,6 +83,7 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -287,6 +288,21 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 created_by=self.user,
                 active=True,
                 deleted=True,
+            )
+
+            ReplayScanner.objects.create(
+                team=self.org_1_team_1,
+                name="Enabled scanner",
+                scanner_type=ScannerType.MONITOR,
+                model=ScannerModel.GEMINI_3_6_FLASH,
+                enabled=True,
+            )
+            ReplayScanner.objects.create(
+                team=self.org_1_team_1,
+                name="Disabled scanner",
+                scanner_type=ScannerType.MONITOR,
+                model=ScannerModel.GEMINI_3_6_FLASH,
+                enabled=False,
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
@@ -673,6 +689,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_billable_recording_count_in_period": 0,
                     "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
+                    "replay_vision_observation_count_in_period": 0,
+                    "replay_vision_scanner_count": 2,
+                    "replay_vision_scanner_active_count": 1,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -751,6 +770,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 2,
+                            "replay_vision_scanner_active_count": 1,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -823,6 +845,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 0,
+                            "replay_vision_scanner_active_count": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -918,6 +943,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_billable_recording_count_in_period": 0,
                     "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
+                    "replay_vision_observation_count_in_period": 0,
+                    "replay_vision_scanner_count": 0,
+                    "replay_vision_scanner_active_count": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -996,6 +1024,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 0,
+                            "replay_vision_scanner_active_count": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,

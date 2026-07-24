@@ -11,6 +11,7 @@ from products.replay_vision.backend.billing import (
     GEMINI_MODELS,
     OBSERVATION_CREDITS_BY_MODEL,
     get_replay_vision_credits_by_team,
+    get_replay_vision_observations_by_team,
     observation_credits_for_model,
     suggested_observation_credits,
 )
@@ -50,6 +51,19 @@ class TestReplayVisionBillingUsage(APIBaseTest):
 
         result = dict(get_replay_vision_credits_by_team(begin, end))
         assert result == {self.team.id: 15 + 2, self.team.id + 1: 15}
+
+    def test_counts_receipts_per_team_not_credit_sum(self) -> None:
+        now = timezone.now()
+        begin = now - timedelta(days=1)
+        end = now + timedelta(days=1)
+        # Mixed prices so a count can't be mistaken for the credit sum (15 + 2 credits, but 2 observations).
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
+        self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
+        self._receipt(team_id=self.team.id + 1, created_at=now)
+
+        result = dict(get_replay_vision_observations_by_team(begin, end))
+        assert result == {self.team.id: 2, self.team.id + 1: 1}
 
     def test_sums_frozen_receipt_credits_not_live_prices(self) -> None:
         # A receipt priced before a table change keeps billing at its frozen amount.
