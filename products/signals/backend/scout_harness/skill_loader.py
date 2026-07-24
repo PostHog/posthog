@@ -8,7 +8,7 @@ from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
@@ -43,11 +43,16 @@ MAX_SKILL_EDITORS_IN_PROMPT = 5
 
 @dataclass(frozen=True)
 class SkillAuthor:
-    """One human who published at least one version of the skill, for reviewer routing."""
+    """One human tied to the skill for reviewer routing.
+
+    `role="owner"` is the explicit, durable owner set (from `LLMSkillOwner`) and takes precedence.
+    `creator`/`editor` are the legacy reconstruction from version-row authorship, used only when a
+    skill has no explicit owners. For an owner, `last_authored_at` is the owner-since date.
+    """
 
     name: str
     email: str
-    role: Literal["creator", "editor"]
+    role: Literal["owner", "creator", "editor"]
     last_authored_at: datetime
 
 
@@ -90,19 +95,87 @@ def is_signals_scout_skill(skill: LLMSkill) -> bool:
     return skill.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
 
 
+def resolve_skill_owner_user_uuids(team: Team, skill_name: str) -> list[str]:
+    """Owner user UUIDs for a logical skill, seed-creator first — for the reviewer guardrail.
+
+    Restricted to `team.all_users_with_access()` (same privacy boundary as the author scan): an
+    owner who lost access can't be routed a review and their identity shouldn't leak downstream.
+    """
+    return [
+        str(uuid)
+        # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
+        for uuid in LLMSkillOwner.objects.for_team(team.id, canonical=True)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .order_by("created_at", "id")
+        .values_list("user__uuid", flat=True)
+    ]
+
+
+def _skill_has_owner_rows(team: Team, skill_name: str) -> bool:
+    """Whether the logical skill has any owner rows at all — including owners who lost access.
+
+    Distinguishes "no explicit owners, use version history" from "owned, but currently unroutable",
+    so the latter never silently drifts back to the version-history heuristic.
+    """
+    return LLMSkillOwner.objects.for_team(team.id, canonical=True).filter(skill_name=skill_name).exists()
+
+
+def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
+    """The explicit owner set as `SkillAuthor`s (role="owner"), seed-creator first.
+
+    Same membership filter as the legacy scan. Empty when the skill has no explicit owners, which
+    is the signal to fall back to version-history reconstruction.
+    """
+    rows = (
+        # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
+        LLMSkillOwner.objects.for_team(team.id, canonical=True)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .values("user__first_name", "user__last_name", "user__email", "created_at")
+        .order_by("created_at", "id")
+    )
+    authors: list[SkillAuthor] = []
+    for row in rows:
+        # Collapse whitespace so a multi-line display name can't break the prompt's one-line list item.
+        name = " ".join(f"{row['user__first_name']} {row['user__last_name']}".split())
+        authors.append(
+            SkillAuthor(
+                name=name or row["user__email"],
+                email=row["user__email"],
+                role="owner",
+                last_authored_at=row["created_at"],
+            )
+        )
+    return authors
+
+
 def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
-    """Distinct humans across the skill's version rows: creator first, then editors by recency.
+    """Humans to route reviews to. Prefers the explicit owner set; falls back to version history.
 
-    One indexed aggregate over all version rows for `(team, name)` — versions are capped at
-    `MAX_SKILL_VERSION`, so this stays cheap regardless of edit churn. Rows with a null
-    `created_by` (system-seeded versions, deleted users) carry no routable identity and are
-    skipped; a skill with only such rows resolves to no authors.
+    When the skill carries explicit owners (`LLMSkillOwner`), they win — ownership is keyed on the
+    logical skill and never drifts when the body is edited, so it's the authoritative answer to
+    "who owns this scout?". Only when there are no owners does this reconstruct authorship from
+    version rows (creator first, then editors by recency), the best-effort legacy heuristic that a
+    bulk edit could misattribute.
 
-    Authors are restricted to `team.all_users_with_access()` — the same boundary the
+    Version-history path: one indexed aggregate over all version rows for `(team, name)` — capped at
+    `MAX_SKILL_VERSION`, so cheap regardless of churn. Rows with a null `created_by` (system-seeded
+    versions, deleted users) carry no routable identity and are skipped.
+
+    Both paths restrict to `team.all_users_with_access()` — the same boundary the
     `scout-members-list` reviewer roster uses. A former member's profile (notably the
     self-editable display name) must not keep flowing into a privileged prompt after their
-    access is revoked, and an unroutable author would only waste an editor slot anyway.
+    access is revoked, and an unroutable author would only waste a slot anyway.
     """
+    owners = _resolve_owner_authors(team, skill_name)
+    if owners:
+        return owners
+    # A skill with owner rows is authoritatively owned — even if every owner has since lost access.
+    # Falling back to version-history reconstruction here would re-introduce exactly the editor drift
+    # this primitive exists to prevent, so an owned-but-currently-unroutable skill gets no reviewer
+    # rather than a guessed one. Only a skill with *no* owner rows uses the legacy heuristic.
+    if _skill_has_owner_rows(team, skill_name):
+        return []
+
     rows = (
         LLMSkill.objects.filter(
             team=team,

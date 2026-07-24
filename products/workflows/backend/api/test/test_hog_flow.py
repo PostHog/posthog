@@ -161,6 +161,21 @@ class TestHogFlowAPI(APIBaseTest):
         web_actions = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": trigger_only})
         assert web_actions.status_code == 200, web_actions.json()
 
+    def test_invalid_action_input_error_carries_the_field_message(self):
+        # A programmatic caller sending a broken function input must get back the validator's
+        # actual message (what is wrong with which field), not a bare code: agents retry blind
+        # on "invalid_input" and thrash. Locks the whole pipeline serializer -> exception
+        # handler envelope.
+        hog_flow, _ = self._create_hog_flow_with_action({"template_id": "template-webhook", "inputs": {}})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert "url" in (body["attr"] or ""), body
+        assert "required" in body["detail"].lower(), body
+
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(pk=flow_id)
