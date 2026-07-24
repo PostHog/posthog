@@ -3601,6 +3601,20 @@
             "readOnlyHint": true
         }
     },
+    "experiment-activity": {
+        "description": "Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment and its holdouts and shared metrics: who made each change, what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the flag itself — use feature-flags-activity-retrieve with the flag's ID for those.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment change history",
+        "title": "Get experiment change history",
+        "required_scopes": ["activity_log:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-archive": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
