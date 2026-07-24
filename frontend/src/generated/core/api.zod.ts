@@ -3970,7 +3970,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyNameMax = 200
 
@@ -4586,7 +4587,8 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyNameMax = 200
 
