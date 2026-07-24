@@ -2,7 +2,7 @@
 name: resolving-ingestion-warnings
 description: >
   Diagnoses and resolves PostHog ingestion warnings — problems recorded while ingesting events (dropped events, rejected person merges, oversized payloads, invalid data).
-  Use when a user asks why events are missing, dropped, or undercounted, why identify/alias calls don't work or accounts stay duplicated, why person or group properties aren't updating or profiles look inflated, why recordings have gaps, heatmaps are empty, LLM token counts are missing, why cookieless events vanish, or whenever `posthog:ingestion-warnings-list` returns results.
+  Use when a user asks why person merges are not working or fail silently, why events are missing, dropped, or undercounted, why identify/alias calls don't work or accounts stay duplicated, why person or group properties aren't updating or profiles look inflated, why recordings have gaps, heatmaps are empty, LLM token counts are missing, why cookieless events vanish, or whenever `posthog:ingestion-warnings-list` returns results.
   Explains severity triage (error = dropped, warning = modified, info = intentional) and routes all warning types — size limits and enrichment, merges and distinct IDs, `$process_person_profile`, timestamps, cookieless, heatmaps, transformations, session replay — to per-issue reference files with code-level causes and per-SDK fixes.
 ---
 
