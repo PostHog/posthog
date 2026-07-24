@@ -61,9 +61,8 @@ export function MCPAnalyticsInstallHero(): JSX.Element {
             <div className="text-center space-y-3">
                 <h2 className="text-2xl font-bold">Skip the setup. Instrument in one command.</h2>
                 <p className="text-muted">
-                    Run this from your MCP server's project root. The wizard detects how your server is built, installs
-                    the <code>@posthog/mcp</code> SDK, wires up your credentials, and starts capturing every tool call,
-                    agent intent, and failure.
+                    The wizard detects how your server is built, installs the PostHog MCP SDK, wires up your
+                    credentials, and starts capturing every tool call, agent intent, and failure.
                 </p>
                 <p className="text-muted text-xs">LLM inference is on us, no API key needed.</p>
             </div>
@@ -72,6 +71,7 @@ export function MCPAnalyticsInstallHero(): JSX.Element {
                 <div className="flex items-center gap-6">
                     <WizardHog className="w-28 h-28 hidden md:block shrink-0" />
                     <div className="flex-1 min-w-0 flex flex-col gap-3">
+                        <p className="text-sm text-muted mb-0">Run this from your MCP server's project root:</p>
                         <CommandBlock
                             command={command}
                             copyLabel="MCP wizard command"
