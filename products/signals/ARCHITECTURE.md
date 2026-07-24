@@ -464,19 +464,23 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                        | Type            | Description                                                                  |
-| ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `created_at`                 | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                 | DateTime        | Auto-set on save                                                             |
+| Field                               | Type            | Description                                                                       |
+| ----------------------------------- | --------------- | --------------------------------------------------------------------------------- |
+| `id`                                | UUID (PK)       | Primary key (UUIDModel)                                                            |
+| `team`                              | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                                 |
+| `autostart_enabled`                 | Boolean (null)  | Master switch for autonomous PRs; `null` (never set) leaves autostart on          |
+| `default_autostart_priority`        | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest)      |
+| `default_slack_notification_channel`| CharField (null)| Team-wide default Slack channel for inbox notifications                           |
+| `autostart_base_branches`           | JSONField       | Per-repo base-branch overrides for auto-PRs, keyed by lowercased `org/repo`       |
+| `created_at`                        | DateTime        | Auto-set on creation                                                              |
+| `updated_at`                        | DateTime        | Auto-set on save                                                                  |
 
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The threshold is no longer user-configurable in the inbox UI; everyone runs on this default.
 - `SignalUserAutonomyConfig.autostart_priority` can still hold a per-user override at the data layer (`null` = use the team default), but there is no UI to set it.
+- `autostart_base_branches` maps `org/repo` → branch name. Auto-PRs always open from a generated `posthog-code/*` branch and target the repo default branch unless the repo is mapped here — so a team on a develop-then-master (or QA-then-main) flow points its repos at that base branch. Repo keys are normalized to lowercase and must be `organization/repository`; an empty branch value removes the override. `auto_start.py` reads it to clone with `--branch` and pass the agent `--baseBranch`. Editable from the inbox "PR generation" card (Self-driving section) and via `POST /api/projects/:team_id/signals/config/`.
 
 ### `SignalUserAutonomyConfig`
 
@@ -744,8 +748,8 @@ Team-scoped singleton config for the default autonomy priority threshold. Uses `
 
 | Method | Path              | Description                            |
 | ------ | ----------------- | -------------------------------------- |
-| GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig` |
-| POST   | `signals/config/` | Update `default_autostart_priority`    |
+| GET    | `signals/config/` | Retrieve the team's `SignalTeamConfig`                                                            |
+| POST   | `signals/config/` | Update any of `autostart_enabled`, `default_autostart_priority`, `default_slack_notification_channel`, `autostart_base_branches` (partial) |
 
 #### User Autonomy Config (action on `UserViewSet`)
 
