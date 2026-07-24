@@ -845,6 +845,14 @@ export const supportLogic = kea<supportLogicType>([
                     // The request may have reached the server even though the response failed, so
                     // don't fall back to Zendesk here — that could file the ticket twice
                     posthog.captureException(e)
+                    posthog.capture('support ticket send failed', {
+                        channel: 'conversations',
+                        error: e instanceof Error ? e.message : String(e),
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
                     lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
                         hideButton: true,
                     })
@@ -1058,6 +1066,15 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
+                    posthog.capture('support ticket send failed', {
+                        channel: 'zendesk',
+                        error: error.message,
+                        status_code: response.status,
+                        kind,
+                        target_area,
+                        message_length: message?.length,
+                        current_url_length: window.location.href.length,
+                    })
                     lemonToast.error(
                         `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
                         { hideButton: true }
@@ -1089,6 +1106,14 @@ export const supportLogic = kea<supportLogicType>([
                 actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
+                posthog.capture('support ticket send failed', {
+                    channel: 'zendesk',
+                    error: e instanceof Error ? e.message : String(e),
+                    kind,
+                    target_area,
+                    message_length: message?.length,
+                    current_url_length: window.location.href.length,
+                })
 
                 // More helpful error message
                 // Use the same error message regardless of browser

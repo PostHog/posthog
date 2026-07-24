@@ -461,9 +461,21 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
                     onSuccess()
+                } else {
+                    // A null response means nothing was sent, so surface it instead of silently
+                    // resetting. Server-rejected sends are captured server-side (widget endpoint),
+                    // so we only warn the user here rather than emitting a duplicate failure event.
+                    lemonToast.error('Failed to send message. Please try again.')
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
+                posthog.capture('support ticket send failed', {
+                    channel: 'conversations',
+                    error: e instanceof Error ? e.message : String(e),
+                    message_length: content.length,
+                    current_url_length: window.location.href.length,
+                    is_new_ticket: values.view === 'new',
+                })
                 lemonToast.error('Failed to send message. Please try again.')
             } finally {
                 actions.setMessageSending(false)
