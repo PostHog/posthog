@@ -137,14 +137,15 @@ impl RoutingTable {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        // Anchor the pod watch before the initial load: a pod
-        // re-registering during bootstrap lands in the snapshot, the
-        // watch, or both — address inserts are idempotent overwrites, so
-        // double delivery is harmless and nothing can be missed.
-        let pods_anchor = self.store.current_revision().await? + 1;
-        let pods_stream = self.store.watch_pods_from(pods_anchor).await?;
+        let (snapshot_revision, pods_revision) = self.load_initial(&handler).await?;
 
-        let snapshot_revision = self.load_initial(&handler).await?;
+        // The pod watch anchors strictly after the pod snapshot, exactly
+        // like the handoff watch below: nothing older than the snapshot
+        // is ever replayed, so a registration installed by the snapshot
+        // can never be regressed by a replayed predecessor. (Anchoring
+        // before the snapshot — the coordinator's pattern — is only safe
+        // for CAS-guarded consumers; this map is last-writer-wins.)
+        let pods_stream = self.store.watch_pods_from(pods_revision + 1).await?;
 
         // Anchor the handoff watch to the snapshot's revision: every event
         // at or before it was handled by `load_initial`, every later one
@@ -226,9 +227,9 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    /// Returns the etcd revision of the handoff snapshot, so the caller
-    /// can anchor the handoff watch to it.
-    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<i64> {
+    /// Returns the etcd revisions of the handoff and pod snapshots, so
+    /// the caller can anchor each watch strictly after its own snapshot.
+    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<(i64, i64)> {
         // Catch up on any in-progress handoffs BEFORE populating the
         // routing table. The table starts empty, so every lookup fails
         // closed until it is loaded; opening the stashes first guarantees
@@ -283,7 +284,9 @@ impl RoutingTable {
         // assignment's address is a snapshot from the handoff that
         // installed the owner, and the owner may have re-registered at a
         // new address since (same pod name, new IP) without any handoff.
-        let pods = self.store.list_pods().await?;
+        // Registrations are the authority on addresses; everything else
+        // is a fallback for entries the registration feed hasn't covered.
+        let (pods, pods_revision) = self.store.list_pods_with_revision().await?;
         let mut table = self.table.write().await;
         {
             let mut addresses = self.addresses.write().expect("addresses lock poisoned");
@@ -304,7 +307,7 @@ impl RoutingTable {
         tracing::info!(count = table.len(), "loaded initial routing table");
         drop(table);
 
-        Ok(snapshot_revision)
+        Ok((snapshot_revision, pods_revision))
     }
 
     /// Keep the address map current with pod registrations. Ownership is
@@ -459,13 +462,19 @@ impl RoutingTable {
             }
             HandoffPhase::Complete => {
                 // The address must land before the table flips: the drain
-                // below dials the new owner immediately.
+                // below dials the new owner immediately. Insert only if
+                // absent — the handoff carries an address snapshotted at
+                // handoff creation, and the pod may have re-registered at
+                // a newer address since; the registration feed (a separate
+                // stream with no cross-stream ordering) is the authority
+                // and must never be overwritten by this fallback.
                 match &handoff.new_owner_address {
                     Some(address) => {
                         addresses
                             .write()
                             .expect("addresses lock poisoned")
-                            .insert(handoff.new_owner.clone(), address.clone());
+                            .entry(handoff.new_owner.clone())
+                            .or_insert_with(|| address.clone());
                     }
                     None => {
                         // Only possible for handoffs written by a

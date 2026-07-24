@@ -1494,6 +1494,79 @@ async fn handoff_delete_drains_stash_to_current_owner() {
     cancel.cancel();
 }
 
+/// A handoff Complete carries an address snapshotted at handoff creation,
+/// delivered on a stream with no ordering against the registration feed.
+/// It may only fill a hole, never overwrite: a fresher re-registration
+/// must survive a stale handoff-carried address arriving after it.
+#[tokio::test]
+async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
+    let store = test_store("addr-authority").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+    let _pod = common::start_pod_with_address(
+        Arc::clone(&store),
+        "writer-0",
+        10,
+        Some("10.0.0.2:50053".to_string()),
+        cancel.clone(),
+    );
+
+    // Settle and learn the registered address.
+    let addresses = Arc::clone(&router.addresses);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let addresses = Arc::clone(&addresses);
+        async move {
+            addresses
+                .read()
+                .unwrap()
+                .get("writer-0")
+                .map(String::as_str)
+                == Some("10.0.0.2:50053")
+        }
+    })
+    .await;
+
+    // A Complete handoff arrives carrying a stale address (snapshotted
+    // before the pod's latest registration). It must not clobber.
+    store
+        .put_handoff(&personhog_coordination::types::HandoffState {
+            partition: 0,
+            old_owner: None,
+            new_owner: "writer-0".to_string(),
+            new_owner_address: Some("10.0.0.1:50053".to_string()),
+            phase: personhog_coordination::types::HandoffPhase::Complete,
+            started_at: 0,
+            handoff_id: "h-stale-addr".to_string(),
+        })
+        .await
+        .unwrap();
+
+    // The Complete still flows through the routing table (table update +
+    // drain); wait for it to be observed, then assert the address held.
+    let table = Arc::clone(&router.table);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let table = Arc::clone(&table);
+        async move { table.read().await.get(&0).map(String::as_str) == Some("writer-0") }
+    })
+    .await;
+    assert_eq!(
+        addresses
+            .read()
+            .unwrap()
+            .get("writer-0")
+            .map(String::as_str),
+        Some("10.0.0.2:50053"),
+        "registration-fed address must survive a stale handoff-carried one"
+    );
+
+    cancel.cancel();
+}
+
 /// A leader that restarts under the same pod name at a new address while
 /// keeping its assignments produces no handoff — the router must learn
 /// the new address from the pod registration watch, or every dial keeps
