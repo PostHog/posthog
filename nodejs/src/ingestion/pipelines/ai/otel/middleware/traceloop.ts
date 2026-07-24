@@ -1,5 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { promotePosthogCustomMetadata } from './custom-metadata'
 import { OtelLibraryMiddleware } from './types'
 
 const STRIP_KEYS = [
@@ -170,6 +171,7 @@ function process(event: PluginEvent, next: () => void): void {
     for (const key of STRIP_KEYS) {
         delete props[key]
     }
+    promotePosthogCustomMetadata(props, 'traceloop.association.properties.')
     for (const key of Object.keys(props)) {
         if (key.startsWith('traceloop.association.properties.')) {
             delete props[key]

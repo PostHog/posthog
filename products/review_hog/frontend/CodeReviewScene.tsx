@@ -775,8 +775,8 @@ function DrawerPublishedTab(): JSX.Element {
         return (
             <div className="text-sm text-secondary">
                 {isPublished
-                    ? 'Nothing crossed your urgency threshold — no comments were posted to the pull request.'
-                    : "Nothing crossed your urgency threshold, and this review hasn't been published to the pull request."}
+                    ? "Nothing crossed the review's urgency threshold — no comments were posted to the pull request."
+                    : "Nothing crossed the review's urgency threshold, and this review hasn't been published to the pull request."}
             </div>
         )
     }
@@ -784,8 +784,8 @@ function DrawerPublishedTab(): JSX.Element {
         <div className="flex flex-col gap-2">
             {!isPublished && (
                 <p className="m-0 text-xs text-secondary">
-                    This review hasn't been published to the pull request yet — these findings crossed your urgency
-                    threshold, but no comments have been posted.
+                    This review hasn't been published to the pull request yet — these findings crossed the review's
+                    urgency threshold, but no comments have been posted.
                 </p>
             )}
             <div className="flex flex-col divide-y divide-primary">
@@ -807,14 +807,15 @@ function DrawerBelowThresholdTab(): JSX.Element {
     if (!reviewFindingsSplit.belowThreshold.length) {
         return (
             <div className="text-sm text-secondary">
-                Nothing was held back — every validated finding crossed your urgency threshold.
+                Nothing was held back — every validated finding crossed the review's urgency threshold.
             </div>
         )
     }
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                Validated as real, but under the bar you set — kept here instead of the pull request.
+                Validated as real, but under the urgency bar this review ran with — kept here instead of the pull
+                request.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.belowThreshold.map((finding, i) => (
@@ -993,7 +994,13 @@ function ReviewDetailDrawer(): JSX.Element {
                     tabs={[
                         {
                             key: 'published',
-                            label: `Published${reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''}`,
+                            // "Published" is a claim about the PR — only make it when the review
+                            // actually posted; findings a store-only run kept above the bar read
+                            // "Kept". `review` falls back to the list row, so a published review
+                            // doesn't flash "Kept" while its detail loads.
+                            label: `${review?.published ? 'Published' : 'Kept'}${
+                                reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
+                            }`,
                             content: <DrawerPublishedTab />,
                         },
                         {

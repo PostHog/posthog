@@ -15,6 +15,10 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
+
+from products.customer_analytics.backend.events import emit_account_custom_property_changed
 from products.customer_analytics.backend.models import (
     Account,
     CustomPropertyDefinition,
@@ -65,6 +69,8 @@ def set_custom_property_value(
     definition_id: str | UUID,
     value: Any,
     created_by_id: int | None = None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> CustomPropertyValue:
     """Set an account's value for a custom property, preserving history.
 
@@ -82,7 +88,13 @@ def set_custom_property_value(
         raise CustomPropertyDefinitionNotFound(definition_id) from exc
     _assert_account_in_team(team_id=team_id, account_id=account_id)
     return _set_value(
-        team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+        team_id=team_id,
+        account_id=account_id,
+        definition=definition,
+        value=value,
+        created_by_id=created_by_id,
+        actor=actor,
+        workflow_id=workflow_id,
     )
 
 
@@ -92,6 +104,8 @@ def set_account_custom_properties_by_id(
     account_id: str | UUID,
     properties: dict[str, Any],
     created_by_id: int | None = None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> list[CustomPropertyValue]:
     """Set several of an account's custom property values, addressing each by definition id.
 
@@ -112,7 +126,13 @@ def set_account_custom_properties_by_id(
             raise CustomPropertyDefinitionNotFound(definition_id) from exc
         try:
             row = _set_value(
-                team_id=team_id, account_id=account_id, definition=definition, value=value, created_by_id=created_by_id
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=value,
+                created_by_id=created_by_id,
+                actor=actor,
+                workflow_id=workflow_id,
             )
         except InvalidCustomPropertyValue as exc:
             exc.field = str(definition_id)
@@ -128,20 +148,33 @@ def _set_value(
     definition: CustomPropertyDefinition,
     value: Any,
     created_by_id: int | None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
 ) -> CustomPropertyValue:
     """Coerce `value` and atomically supersede the account's active row for `definition`."""
     column, coerced = _coerce_to_column(definition, value)
     try:
         with transaction.atomic():
-            CustomPropertyValue.objects.for_team(team_id).filter(
+            active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=account_id, definition_id=definition.id, is_deleted=False
-            ).update(is_deleted=True)
+            )
+            previous_row = active_rows.first()
+            active_rows.update(is_deleted=True)
             row = CustomPropertyValue.objects.for_team(team_id).create(
                 team_id=team_id,
                 account_id=account_id,
                 definition_id=definition.id,
                 created_by_id=created_by_id,
                 **{column: coerced},
+            )
+            _schedule_value_changed_event(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                previous_row=previous_row,
+                current_value=coerced,
+                actor=actor,
+                workflow_id=workflow_id,
             )
     except IntegrityError as exc:
         if _is_active_value_conflict(exc):
@@ -153,6 +186,46 @@ def _set_value(
     # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
+
+
+def _schedule_value_changed_event(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition: CustomPropertyDefinition,
+    previous_row: CustomPropertyValue | None,
+    current_value: CoercedValue,
+    actor: User | None,
+    workflow_id: str | None,
+) -> None:
+    """Emit $account_custom_property_changed post-commit when the stored value actually changes.
+
+    A first set emits with a null previous_value. Rewriting the same value stays silent: the view
+    sync rewrites every value each run, and a workflow re-setting the same value must not
+    retrigger itself.
+    """
+    previous_value: CoercedValue | None = None
+    if previous_row is not None:
+        previous_row.definition = definition
+        previous_value = value_of(previous_row)
+    if previous_value == current_value:
+        return
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
+
+    def emit() -> None:
+        try:
+            emit_account_custom_property_changed(
+                account=account,
+                definition=definition,
+                previous_value=previous_value,
+                current_value=current_value,
+                actor=actor,
+                workflow_id=workflow_id,
+            )
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
 
 
 def _is_active_value_conflict(exc: IntegrityError) -> bool:

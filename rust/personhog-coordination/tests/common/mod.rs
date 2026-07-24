@@ -121,6 +121,16 @@ pub fn start_pod_with_lease_ttl(
     lease_ttl: i64,
     cancel: CancellationToken,
 ) -> PodHandles {
+    start_pod_with_address(store, name, lease_ttl, None, cancel)
+}
+
+pub fn start_pod_with_address(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    lease_ttl: i64,
+    advertise_address: Option<String>,
+    cancel: CancellationToken,
+) -> PodHandles {
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let (handler, events) = MockHandoffHandler::new();
     let pod = PodHandle::new(
@@ -129,6 +139,7 @@ pub fn start_pod_with_lease_ttl(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            advertise_address,
             ..Default::default()
         },
         Arc::new(handler),
@@ -216,6 +227,7 @@ pub fn start_pod_slow(
 
 pub struct RouterHandles {
     pub events: Arc<Mutex<Vec<CutoverEvent>>>,
+    pub addresses: Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
     pub table: Arc<tokio::sync::RwLock<std::collections::HashMap<u32, String>>>,
     pub join_handle: Option<JoinHandle<Result<()>>>,
 }
@@ -245,10 +257,12 @@ pub fn start_router_with_lease_ttl(
         },
     );
     let table = router.table_handle();
+    let addresses = router.addresses_handle();
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
     RouterHandles {
         events,
+        addresses,
         table,
         join_handle: Some(join_handle),
     }

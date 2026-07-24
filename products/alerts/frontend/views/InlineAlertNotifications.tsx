@@ -19,6 +19,7 @@ import {
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
     PendingAlertNotification,
+    getAlertNotificationAddDisabledReason,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
@@ -90,23 +91,26 @@ function getHogFunctionDestination(
     return { type: hogFunction.name, detail: null }
 }
 
-function getNotificationLabel(
+function getPendingNotificationDestination(
     notification: PendingAlertNotification,
     slackIntegrations: IntegrationType[] | undefined
-): string {
+): Pick<PendingAlertNotificationDestinationView, 'title' | 'detail'> {
     switch (notification.type) {
         case ALERT_NOTIFICATION_TYPE_SLACK: {
             const workspaceName = slackIntegrations?.find(
                 (integration) => integration.id === notification.slackWorkspaceId
             )?.display_name
-            return `Slack: ${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`
+            return {
+                title: 'Slack',
+                detail: `${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`,
+            }
         }
         case ALERT_NOTIFICATION_TYPE_DISCORD:
-            return `Discord: ${notification.webhookUrl}`
+            return { title: 'Discord', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
-            return `Microsoft Teams: ${notification.webhookUrl}`
+            return { title: 'Microsoft Teams', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
-            return `Webhook: ${notification.webhookUrl}`
+            return { title: 'Webhook', detail: notification.webhookUrl }
         default: {
             const exhaustiveCheck: never = notification
             return exhaustiveCheck
@@ -131,33 +135,6 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
     }
 }
 
-function getAddDisabledReason(
-    selectedType: AlertNotificationType,
-    hasSlackIntegration: boolean,
-    slackChannelValue: string | null,
-    webhookUrl: string
-): string | undefined {
-    if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
-        if (!hasSlackIntegration) {
-            return 'Connect Slack first'
-        }
-        if (!slackChannelValue) {
-            return 'Select a Slack channel'
-        }
-        return undefined
-    }
-    if (webhookUrl) {
-        return undefined
-    }
-    if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
-        return 'Enter a Discord webhook URL'
-    }
-    if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
-        return 'Enter a Microsoft Teams workflow URL'
-    }
-    return 'Enter a webhook URL'
-}
-
 interface InlineAlertNotificationsProps {
     alertId?: string
 }
@@ -168,6 +145,8 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         existingHogFunctions,
         existingHogFunctionsLoading,
         pendingNotifications,
+        integrationsLoading,
+        integrationsFailed,
         slackIntegrations,
         selectedSlackIntegration,
         selectedType,
@@ -182,6 +161,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
+        loadIntegrations,
     } = useActions(logic)
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
@@ -244,8 +224,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
             key: `${notification.type}-${index}`,
-            label: getNotificationLabel(notification, slackIntegrations),
-            status: '(pending, click Save to apply)',
+            ...getPendingNotificationDestination(notification, slackIntegrations),
             onRemove: () => removePendingNotification(index),
         })
     )
@@ -267,6 +246,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             }}
             slack={{
                 notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                integrationsLoading,
+                integrationsFailed,
+                onRetryIntegrations: loadIntegrations,
                 integrations: slackIntegrations,
                 integration: selectedSlackIntegration,
                 onIntegrationChange: setSelectedSlackIntegrationId,
@@ -276,7 +258,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
             add={{
                 onClick: handleAdd,
-                disabledReason: getAddDisabledReason(
+                disabledReason: getAlertNotificationAddDisabledReason(
                     selectedType,
                     Boolean(selectedSlackIntegration),
                     slackChannelValue,

@@ -101,5 +101,6 @@ on-affected = [
     "personhog-router",
     "personhog-leader",
     "personhog-writer",
+    "personhog-identity",
 ]
 mark-changed = ["personhog-test-harness"]
