@@ -26,7 +26,8 @@ import {
 
 type ScoutCreateConfigFormValues = Required<
     Pick<SignalScoutConfigOptionsApi, 'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule'>
->
+> &
+    Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
 
 export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
     config: ScoutCreateConfigFormValues
