@@ -21,6 +21,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
@@ -56,6 +57,43 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 }
 
 /**
+ * Whether the browser can parse this as a URL (wildcards de-wildcarded first). `isURL` only checks a
+ * permissive regex, which passes malformed strings like `https://localhost::http//localhost:5173`
+ * that make `new URL()` (and therefore `window.open()`) throw. Guard storage and launching with this.
+ */
+export function isParseableUrl(url: string): boolean {
+    try {
+        sanitizePossibleWildCardedURL(url)
+        return true
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Opens a toolbar launch target, guarding against a malformed stored URL. `window.open` throws an
+ * uncaught DOMException on an invalid URL, so validate first and surface a friendly message instead
+ * of letting the exception bubble up through React.
+ */
+export function launchToolbarUrl(launchTarget: string, launchInSameTab: boolean = false): void {
+    if (!isParseableUrl(launchTarget)) {
+        lemonToast.error(
+            "This site's URL looks malformed, so the toolbar can't open on it. Edit the authorized URL and try again."
+        )
+        return
+    }
+    try {
+        if (launchInSameTab) {
+            window.location.href = launchTarget
+        } else {
+            window.open(launchTarget, '_blank', 'noopener,noreferrer')
+        }
+    } catch {
+        lemonToast.error("Couldn't open the toolbar on this site. Check the authorized URL and try again.")
+    }
+}
+
+/**
  * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
 export function hasWildcardInPort(input: unknown): boolean {
@@ -79,6 +117,12 @@ export const validateProposedUrl = (
 
     if (hasWildcardInPort(proposedUrl)) {
         return 'Wildcards are not allowed in the port position'
+    }
+
+    // `isURL` above is only a regex; catch strings it accepts but the browser can't actually parse,
+    // otherwise they get stored and later crash `window.open` on launch.
+    if (!isParseableUrl(proposedUrl)) {
+        return 'Please enter a valid URL'
     }
 
     if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
@@ -569,7 +613,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => (url && !state.includes(url) ? state.concat([url]) : state),
+                // Guard against malformed URLs from programmatic/onboarding adds that bypass the
+                // add-form's validation, since storing one would crash `window.open` on a later launch.
+                addUrl: (state, { url }) =>
+                    url && !state.includes(url) && isParseableUrl(url) ? state.concat([url]) : state,
                 updateUrl: (state, { index, url }) => (url ? Object.assign([...state], { [index]: url }) : state),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
@@ -636,7 +683,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 product_type: ProductKey.TOOLBAR,
                 intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,
             })
-            window.location.href = values.launchUrl(url)
+            launchToolbarUrl(values.launchUrl(url), true)
         },
         cancelProposingUrl: () => {
             actions.resetProposedUrl()

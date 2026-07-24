@@ -12,7 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic, launchToolbarUrl } from './authorizedUrlListLogic'
 import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
@@ -115,11 +115,7 @@ export function AuthorizedUrlList({
                 // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.
                 const isRowLaunchable = showLaunch && keyedURL.type === 'authorized' && !keyedURL.url.includes('*')
                 const launchFromRow = (): void => {
-                    if (launchInSameTab) {
-                        window.location.href = launchTarget
-                    } else {
-                        window.open(launchTarget, '_blank', 'noopener,noreferrer')
-                    }
+                    launchToolbarUrl(launchTarget, launchInSameTab)
                 }
 
                 return editUrlIndex === index ? (
@@ -202,13 +198,18 @@ export function AuthorizedUrlList({
                                                 dropdown: {
                                                     placement: 'bottom-start',
                                                     overlay: (
-                                                        <div className="px-2 py-1">
-                                                            <h3>If launching the toolbar didn't work, </h3>
+                                                        <div className="px-2 py-1 max-w-100">
+                                                            <h3>If launching the toolbar didn't work</h3>
+                                                            <p>
+                                                                The toolbar only opens if the site loads this same
+                                                                PostHog project. If it's on a different project, or
+                                                                PostHog isn't loaded there, launching won't work.
+                                                            </p>
                                                             <p>
                                                                 You can copy the launch code and paste it into the
-                                                                browser console on your site.
+                                                                browser console on your site instead. You need to have
+                                                                added posthog to the `window`.
                                                             </p>
-                                                            <p>NB you need to have added posthog to the `window`</p>
                                                             <LemonButton
                                                                 icon={<IconCopy />}
                                                                 size="small"
