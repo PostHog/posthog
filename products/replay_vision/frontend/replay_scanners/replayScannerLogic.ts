@@ -250,6 +250,8 @@ export interface replayScannerLogicValues {
     scannerEstimateError: string | null
     scannerEstimateLoading: boolean
     scannerHasErrors: boolean
+    scannerImpact: ScannerImpactApi | null
+    scannerImpactLoading: boolean
     scannerLoading: boolean
     scannerManualErrors: Record<string, any>
     scannerTouched: boolean
@@ -317,6 +319,21 @@ export interface replayScannerLogicActions {
     }
     loadScannerFailure: () => {
         value: true
+    }
+    loadScannerImpact: () => any
+    loadScannerImpactFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScannerImpactSuccess: (
+        scannerImpact: ScannerImpactApi | null,
+        payload?: any
+    ) => {
+        scannerImpact: ScannerImpactApi | null
+        payload?: any
     }
     loadScannerSuccess: (scanner: ReplayScanner) => {
         scanner: ReplayScanner

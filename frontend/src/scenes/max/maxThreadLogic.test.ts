@@ -15,6 +15,7 @@ import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
@@ -1395,6 +1396,42 @@ describe('maxThreadLogic', () => {
                 expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
             } else {
                 expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+        })
+    })
+
+    describe('401 session-expiry handling', () => {
+        it('refreshes the session and retries once, then shows a calm message', async () => {
+            jest.useFakeTimers()
+            try {
+                const streamSpy = jest
+                    .spyOn(api.conversations, 'stream')
+                    .mockRejectedValue(new ApiError('Unauthorized', 401, undefined, {}))
+                const loadUserSpy = jest.spyOn(userLogic.actions, 'loadUser')
+
+                logic.unmount()
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('hello')
+
+                // Advance past the retry backoff so the single automatic retry runs and also fails.
+                await jest.advanceTimersByTimeAsync(3000)
+
+                // One initial attempt + exactly one refreshed retry.
+                expect(streamSpy).toHaveBeenCalledTimes(2)
+                expect(loadUserSpy).toHaveBeenCalled()
+                expect(logic.values.threadGrouped).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            type: AssistantMessageType.Failure,
+                            content: expect.stringContaining('session may have expired'),
+                        }),
+                    ])
+                )
+            } finally {
+                jest.useRealTimers()
             }
         })
     })

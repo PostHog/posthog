@@ -1544,6 +1544,25 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             return
                         }
 
+                        // 401 means the session or auth token expired mid-request. Refresh the
+                        // session and retry once — a transient auth blip then recovers silently
+                        // instead of dumping a raw "Request failed with status code 401" into the
+                        // thread and killing the turn. loadUser re-mints the OAuth access token (via
+                        // handleFetch's refresh path) or revalidates the session cookie, redirecting
+                        // to login if it's genuinely gone. Mirrors the sandbox path, where
+                        // runStreamLogic re-mints the stream token on a 401.
+                        if (e.status === 401) {
+                            if (generationAttempt < 1) {
+                                userLogic.actions.loadUser()
+                                await retry()
+                                return
+                            }
+                            // Still unauthorized after the refresh — surface a calm, actionable
+                            // message rather than the raw error string.
+                            relevantErrorMessage.content =
+                                'Your session may have expired. Please refresh the page and sign in again, then try your message once more.'
+                        }
+
                         if (e.status === 429) {
                             // Use server-provided message (includes research beta messaging)
                             relevantErrorMessage.content =
