@@ -93,6 +93,12 @@ declare module 'storybook/internal/types' {
              * @default false
              */
             skipCanvasDraw?: boolean
+            /**
+             * Extra settle time in ms before capturing each snapshot, after all readiness checks pass.
+             * Bump for stories with late async paints.
+             * @default 250
+             */
+            snapshotSettleTimeMs?: number
         }
         msw?: {
             mocks?: Mocks
@@ -558,7 +564,8 @@ async function takeSnapshotWithTheme(
         })
 
     // final wait for any remaining renders
-    await page.waitForTimeout(1000)
+    const { snapshotSettleTimeMs = 250 } = storyContext.parameters?.testOptions ?? {}
+    await page.waitForTimeout(snapshotSettleTimeMs)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
