@@ -2,7 +2,14 @@ import { useEffect, useRef } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    MessageDeliveryStatus,
+    TicketChannel,
+    TicketChannelDetail,
+} from '../../types'
+import { ChannelsTag } from '../Channels/ChannelsTag'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -28,6 +35,12 @@ export interface MessageListProps {
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** Channel the conversation came from; when set, pins a source banner to the top of the thread */
+    channel?: TicketChannel
+    /** Optional channel detail (e.g. Slack channel message vs bot mention) shown in the source banner */
+    channelDetail?: TicketChannelDetail | null
+    /** Optional deep link to the originating thread, making the source banner clickable */
+    channelThreadUrl?: string | null
 }
 
 export function MessageList({
@@ -47,6 +60,9 @@ export function MessageList({
     feedbackByMessageId = {},
     showAiReplyFeedback = false,
     onSubmitAiReplyFeedback,
+    channel,
+    channelDetail,
+    channelThreadUrl,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -110,6 +126,12 @@ export function MessageList({
             className={`flex-1 overflow-y-auto space-y-1.5 ${className}`}
             style={{ minHeight, maxHeight }}
         >
+            {channel && (
+                <div className="sticky top-0 z-10 -mx-1 mb-1 flex items-center gap-1.5 border-b bg-surface-primary px-1 pb-1.5">
+                    <span className="text-muted-alt text-xs">Conversation via</span>
+                    <ChannelsTag channel={channel} detail={channelDetail} to={channelThreadUrl} />
+                </div>
+            )}
             {olderMessagesLoading && (
                 <div className="flex items-center justify-center py-2">
                     <Spinner className="text-sm" />
