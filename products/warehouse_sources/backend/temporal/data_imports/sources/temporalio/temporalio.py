@@ -59,13 +59,16 @@ T = TypeVar("T")
 
 # Temporal Cloud surfaces transient server-side conditions as gRPC errors that a short backoff
 # usually clears: per-namespace throttling (RESOURCE_EXHAUSTED — e.g. "namespace rate limit
-# exceeded") and request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
-# "downstream duration timeout"). Riding these out in-process keeps a brief blip from failing the
-# whole import activity (which would rebuild the client and restart pagination) and avoids
-# error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
+# exceeded"), request deadlines on the visibility/history services (DEADLINE_EXCEEDED — e.g.
+# "downstream duration timeout"), and connection-level failures (UNAVAILABLE — e.g. a DNS lookup
+# blip resolving the cluster's frontend host). Riding these out in-process keeps a brief blip from
+# failing the whole import activity (which would rebuild the client and restart pagination) and
+# avoids error-tracking noise. Persistent failures re-raise so Temporal's activity retry still applies.
 _MAX_TRANSIENT_RPC_ATTEMPTS = 6
 
-_RETRYABLE_RPC_STATUSES = frozenset({RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED})
+_RETRYABLE_RPC_STATUSES = frozenset(
+    {RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE}
+)
 
 # tonic/hyper surface a mid-stream HTTP/2 transport interruption (a reset stream or a response
 # body read cut short) as an RPCError with status UNKNOWN and an "h2 protocol error" message,
