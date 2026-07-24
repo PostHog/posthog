@@ -1,4 +1,4 @@
-import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
@@ -143,6 +143,7 @@ import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OAuthApps } from './organization/OAuthApps'
+import { OrganizationAdminNotice } from './organization/OrgAdminNotice'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -1615,11 +1616,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-admin-notice',
                 title: null,
-                component: (
-                    <LemonBanner type="info" className="my-4">
-                        You must be an organization admin or owner to change these settings.
-                    </LemonBanner>
-                ),
+                component: <OrganizationAdminNotice />,
             },
             {
                 id: 'organization-display-name',
