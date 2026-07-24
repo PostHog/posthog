@@ -708,3 +708,12 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         self.assertEqual(result.event.type, "STREAM_STATUS")
         payload = cast(StatusPayload, result.event.payload)
         self.assertEqual(payload.status, "complete")
+
+    def test_dumps_emits_json(self):
+        # Phase 2: the writer now emits JSON rather than pickle.
+        serializer = ConversationStreamSerializer()
+
+        result = serializer.dumps((AssistantEventType.MESSAGE, AssistantMessage(content="hi")))
+
+        assert result is not None
+        self.assertEqual(result["data"][:1], b"{")

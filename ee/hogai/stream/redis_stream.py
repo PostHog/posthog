@@ -157,12 +157,9 @@ class ConversationStreamSerializer:
             return None
 
         return {
-            # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
-            self.serialization_key: pickle.dumps(
-                StreamEvent(
-                    event=event,
-                )
-            ),
+            # Migration Phase 2: emit JSON. Readers already understand both formats (Phase 1);
+            # the legacy pickle read path is removed in Phase 3 once older entries have drained.
+            self.serialization_key: StreamEvent(event=event).model_dump_json().encode("utf-8"),
         }
 
     def _to_message_event(self, message: AssistantStreamedMessageUnion) -> MessageEvent:
