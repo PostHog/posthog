@@ -37729,6 +37729,15 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    export interface LoopSkillBundleDTO {
+      id: string;
+      skill_name: string;
+      skill_source: string;
+      size: number;
+      content_sha256: string;
+      uploaded_at: string;
+    }
+
     /**
      * Detail/create/update response for a loop, including its triggers.
      */
@@ -37774,6 +37783,8 @@ export namespace Schemas {
       updated_at: string;
       /** Triggers attached to this loop. */
       triggers: LoopTriggerDTO[];
+      /** Skill bundles attached to this loop, seeded into every fired run. */
+      skill_bundles: LoopSkillBundleDTO[];
     }
 
     /**
@@ -37929,6 +37940,64 @@ export namespace Schemas {
          * @nullable
          */
       next_cursor: string | null;
+    }
+
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * One zipped local skill in a skill-bundle replace request.
+     */
+    export interface LoopSkillBundleUpload {
+      /**
+         * File name for the stored bundle, e.g. `my-skill.zip`.
+         * @maxLength 255
+         */
+      file_name: string;
+      /**
+         * Name of the skill inside the bundle.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source the bundle was built from, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /** Base64-encoded bundle bytes. */
+      content_base64: string;
+    }
+
+    /**
+     * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+     * list to detach every skill.
+     */
+    export interface LoopSkillBundlesWrite {
+      bundles: LoopSkillBundleUpload[];
     }
 
     export interface LoopTriggerWrite {
@@ -44533,22 +44602,6 @@ export namespace Schemas {
     export const TaskRunDetailDTOProviderEnum = {
       Anthropic: 'anthropic',
       Openai: 'openai',
-    } as const;
-
-    /**
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex
-     */
-    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
-
-
-    export const SkillSourceEnum = {
-      User: 'user',
-      Repo: 'repo',
-      Marketplace: 'marketplace',
-      Codex: 'codex',
     } as const;
 
     export interface TaskRunArtifactMetadata {
