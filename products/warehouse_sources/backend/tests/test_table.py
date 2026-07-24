@@ -5,13 +5,14 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from clickhouse_driver.errors import ServerException
 from django.test import SimpleTestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
+
+from posthog.exceptions import ClickHouseAtCapacity
 
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
