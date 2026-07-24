@@ -275,7 +275,7 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
             person = _get_persons_by_email(team, [email]).get(email.lower())
         except Exception:
             # Same isolation as above: a failed email lookup still leaves the
-            # requester-events fallback in _resolve_org_groups a chance to attribute.
+            # Slack-channel fallback in _resolve_org_groups a chance to attribute.
             logger.exception("ticket_org_email_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         if person is not None:
             groups = _org_groups_for_person(ticket, team, person, person.distinct_ids or [])
@@ -332,23 +332,12 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, 
     if groups is not None:
         return process_person, groups, OrganizationIdSource.PERSON
 
-    # Person lookups can miss (no person row yet, profile email differing from the
-    # channel email) or fail transiently even when the requester's own sessions stamped
-    # org groups onto this project's events. Those events are keyed by the ticket's own
-    # distinct_id — the exact evidence the person path's analytics fallback trusts — so
-    # read them directly before falling back to channel-level attribution. The channel
-    # gate alone is not enough: email tickets can carry an unverified identity (forged
-    # From that failed SPF, or an API-supplied distinct_id assessed as None), so require
-    # the server-attested identity_verified=True on top of it.
-    if ticket.distinct_id and ticket.channel_source in _EMAIL_FALLBACK_CHANNELS and ticket.identity_verified is True:
-        try:
-            groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
-        except Exception:
-            logger.exception("ticket_org_requester_events_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
-            groups = None
-        if groups is not None:
-            return process_person, groups, OrganizationIdSource.PERSON
-
+    # Deliberately no analytics fallback keyed on the bare ticket distinct_id here: for
+    # email/Slack/Teams that value is the raw customer email, and events under it are
+    # captured with the public project token, so anyone who knows the email can plant a
+    # $groups value. identity_verified only attests the ticket's sender, not who captured
+    # historical events under that key. Event-derived attribution is only trusted when
+    # anchored to a resolved person (see _org_groups_for_person).
     if ticket.channel_source == Channel.SLACK.value and ticket.slack_channel_id:
         groups = _resolve_groups_from_slack_channel(team, ticket.slack_channel_id)
         if groups is not None:
@@ -574,9 +563,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     try:
         if ticket.organization_id:
             properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
-            # A channel-inferred org says nothing about the sender, so don't create a
-            # person profile for it (legacy rows without a source were person-resolved).
-            process_person = ticket.organization_id_source != OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+            # Only a person-resolved org attests the sender (legacy rows without a source
+            # were person-resolved); a channel-inferred org says nothing about them, so
+            # don't create a person profile for it. Allowlist rather than blocklist so a
+            # future non-person source defaults to no person processing.
+            process_person = ticket.organization_id_source in (OrganizationIdSource.PERSON, None, "")
         else:
             process_person, groups, groups_source = _resolve_org_groups(ticket, team)
             if groups is not None:

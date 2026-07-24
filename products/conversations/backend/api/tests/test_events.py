@@ -1069,9 +1069,10 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            # Person lookups can come up empty (channel email differs from the profile email,
-            # person row not ingested yet) or fail transiently — either way, org groups the
-            # requester's own sessions stamped onto events must still attribute the ticket.
+            # Events keyed by the bare email distinct_id are public-token-captured, so anyone
+            # who knows the email can plant a $groups value on them. Whether person lookups
+            # miss or fail, and even for a verified sender, those events must never attribute
+            # the ticket without a resolved-person anchor.
             ("person_lookups_miss", False),
             ("person_lookups_fail", True),
         ]
@@ -1081,7 +1082,7 @@ class TestConversationEvents(BaseTest):
     @patch("products.conversations.backend.events.get_group_types_for_project")
     @patch("products.conversations.backend.person_lookup._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_requester_events_resolve_groups_without_person(
+    def test_capture_ticket_created_no_person_means_no_event_keyed_attribution(
         self, _name, lookups_fail, mock_get_persons, mock_get_by_email, mock_group_types, mock_hogql, mock_capture
     ):
         if lookups_fail:
@@ -1091,90 +1092,15 @@ class TestConversationEvents(BaseTest):
             mock_get_persons.return_value = []
             mock_get_by_email.return_value = {}
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["org-eu-123", ""]]
-
-        ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            widget_session_id="",
-            distinct_id="cust@acme.com",
-            channel_source="slack",
-            identity_verified=True,
-            anonymous_traits={"name": "Biz", "email": "cust@acme.com"},
-        )
-
-        capture_ticket_created(ticket)
-
-        call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["process_person_profile"] is False
-        assert call_kwargs["properties"]["$groups"]["organization"] == "org-eu-123"
-        ticket.refresh_from_db()
-        assert ticket.organization_id == "org-eu-123"
-        assert ticket.organization_id_source == OrganizationIdSource.PERSON
-
-    @parameterized.expand(
-        [
-            # A forged From that failed SPF is assessed as False; a caller-supplied
-            # distinct_id on an API-created ticket is never assessed (None). Neither is
-            # server-attested, so neither may resolve an org from event $groups.
-            ("unverified_identity", False),
-            ("unassessed_identity", None),
-        ]
-    )
-    @patch("products.conversations.backend.events.capture_internal")
-    @patch("posthog.hogql.query.execute_hogql_query")
-    @patch("products.conversations.backend.events.get_group_types_for_project")
-    @patch("products.conversations.backend.person_lookup._get_persons_by_email")
-    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_requester_events_require_attested_identity(
-        self, _name, identity_verified, mock_get_persons, mock_get_by_email, mock_group_types, mock_hogql, mock_capture
-    ):
-        mock_get_persons.return_value = []
-        mock_get_by_email.return_value = {}
-        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["victim-org", ""]]
+        mock_hogql.return_value.results = [["attacker-org", ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="",
             distinct_id="victim@bigcorp.com",
             channel_source="email",
-            identity_verified=identity_verified,
-            anonymous_traits={"name": "Attacker", "email": "victim@bigcorp.com"},
-        )
-
-        capture_ticket_created(ticket)
-
-        call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["process_person_profile"] is False
-        assert "$groups" not in call_kwargs["properties"]
-        ticket.refresh_from_db()
-        assert ticket.organization_id is None
-
-    @parameterized.expand(
-        [
-            ("widget", "widget"),
-            ("github", "github"),
-        ]
-    )
-    @patch("products.conversations.backend.events.capture_internal")
-    @patch("posthog.hogql.query.execute_hogql_query")
-    @patch("products.conversations.backend.events.get_group_types_for_project")
-    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_requester_events_skip_non_verified_channels(
-        self, _name, channel, mock_get_persons, mock_group_types, mock_hogql, mock_capture
-    ):
-        # Without a provider-verified identity, an anonymous distinct_id must not resolve an
-        # org from event $groups — same trust posture as the email fallback's channel gate.
-        mock_get_persons.return_value = []
-        mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["org-eu-123", ""]]
-
-        ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            widget_session_id="",
-            distinct_id="anon-attacker",
-            channel_source=channel,
-            anonymous_traits={"name": "Attacker"},
+            identity_verified=True,
+            anonymous_traits={"name": "Victim", "email": "victim@bigcorp.com"},
         )
 
         capture_ticket_created(ticket)
@@ -1367,6 +1293,9 @@ class TestConversationEvents(BaseTest):
             ("channel_derived", OrganizationIdSource.SLACK_CHANNEL_ACCOUNT.value, False),
             ("person_derived", OrganizationIdSource.PERSON.value, True),
             ("legacy_no_source", None, True),
+            # The gate is an allowlist: a source added later that doesn't attest the
+            # sender must not silently turn person-profile processing back on.
+            ("future_non_person_source", "requester_events", False),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
