@@ -109,7 +109,10 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  # Self-hosted/hobby installs pull posthog/posthog-node from DockerHub
+                  # (bin/hobby-ci.py), so keep it published alongside ghcr.
+                  # Prod deploys from private ECR; pause both public pushes during an embargo.
+                  push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
