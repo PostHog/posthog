@@ -11,6 +11,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
     DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     TeamLogsConfig,
 )
@@ -21,6 +22,7 @@ URL_PREFIXES = [("projects", "api/projects"), ("environments", "api/environments
 
 DEFAULT_CONFIG = {
     "logs_distinct_id_attribute_key": DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    "logs_distinct_id_attribute_keys": DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
     "logs_session_id_attribute_keys": DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
 }
 
@@ -42,38 +44,54 @@ class TestTeamLogsConfig(APIBaseTest):
         self.assertEqual(response.json(), DEFAULT_CONFIG)
 
     @parameterized.expand(URL_PREFIXES)
-    def test_patch_updates_attribute_key(self, _name: str, prefix: str):
+    def test_patch_updates_distinct_id_keys(self, _name: str, prefix: str):
         response = self.client.patch(
             self._url(prefix),
-            {"logs_distinct_id_attribute_key": "user.id"},
+            {"logs_distinct_id_attribute_keys": ["user.id", "posthogDistinctId"]},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["logs_distinct_id_attribute_key"], "user.id")
+        self.assertEqual(response.json()["logs_distinct_id_attribute_keys"], ["user.id", "posthogDistinctId"])
 
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
-        self.assertEqual(config.logs_distinct_id_attribute_key, "user.id")
+        self.assertEqual(config.logs_distinct_id_attribute_keys, ["user.id", "posthogDistinctId"])
 
     @parameterized.expand(URL_PREFIXES)
     def test_patch_persists_across_requests(self, _name: str, prefix: str):
         self.client.patch(
             self._url(prefix),
-            {"logs_distinct_id_attribute_key": "posthog.distinct_id"},
+            {"logs_distinct_id_attribute_keys": ["posthog.distinct_id"]},
             format="json",
         )
 
         response = self.client.get(self._url(prefix))
-        self.assertEqual(response.json()["logs_distinct_id_attribute_key"], "posthog.distinct_id")
+        self.assertEqual(response.json()["logs_distinct_id_attribute_keys"], ["posthog.distinct_id"])
 
-    @parameterized.expand(URL_PREFIXES)
-    def test_patch_rejects_key_over_max_length(self, _name: str, prefix: str):
+    def test_patch_keeps_legacy_single_key_in_sync(self):
+        # Pre-plural readers (older MCP prompts, cached frontends) still read the
+        # singular field — it must track the first entry of the plural list.
         response = self.client.patch(
-            self._url(prefix),
-            {"logs_distinct_id_attribute_key": "x" * 201},
+            f"/api/projects/{self.team.id}/logs_config/",
+            {"logs_distinct_id_attribute_keys": ["user.id", "backup.id"]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(response.json()["logs_distinct_id_attribute_key"], "user.id")
+        config = get_or_create_team_extension(self.team, TeamLogsConfig)
+        self.assertEqual(config.logs_distinct_id_attribute_key, "user.id")
+
+    def test_patch_of_legacy_single_key_is_ignored(self):
+        # The singular field is a read-only alias now — a write to it must not 400
+        # (old clients keep working) but must not change anything either.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/logs_config/",
+            {"logs_distinct_id_attribute_key": "user.id"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), DEFAULT_CONFIG)
 
     @parameterized.expand(URL_PREFIXES)
     def test_regular_member_can_read_but_not_patch(self, _name: str, prefix: str):
@@ -87,7 +105,7 @@ class TestTeamLogsConfig(APIBaseTest):
 
         patch_response = self.client.patch(
             self._url(prefix),
-            {"logs_distinct_id_attribute_key": "user.id"},
+            {"logs_distinct_id_attribute_keys": ["user.id"]},
             format="json",
         )
         self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN)
@@ -104,7 +122,7 @@ class TestTeamLogsConfig(APIBaseTest):
 
         self.client.patch(
             self._url(prefix),
-            {"logs_distinct_id_attribute_key": "user.id"},
+            {"logs_distinct_id_attribute_keys": ["user.id"]},
             format="json",
         )
 
@@ -117,11 +135,11 @@ class TestTeamLogsConfig(APIBaseTest):
         # same env-scoped TeamLogsConfig keyed by team_id.
         self.client.patch(
             f"/api/projects/{self.team.id}/logs_config/",
-            {"logs_distinct_id_attribute_key": "user.id"},
+            {"logs_distinct_id_attribute_keys": ["user.id"]},
             format="json",
         )
         env_response = self.client.get(f"/api/environments/{self.team.id}/logs_config/")
-        self.assertEqual(env_response.json()["logs_distinct_id_attribute_key"], "user.id")
+        self.assertEqual(env_response.json()["logs_distinct_id_attribute_keys"], ["user.id"])
 
     def test_patch_updates_session_id_keys_preserving_order(self):
         response = self.client.patch(
@@ -146,7 +164,7 @@ class TestTeamLogsConfig(APIBaseTest):
         )
         self.client.patch(
             f"/api/projects/{self.team.id}/logs_config/",
-            {"logs_distinct_id_attribute_key": "user.id"},
+            {"logs_distinct_id_attribute_keys": ["user.id"]},
             format="json",
         )
 
@@ -155,46 +173,54 @@ class TestTeamLogsConfig(APIBaseTest):
             response.json(),
             {
                 "logs_distinct_id_attribute_key": "user.id",
+                "logs_distinct_id_attribute_keys": ["user.id"],
                 "logs_session_id_attribute_keys": ["session.id"],
             },
         )
 
-    def test_patch_rejects_invalid_session_id_keys(self):
+    @parameterized.expand(
+        [
+            ("distinct_id", "logs_distinct_id_attribute_keys"),
+            ("session_id", "logs_session_id_attribute_keys"),
+        ]
+    )
+    def test_patch_rejects_invalid_keys(self, _name: str, field: str):
         # Wiring guard: the endpoint must reject bodies the serializer marks invalid.
         # The full validation matrix lives in TestTeamLogsConfigSerializerValidation.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/logs_config/",
-            {"logs_session_id_attribute_keys": []},
+            {field: []},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+KEY_LIST_FIELDS = ["logs_distinct_id_attribute_keys", "logs_session_id_attribute_keys"]
+
+INVALID_KEY_LISTS = [
+    ("empty_list", []),
+    ("blank_entry", ["posthogSessionId", ""]),
+    ("whitespace_entry", ["posthogSessionId", "   "]),
+    ("duplicate_keys", ["session.id", "session.id"]),
+    ("duplicate_after_trim", ["session.id", " session.id "]),
+    ("too_many_keys", [f"key{i}" for i in range(11)]),
+    ("key_over_max_length", ["x" * 201]),
+]
+
+
 class TestTeamLogsConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
-        [
-            ("empty_list", []),
-            ("blank_entry", ["posthogSessionId", ""]),
-            ("whitespace_entry", ["posthogSessionId", "   "]),
-            ("duplicate_keys", ["session.id", "session.id"]),
-            ("duplicate_after_trim", ["session.id", " session.id "]),
-            ("too_many_keys", [f"key{i}" for i in range(11)]),
-            ("key_over_max_length", ["x" * 201]),
-        ]
+        [(f"{field}_{name}", field, keys) for field in KEY_LIST_FIELDS for name, keys in INVALID_KEY_LISTS]
     )
-    def test_rejects_invalid_session_id_keys(self, _name: str, keys):
-        serializer = TeamLogsConfigSerializer(data={"logs_session_id_attribute_keys": keys}, partial=True)
+    def test_rejects_invalid_keys(self, _name: str, field: str, keys):
+        serializer = TeamLogsConfigSerializer(data={field: keys}, partial=True)
 
         self.assertFalse(serializer.is_valid())
-        self.assertIn("logs_session_id_attribute_keys", serializer.errors)
+        self.assertIn(field, serializer.errors)
 
-    def test_trims_whitespace_from_keys(self):
-        serializer = TeamLogsConfigSerializer(
-            data={"logs_session_id_attribute_keys": [" session.id ", "sessionId"]}, partial=True
-        )
+    @parameterized.expand([(field,) for field in KEY_LIST_FIELDS])
+    def test_trims_whitespace_from_keys(self, field: str):
+        serializer = TeamLogsConfigSerializer(data={field: [" first.key ", "second.key"]}, partial=True)
 
         self.assertTrue(serializer.is_valid())
-        self.assertEqual(
-            serializer.validated_data["logs_session_id_attribute_keys"],
-            ["session.id", "sessionId"],
-        )
+        self.assertEqual(serializer.validated_data[field], ["first.key", "second.key"])

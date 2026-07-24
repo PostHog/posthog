@@ -15,7 +15,7 @@ export const EndpointsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -33,7 +33,7 @@ export const EndpointsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -43,7 +43,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
@@ -81,10 +81,10 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
             ),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Retrieve an endpoint, or a specific version via ?version=N.
@@ -94,7 +94,7 @@ export const EndpointsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -106,7 +106,7 @@ export const EndpointsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -116,7 +116,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
@@ -154,10 +154,10 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
             ),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Delete an endpoint and clean up materialized query.
@@ -167,7 +167,7 @@ export const EndpointsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -176,7 +176,7 @@ export const EndpointsLogsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -214,7 +214,7 @@ export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -223,7 +223,7 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()
-        .describe('Per-column bucket function overrides, e.g. {"timestamp": "hour"}'),
+        .describe('Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}'),
 })
 
 /**
@@ -234,7 +234,7 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -246,7 +246,7 @@ export const EndpointsMaterializationSuggestionCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -267,7 +267,7 @@ export const EndpointsOpenapiSpecRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -286,7 +286,7 @@ export const EndpointsRunCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -414,7 +414,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        'Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.'
+                        'Tri-state test-account override. Null\/absent = inherit; true = force on; false = force off.'
                     ),
                 interval: zod
                     .union([
@@ -422,7 +422,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Time granularity forced onto every insight that supports one. Absent/null = inherit.'),
+                    .describe('Time granularity forced onto every insight that supports one. Absent\/null = inherit.'),
                 properties: zod
                     .union([
                         zod.array(
@@ -1034,7 +1034,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         .default(
                                             endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1594,7 +1594,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.record(zod.string(), zod.unknown()), zod.null()])
         .optional()
         .describe(
-            'Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.'
+            'Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{\"event_name\": \"$pageview\"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{\"$browser\": \"Chrome\"}`   - `date_from`\/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.'
         ),
     version: zod
         .union([zod.number(), zod.null()])
@@ -1610,7 +1610,7 @@ export const EndpointsVersionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1628,7 +1628,7 @@ export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1643,6 +1643,6 @@ export const EndpointsMaterializationConditionsRetrieveParams = /* @__PURE__ */ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
