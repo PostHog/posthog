@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-// Shared scaffolding for the Quickstart scene stories. Not a *.stories.* file on purpose:
-// Storybook must not pick it up as a stories module.
+// Shared scaffolding for the Quickstart scene stories. Lives under mocks/ (not a *.stories.*
+// file) so Storybook doesn't pick it up as a stories module, and so its MSW mocks can mirror
+// the `/api/environments/...` URLs the scene's logic actually calls.
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -16,7 +17,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { Mocks } from '~/mocks/utils'
 import type { TeamType } from '~/types'
 
-import { QuickstartToolSignals, clearQuickstartActivationCache } from './quickstartLogic'
+import { QuickstartToolSignals, clearQuickstartActivationCache } from '../quickstartLogic'
 
 // Deterministic stand-in for the posthog.com blog feed the publications rail streams
 const BLOG_RSS = `<?xml version="1.0" encoding="UTF-8"?>

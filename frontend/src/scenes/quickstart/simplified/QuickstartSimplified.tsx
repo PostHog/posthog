@@ -23,6 +23,11 @@ export function QuickstartSimplified(): JSX.Element {
     // Dismissal is the normal exit from the focused install view, persisted per project
     const dismissKey = `quickstart-install-dismissed-${currentTeamId ?? 'unknown'}`
     const [installDismissed, setInstallDismissed] = useState(() => localStorage.getItem(dismissKey) === 'true')
+    // Switching projects changes the key without remounting, so re-read the destination
+    // project's dismissal instead of inheriting the previous project's.
+    useEffect(() => {
+        setInstallDismissed(localStorage.getItem(dismissKey) === 'true')
+    }, [dismissKey])
     const dismissFocusedInstall = (): void => {
         captureQuickstartAction('dismiss_focused_install')
         localStorage.setItem(dismissKey, 'true')

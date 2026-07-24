@@ -123,9 +123,14 @@ export function QuickstartRunStatus({
                                 >
                                     {step.label}
                                 </span>
-                                {step.status === 'in_progress' && step.detail && (
-                                    <span className="block text-xs text-secondary truncate">{step.detail}</span>
-                                )}
+                                {step.status === 'in_progress' &&
+                                    step.detail && (
+                                        // ph-no-capture: agent-reported detail can carry the customer's repo
+                                        // path or PR context, matching InstallationProgressView's handling.
+                                        <span className="block text-xs text-secondary truncate ph-no-capture">
+                                            {step.detail}
+                                        </span>
+                                    )}
                             </span>
                         </li>
                     ))}

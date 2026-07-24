@@ -12,7 +12,7 @@ import {
     installationStateDecorator,
     richScenarioDecorators,
     scenarioMocks,
-} from '../quickstartStoryScenarios'
+} from '../mocks/quickstartStoryScenarios'
 
 const meta: Meta = {
     component: App,
