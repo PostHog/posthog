@@ -30,11 +30,11 @@ import {
 } from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
-
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     NotificationDestinationTypeEnumApi,
