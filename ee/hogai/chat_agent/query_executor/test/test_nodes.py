@@ -247,6 +247,49 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)
 
+    @patch("ee.hogai.chat_agent.query_executor.nodes.capture_exception")
+    @patch(
+        "ee.hogai.chat_agent.query_executor.nodes.InsightContext.execute_and_format",
+        side_effect=RuntimeError("the flux capacitor came loose"),
+    )
+    async def test_node_recovers_from_unexpected_error(self, mock_execute_and_format, mock_capture_exception):
+        # A non-retryable error escaping query execution must degrade to a graceful assistant message
+        # (and be captured), not bubble up to the generic Max failure that blocks recovery.
+        node = QueryExecutorNode(self.team, self.user)
+        insight = await AgentArtifact.objects.acreate(
+            name="test insight",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=AssistantTrendsQuery(series=[]), name="test insight", description="test description"
+            ).model_dump(),
+            conversation=self.conversation,
+            team=self.team,
+        )
+        new_state = await node.arun(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="test"),
+                    ArtifactRefMessage(
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        source=ArtifactSource.ARTIFACT,
+                        artifact_id=str(insight.short_id),
+                        id=str(uuid4()),
+                    ),
+                ],
+                plan="Plan",
+                start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
+            ),
+            {},
+        )
+        new_state = cast(PartialAssistantState, new_state)
+        msg = new_state.messages[0]
+        assert isinstance(msg, AssistantMessage)
+        self.assertEqual(msg.content, "There was an error running this query: the flux capacitor came loose")
+        mock_capture_exception.assert_called_once()
+
     async def test_node_requires_a_viz_message_in_state(self):
         node = QueryExecutorNode(self.team, self.user)
 

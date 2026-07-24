@@ -324,10 +324,9 @@ class ConversationViewSet(
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
-        # For listing or single retrieval, conversations must be from the assistant and have a title
+        # For listing or single retrieval, conversations must be from the assistant
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
-                title__isnull=False,
                 type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
             )
             # Hide internal conversations from customers, but show them to support agents during impersonation
@@ -335,6 +334,10 @@ class ConversationViewSet(
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
+            # A brand-new conversation whose async title generation hasn't finished yet has a null title;
+            # keep those out of the history list, but still let `retrieve` return one so the frontend's
+            # post-failure reload can recover it instead of 404ing (which blocks "Try again").
+            queryset = queryset.filter(title__isnull=False)
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
