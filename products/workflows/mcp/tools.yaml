@@ -340,7 +340,7 @@ tools:
             the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
-            still parked shortly after publishing is normal, not a failed publish.
+            still parked shortly after publishing are normal, not a sign of a failed publish.
     workflows-restore-revision:
         operation: hog_flows_revisions_restore_create
         enabled: true

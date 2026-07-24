@@ -45,7 +45,7 @@ Editing an active workflow stages a **draft** instead of changing what's running
 
 In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run; people parked on a step the publish deletes skip forward to its next surviving step (or exit at a dead end), exactly as the impact preview reported.
 
-Timing edits apply to parked runs gradually, not instantly. Publishing a shortened delay (or a moved wait window) reschedules the runs parked on it via a rate-limited sweep. Runs already due to wake soon keep their original earlier wake untouched; only wakes that the sweep moves earlier are affected, and those land spread out, no sooner than a few minutes after publish (and never later than their original wake). Runs still parked shortly after publishing is expected behavior - tell the user this rather than re-publishing or treating it as a failure.
+Timing edits apply to parked runs gradually, not instantly. Publishing a shortened delay (or a moved wait window) reschedules the runs parked on it via a rate-limited sweep. Runs already due to wake soon keep their original earlier wake untouched; only wakes that the sweep moves earlier are affected, and those land spread out, no sooner than a few minutes after publish (and never later than their original wake). Runs still parked shortly after publishing are expected - tell the user this rather than re-publishing or treating it as a failure.
 
 ### Rolling back
 
