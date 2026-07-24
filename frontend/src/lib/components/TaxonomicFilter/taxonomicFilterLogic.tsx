@@ -1522,6 +1522,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.PersonProperties,
                         endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
                             type: 'person',
+                            is_feature_flag: false,
                             properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
                                 ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
                                 : undefined,
