@@ -1,3 +1,10 @@
+-- Replaces the earlier `flags_person_lookup` array-plus-GIN draft, which never ran
+-- outside a local checkout. Near-unique distinct IDs behind an inverted index stall
+-- on the GIN pending list, cannot enforce "one distinct ID maps to one person per
+-- team", and couple the person and distinct ID write streams onto the same row. Two
+-- PK btrees give both properties structurally and keep `person_uuid` remaps on the
+-- mapping table HOT-eligible.
+
 -- Versioned tombstones keep stale CDC replays from restoring deleted rows.
 CREATE TABLE IF NOT EXISTS flags_person (
     team_id        INTEGER NOT NULL,
@@ -17,6 +24,9 @@ CREATE TABLE IF NOT EXISTS flags_distinct_id_map (
     PRIMARY KEY (team_id, distinct_id)
 ) PARTITION BY HASH (team_id);
 
+-- Both tables keep the default fillfactor. The benchmark sweeps `--person-fillfactor`
+-- and `--map-fillfactor` to measure HOT headroom; ship a follow-up migration if the
+-- sweep lands on a lower value.
 DO $$
 DECLARE
     num_partitions INTEGER := 64;

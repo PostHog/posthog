@@ -86,6 +86,7 @@ impl Default for IngressCapacities {
 pub struct RetryConfig {
     pub max_retries: u32,
     pub backoff_base: Duration,
+    pub attempt_timeout: Duration,
 }
 
 impl Default for RetryConfig {
@@ -93,6 +94,7 @@ impl Default for RetryConfig {
         Self {
             max_retries: 3,
             backoff_base: Duration::from_millis(50),
+            attempt_timeout: Duration::from_secs(30),
         }
     }
 }
@@ -178,38 +180,9 @@ impl ExecutorRuntime {
         self.cancellation.clone()
     }
 
-    pub async fn close_and_drain<F>(
-        self,
-        ingress: ExecutorIngress,
-        record_completion: F,
-    ) -> anyhow::Result<()>
-    where
-        F: FnMut(CompletionRecord) -> anyhow::Result<()>,
-    {
-        drop(ingress);
-        self.drain_closed(record_completion).await
-    }
-
-    pub async fn close_dispatchers_and_drain<F>(
-        self,
-        dispatchers: ExecutorDispatchers,
-        record_completion: F,
-    ) -> anyhow::Result<()>
-    where
-        F: FnMut(CompletionRecord) -> anyhow::Result<()>,
-    {
-        drop(dispatchers);
-        self.drain_closed(record_completion).await
-    }
-
-    pub async fn drain_after_senders_closed<F>(self, record_completion: F) -> anyhow::Result<()>
-    where
-        F: FnMut(CompletionRecord) -> anyhow::Result<()>,
-    {
-        self.drain_closed(record_completion).await
-    }
-
-    async fn drain_closed<F>(mut self, mut record_completion: F) -> anyhow::Result<()>
+    /// Drains completions until the workers exit. Callers must have dropped every
+    /// ingress or dispatcher handle first, otherwise the workers never see a close.
+    pub async fn drain<F>(mut self, mut record_completion: F) -> anyhow::Result<()>
     where
         F: FnMut(CompletionRecord) -> anyhow::Result<()>,
     {
@@ -274,51 +247,49 @@ pub fn start(
         )),
     ];
 
+    let context = WorkerContext {
+        storage,
+        completion_sender,
+        clock,
+        retry: config.retry,
+        cancellation: cancellation.clone(),
+    };
+
     let person_batches = Arc::new(Mutex::new(person_batch_receiver));
     for _ in 0..config.person_batch_workers.get() {
-        handles.push(tokio::spawn(run_person_batch_worker(
-            Arc::clone(&storage),
+        handles.push(tokio::spawn(run_batch_worker(
+            context.clone(),
             Arc::clone(&person_batches),
-            completion_sender.clone(),
-            clock,
-            config.retry,
-            cancellation.clone(),
+            dedupe_person_updates,
+            async |storage: &PostgresStorage, updates| storage.batch_upsert_persons(updates).await,
         )));
     }
     let distinct_id_batches = Arc::new(Mutex::new(distinct_id_batch_receiver));
     for _ in 0..config.distinct_id_batch_workers.get() {
-        handles.push(tokio::spawn(run_distinct_id_batch_worker(
-            Arc::clone(&storage),
+        handles.push(tokio::spawn(run_batch_worker(
+            context.clone(),
             Arc::clone(&distinct_id_batches),
-            completion_sender.clone(),
-            clock,
-            config.retry,
-            cancellation.clone(),
+            dedupe_distinct_id_assignments,
+            async |storage: &PostgresStorage, assignments| {
+                storage.batch_upsert_distinct_ids(assignments).await
+            },
         )));
     }
     let merge_receiver = Arc::new(Mutex::new(merge_receiver));
     for _ in 0..config.merge_workers.get() {
         handles.push(tokio::spawn(run_merge_worker(
-            Arc::clone(&storage),
+            context.clone(),
             Arc::clone(&merge_receiver),
-            completion_sender.clone(),
-            clock,
-            config.retry,
-            cancellation.clone(),
         )));
     }
     let read_receiver = Arc::new(Mutex::new(read_receiver));
     for _ in 0..config.read_workers.get() {
         handles.push(tokio::spawn(run_read_worker(
-            Arc::clone(&storage),
+            context.clone(),
             Arc::clone(&read_receiver),
-            completion_sender.clone(),
-            clock,
-            config.retry,
-            cancellation.clone(),
         )));
     }
-    drop(completion_sender);
+    drop(context);
 
     (
         ingress,
@@ -328,6 +299,16 @@ pub fn start(
             cancellation,
         },
     )
+}
+
+/// Plumbing every worker needs, so worker signatures carry only their own inputs.
+#[derive(Clone)]
+struct WorkerContext {
+    storage: Arc<PostgresStorage>,
+    completion_sender: mpsc::Sender<CompletionRecord>,
+    clock: PhaseClock,
+    retry: RetryConfig,
+    cancellation: CancellationToken,
 }
 
 async fn run_batcher(
@@ -382,58 +363,30 @@ async fn receive_shared<T>(
     }
 }
 
-async fn run_person_batch_worker(
-    storage: Arc<PostgresStorage>,
+/// Shared batch-worker loop. `prepare` collapses a dispatched batch into the write
+/// payload (dedupe rules differ per class) and `execute` issues the storage call.
+async fn run_batch_worker<T, Prepare, Execute>(
+    context: WorkerContext,
     receiver: Arc<Mutex<mpsc::Receiver<Vec<DispatchedOperation>>>>,
-    completion_sender: mpsc::Sender<CompletionRecord>,
-    clock: PhaseClock,
-    retry: RetryConfig,
-    cancellation: CancellationToken,
-) -> anyhow::Result<()> {
+    prepare: Prepare,
+    execute: Execute,
+) -> anyhow::Result<()>
+where
+    Prepare: Fn(&[DispatchedOperation]) -> Result<Vec<T>, BatchPayloadError>,
+    Execute: AsyncFn(&PostgresStorage, &[T]) -> Result<u64, sqlx::Error>,
+{
+    let WorkerContext {
+        storage,
+        completion_sender,
+        clock,
+        retry,
+        cancellation,
+    } = context;
     while let Some(batch) = receive_shared(&receiver, &cancellation).await {
-        let updates = dedupe_person_updates(&batch);
+        let payload = prepare(&batch);
         let started_at = clock.now()?;
-        let execution = match updates {
-            Ok(updates) => {
-                with_retry(retry, &cancellation, || {
-                    storage.batch_upsert_persons(&updates)
-                })
-                .await
-            }
-            Err(error) => RetryResult::<u64>::terminal(error.to_string()),
-        };
-        if execution.cancelled {
-            return Ok(());
-        }
-        let terminal_error = execution.error.clone();
-        let emission =
-            emit_batch_completions(&batch, started_at, &execution, &clock, &completion_sender)
-                .await;
-        cancel_on_error(&emission, &cancellation);
-        emission?;
-        abort_after_terminal(terminal_error.as_deref(), &cancellation)?;
-    }
-    Ok(())
-}
-
-async fn run_distinct_id_batch_worker(
-    storage: Arc<PostgresStorage>,
-    receiver: Arc<Mutex<mpsc::Receiver<Vec<DispatchedOperation>>>>,
-    completion_sender: mpsc::Sender<CompletionRecord>,
-    clock: PhaseClock,
-    retry: RetryConfig,
-    cancellation: CancellationToken,
-) -> anyhow::Result<()> {
-    while let Some(batch) = receive_shared(&receiver, &cancellation).await {
-        let assignments = dedupe_distinct_id_assignments(&batch);
-        let started_at = clock.now()?;
-        let execution = match assignments {
-            Ok(assignments) => {
-                with_retry(retry, &cancellation, || {
-                    storage.batch_upsert_distinct_ids(&assignments)
-                })
-                .await
-            }
+        let execution = match payload {
+            Ok(payload) => with_retry(retry, &cancellation, || execute(&storage, &payload)).await,
             Err(error) => RetryResult::<u64>::terminal(error.to_string()),
         };
         if execution.cancelled {
@@ -451,13 +404,16 @@ async fn run_distinct_id_batch_worker(
 }
 
 async fn run_read_worker(
-    storage: Arc<PostgresStorage>,
+    context: WorkerContext,
     receiver: Arc<Mutex<mpsc::Receiver<DispatchedOperation>>>,
-    completion_sender: mpsc::Sender<CompletionRecord>,
-    clock: PhaseClock,
-    retry: RetryConfig,
-    cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
+    let WorkerContext {
+        storage,
+        completion_sender,
+        clock,
+        retry,
+        cancellation,
+    } = context;
     while let Some(operation) = receive_shared(&receiver, &cancellation).await {
         let prepared = match &operation.descriptor().payload {
             OpPayload::CanonicalRead(payload) => Ok(payload.clone()),
@@ -509,13 +465,16 @@ async fn run_read_worker(
 }
 
 async fn run_merge_worker(
-    storage: Arc<PostgresStorage>,
+    context: WorkerContext,
     receiver: Arc<Mutex<mpsc::Receiver<DispatchedOperation>>>,
-    completion_sender: mpsc::Sender<CompletionRecord>,
-    clock: PhaseClock,
-    retry: RetryConfig,
-    cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
+    let WorkerContext {
+        storage,
+        completion_sender,
+        clock,
+        retry,
+        cancellation,
+    } = context;
     while let Some(operation) = receive_shared(&receiver, &cancellation).await {
         let prepared = match &operation.descriptor().payload {
             OpPayload::FullMerge(payload) => Ok(prepare_merge(payload)),
@@ -555,6 +514,8 @@ async fn execute_merge(
     retry: RetryConfig,
     cancellation: &CancellationToken,
 ) -> RetryResult<u64> {
+    // Production commits these version-guarded batches independently as well;
+    // replay converges a partial merge after a later step fails.
     let mut result = with_retry(retry, cancellation, || {
         storage.batch_upsert_distinct_ids(&merge.assignments)
     })
@@ -707,7 +668,21 @@ where
         let result = tokio::select! {
             biased;
             () = cancellation.cancelled() => return RetryResult::cancelled(stats),
-            result = operation() => result,
+            result = tokio::time::timeout(retry.attempt_timeout, operation()) => result,
+        };
+        let result = match result {
+            Ok(result) => result,
+            Err(_) => {
+                return RetryResult {
+                    value: None,
+                    error: Some(format!(
+                        "database attempt timed out after {:.1}s",
+                        retry.attempt_timeout.as_secs_f64()
+                    )),
+                    stats,
+                    cancelled: false,
+                }
+            }
         };
         match result {
             Ok(value) => {
@@ -1172,9 +1147,10 @@ mod tests {
         };
         let mut drained = 0;
 
+        drop(ingress);
         tokio::time::timeout(
             Duration::from_secs(1),
-            runtime.close_and_drain(ingress, |_| {
+            runtime.drain(|_| {
                 drained += 1;
                 Ok(())
             }),
@@ -1200,5 +1176,23 @@ mod tests {
 
         assert!(result.cancelled);
         assert_eq!(attempts.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn database_attempts_have_a_finite_timeout() {
+        let cancellation = CancellationToken::new();
+        let retry = RetryConfig {
+            attempt_timeout: Duration::from_millis(1),
+            ..RetryConfig::default()
+        };
+
+        let result: RetryResult<()> = with_retry(retry, &cancellation, || async {
+            std::future::pending::<Result<(), sqlx::Error>>().await
+        })
+        .await;
+
+        assert!(result
+            .error
+            .is_some_and(|error| error.contains("database attempt timed out")));
     }
 }

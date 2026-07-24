@@ -70,6 +70,7 @@ pub fn evaluate_gates(phases: &[PhaseResult], thresholds: GateThresholds) -> Gat
         let interval_reads = peak
             .intervals
             .iter()
+            .filter(|interval| interval.started_at_nanos < peak.summary.duration_nanos)
             .map(|interval| &interval.classes[OpClass::CanonicalRead.index()])
             .filter(|read| read.counts.scheduled > 0)
             .collect::<Vec<_>>();
@@ -117,26 +118,33 @@ pub fn evaluate_gates(phases: &[PhaseResult], thresholds: GateThresholds) -> Gat
         phase(phases, PhaseName::MergeStorm),
         phase(phases, PhaseName::Recovery),
     ) {
-        let recovery_time = recovery_time(
+        let recovery_outcome = recovery_time(
             recovery,
             Duration::from_nanos(storm.summary.post_deadline_duration_nanos),
             thresholds,
         );
         checks.push(GateCheck {
             name: "recovery time".to_owned(),
-            passed: recovery_time.is_some_and(|elapsed| {
-                elapsed <= Duration::from_secs(thresholds.recovery_max_secs)
-            }),
-            detail: recovery_time.map_or_else(
-                || "read SLO was not restored for the remainder of recovery".to_owned(),
-                |elapsed| {
+            passed: matches!(
+                recovery_outcome,
+                RecoveryOutcome::Recovered(elapsed)
+                    if elapsed <= Duration::from_secs(thresholds.recovery_max_secs)
+            ),
+            detail: match recovery_outcome {
+                RecoveryOutcome::Recovered(elapsed) => {
                     format!(
                         "{:.1}s from storm end, limit {}s",
                         elapsed.as_secs_f64(),
                         thresholds.recovery_max_secs
                     )
-                },
-            ),
+                }
+                RecoveryOutcome::NoReadTraffic => {
+                    "no read traffic was observed during recovery".to_owned()
+                }
+                RecoveryOutcome::NotRecovered => {
+                    "read SLO was not restored for the remainder of recovery".to_owned()
+                }
+            },
         });
         let vacuumed = [TableGroup::Person, TableGroup::DistinctIdMap]
             .into_iter()
@@ -201,17 +209,21 @@ pub fn evaluate_gates(phases: &[PhaseResult], thresholds: GateThresholds) -> Gat
 
     let dispatch_limit_nanos = millis_to_nanos(thresholds.dispatch_p99_ms);
     let harness_limited = phases.iter().any(|phase| {
-        phase.intervals.iter().any(|interval| {
-            phase.targets.iter().any(|target| {
-                target.feed == FeedMode::Open
-                    && target.target.is_active()
-                    && interval.classes[target.class.index()].dispatch_lag.count > 0
-                    && interval.classes[target.class.index()]
-                        .dispatch_lag
-                        .p99_nanos
-                        > dispatch_limit_nanos
+        phase
+            .intervals
+            .iter()
+            .filter(|interval| interval.started_at_nanos < phase.summary.duration_nanos)
+            .any(|interval| {
+                phase.targets.iter().any(|target| {
+                    target.feed == FeedMode::Open
+                        && target.target.is_active()
+                        && interval.classes[target.class.index()].dispatch_lag.count > 0
+                        && interval.classes[target.class.index()]
+                            .dispatch_lag
+                            .p99_nanos
+                            > dispatch_limit_nanos
+                })
             })
-        })
     });
     checks.push(GateCheck {
         name: "load generator dispatch p99".to_owned(),
@@ -349,7 +361,7 @@ pub fn print_report(
 
     for phase in phases {
         println!(
-            "\n{} ({:.1}s workload + {:.3}s post-deadline, {:.3}s executor drain)",
+            "\n{} ({:.1}s workload + {:.3}s post-deadline, including {:.3}s executor drain)",
             phase.name.as_str(),
             phase.duration.as_secs_f64(),
             Duration::from_nanos(phase.summary.post_deadline_duration_nanos).as_secs_f64(),
@@ -497,34 +509,47 @@ fn median(values: &[u64]) -> Option<u64> {
     values.get(values.len() / 2).copied()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryOutcome {
+    Recovered(Duration),
+    NoReadTraffic,
+    NotRecovered,
+}
+
 fn recovery_time(
     phase: &PhaseResult,
     storm_post_deadline: Duration,
     thresholds: GateThresholds,
-) -> Option<Duration> {
+) -> RecoveryOutcome {
     let active_intervals = phase
         .intervals
         .iter()
         .filter(|interval| {
-            interval.classes[OpClass::CanonicalRead.index()]
-                .counts
-                .scheduled
-                > 0
+            interval.started_at_nanos < phase.summary.duration_nanos
+                && interval.classes[OpClass::CanonicalRead.index()]
+                    .counts
+                    .scheduled
+                    > 0
         })
         .collect::<Vec<_>>();
-    let recovered_interval =
-        active_intervals
-            .iter()
-            .enumerate()
-            .find_map(|(index, interval)| {
-                let remains_recovered = active_intervals[index..].iter().all(|candidate| {
-                    let read = &candidate.classes[OpClass::CanonicalRead.index()];
-                    nanos_millis(read.schedule.p50_nanos) <= thresholds.steady_read_p50_ms
-                        && nanos_millis(read.schedule.p99_nanos) <= thresholds.steady_read_p99_ms
-                });
-                remains_recovered.then_some(*interval)
-            })?;
-    Some(
+    if active_intervals.is_empty() {
+        return RecoveryOutcome::NoReadTraffic;
+    }
+    let recovered_interval = active_intervals
+        .iter()
+        .enumerate()
+        .find_map(|(index, interval)| {
+            let remains_recovered = active_intervals[index..].iter().all(|candidate| {
+                let read = &candidate.classes[OpClass::CanonicalRead.index()];
+                nanos_millis(read.schedule.p50_nanos) <= thresholds.steady_read_p50_ms
+                    && nanos_millis(read.schedule.p99_nanos) <= thresholds.steady_read_p99_ms
+            });
+            remains_recovered.then_some(*interval)
+        });
+    let Some(recovered_interval) = recovered_interval else {
+        return RecoveryOutcome::NotRecovered;
+    };
+    RecoveryOutcome::Recovered(
         storm_post_deadline
             + phase.pre_hook_duration
             + Duration::from_nanos(recovered_interval.ended_at_nanos),
@@ -849,5 +874,57 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.name == "recovery time" && !check.passed));
+    }
+
+    #[test]
+    fn recovery_ignores_the_pure_drain_interval() {
+        let mut recovery = result(PhaseName::Recovery, 10);
+        recovery.pre_hook_duration = Duration::ZERO;
+        let mut workload_classes = recovery.summary.classes;
+        let read = &mut workload_classes[OpClass::CanonicalRead.index()];
+        read.counts.scheduled = 100;
+        read.schedule = LatencySummary {
+            count: 100,
+            p50_nanos: 500_000,
+            p99_nanos: 1_000_000,
+            ..LatencySummary::default()
+        };
+        recovery.intervals.push(IntervalRecord {
+            record_type: "interval",
+            phase_id: recovery.summary.phase_id,
+            interval_index: 0,
+            started_at_nanos: 0,
+            ended_at_nanos: 10_000_000_000,
+            classes: workload_classes,
+        });
+
+        let mut drain_classes = workload_classes;
+        let drain_read = &mut drain_classes[OpClass::CanonicalRead.index()];
+        drain_read.counts.scheduled = 1;
+        drain_read.schedule.p50_nanos = 100_000_000;
+        drain_read.schedule.p99_nanos = 100_000_000;
+        recovery.intervals.push(IntervalRecord {
+            record_type: "interval",
+            phase_id: recovery.summary.phase_id,
+            interval_index: 1,
+            started_at_nanos: 10_000_000_000,
+            ended_at_nanos: 11_000_000_000,
+            classes: drain_classes,
+        });
+
+        assert_eq!(
+            recovery_time(&recovery, Duration::ZERO, thresholds()),
+            RecoveryOutcome::Recovered(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
+    fn recovery_reports_no_read_traffic_separately() {
+        let recovery = result(PhaseName::Recovery, 10);
+
+        assert_eq!(
+            recovery_time(&recovery, Duration::ZERO, thresholds()),
+            RecoveryOutcome::NoReadTraffic
+        );
     }
 }

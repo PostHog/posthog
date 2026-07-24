@@ -23,6 +23,8 @@ WHERE m.team_id = $1
   AND p.deleted_at IS NULL;
 ```
 
+`rust/flags_read_store_migrations` owns this DDL. It replaces an earlier `flags_person_lookup` draft that used a `distinct_ids` array with a GIN index; that draft never ran outside a local checkout, so it was rewritten in place rather than retired by a second migration. If your local `flags_read_store` database applied the draft, `sqlx migrate run` reports a checksum mismatch — drop and recreate the database, then re-run `bin/migrate --scope=flags-read-store`.
+
 ## Schema benchmark
 
 The benchmark populates the two tables, runs `VACUUM ANALYZE` and `CHECKPOINT`, verifies every storage query plan, then runs six phases:
@@ -38,16 +40,16 @@ Creation traffic produces one person upsert and one distinct ID assignment. In o
 
 The gate profile checks every open feed's deadline-scoped rate and backlog, zero shedding and operation errors in every phase, peak and storm read latency, interval drift, storm-drain-inclusive recovery time, catch-up write headroom, and load-generator dispatch latency. The smoke profile prints the same diagnostics but does not fail on production thresholds.
 
-Warning: unless `--skip-populate` is passed, the benchmark drops `flags_person_lookup`, `flags_person`, and `flags_distinct_id_map`, then recreates the current tables. Use a dedicated benchmark database. `--skip-populate` inspects the existing partition layout but cannot verify that its rows match the supplied scale, team count, and seed; run metadata records the population as unverified.
+Warning: unless `--skip-populate` is passed, the benchmark drops `flags_person_lookup`, `flags_person`, and `flags_distinct_id_map`, then recreates the current tables. Use a dedicated benchmark database. Destructive setup requires the explicit `--allow-destructive-reset` flag. `--skip-populate` inspects the existing partition layout but cannot verify that its rows match the supplied scale, team count, and seed; run metadata records the population as unverified.
 
-Set `FLAGS_READ_STORE_DATABASE_URL` for the benchmark database. `DATABASE_URL` is accepted as a fallback. Run these commands from `rust/`.
+Set `FLAGS_READ_STORE_DATABASE_URL` for the dedicated benchmark database. The benchmark does not fall back to `DATABASE_URL`. Run these commands from `rust/`.
 
 Local smoke run:
 
 ```sh
 FLAGS_READ_STORE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/flags_read_store \
   cargo run -p flags-consumer --release -- benchmark \
-  --profile smoke --scale 400000 --partitions 8
+  --profile smoke --scale 400000 --partitions 8 --allow-destructive-reset
 ```
 
 Single partition at target density:
@@ -55,7 +57,7 @@ Single partition at target density:
 ```sh
 FLAGS_READ_STORE_DATABASE_URL="$BENCHMARK_DATABASE_URL" \
   cargo run -p flags-consumer --release -- benchmark \
-  --profile smoke --partitions 1 --scale 45000000
+  --profile smoke --partitions 1 --scale 45000000 --allow-destructive-reset
 ```
 
 Aurora gate run on the production-candidate instance:
@@ -64,6 +66,7 @@ Aurora gate run on the production-candidate instance:
 FLAGS_READ_STORE_DATABASE_URL="$AURORA_BENCHMARK_DATABASE_URL" \
   cargo run -p flags-consumer --release -- benchmark \
   --profile gate --scale 45000000 --partitions 64 \
+  --allow-destructive-reset \
   --out tmp/flags-read-store-aurora-gate.jsonl
 ```
 

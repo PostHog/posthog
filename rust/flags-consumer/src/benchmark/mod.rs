@@ -82,6 +82,9 @@ pub struct BenchmarkArgs {
     #[arg(long)]
     pub skip_populate: bool,
 
+    #[arg(long)]
+    pub allow_destructive_reset: bool,
+
     #[arg(long, default_value_t = 64)]
     pub read_workers: usize,
 
@@ -144,6 +147,10 @@ impl BenchmarkArgs {
     fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(self.scale > 0, "--scale must be greater than zero");
         anyhow::ensure!(self.teams > 0, "--teams must be greater than zero");
+        anyhow::ensure!(
+            self.skip_populate || self.allow_destructive_reset,
+            "schema recreation requires --allow-destructive-reset"
+        );
         anyhow::ensure!(
             self.batch_size > 0,
             "--batch-size must be greater than zero"
@@ -393,6 +400,7 @@ impl ActivationTracker {
 
     fn record_failed_dispatch(
         &mut self,
+        world: &mut WorldState,
         operation_id: OperationId,
         outcome: DispatchOutcome,
     ) -> anyhow::Result<()> {
@@ -406,6 +414,9 @@ impl ActivationTracker {
         if let Some(PendingReference::Creation(_)) = reference {
             anyhow::bail!("creation operation {} was shed", operation_id.0);
         }
+        if let Some(PendingReference::DistinctId(token)) = reference {
+            world.abandon_distinct_id(token)?;
+        }
         Ok(())
     }
 
@@ -417,6 +428,37 @@ impl ActivationTracker {
         );
         Ok(())
     }
+}
+
+/// The read-store handles every phase connects through.
+struct StoreHandles<'a> {
+    database_url: &'a str,
+    pool: &'a PgPool,
+    storage: &'a Arc<PostgresStorage>,
+}
+
+/// The mutable world plus the knobs that shape generated operations. Lives for the
+/// whole run: entity versions must never restart between phases, or merges of
+/// untouched entities degenerate into no-ops.
+struct WorkloadContext<'a> {
+    world: &'a mut WorldState,
+    rng: &'a mut StdRng,
+    growth: &'a mut RuntimeGrowth,
+    world_config: &'a WorldConfig,
+    memory_limit: u64,
+    args: &'a BenchmarkArgs,
+    /// Each phase asserts this is empty before it finishes, so it carries no state
+    /// across phases beyond a monotonic creation counter.
+    tracker: ActivationTracker,
+}
+
+/// The recording surfaces a phase accumulates into and hands to `finish_phase`.
+struct PhaseMetrics<'a> {
+    collector: PhaseCollector,
+    intervals: Vec<collector::IntervalRecord>,
+    pg_records: Vec<PgDeltaRecord>,
+    pg_receiver: mpsc::Receiver<PgSample>,
+    sink: &'a mut JsonlSink,
 }
 
 pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
@@ -447,6 +489,7 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
         .context("connect read-store database")?;
 
     let mut world = WorldState::new(world_config.clone())?;
+    world.reserve_person_growth(projected_growth.person_creations)?;
     let (population, schema_source) = if args.skip_populate {
         anyhow::ensure!(
             schema::table_exists(&pool).await?,
@@ -495,18 +538,25 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     let mut phase_results = Vec::with_capacity(phases.len());
     let mut growth = RuntimeGrowth::default();
     let mut workload_rng = StdRng::seed_from_u64(args.seed ^ WORKLOAD_SEED_MIX);
+    let store = StoreHandles {
+        database_url: &database_url,
+        pool: &pool,
+        storage: &storage,
+    };
+    let mut workload = WorkloadContext {
+        world: &mut world,
+        rng: &mut workload_rng,
+        growth: &mut growth,
+        world_config: &world_config,
+        memory_limit,
+        args: &args,
+        tracker: ActivationTracker::default(),
+    };
     for (index, phase) in phases.iter().enumerate() {
         let phase_id = PhaseId::new(u64::try_from(index + 1).context("phase ID overflow")?);
         let result = run_phase(
-            &database_url,
-            &pool,
-            Arc::clone(&storage),
-            &mut world,
-            &mut workload_rng,
-            &mut growth,
-            &world_config,
-            memory_limit,
-            &args,
+            &store,
+            &mut workload,
             phase_id,
             phase,
             executor_config.clone(),
@@ -538,79 +588,35 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     enforce_gate_result(args.profile, &gates, &args.out)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_phase(
-    database_url: &str,
-    pool: &PgPool,
-    storage: Arc<PostgresStorage>,
-    world: &mut WorldState,
-    workload_rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
+    store: &StoreHandles<'_>,
+    workload: &mut WorkloadContext<'_>,
     phase_id: PhaseId,
     phase: &PhaseSpec,
     executor_config: ExecutorConfig,
     sink: &mut JsonlSink,
 ) -> anyhow::Result<PhaseResult> {
     if phase.name == rates::PhaseName::CatchUp {
-        run_catch_up_phase(
-            database_url,
-            pool,
-            storage,
-            world,
-            workload_rng,
-            growth,
-            world_config,
-            memory_limit,
-            args,
-            phase_id,
-            phase,
-            executor_config,
-            sink,
-        )
-        .await
+        run_catch_up_phase(store, workload, phase_id, phase, executor_config, sink).await
     } else {
-        run_open_phase(
-            database_url,
-            pool,
-            storage,
-            world,
-            workload_rng,
-            growth,
-            world_config,
-            memory_limit,
-            args,
-            phase_id,
-            phase,
-            executor_config,
-            sink,
-        )
-        .await
+        run_open_phase(store, workload, phase_id, phase, executor_config, sink).await
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_open_phase(
-    database_url: &str,
-    pool: &PgPool,
-    storage: Arc<PostgresStorage>,
-    world: &mut WorldState,
-    workload_rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
+    store: &StoreHandles<'_>,
+    workload: &mut WorkloadContext<'_>,
     phase_id: PhaseId,
     phase: &PhaseSpec,
     executor_config: ExecutorConfig,
     sink: &mut JsonlSink,
 ) -> anyhow::Result<PhaseResult> {
-    let (pre_hook_duration, mut pg_records) =
-        run_pre_hooks(database_url, pool, phase_id, &phase.pre_hooks, sink).await?;
+    let args = workload.args;
+    let (pre_hook_duration, pg_records) =
+        run_pre_hooks(store, phase_id, &phase.pre_hooks, sink).await?;
     let clock = PhaseClock::start_now(phase_id);
-    let (mut ingress, mut runtime) = executor::start(storage, clock, executor_config);
+    let (mut ingress, mut runtime) =
+        executor::start(Arc::clone(store.storage), clock, executor_config);
     let cancellation = runtime.cancellation_token();
     let rates = adjusted_open_rates(phase, args.creation_percent)?;
     let mut schedule = ArrivalSchedule::new(
@@ -619,11 +625,15 @@ async fn run_open_phase(
         &rates,
     )?;
     let duration_nanos = duration_as_nanos(phase.duration);
-    let mut collector = PhaseCollector::with_deadline(phase_id, duration_nanos);
-    let mut tracker = ActivationTracker::default();
-    let mut intervals = Vec::new();
-    let (sampler_cancellation, mut pg_receiver, sampler_task) =
-        spawn_pg_sampler(database_url.to_owned(), phase_id);
+    let (sampler_cancellation, pg_receiver, sampler_task) =
+        spawn_pg_sampler(store.database_url.to_owned(), phase_id);
+    let mut metrics = PhaseMetrics {
+        collector: PhaseCollector::with_deadline(phase_id, duration_nanos),
+        intervals: Vec::new(),
+        pg_records,
+        pg_receiver,
+        sink,
+    };
 
     let load_result = drive_open_load(
         &clock,
@@ -631,42 +641,30 @@ async fn run_open_phase(
         &mut schedule,
         &mut ingress,
         &mut runtime,
-        world,
-        workload_rng,
-        growth,
-        world_config,
-        memory_limit,
-        args,
-        &mut tracker,
-        &mut collector,
-        &mut intervals,
-        &mut pg_records,
-        &mut pg_receiver,
-        sink,
+        workload,
+        &mut metrics,
     )
     .await;
-    if load_result.is_err() {
+    let workload_interval_result = flush_interval(duration_nanos, &mut metrics);
+    if load_result.is_err() || workload_interval_result.is_err() {
         cancellation.cancel();
     }
     let drain_started = Instant::now();
+    drop(ingress);
     let drain_result = runtime
-        .close_and_drain(ingress, |completion| {
-            record_completion(&mut collector, &mut tracker, world, completion)
-        })
+        .drain(|completion| record_completion(&mut metrics.collector, workload, completion))
         .await;
     let drain_duration = drain_started.elapsed();
     sampler_cancellation.cancel();
-    let sampler_result = sampler_task
-        .await
-        .context("join PostgreSQL sampler task")
-        .and_then(|result| result);
-    let pg_sample_result = drain_pg_samples(&mut pg_receiver, &mut pg_records, sink);
+    let sampler_result = sampler_task.await.context("join PostgreSQL sampler task");
+    let pg_sample_result = drain_pg_samples(&mut metrics);
 
     load_result?;
+    workload_interval_result?;
     sampler_result?;
     pg_sample_result?;
     drain_result?;
-    tracker.ensure_empty()?;
+    workload.tracker.ensure_empty()?;
     finish_phase(
         phase,
         PhaseTimings {
@@ -674,33 +672,23 @@ async fn run_open_phase(
             drain: drain_duration,
         },
         clock,
-        collector,
-        intervals,
-        pg_records,
-        sink,
+        metrics,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_catch_up_phase(
-    database_url: &str,
-    pool: &PgPool,
-    storage: Arc<PostgresStorage>,
-    world: &mut WorldState,
-    workload_rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
+    store: &StoreHandles<'_>,
+    workload: &mut WorkloadContext<'_>,
     phase_id: PhaseId,
     phase: &PhaseSpec,
     executor_config: ExecutorConfig,
     sink: &mut JsonlSink,
 ) -> anyhow::Result<PhaseResult> {
-    let (pre_hook_duration, mut pg_records) =
-        run_pre_hooks(database_url, pool, phase_id, &phase.pre_hooks, sink).await?;
+    let args = workload.args;
+    let (pre_hook_duration, pg_records) =
+        run_pre_hooks(store, phase_id, &phase.pre_hooks, sink).await?;
     let clock = PhaseClock::start_now(phase_id);
-    let (ingress, mut runtime) = executor::start(storage, clock, executor_config);
+    let (ingress, mut runtime) = executor::start(Arc::clone(store.storage), clock, executor_config);
     let cancellation = runtime.cancellation_token();
     let ExecutorDispatchers {
         person_upserts,
@@ -756,11 +744,15 @@ async fn run_catch_up_phase(
         &phase.rates,
     )?;
     let duration_nanos = duration_as_nanos(phase.duration);
-    let mut collector = PhaseCollector::with_deadline(phase_id, duration_nanos);
-    let mut tracker = ActivationTracker::default();
-    let mut intervals = Vec::new();
-    let (sampler_cancellation, mut pg_receiver, sampler_task) =
-        spawn_pg_sampler(database_url.to_owned(), phase_id);
+    let (sampler_cancellation, pg_receiver, sampler_task) =
+        spawn_pg_sampler(store.database_url.to_owned(), phase_id);
+    let mut metrics = PhaseMetrics {
+        collector: PhaseCollector::with_deadline(phase_id, duration_nanos),
+        intervals: Vec::new(),
+        pg_records,
+        pg_receiver,
+        sink,
+    };
 
     let load_result = drive_catch_up_load(
         &clock,
@@ -773,21 +765,12 @@ async fn run_catch_up_phase(
         &mut request_receiver,
         &mut dispatch_receiver,
         &mut runtime,
-        world,
-        workload_rng,
-        growth,
-        world_config,
-        memory_limit,
-        args,
-        &mut tracker,
-        &mut collector,
-        &mut intervals,
-        &mut pg_records,
-        &mut pg_receiver,
-        sink,
+        workload,
+        &mut metrics,
     )
     .await;
-    if load_result.is_err() {
+    let workload_interval_result = flush_interval(duration_nanos, &mut metrics);
+    if load_result.is_err() || workload_interval_result.is_err() {
         cancellation.cancel();
     }
     let drain_started = Instant::now();
@@ -801,9 +784,8 @@ async fn run_catch_up_phase(
         merge_task,
         &mut dispatch_receiver,
         &mut runtime,
-        &mut collector,
-        &mut tracker,
-        world,
+        &mut metrics.collector,
+        workload,
     )
     .await;
     let (dispatchers, pump_error) = match pump_result {
@@ -822,39 +804,26 @@ async fn run_catch_up_phase(
             (None, Some(error))
         }
     };
-    let drain_result = match dispatchers {
-        Some(dispatchers) => {
-            runtime
-                .close_dispatchers_and_drain(dispatchers, |completion| {
-                    record_completion(&mut collector, &mut tracker, world, completion)
-                })
-                .await
-        }
-        None => {
-            cancellation.cancel();
-            runtime
-                .drain_after_senders_closed(|completion| {
-                    record_completion(&mut collector, &mut tracker, world, completion)
-                })
-                .await
-        }
-    };
+    // Releasing every dispatcher is what lets the workers finish; on the pump's error
+    // path they are already gone, so this is a no-op there.
+    drop(dispatchers);
+    let drain_result = runtime
+        .drain(|completion| record_completion(&mut metrics.collector, workload, completion))
+        .await;
     let drain_duration = drain_started.elapsed();
     sampler_cancellation.cancel();
-    let sampler_result = sampler_task
-        .await
-        .context("join PostgreSQL sampler task")
-        .and_then(|result| result);
-    let pg_sample_result = drain_pg_samples(&mut pg_receiver, &mut pg_records, sink);
+    let sampler_result = sampler_task.await.context("join PostgreSQL sampler task");
+    let pg_sample_result = drain_pg_samples(&mut metrics);
 
     load_result?;
+    workload_interval_result?;
     if let Some(error) = pump_error {
         return Err(error);
     }
     sampler_result?;
     pg_sample_result?;
     drain_result?;
-    tracker.ensure_empty()?;
+    workload.tracker.ensure_empty()?;
     finish_phase(
         phase,
         PhaseTimings {
@@ -862,21 +831,14 @@ async fn run_catch_up_phase(
             drain: drain_duration,
         },
         clock,
-        collector,
-        intervals,
-        pg_records,
-        sink,
+        metrics,
     )
 }
 
 fn benchmark_database_url() -> anyhow::Result<String> {
-    std::env::var("FLAGS_READ_STORE_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "FLAGS_READ_STORE_DATABASE_URL or DATABASE_URL must be set for benchmark mode"
-            )
-        })
+    std::env::var("FLAGS_READ_STORE_DATABASE_URL").map_err(|_| {
+        anyhow::anyhow!("FLAGS_READ_STORE_DATABASE_URL must be set for benchmark mode")
+    })
 }
 
 fn benchmark_pool(database_url: &str, config: &ExecutorConfig) -> anyhow::Result<PgPool> {
@@ -961,6 +923,7 @@ fn projected_growth(args: &BenchmarkArgs, phases: &[PhaseSpec]) -> anyhow::Resul
     let mut distinct_id_assignments = 0.0;
     let fresh_fraction = 1.0 - f64::from(args.stale_replay_percent) / 100.0;
     for phase in phases {
+        // Catch-up mutates existing entities so its closed feeds stay memory-bounded.
         if phase.name == rates::PhaseName::CatchUp {
             continue;
         }
@@ -1000,25 +963,14 @@ fn enforce_gate_result(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn drive_open_load(
     clock: &PhaseClock,
     duration: Duration,
     schedule: &mut ArrivalSchedule,
     ingress: &mut ExecutorIngress,
     runtime: &mut ExecutorRuntime,
-    world: &mut WorldState,
-    workload_rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
-    tracker: &mut ActivationTracker,
-    collector: &mut PhaseCollector,
-    intervals: &mut Vec<collector::IntervalRecord>,
-    pg_records: &mut Vec<PgDeltaRecord>,
-    pg_receiver: &mut mpsc::Receiver<anyhow::Result<PgDeltaRecord>>,
-    sink: &mut JsonlSink,
+    workload: &mut WorkloadContext<'_>,
+    metrics: &mut PhaseMetrics<'_>,
 ) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + duration;
     let mut interval = tokio::time::interval_at(
@@ -1033,38 +985,28 @@ async fn drive_open_load(
             () = tokio::time::sleep_until(deadline) => break,
             completion = runtime.completion_receiver_mut().recv() => {
                 let completion = completion.context("executor completion stream closed during phase")?;
-                record_completion(collector, tracker, world, completion)?;
+                record_completion(&mut metrics.collector, workload, completion)?;
             }
             result = wait_for_arrival(clock, next_arrival) => {
                 result?;
                 let now = clock.now()?;
                 while let Some(arrival) = schedule.pop_due(now)? {
-                    let operations = resolve_arrival(
-                        world,
-                        workload_rng,
-                        growth,
-                        world_config,
-                        memory_limit,
-                        args,
-                        tracker,
-                        arrival.class,
-                        arrival.scheduled_at,
-                        true,
-                    )?;
+                    let operations =
+                        resolve_arrival(workload, arrival.class, arrival.scheduled_at, true)?;
                     for operation in operations {
-                        dispatch_open(clock, ingress, tracker, collector, operation)?;
+                        dispatch_open(clock, ingress, workload, &mut metrics.collector, operation)?;
                     }
                 }
             }
             _ = interval.tick() => {
-                let ended_at = clock.now()?.as_nanos();
-                let record = collector.finish_interval(ended_at);
-                sink.write(&record)?;
-                intervals.push(record);
+                flush_interval(
+                    clock.now()?.as_nanos().min(duration_as_nanos(duration)),
+                    metrics,
+                )?;
             }
-            sample = pg_receiver.recv() => {
+            sample = metrics.pg_receiver.recv() => {
                 let sample = sample.context("PostgreSQL sampler stopped during phase")?;
-                record_pg_sample(sample, pg_records, sink)?;
+                record_pg_sample(sample, metrics)?;
             }
         }
     }
@@ -1137,18 +1079,8 @@ async fn drive_catch_up_load(
     request_receiver: &mut mpsc::Receiver<OpClass>,
     dispatch_receiver: &mut mpsc::Receiver<DispatchRecord>,
     runtime: &mut ExecutorRuntime,
-    world: &mut WorldState,
-    workload_rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
-    tracker: &mut ActivationTracker,
-    collector: &mut PhaseCollector,
-    intervals: &mut Vec<collector::IntervalRecord>,
-    pg_records: &mut Vec<PgDeltaRecord>,
-    pg_receiver: &mut mpsc::Receiver<PgSample>,
-    sink: &mut JsonlSink,
+    workload: &mut WorkloadContext<'_>,
+    metrics: &mut PhaseMetrics<'_>,
 ) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + duration;
     let mut interval = tokio::time::interval_at(
@@ -1163,45 +1095,30 @@ async fn drive_catch_up_load(
             () = tokio::time::sleep_until(deadline) => break,
             completion = runtime.completion_receiver_mut().recv() => {
                 let completion = completion.context("executor completion stream closed during catch-up")?;
-                record_completion(collector, tracker, world, completion)?;
+                record_completion(&mut metrics.collector, workload, completion)?;
             }
             result = wait_for_arrival(clock, next_read) => {
                 result?;
                 let now = clock.now()?;
                 while let Some(arrival) = read_schedule.pop_due(now)? {
                     anyhow::ensure!(arrival.class == OpClass::CanonicalRead, "closed writer entered the open arrival schedule");
-                    let operations = resolve_arrival(
-                        world,
-                        workload_rng,
-                        growth,
-                        world_config,
-                        memory_limit,
-                        args,
-                        tracker,
-                        arrival.class,
-                        arrival.scheduled_at,
-                        false,
-                    )?;
+                    let operations =
+                        resolve_arrival(workload, arrival.class, arrival.scheduled_at, false)?;
                     for operation in operations {
-                        dispatch_bounded(clock, read_dispatcher, tracker, collector, operation)?;
+                        dispatch_bounded(
+                            clock,
+                            read_dispatcher,
+                            workload,
+                            &mut metrics.collector,
+                            operation,
+                        )?;
                     }
                 }
             }
             request = request_receiver.recv() => {
                 let class = request.context("all catch-up writer pumps stopped")?;
                 let scheduled_at = clock.now()?;
-                let operations = resolve_arrival(
-                    world,
-                    workload_rng,
-                    growth,
-                    world_config,
-                    memory_limit,
-                    args,
-                    tracker,
-                    class,
-                    scheduled_at,
-                    false,
-                )?;
+                let operations = resolve_arrival(workload, class, scheduled_at, false)?;
                 anyhow::ensure!(operations.len() == 1, "catch-up writer generated a paired operation");
                 writer_senders
                     .send(
@@ -1215,24 +1132,23 @@ async fn drive_catch_up_load(
             }
             dispatch = dispatch_receiver.recv() => {
                 let dispatch = dispatch.context("all catch-up dispatch streams stopped")?;
-                record_dispatch(collector, tracker, dispatch)?;
+                record_dispatch(&mut metrics.collector, workload, dispatch)?;
             }
             _ = interval.tick() => {
-                let ended_at = clock.now()?.as_nanos();
-                let record = collector.finish_interval(ended_at);
-                sink.write(&record)?;
-                intervals.push(record);
+                flush_interval(
+                    clock.now()?.as_nanos().min(duration_as_nanos(duration)),
+                    metrics,
+                )?;
             }
-            sample = pg_receiver.recv() => {
+            sample = metrics.pg_receiver.recv() => {
                 let sample = sample.context("PostgreSQL sampler stopped during catch-up")?;
-                record_pg_sample(sample, pg_records, sink)?;
+                record_pg_sample(sample, metrics)?;
             }
         }
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn join_writer_pumps(
     person_task: JoinHandle<anyhow::Result<BoundedDispatcher>>,
     distinct_id_task: JoinHandle<anyhow::Result<BoundedDispatcher>>,
@@ -1240,8 +1156,7 @@ async fn join_writer_pumps(
     dispatch_receiver: &mut mpsc::Receiver<DispatchRecord>,
     runtime: &mut ExecutorRuntime,
     collector: &mut PhaseCollector,
-    tracker: &mut ActivationTracker,
-    world: &mut WorldState,
+    workload: &mut WorkloadContext<'_>,
 ) -> anyhow::Result<(BoundedDispatcher, BoundedDispatcher, BoundedDispatcher)> {
     let joins = async move {
         let (person, distinct_id, merge) = tokio::join!(person_task, distinct_id_task, merge_task);
@@ -1258,14 +1173,14 @@ async fn join_writer_pumps(
             result = &mut joins => break result?,
             completion = runtime.completion_receiver_mut().recv() => {
                 if let Some(completion) = completion {
-                    if let Err(error) = record_completion(collector, tracker, world, completion) {
+                    if let Err(error) = record_completion(collector, workload, completion) {
                         first_error.get_or_insert(error);
                     }
                 }
             }
             dispatch = dispatch_receiver.recv() => {
                 if let Some(dispatch) = dispatch {
-                    if let Err(error) = record_dispatch(collector, tracker, dispatch) {
+                    if let Err(error) = record_dispatch(collector, workload, dispatch) {
                         first_error.get_or_insert(error);
                     }
                 }
@@ -1273,7 +1188,7 @@ async fn join_writer_pumps(
         }
     };
     while let Ok(dispatch) = dispatch_receiver.try_recv() {
-        if let Err(error) = record_dispatch(collector, tracker, dispatch) {
+        if let Err(error) = record_dispatch(collector, workload, dispatch) {
             first_error.get_or_insert(error);
         }
     }
@@ -1296,7 +1211,7 @@ async fn wait_for_arrival(
 fn dispatch_open(
     clock: &PhaseClock,
     ingress: &mut ExecutorIngress,
-    tracker: &mut ActivationTracker,
+    workload: &mut WorkloadContext<'_>,
     collector: &mut PhaseCollector,
     operation: OpDescriptor,
 ) -> anyhow::Result<()> {
@@ -1304,45 +1219,52 @@ fn dispatch_open(
     let dispatch = ingress
         .dispatcher_mut(class)
         .try_dispatch_at(operation, clock.now()?)?;
-    record_dispatch(collector, tracker, dispatch)
+    record_dispatch(collector, workload, dispatch)
 }
 
 fn dispatch_bounded(
     clock: &PhaseClock,
     dispatcher: &mut BoundedDispatcher,
-    tracker: &mut ActivationTracker,
+    workload: &mut WorkloadContext<'_>,
     collector: &mut PhaseCollector,
     operation: OpDescriptor,
 ) -> anyhow::Result<()> {
     let dispatch = dispatcher.try_dispatch_at(operation, clock.now()?)?;
-    record_dispatch(collector, tracker, dispatch)
+    record_dispatch(collector, workload, dispatch)
 }
 
 fn record_dispatch(
     collector: &mut PhaseCollector,
-    tracker: &mut ActivationTracker,
+    workload: &mut WorkloadContext<'_>,
     dispatch: DispatchRecord,
 ) -> anyhow::Result<()> {
     collector.record_dispatch(dispatch)?;
     if dispatch.outcome != DispatchOutcome::Enqueued {
-        tracker.record_failed_dispatch(dispatch.operation_id, dispatch.outcome)?;
+        workload.tracker.record_failed_dispatch(
+            workload.world,
+            dispatch.operation_id,
+            dispatch.outcome,
+        )?;
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn resolve_arrival(
-    world: &mut WorldState,
-    rng: &mut StdRng,
-    growth: &mut RuntimeGrowth,
-    world_config: &WorldConfig,
-    memory_limit: u64,
-    args: &BenchmarkArgs,
-    tracker: &mut ActivationTracker,
+    workload: &mut WorkloadContext<'_>,
     class: OpClass,
     scheduled_at: ops::NanosSincePhaseStart,
     allow_creation: bool,
 ) -> anyhow::Result<ResolvedOperations> {
+    let WorkloadContext {
+        world,
+        rng,
+        growth,
+        world_config,
+        memory_limit,
+        args,
+        tracker,
+    } = workload;
+    let memory_limit = *memory_limit;
     let mut grew = false;
     let operations = match class {
         OpClass::PersonUpsert if allow_creation && chance(rng, args.creation_percent) => {
@@ -1367,8 +1289,10 @@ fn resolve_arrival(
         OpClass::DistinctIdAssignment => {
             let mode = if chance(rng, args.stale_replay_percent) {
                 AssignmentMode::StaleReplay
-            } else {
+            } else if allow_creation {
                 AssignmentMode::New
+            } else {
+                AssignmentMode::FreshExisting
             };
             let assignment = world.resolve_distinct_id_assignment(scheduled_at, mode)?;
             if let Some(token) = assignment.activation {
@@ -1455,21 +1379,22 @@ fn ensure_runtime_memory(
 
 fn record_completion(
     collector: &mut PhaseCollector,
-    tracker: &mut ActivationTracker,
-    world: &mut WorldState,
+    workload: &mut WorkloadContext<'_>,
     completion: CompletionRecord,
 ) -> anyhow::Result<()> {
     collector.record_completion(&completion)?;
-    tracker.record_completion(world, &completion)
+    workload
+        .tracker
+        .record_completion(workload.world, &completion)
 }
 
 async fn run_pre_hooks(
-    database_url: &str,
-    pool: &PgPool,
+    store: &StoreHandles<'_>,
     phase_id: PhaseId,
     hooks: &[Hook],
     sink: &mut JsonlSink,
 ) -> anyhow::Result<(Duration, Vec<PgDeltaRecord>)> {
+    let (database_url, pool) = (store.database_url, store.pool);
     let started = Instant::now();
     let mut records = Vec::new();
     for hook in hooks {
@@ -1489,83 +1414,100 @@ async fn run_pre_hooks(
     Ok((started.elapsed(), records))
 }
 
-type PgSample = anyhow::Result<PgDeltaRecord>;
+type PgSample = PgDeltaRecord;
 
 fn spawn_pg_sampler(
     database_url: String,
     phase_id: PhaseId,
-) -> (
-    CancellationToken,
-    mpsc::Receiver<PgSample>,
-    JoinHandle<anyhow::Result<()>>,
-) {
+) -> (CancellationToken, mpsc::Receiver<PgSample>, JoinHandle<()>) {
     let cancellation = CancellationToken::new();
     let task_cancellation = cancellation.clone();
     let (sender, receiver) = mpsc::channel(1_024);
     let task = tokio::spawn(async move {
-        let mut sampler = PgSampler::connect(&database_url, phase_id).await?;
-        let sample_result = async {
-            sampler.sample_delta().await?;
-            let mut interval = tokio::time::interval(PG_SAMPLE_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            interval.tick().await;
-            loop {
-                tokio::select! {
-                    () = task_cancellation.cancelled() => {
-                        if let Some(record) = sampler.sample_delta().await? {
-                            if !try_send_pg_sample(&sender, Ok(record))? {
-                                break;
-                            }
-                        }
+        let mut sampler = match PgSampler::connect(&database_url, phase_id).await {
+            Ok(sampler) => sampler,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    phase_id = phase_id.get(),
+                    "PostgreSQL sampler unavailable for benchmark phase"
+                );
+                task_cancellation.cancelled().await;
+                return;
+            }
+        };
+        if !sample_pg_delta(&mut sampler, &sender, phase_id).await {
+            sampler.close().await;
+            return;
+        }
+        let mut interval = tokio::time::interval(PG_SAMPLE_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                () = task_cancellation.cancelled() => {
+                    sample_pg_delta(&mut sampler, &sender, phase_id).await;
+                    break;
+                }
+                _ = interval.tick() => {
+                    if !sample_pg_delta(&mut sampler, &sender, phase_id).await {
                         break;
-                    }
-                    _ = interval.tick() => {
-                        if let Some(record) = sampler.sample_delta().await? {
-                            if !try_send_pg_sample(&sender, Ok(record))? {
-                                break;
-                            }
-                        }
                     }
                 }
             }
-            Ok(())
         }
-        .await;
         sampler.close().await;
-        sample_result
     });
     (cancellation, receiver, task)
 }
 
-fn try_send_pg_sample(sender: &mpsc::Sender<PgSample>, sample: PgSample) -> anyhow::Result<bool> {
-    match sender.try_send(sample) {
-        Ok(()) => Ok(true),
-        Err(mpsc::error::TrySendError::Closed(_)) => Ok(false),
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            anyhow::bail!("PostgreSQL sampler channel is full")
+async fn sample_pg_delta(
+    sampler: &mut PgSampler,
+    sender: &mpsc::Sender<PgSample>,
+    phase_id: PhaseId,
+) -> bool {
+    match sampler.sample_delta().await {
+        Ok(Some(record)) => try_send_pg_sample(sender, record, phase_id),
+        Ok(None) => true,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                phase_id = phase_id.get(),
+                "PostgreSQL benchmark sample failed"
+            );
+            true
         }
     }
 }
 
-fn drain_pg_samples(
-    receiver: &mut mpsc::Receiver<PgSample>,
-    records: &mut Vec<PgDeltaRecord>,
-    sink: &mut JsonlSink,
-) -> anyhow::Result<()> {
-    while let Ok(sample) = receiver.try_recv() {
-        record_pg_sample(sample, records, sink)?;
+fn try_send_pg_sample(
+    sender: &mpsc::Sender<PgSample>,
+    sample: PgSample,
+    phase_id: PhaseId,
+) -> bool {
+    match sender.try_send(sample) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!(
+                phase_id = phase_id.get(),
+                "PostgreSQL benchmark sample dropped because the channel is full"
+            );
+            true
+        }
+    }
+}
+
+fn drain_pg_samples(metrics: &mut PhaseMetrics<'_>) -> anyhow::Result<()> {
+    while let Ok(sample) = metrics.pg_receiver.try_recv() {
+        record_pg_sample(sample, metrics)?;
     }
     Ok(())
 }
 
-fn record_pg_sample(
-    sample: PgSample,
-    records: &mut Vec<PgDeltaRecord>,
-    sink: &mut JsonlSink,
-) -> anyhow::Result<()> {
-    let sample = sample?;
-    sink.write(&sample)?;
-    records.push(sample);
+fn record_pg_sample(sample: PgSample, metrics: &mut PhaseMetrics<'_>) -> anyhow::Result<()> {
+    metrics.sink.write(&sample)?;
+    metrics.pg_records.push(sample);
     Ok(())
 }
 
@@ -1573,37 +1515,41 @@ fn finish_phase(
     phase: &PhaseSpec,
     timings: PhaseTimings,
     clock: PhaseClock,
-    mut collector: PhaseCollector,
-    mut intervals: Vec<collector::IntervalRecord>,
-    pg: Vec<PgDeltaRecord>,
-    sink: &mut JsonlSink,
+    mut metrics: PhaseMetrics<'_>,
 ) -> anyhow::Result<PhaseResult> {
     let ended_at = clock.now()?.as_nanos();
-    let last_interval_end = intervals
-        .last()
-        .map_or(0, |interval| interval.ended_at_nanos);
-    if ended_at > last_interval_end {
-        let interval = collector.finish_interval(ended_at);
-        sink.write(&interval)?;
-        intervals.push(interval);
-    }
+    flush_interval(ended_at, &mut metrics)?;
     let duration_nanos = duration_as_nanos(phase.duration);
     let post_deadline_duration_nanos = ended_at.saturating_sub(duration_nanos);
-    let summary = collector.finish_phase(
+    let summary = metrics.collector.finish_phase(
         duration_nanos,
         duration_as_nanos(timings.drain),
         post_deadline_duration_nanos,
     );
-    sink.write(&summary)?;
+    metrics.sink.write(&summary)?;
     Ok(PhaseResult {
         name: phase.name,
         duration: phase.duration,
         pre_hook_duration: timings.pre_hook,
         targets: phase.rates,
         summary,
-        intervals,
-        pg,
+        intervals: metrics.intervals,
+        pg: metrics.pg_records,
     })
+}
+
+fn flush_interval(ended_at_nanos: u64, metrics: &mut PhaseMetrics<'_>) -> anyhow::Result<()> {
+    let last_interval_end = metrics
+        .intervals
+        .last()
+        .map_or(0, |interval| interval.ended_at_nanos);
+    if ended_at_nanos <= last_interval_end {
+        return Ok(());
+    }
+    let interval = metrics.collector.finish_interval(ended_at_nanos);
+    metrics.sink.write(&interval)?;
+    metrics.intervals.push(interval);
+    Ok(())
 }
 
 fn duration_as_nanos(duration: Duration) -> u64 {

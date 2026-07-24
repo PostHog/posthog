@@ -44,6 +44,10 @@ pub(crate) const PERSON_DELETE_SQL: &str = r#"
         person_version = EXCLUDED.person_version,
         deleted_at = NOW()
     WHERE flags_person.person_version < EXCLUDED.person_version
+       OR (
+            flags_person.person_version = EXCLUDED.person_version
+            AND flags_person.deleted_at IS NULL
+       )
 "#;
 
 pub(crate) const DISTINCT_ID_UPSERT_SQL: &str = r#"
@@ -54,6 +58,13 @@ pub(crate) const DISTINCT_ID_UPSERT_SQL: &str = r#"
         version = EXCLUDED.version,
         deleted_at = NULL
     WHERE flags_distinct_id_map.version < EXCLUDED.version
+       OR (
+            flags_distinct_id_map.deleted_at IS NOT NULL
+            AND flags_distinct_id_map.person_uuid <> EXCLUDED.person_uuid
+            -- Deletions carry the producer's owner version plus 100. Compare
+            -- cross-owner assignments with that underlying owner version.
+            AND flags_distinct_id_map.version::numeric < EXCLUDED.version::numeric + 100
+       )
 "#;
 
 pub(crate) const DISTINCT_ID_DELETE_SQL: &str = r#"
@@ -67,7 +78,13 @@ pub(crate) const DISTINCT_ID_DELETE_SQL: &str = r#"
         version = GREATEST(flags_distinct_id_map.version, EXCLUDED.version),
         deleted_at = NOW()
     WHERE flags_distinct_id_map.person_uuid = EXCLUDED.person_uuid
-      AND flags_distinct_id_map.version < EXCLUDED.version
+      AND (
+            flags_distinct_id_map.version < EXCLUDED.version
+            OR (
+                flags_distinct_id_map.version = EXCLUDED.version
+                AND flags_distinct_id_map.deleted_at IS NULL
+            )
+      )
 "#;
 
 pub(crate) const CANONICAL_READ_SQL: &str = r#"
@@ -189,6 +206,7 @@ impl PostgresStorage {
     }
 
     /// Tombstone distinct IDs so stale assignments cannot resurrect them.
+    /// The incoming version includes a +100 bump from the producer for deletions.
     pub async fn batch_delete_distinct_ids(
         &self,
         deletions: &[DistinctIdDeletionData],

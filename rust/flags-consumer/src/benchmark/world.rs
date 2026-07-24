@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::mem::size_of;
 
@@ -80,6 +80,7 @@ pub enum ReplayMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssignmentMode {
     New,
+    FreshExisting,
     StaleReplay,
 }
 
@@ -113,7 +114,7 @@ pub struct PendingDistinctIdToken {
     distinct_id: DistinctIdKey,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 struct PersonKey(u32);
 
@@ -254,6 +255,7 @@ struct TeamState {
     live_persons: Vec<PersonKey>,
     whales: Vec<PersonKey>,
     recent: VecDeque<PersonKey>,
+    pending_persons: u32,
 }
 
 impl TeamState {
@@ -263,6 +265,7 @@ impl TeamState {
             live_persons: Vec::with_capacity(initial_person_count),
             whales: Vec::new(),
             recent: VecDeque::new(),
+            pending_persons: 0,
         }
     }
 }
@@ -279,6 +282,8 @@ pub struct WorldState {
     teams: Vec<TeamState>,
     persons: ChunkedArena<PersonState>,
     distinct_ids: ChunkedArena<DistinctIdState>,
+    pending_distinct_ids_by_person: BTreeMap<PersonKey, u32>,
+    growth_reservation_enabled: bool,
     next_miss_counter: u64,
     next_operation_id: u64,
 }
@@ -327,6 +332,8 @@ impl WorldState {
             teams,
             persons: ChunkedArena::new(),
             distinct_ids: ChunkedArena::new(),
+            pending_distinct_ids_by_person: BTreeMap::new(),
+            growth_reservation_enabled: false,
             next_miss_counter: 1,
             next_operation_id: 1,
         };
@@ -350,6 +357,35 @@ impl WorldState {
 
     pub fn distinct_id_count(&self) -> usize {
         self.distinct_ids.len()
+    }
+
+    pub fn reserve_person_growth(
+        &mut self,
+        person_creations: PersonCreationCount,
+    ) -> Result<(), WorldError> {
+        let total = usize::try_from(person_creations.get())
+            .map_err(|_| WorldError::MemoryEstimateOverflow)?;
+        let mut previous = 0.0;
+        let weights = self
+            .team_cdf
+            .iter()
+            .map(|cumulative| {
+                let weight = cumulative - previous;
+                previous = *cumulative;
+                weight
+            })
+            .collect::<Vec<_>>();
+        for (team, additional) in self
+            .teams
+            .iter_mut()
+            .zip(allocate_zipf_counts(&weights, total))
+        {
+            team.live_persons
+                .try_reserve_exact(additional)
+                .map_err(|_| WorldError::AllocationFailed("team live person"))?;
+        }
+        self.growth_reservation_enabled = true;
+        Ok(())
     }
 
     pub fn estimate_initial_memory(
@@ -383,8 +419,7 @@ impl WorldState {
         let recent_capacity = checked_product(
             config.team_count as u64,
             config.recent_capacity_per_team as u64,
-        )?
-        .min(person_count);
+        )?;
         let recent_index_bytes = checked_product(recent_capacity, size_of::<PersonKey>() as u64)?;
         let initial_whale_count = div_ceil(
             checked_product(initial_person_count, whale_bucket_rolls())?,
@@ -441,7 +476,7 @@ impl WorldState {
         replay: ReplayMode,
     ) -> Result<OpDescriptor, WorldError> {
         let team_index = self.select_team(|team| !team.live_persons.is_empty())?;
-        let person_key = self.select_person(team_index, None, false)?;
+        let person_key = self.select_person(team_index, None, false, false)?;
         let current_version = self.person(person_key).version;
         let version = match replay {
             ReplayMode::Fresh => {
@@ -467,13 +502,20 @@ impl WorldState {
         mode: AssignmentMode,
     ) -> Result<AssignmentDescriptor, WorldError> {
         let team_index = self.select_team(|team| !team.live_persons.is_empty())?;
-        let person_key = self.select_person(team_index, None, false)?;
+        let person_key = self.select_person(team_index, None, false, false)?;
         let distinct_id_key = match mode {
             AssignmentMode::New => self.reserve_distinct_id(person_key)?,
-            AssignmentMode::StaleReplay => self.select_distinct_id(person_key)?,
+            AssignmentMode::FreshExisting | AssignmentMode::StaleReplay => {
+                self.select_distinct_id(person_key)?
+            }
         };
         let version = match mode {
             AssignmentMode::New => self.distinct_id(distinct_id_key).version,
+            AssignmentMode::FreshExisting => {
+                let version = increment_version(self.distinct_id(distinct_id_key).version)?;
+                self.distinct_id_mut(distinct_id_key).version = version;
+                version
+            }
             AssignmentMode::StaleReplay => stale_version(self.distinct_id(distinct_id_key).version),
         };
         let payload = DistinctIdAssignmentPayload {
@@ -496,7 +538,15 @@ impl WorldState {
         &mut self,
         scheduled_at: NanosSincePhaseStart,
     ) -> Result<CreationDescriptors, WorldError> {
-        let team_index = self.select_team(|_| true)?;
+        let enforce_reservation = self.growth_reservation_enabled;
+        let team_index = self.select_team(|team| {
+            !enforce_reservation
+                || team
+                    .live_persons
+                    .len()
+                    .saturating_add(team.pending_persons as usize)
+                    < team.live_persons.capacity()
+        })?;
         let person_key = self.reserve_person(team_index)?;
         let distinct_id_key = self.reserve_distinct_id(person_key)?;
         let team_id = self.teams[team_index].team_id;
@@ -554,6 +604,14 @@ impl WorldState {
         self.activate_distinct_id_key(token.distinct_id)
     }
 
+    pub fn abandon_distinct_id(&mut self, token: PendingDistinctIdToken) -> Result<(), WorldError> {
+        if !self.distinct_id(token.distinct_id).is_pending() {
+            return Err(WorldError::InvalidPendingActivation);
+        }
+        let person_key = self.distinct_id(token.distinct_id).owner;
+        self.remove_pending_distinct_id(person_key)
+    }
+
     pub fn resolve_full_merge(
         &mut self,
         scheduled_at: NanosSincePhaseStart,
@@ -577,7 +635,7 @@ impl WorldState {
         let team_id = self.teams[team_index].team_id;
         let payload = match mode {
             ReadMode::Hit => {
-                let person_key = self.select_person(team_index, None, false)?;
+                let person_key = self.select_person(team_index, None, false, false)?;
                 let distinct_id_key = self.select_distinct_id(person_key)?;
                 let payload = CanonicalReadPayload {
                     team_id,
@@ -601,12 +659,24 @@ impl WorldState {
         scheduled_at: NanosSincePhaseStart,
         shape: MergeShape,
     ) -> Result<OpDescriptor, WorldError> {
-        let team_index = self.select_team(|team| {
-            team.live_persons.len() >= 2
-                && (shape == MergeShape::Standard || !team.whales.is_empty())
-        })?;
-        let source = self.select_person(team_index, None, shape == MergeShape::Whale)?;
-        let target = self.select_person(team_index, Some(source), false)?;
+        let eligible_teams = self
+            .teams
+            .iter()
+            .map(|team| {
+                let sources = if shape == MergeShape::Whale {
+                    &team.whales
+                } else {
+                    &team.live_persons
+                };
+                team.live_persons.len() >= 2
+                    && sources
+                        .iter()
+                        .any(|source| !self.pending_distinct_ids_by_person.contains_key(source))
+            })
+            .collect::<Vec<_>>();
+        let team_index = self.select_eligible_team(&eligible_teams)?;
+        let source = self.select_person(team_index, None, shape == MergeShape::Whale, true)?;
+        let target = self.select_person(team_index, Some(source), false, false)?;
 
         let source_version = self.person(source).version;
         let target_version = self.person(target).version;
@@ -718,12 +788,17 @@ impl WorldState {
     }
 
     fn reserve_person(&mut self, team_index: usize) -> Result<PersonKey, WorldError> {
+        let pending_persons = self.teams[team_index]
+            .pending_persons
+            .checked_add(1)
+            .ok_or(WorldError::IndexExhausted("pending person"))?;
         let team_index =
             u32::try_from(team_index).map_err(|_| WorldError::IndexExhausted("team"))?;
         let person_index = self
             .persons
             .push(PersonState::new(team_index, NONE_INDEX))
             .ok_or(WorldError::ArenaExhausted("person"))?;
+        self.teams[team_index as usize].pending_persons = pending_persons;
         Ok(PersonKey(person_index))
     }
 
@@ -734,6 +809,10 @@ impl WorldState {
         let team_index = self.person(person_key).team_index as usize;
         let live_index = u32::try_from(self.teams[team_index].live_persons.len())
             .map_err(|_| WorldError::IndexExhausted("team live person"))?;
+        self.teams[team_index].pending_persons = self.teams[team_index]
+            .pending_persons
+            .checked_sub(1)
+            .ok_or(WorldError::InvalidPendingActivation)?;
         self.teams[team_index].live_persons.push(person_key);
         self.person_mut(person_key).live_index = live_index;
         Ok(())
@@ -754,6 +833,11 @@ impl WorldState {
                 next: PENDING_INDEX,
             })
             .ok_or(WorldError::ArenaExhausted("distinct ID"))?;
+        let pending = self
+            .pending_distinct_ids_by_person
+            .entry(person_key)
+            .or_default();
+        *pending = pending.checked_add(1).ok_or(WorldError::FanoutExhausted)?;
         Ok(DistinctIdKey(distinct_id_index))
     }
 
@@ -765,11 +849,15 @@ impl WorldState {
             return Err(WorldError::InvalidPendingActivation);
         }
         let person_key = self.distinct_id(distinct_id_key).owner;
+        if self.person(person_key).live_index().is_none() {
+            return Err(WorldError::InvalidPendingActivation);
+        }
         let count = self
             .person(person_key)
             .distinct_id_count
             .checked_add(1)
             .ok_or(WorldError::FanoutExhausted)?;
+        self.remove_pending_distinct_id(person_key)?;
         let previous_last = self.person(person_key).last_distinct_id();
         self.distinct_id_mut(distinct_id_key).next = NONE_INDEX;
         if let Some(previous_last) = previous_last {
@@ -782,6 +870,23 @@ impl WorldState {
         person.last_distinct_id = distinct_id_key.0;
         person.distinct_id_count = count;
         self.ensure_whale(person_key);
+        Ok(())
+    }
+
+    fn remove_pending_distinct_id(&mut self, person_key: PersonKey) -> Result<(), WorldError> {
+        let remove_entry = {
+            let pending = self
+                .pending_distinct_ids_by_person
+                .get_mut(&person_key)
+                .ok_or(WorldError::InvalidPendingActivation)?;
+            *pending = pending
+                .checked_sub(1)
+                .ok_or(WorldError::InvalidPendingActivation)?;
+            *pending == 0
+        };
+        if remove_entry {
+            self.pending_distinct_ids_by_person.remove(&person_key);
+        }
         Ok(())
     }
 
@@ -832,19 +937,24 @@ impl WorldState {
     where
         F: Fn(&TeamState) -> bool,
     {
+        let eligible = self.teams.iter().map(eligible).collect::<Vec<_>>();
+        self.select_eligible_team(&eligible)
+    }
+
+    fn select_eligible_team(&mut self, eligible: &[bool]) -> Result<usize, WorldError> {
         for _ in 0..self.teams.len().saturating_mul(2).max(1) {
             let roll = self.topology_rng.gen::<f64>();
             let team_index = self
                 .team_cdf
                 .partition_point(|cumulative| *cumulative < roll)
                 .min(self.teams.len() - 1);
-            if eligible(&self.teams[team_index]) {
+            if eligible[team_index] {
                 return Ok(team_index);
             }
         }
-        self.teams
+        eligible
             .iter()
-            .position(eligible)
+            .position(|eligible| *eligible)
             .ok_or(WorldError::NoEligiblePerson)
     }
 
@@ -853,6 +963,7 @@ impl WorldState {
         team_index: usize,
         exclude: Option<PersonKey>,
         whale_only: bool,
+        exclude_pending: bool,
     ) -> Result<PersonKey, WorldError> {
         if !whale_only
             && self
@@ -865,7 +976,11 @@ impl WorldState {
                     .topology_rng
                     .gen_range(0..self.teams[team_index].recent.len());
                 let candidate = self.teams[team_index].recent[index];
-                if self.person(candidate).live_index().is_some() && Some(candidate) != exclude {
+                if self.person(candidate).live_index().is_some()
+                    && Some(candidate) != exclude
+                    && (!exclude_pending
+                        || !self.pending_distinct_ids_by_person.contains_key(&candidate))
+                {
                     return Ok(candidate);
                 }
             }
@@ -876,17 +991,20 @@ impl WorldState {
         } else {
             &self.teams[team_index].live_persons
         };
-        if candidates.is_empty()
-            || (candidates.len() == 1 && exclude == candidates.first().copied())
-        {
+        if candidates.is_empty() {
             return Err(WorldError::NoEligiblePerson);
         }
-        let index = self.topology_rng.gen_range(0..candidates.len());
-        let candidate = candidates[index];
-        if Some(candidate) != exclude {
-            return Ok(candidate);
+        let start = self.topology_rng.gen_range(0..candidates.len());
+        for offset in 0..candidates.len() {
+            let candidate = candidates[(start + offset) % candidates.len()];
+            if Some(candidate) != exclude
+                && (!exclude_pending
+                    || !self.pending_distinct_ids_by_person.contains_key(&candidate))
+            {
+                return Ok(candidate);
+            }
         }
-        Ok(candidates[(index + 1) % candidates.len()])
+        Err(WorldError::NoEligiblePerson)
     }
 
     fn select_distinct_id(&mut self, person_key: PersonKey) -> Result<DistinctIdKey, WorldError> {
@@ -1130,6 +1248,7 @@ pub enum WorldError {
     ArenaExhausted(&'static str),
     IndexExhausted(&'static str),
     IdentifierExhausted(&'static str),
+    AllocationFailed(&'static str),
     MemoryEstimateOverflow,
     InvalidPendingActivation,
 }
@@ -1156,6 +1275,7 @@ impl fmt::Display for WorldError {
             Self::ArenaExhausted(kind) => write!(formatter, "{kind} arena exhausted"),
             Self::IndexExhausted(kind) => write!(formatter, "{kind} index exhausted"),
             Self::IdentifierExhausted(kind) => write!(formatter, "{kind} identifier exhausted"),
+            Self::AllocationFailed(kind) => write!(formatter, "allocate {kind} index capacity"),
             Self::MemoryEstimateOverflow => formatter.write_str("memory estimate overflowed"),
             Self::InvalidPendingActivation => {
                 formatter.write_str("pending world activation is invalid or already applied")
@@ -1481,6 +1601,12 @@ mod tests {
 
         assert_eq!(grown.person_count, initial.person_count + 1_000);
         assert_eq!(
+            initial.recent_index_bytes,
+            config.team_count as u64
+                * config.recent_capacity_per_team as u64
+                * size_of::<PersonKey>() as u64
+        );
+        assert_eq!(
             grown.expected_distinct_id_count,
             initial.expected_distinct_id_count + 3_000
         );
@@ -1490,6 +1616,27 @@ mod tests {
                 >= grown.headroom_bytes(grown.total_bytes).expect("exact fit")
         );
         assert!(grown.headroom_bytes(grown.total_bytes - 1).is_none());
+    }
+
+    #[test]
+    fn person_growth_is_reserved_before_the_workload() {
+        let mut world = WorldState::new(WorldConfig {
+            team_count: 4,
+            initial_person_count: 100,
+            ..WorldConfig::default()
+        })
+        .expect("world");
+        world
+            .reserve_person_growth(PersonCreationCount::new(50))
+            .expect("growth reservation");
+
+        let reserved_slots = world
+            .teams
+            .iter()
+            .map(|team| team.live_persons.capacity() - team.live_persons.len())
+            .sum::<usize>();
+        assert!(reserved_slots >= 50);
+        assert!(world.growth_reservation_enabled);
     }
 
     #[test]
@@ -1606,6 +1753,64 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert!(reads.contains(&pending_distinct_id));
+    }
+
+    #[test]
+    fn fresh_existing_assignment_reuses_a_slot_and_advances_its_version() {
+        let mut world = empty_world();
+        world.create_person(0, 1).expect("live person");
+        let before = world
+            .population()
+            .distinct_ids()
+            .next()
+            .expect("existing distinct ID");
+
+        let assignment = world
+            .resolve_distinct_id_assignment(at(0), AssignmentMode::FreshExisting)
+            .expect("fresh existing assignment");
+        let payload = match assignment.operation.payload {
+            OpPayload::DistinctIdAssignment(payload) => payload,
+            _ => panic!("expected distinct ID assignment"),
+        };
+
+        assert!(assignment.activation.is_none());
+        assert_eq!(world.distinct_id_count(), 1);
+        assert_eq!(payload.distinct_id, before.distinct_id);
+        assert_eq!(payload.version, before.version + 1);
+    }
+
+    #[test]
+    fn merge_does_not_remove_the_owner_of_a_pending_distinct_id() {
+        let mut world = empty_world();
+        world.create_person(0, 1).expect("first live person");
+        world.create_person(0, 1).expect("second live person");
+        let assignment = world
+            .resolve_distinct_id_assignment(at(0), AssignmentMode::New)
+            .expect("pending assignment");
+        let (pending_owner, pending_distinct_id) = match &assignment.operation.payload {
+            OpPayload::DistinctIdAssignment(payload) => {
+                (payload.person_uuid, payload.distinct_id.clone())
+            }
+            _ => panic!("expected distinct ID assignment"),
+        };
+
+        let merge = world.resolve_full_merge(at(1)).expect("merge");
+        let merge = match merge.payload {
+            OpPayload::FullMerge(payload) => payload,
+            _ => panic!("expected merge"),
+        };
+        assert_ne!(merge.source_person_uuid, pending_owner);
+        assert_eq!(merge.target_person_uuid, pending_owner);
+
+        world
+            .activate_distinct_id(assignment.activation.expect("pending assignment token"))
+            .expect("assignment completed");
+        let mapping = world
+            .population()
+            .distinct_ids()
+            .find(|mapping| mapping.distinct_id == pending_distinct_id)
+            .expect("activated mapping");
+        assert_eq!(mapping.person_uuid, pending_owner);
     }
 
     #[test]

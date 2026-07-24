@@ -38,6 +38,7 @@ const TABLE_STATS_SQL: &str = r#"
 
 const WAL_POSITION_SQL: &str =
     "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0'::pg_lsn)::bigint";
+const SAMPLE_QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -142,11 +143,15 @@ impl PgSampler {
     }
 
     pub async fn sample(&self) -> anyhow::Result<PgSnapshot> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)>(
-            TABLE_STATS_SQL,
+        let rows = tokio::time::timeout(
+            SAMPLE_QUERY_TIMEOUT,
+            sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)>(
+                TABLE_STATS_SQL,
+            )
+            .fetch_all(&self.pool),
         )
-        .fetch_all(&self.pool)
         .await
+        .context("PostgreSQL table statistics sample timed out")?
         .context("sample PostgreSQL table statistics")?;
         let mut tables = Vec::with_capacity(TableGroup::ALL.len());
         for row in rows {
@@ -188,9 +193,12 @@ impl PgSampler {
                 })
         });
 
-        let wal = match sqlx::query_scalar::<_, i64>(WAL_POSITION_SQL)
-            .fetch_one(&self.pool)
-            .await
+        let wal = match tokio::time::timeout(
+            SAMPLE_QUERY_TIMEOUT,
+            sqlx::query_scalar::<_, i64>(WAL_POSITION_SQL).fetch_one(&self.pool),
+        )
+        .await
+        .context("PostgreSQL WAL sample timed out")?
         {
             Ok(bytes) => WalSnapshot::Available {
                 bytes_from_origin: nonnegative(bytes),
