@@ -1,12 +1,13 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
+    FacetSelection,
     FacetSource,
     FilterGroupFacetSource,
-    facetFilterValues,
-    facetSelectedValues,
+    cycleFacetFilter,
+    facetFilterSelection,
+    facetSelection,
     mergeSelectedIntoOptions,
-    toggleFacetFilter,
 } from './facets'
 
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
@@ -22,7 +23,10 @@ function groupWith(values: object[]): UniversalFiltersGroup {
 }
 
 describe('facets', () => {
-    describe('toggleFacetFilter / facetFilterValues', () => {
+    describe('cycleFacetFilter / facetFilterSelection', () => {
+        const read = (group: UniversalFiltersGroup | undefined, source: FilterGroupFacetSource): FacetSelection =>
+            facetFilterSelection(group, source)
+
         it.each<[string, FilterGroupFacetSource, PropertyFilterType]>([
             ['column facet writes a span filter', STATUS_SOURCE, PropertyFilterType.Span],
             [
@@ -31,26 +35,34 @@ describe('facets', () => {
                 PropertyFilterType.SpanResourceAttribute,
             ],
         ])('%s', (_, source, expectedType) => {
-            const group = toggleFacetFilter(undefined, source, 'a')
+            const group = cycleFacetFilter(undefined, source, 'a')
             const inner = (group.values[0] as UniversalFiltersGroup).values
             expect(inner).toEqual([
                 expect.objectContaining({ type: expectedType, operator: PropertyOperator.Exact, value: ['a'] }),
             ])
-            expect(facetFilterValues(group, source)).toEqual(['a'])
+            expect(read(group, source)).toEqual({ included: ['a'], excluded: [] })
         })
 
-        it('accumulates values on repeated toggles and removes on re-toggle', () => {
-            let group = toggleFacetFilter(undefined, POD_SOURCE, 'pod-a')
-            group = toggleFacetFilter(group, POD_SOURCE, 'pod-b')
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-a', 'pod-b'])
+        it('cycles a value unchecked → included → excluded → unchecked, dropping emptied filters', () => {
+            const afterFirst = cycleFacetFilter(undefined, POD_SOURCE, 'pod-a')
+            expect(read(afterFirst, POD_SOURCE)).toEqual({ included: ['pod-a'], excluded: [] })
 
-            group = toggleFacetFilter(group, POD_SOURCE, 'pod-a')
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-b'])
+            const afterSecond = cycleFacetFilter(afterFirst, POD_SOURCE, 'pod-a')
+            expect(read(afterSecond, POD_SOURCE)).toEqual({ included: [], excluded: ['pod-a'] })
+
+            const afterThird = cycleFacetFilter(afterSecond, POD_SOURCE, 'pod-a')
+            expect((afterThird.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it('drops the filter entirely when the last value is toggled off', () => {
-            const group = toggleFacetFilter(toggleFacetFilter(undefined, POD_SOURCE, 'pod-a'), POD_SOURCE, 'pod-a')
-            expect((group.values[0] as UniversalFiltersGroup).values).toEqual([])
+        it('writes includes as an exact filter and excludes as an is_not filter, both array-valued', () => {
+            let group = cycleFacetFilter(undefined, POD_SOURCE, 'pod-a')
+            group = cycleFacetFilter(group, POD_SOURCE, 'pod-b')
+            group = cycleFacetFilter(group, POD_SOURCE, 'pod-a') // pod-a → excluded
+
+            expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
+                expect.objectContaining({ operator: PropertyOperator.Exact, value: ['pod-b'] }),
+                expect.objectContaining({ operator: PropertyOperator.IsNot, value: ['pod-a'] }),
+            ])
         })
 
         it('preserves unrelated filters, including a same-key filter of a different type', () => {
@@ -62,42 +74,51 @@ describe('facets', () => {
                 operator: PropertyOperator.IContains,
                 value: 'pod',
             }
-            const group = toggleFacetFilter(groupWith([other]), POD_SOURCE, 'pod-a')
+            const group = cycleFacetFilter(groupWith([other]), POD_SOURCE, 'pod-a')
             const inner = (group.values[0] as UniversalFiltersGroup).values
             expect(inner).toEqual([other, expect.objectContaining({ type: PropertyFilterType.SpanResourceAttribute })])
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-a'])
+            expect(read(group, POD_SOURCE)).toEqual({ included: ['pod-a'], excluded: [] })
         })
 
-        it('reads a scalar filter value written outside the rail as a single selection', () => {
-            const group = groupWith([
-                {
-                    key: 'status_code',
-                    type: PropertyFilterType.Span,
-                    operator: PropertyOperator.Exact,
-                    value: 'Error',
-                },
-            ])
-            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
-        })
-
-        it('drops empty strings written by external state so they cannot become stuck filters', () => {
-            const group = groupWith([
-                {
-                    key: 'status_code',
-                    type: PropertyFilterType.Span,
-                    operator: PropertyOperator.Exact,
-                    value: ['Error', ''],
-                },
-            ])
-            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
+        it.each<[string, PropertyOperator, unknown, FacetSelection]>([
+            [
+                'a scalar exact chip written outside the rail reads as a single inclusion',
+                PropertyOperator.Exact,
+                'Error',
+                { included: ['Error'], excluded: [] },
+            ],
+            [
+                'a scalar is_not chip written outside the rail reads as a single exclusion',
+                PropertyOperator.IsNot,
+                'Error',
+                { included: [], excluded: ['Error'] },
+            ],
+            [
+                'empty strings from external state are dropped so they cannot become stuck filters',
+                PropertyOperator.Exact,
+                ['Error', ''],
+                { included: ['Error'], excluded: [] },
+            ],
+            [
+                'a non-rail operator chip is not rail state',
+                PropertyOperator.IContains,
+                'Error',
+                { included: [], excluded: [] },
+            ],
+        ])('%s', (_, operator, value, expected) => {
+            const group = groupWith([{ key: 'status_code', type: PropertyFilterType.Span, operator, value }])
+            expect(read(group, STATUS_SOURCE)).toEqual(expected)
         })
     })
 
-    describe('facetSelectedValues', () => {
+    describe('facetSelection', () => {
         it('drops empty service names from external state so they cannot inject a blank row', () => {
             // The service facet reads the dedicated serviceNames field, not the filterGroup — a URL or
             // saved view carrying serviceNames: [''] must not surface a blank selected service row.
-            expect(facetSelectedValues(undefined, ['api', ''], SERVICE_SOURCE)).toEqual(['api'])
+            expect(facetSelection(undefined, ['api', ''], SERVICE_SOURCE)).toEqual({
+                included: ['api'],
+                excluded: [],
+            })
         })
     })
 

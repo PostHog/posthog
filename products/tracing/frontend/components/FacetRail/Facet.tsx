@@ -1,7 +1,7 @@
 import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconMinusSmall } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -15,6 +15,8 @@ interface FacetProps {
     title: string
     options: FacetOption[]
     selected: string[]
+    /** Values in the excluded state — matching spans are filtered out. Disjoint from `selected`. */
+    excluded?: string[]
     onToggle: (value: string) => void
     loading?: boolean
     emptyLabel?: string
@@ -49,6 +51,7 @@ export function Facet({
     title,
     options,
     selected,
+    excluded = [],
     onToggle,
     loading = false,
     emptyLabel = 'No values',
@@ -64,8 +67,8 @@ export function Facet({
     const slug = slugify(title)
 
     const rowProps = useMemo<FacetValueRowProps>(
-        () => ({ options, selected, slug, onToggle, dimZeroCounts }),
-        [options, selected, slug, onToggle, dimZeroCounts]
+        () => ({ options, selected, excluded, slug, onToggle, dimZeroCounts }),
+        [options, selected, excluded, slug, onToggle, dimZeroCounts]
     )
 
     return (
@@ -125,6 +128,7 @@ export function Facet({
                                         key={option.value}
                                         option={option}
                                         selected={selected.includes(option.value)}
+                                        excluded={excluded.includes(option.value)}
                                         slug={slug}
                                         onToggle={onToggle}
                                         dimZeroCounts={dimZeroCounts}
@@ -141,6 +145,7 @@ export function Facet({
 interface FacetValueRowProps {
     options: FacetOption[]
     selected: string[]
+    excluded: string[]
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
@@ -152,6 +157,7 @@ function FacetValueRow({
     style,
     options,
     selected,
+    excluded,
     slug,
     onToggle,
     dimZeroCounts,
@@ -167,6 +173,7 @@ function FacetValueRow({
             <FacetValueButton
                 option={option}
                 selected={selected.includes(option.value)}
+                excluded={excluded.includes(option.value)}
                 slug={slug}
                 onToggle={onToggle}
                 dimZeroCounts={dimZeroCounts}
@@ -178,18 +185,20 @@ function FacetValueRow({
 function FacetValueButton({
     option,
     selected,
+    excluded,
     slug,
     onToggle,
     dimZeroCounts,
 }: {
     option: FacetOption
     selected: boolean
+    excluded: boolean
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
 }): JSX.Element {
     // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
-    // already selected (so a selected-but-now-empty value can still be toggled off).
+    // already selected or excluded (so an active-but-now-empty value can still be cycled off).
     const isZero = dimZeroCounts && option.count === 0
     return (
         <LemonButton
@@ -197,14 +206,24 @@ function FacetValueButton({
             size="small"
             fullWidth
             className={cn(isZero && 'opacity-50')}
-            disabledReason={isZero && !selected ? 'No matching spans for the current filters' : undefined}
-            icon={<LemonCheckbox checked={selected} className="pointer-events-none" />}
+            disabledReason={isZero && !selected && !excluded ? 'No matching spans for the current filters' : undefined}
+            icon={
+                excluded ? (
+                    // Deliberately not LemonCheckbox's `indeterminate` — that means "partially
+                    // selected", while this box means "negated".
+                    <span className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none">
+                        <IconMinusSmall className="text-sm" />
+                    </span>
+                ) : (
+                    <LemonCheckbox checked={selected} className="pointer-events-none" />
+                )
+            }
             onClick={() => onToggle(option.value)}
             data-attr={`tracing-facet-${slug}-${slugify(option.value)}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
                 {/* Native title so a truncated value is still readable without popover cost per virtualized row. */}
-                <span className="truncate flex-1" title={option.label}>
+                <span className={cn('truncate flex-1', excluded && 'line-through text-muted')} title={option.label}>
                     {option.label}
                 </span>
                 {option.count != null && (

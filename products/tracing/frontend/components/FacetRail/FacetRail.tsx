@@ -14,7 +14,7 @@ import { facetRailLogic } from './facetRailLogic'
 import {
     FacetConfig,
     FacetOption,
-    facetSelectedValues,
+    facetSelection,
     facetsByGroup,
     filterFacetsByName,
     mergeSelectedIntoOptions,
@@ -53,9 +53,9 @@ export function FacetRail(): JSX.Element {
 
     const renderFacet = (facet: FacetConfig): JSX.Element => {
         const { source } = facet
-        // Selection: the service facet reads the dedicated serviceNames field; everything else reads
-        // its property filter out of the group (see facetSelectedValues).
-        const selected = facetSelectedValues(filters.filterGroup, serviceNames, source)
+        // Selection: the service facet reads the dedicated serviceNames field (include-only);
+        // everything else reads its property filters out of the group, both polarities.
+        const { included: selected, excluded } = facetSelection(filters.filterGroup, serviceNames, source)
         // Values + counts come from the cross-filtered endpoint, keyed by facet.key. Drop the
         // empty-value bucket (spans missing the attribute): it renders as a blank, label-less row
         // that the selection reader can't track, so it would become a stuck, un-toggleable filter.
@@ -85,6 +85,7 @@ export function FacetRail(): JSX.Element {
                     title={facet.title}
                     options={options}
                     selected={selected}
+                    excluded={excluded}
                     onToggle={onToggle}
                     loading={loading}
                     collapsed={collapsed}
@@ -102,8 +103,9 @@ export function FacetRail(): JSX.Element {
             <Facet
                 key={facet.key}
                 title={facet.title}
-                options={mergeSelectedIntoOptions(fetched, selected, search)}
+                options={mergeSelectedIntoOptions(fetched, [...selected, ...excluded], search)}
                 selected={selected}
+                excluded={excluded}
                 onToggle={onToggle}
                 loading={loading}
                 emptyLabel={facet.emptyLabel}
