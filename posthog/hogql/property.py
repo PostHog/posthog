@@ -1224,7 +1224,10 @@ def property_to_expr(
             raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        try:
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        except Cohort.DoesNotExist:
+            raise QueryError(f"Could not find cohort with ID {property.value}")
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(

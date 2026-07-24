@@ -140,19 +140,25 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
                         ]
                     }
 
-                    const similarFilterExists = oldFilters.some(
-                        (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
-                    )
+                    const similarFilterExists = oldFilters.some((f) => f.type === type && f.key === key)
 
                     if (similarFilterExists) {
                         return oldFilters
                             .map((f: WebAnalyticsPropertyFilter) => {
-                                if (
-                                    f.key !== key ||
-                                    f.type !== type ||
-                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
-                                ) {
+                                if (f.key !== key || f.type !== type) {
                                     return f
+                                }
+                                // An existing filter on the same key uses a different operator (e.g. `contains`).
+                                // Replace it with an exact match on the clicked value rather than appending a
+                                // contradictory second filter for the same key.
+                                if (![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)) {
+                                    const replacement: WebAnalyticsPropertyFilter = {
+                                        type,
+                                        key,
+                                        operator: PropertyOperator.Exact,
+                                        value,
+                                    }
+                                    return replacement
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
                                 let newValue: PropertyFilterBaseValue[]
