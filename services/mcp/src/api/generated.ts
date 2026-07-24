@@ -9903,6 +9903,7 @@ export namespace Schemas {
     /**
      * * `none` - none
      * * `posthog-logo` - posthog-logo
+     * * `posthog-logomark-light` - posthog-logomark-light
      * * `hedgehog-builder` - hedgehog-builder
      * * `hedgehog-business` - hedgehog-business
      * * `hedgehog-hogzilla` - hedgehog-hogzilla
@@ -9914,6 +9915,7 @@ export namespace Schemas {
     export const ArtStyleEnum = {
       None: 'none',
       PosthogLogo: 'posthog-logo',
+      PosthogLogomarkLight: 'posthog-logomark-light',
       HedgehogBuilder: 'hedgehog-builder',
       HedgehogBusiness: 'hedgehog-business',
       HedgehogHogzilla: 'hedgehog-hogzilla',
@@ -15375,6 +15377,7 @@ export namespace Schemas {
        *
        * * `none` - none
        * * `posthog-logo` - posthog-logo
+       * * `posthog-logomark-light` - posthog-logomark-light
        * * `hedgehog-builder` - hedgehog-builder
        * * `hedgehog-business` - hedgehog-business
        * * `hedgehog-hogzilla` - hedgehog-hogzilla

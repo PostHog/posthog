@@ -10,7 +10,7 @@ Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key
 `team_id` | integer | NOT NULL | Team this banner belongs to
 `enabled` | boolean | NOT NULL | Whether the banner is served to the website via remote config
-`appearance` | jsonb | NOT NULL | Appearance overrides: `title`, `description`, `acceptButtonText`, `declineButtonText`, `artStyle` (`none`, `posthog-logo`, `hedgehog-builder`, `hedgehog-business`, `hedgehog-hogzilla`, `hedgehog-robot`), `position` (`bottom-left`, `bottom-right`, `bottom-bar`), `backgroundColor`, `textColor`, `buttonColor`, `buttonTextColor`, `whiteLabel`
+`appearance` | jsonb | NOT NULL | Appearance overrides: `title`, `description`, `acceptButtonText`, `declineButtonText`, `artStyle` (`none`, `posthog-logo`, `posthog-logomark-light`, `hedgehog-builder`, `hedgehog-business`, `hedgehog-hogzilla`, `hedgehog-robot`), `position` (`bottom-left`, `bottom-right`, `bottom-bar`), `backgroundColor`, `textColor`, `buttonColor`, `buttonTextColor`, `whiteLabel`
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
 

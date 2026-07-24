@@ -10,6 +10,7 @@
 /**
  * * `none` - none
  * * `posthog-logo` - posthog-logo
+ * * `posthog-logomark-light` - posthog-logomark-light
  * * `hedgehog-builder` - hedgehog-builder
  * * `hedgehog-business` - hedgehog-business
  * * `hedgehog-hogzilla` - hedgehog-hogzilla
@@ -20,6 +21,7 @@ export type ArtStyleEnumApi = (typeof ArtStyleEnumApi)[keyof typeof ArtStyleEnum
 export const ArtStyleEnumApi = {
     None: 'none',
     PosthogLogo: 'posthog-logo',
+    PosthogLogomarkLight: 'posthog-logomark-light',
     HedgehogBuilder: 'hedgehog-builder',
     HedgehogBusiness: 'hedgehog-business',
     HedgehogHogzilla: 'hedgehog-hogzilla',
@@ -68,6 +70,7 @@ export interface CookieBannerAppearanceApi {
      *
      * * `none` - none
      * * `posthog-logo` - posthog-logo
+     * * `posthog-logomark-light` - posthog-logomark-light
      * * `hedgehog-builder` - hedgehog-builder
      * * `hedgehog-business` - hedgehog-business
      * * `hedgehog-hogzilla` - hedgehog-hogzilla

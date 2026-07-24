@@ -5,6 +5,7 @@
 ART_STYLES: list[str] = [
     "none",
     "posthog-logo",
+    "posthog-logomark-light",
     "hedgehog-builder",
     "hedgehog-business",
     "hedgehog-hogzilla",
