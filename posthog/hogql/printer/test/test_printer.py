@@ -52,6 +52,7 @@ from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.hogqlx import convert_tag_to_hx
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -705,6 +706,38 @@ class TestPrinter(BaseTest):
                     else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
                 ),
             )
+
+    @parameterized.expand([(True,), (False,)])
+    def test_type_aware_simplification_modifier_drives_prepare_pipeline(self, modifier_enabled: bool):
+        # The production rollout path: the typeAwareCastSimplification modifier (not the internal
+        # context flag) must reach the simplifier inside prepare_ast_for_printing.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(typeAwareCastSimplification=modifier_enabled),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        if modifier_enabled:
+            assert "assumeNotNull(" not in sql
+            assert "toString(" not in sql
+        else:
+            assert "assumeNotNull(" in sql
+            assert "toString(" in sql
+
+    def test_type_aware_simplification_stays_off_via_production_default_modifiers(self):
+        # Tripwire for the default flip: this exercises the real default path
+        # (create_default_modifiers_for_team), so turning the simplifier on by default is forced to
+        # be a deliberate, reviewed change that updates this test.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        assert "assumeNotNull(" in sql
+        assert "toString(" in sql
 
     def test_hogql_properties(self):
         self.assertEqual(
