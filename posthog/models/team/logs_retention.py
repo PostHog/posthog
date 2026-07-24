@@ -1,7 +1,8 @@
 import structlog
 
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -11,9 +12,9 @@ DEFAULT_LOGS_RETENTION_DAYS = 14
 def reset_revoked_logs_retention(organization: Organization, revoked_feature_keys: set[str]) -> int:
     """Reset team Logs retention to the default when its required feature was revoked.
 
-    Called from the billing customer update path so that cancellations (from the
-    PostHog UI or the Stripe/Billing side) immediately stop applying paid retention
-    to newly ingested logs. The Temporal `retention_entitlements` workflow remains
+    Called from the billing feature-refresh paths (customer update messages, trial
+    cancellation) so that cancellations immediately stop applying paid retention to
+    newly ingested logs. The Temporal `retention_entitlements` workflow remains
     available for org-wide manual reconciliation.
     """
     revoked_days = [

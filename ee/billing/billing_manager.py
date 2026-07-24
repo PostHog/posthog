@@ -19,9 +19,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
-
-from products.logs.backend.retention_entitlements import reset_revoked_logs_retention
 
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
@@ -256,8 +255,13 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
         organization.available_product_features = available_product_features
         organization.save()
+
+        revoked_feature_keys = previous_feature_keys - {feature.get("key") for feature in available_product_features}
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -480,7 +484,10 @@ class BillingManager:
 
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
-        if available_product_features and available_product_features != organization.available_product_features:
+        # An empty list is authoritative (e.g. every paid feature revoked), so only skip on absent.
+        if available_product_features is not None and available_product_features != (
+            organization.available_product_features or []
+        ):
             previous_feature_keys = {feature.get("key") for feature in (organization.available_product_features or [])}
             new_feature_keys = {feature.get("key") for feature in available_product_features}
             revoked_feature_keys = previous_feature_keys - new_feature_keys

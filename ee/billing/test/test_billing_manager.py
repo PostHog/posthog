@@ -372,6 +372,53 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         assert self.team.logs_settings == {"retention_days": 30}
 
+    def test_update_org_details_resets_logs_retention_when_all_features_revoked(self):
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        # An empty list is authoritative - e.g. the customer cancelled their only paid feature.
+        billing_status = {"customer": {"available_product_features": []}}
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        organization.refresh_from_db()
+        self.team.refresh_from_db()
+        assert organization.available_product_features == []
+        assert self.team.logs_settings == {"retention_days": 14}
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"available_product_features": []}
+
+        BillingManager(license).update_available_product_features(organization)
+
+        organization.refresh_from_db()
+        self.team.refresh_from_db()
+        assert organization.available_product_features == []
+        assert self.team.logs_settings == {"retention_days": 14}
+
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(
         self, update_org_billing_quotas_mock: MagicMock
