@@ -24,6 +24,8 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
+from rest_framework import status
+from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
@@ -92,6 +94,30 @@ class CIMDGlobalThrottle(SimpleRateThrottle):
 
 
 CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMDSustainedThrottle, CIMDGlobalThrottle]
+
+
+def enforce_cimd_creation_throttle(request, view, client_id: str | None) -> Response | None:
+    """Apply the first-use CIMD provisioning throttles (5/min, 10/hr, 100/hr global)
+    before a new CIMD client can trigger a synchronous outbound metadata fetch.
+
+    Returns a 400 Response when throttled, else None. Only first use is gated —
+    once the shared `cimd_metadata_url` row exists, resolution is cheap. Shared by
+    `/oauth/authorize/` and `/oauth/par/` so both guard provisioning identically
+    and draw on the same per-IP buckets. Must run before provisioning: the throttle
+    is what bounds unauthenticated callers from amplifying cheap requests into
+    outbound fetches and worker occupancy.
+    """
+    if not is_cimd_client_id(client_id) or OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        return None
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
+        if not throttle.allow_request(request, view=view):
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return Response(
+                {"error": "invalid_client", "error_description": "Too many new client registrations. Try again later."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    return None
 
 
 class ComPostHogNamespace(TypedDict, total=False):

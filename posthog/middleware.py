@@ -153,6 +153,8 @@ _OAUTH_CORS_PATHS = frozenset(
     {
         "/oauth/token",
         "/oauth/token/",
+        "/oauth/par",
+        "/oauth/par/",
         "/toolbar_oauth/check",
         "/toolbar_oauth/check/",
     }

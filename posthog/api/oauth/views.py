@@ -4,13 +4,13 @@ import hashlib
 import calendar
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import OperationalError
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -40,14 +40,15 @@ from rest_framework.views import APIView
 
 from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
+    enforce_cimd_creation_throttle,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.api.oauth.par import consume_pushed_authorization_request
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -911,22 +912,31 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
+        # Expand a pushed authorization request (RFC 9126). When the client
+        # started the flow with a `request_uri`, redirect to the same endpoint
+        # with the parameters it pushed earlier. Redirecting (rather than
+        # rehydrating in place) puts the full parameter set in the browser URL,
+        # which the consent SPA reads to build its approve/deny POST — an
+        # in-place swap would leave that POST missing redirect_uri/scope/PKCE.
+        request_uri = request.query_params.get("request_uri")
+        if request_uri:
+            par_params = consume_pushed_authorization_request(request_uri, request.query_params.get("client_id"))
+            if par_params is None:
+                return Response(
+                    {
+                        "error": "invalid_request",
+                        "error_description": "The request_uri is invalid or has expired.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return redirect(f"/oauth/authorize/?{urlencode(par_params)}")
+
         # Rate-limit new CIMD application creation by IP.
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle_cls in CIMD_THROTTLE_CLASSES:
-                throttle = throttle_cls()
-                if not throttle.allow_request(request, view=self):
-                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
-                    return Response(
-                        {
-                            "error": "invalid_client",
-                            "error_description": "Too many new client registrations. Try again later.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        if throttled := enforce_cimd_creation_throttle(request, self, client_id):
+            return throttled
 
         try:
             scopes, credentials = self.validate_authorization_request(request)
@@ -1611,6 +1621,10 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
             "issuer": base_url,
             "authorization_endpoint": f"{base_url}/oauth/authorize/",
             "token_endpoint": f"{base_url}/oauth/token/",
+            # Pushed Authorization Requests (RFC 9126) — lets clients push
+            # authorization parameters up front and keep the browser URL small.
+            "pushed_authorization_request_endpoint": f"{base_url}/oauth/par/",
+            "require_pushed_authorization_requests": False,
             # Other endpoints
             "revocation_endpoint": f"{base_url}/oauth/revoke/",
             "introspection_endpoint": f"{base_url}/oauth/introspect/",
