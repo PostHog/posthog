@@ -1,35 +1,15 @@
 import io
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 import pandas as pd
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.file_uploads import (
     ExcelConversionError,
-    build_file_upload_url_pattern,
     excel_stored_filename,
     excel_to_parquet_bytes,
 )
-
-
-class TestBuildFileUploadUrlPattern(SimpleTestCase):
-    @parameterized.expand(
-        [
-            # Local objectstorage is a path-style HTTP endpoint: bucket is the first path segment.
-            ("local_http", True, "http://objectstorage:19000/data-warehouse/file_uploads/team_7/u1/data.parquet"),
-            # Prod keeps https but is still path-style — the bucket must be in the path (its absence
-            # is what made ClickHouse look in the wrong bucket and 404).
-            ("prod_https", False, "https://objectstorage:19000/data-warehouse/file_uploads/team_7/u1/data.parquet"),
-        ]
-    )
-    def test_bucket_is_first_path_segment_and_scheme_matches_env(self, _name: str, use_local: bool, expected: str):
-        with override_settings(
-            USE_LOCAL_SETUP=use_local,
-            DATAWAREHOUSE_BUCKET="data-warehouse",
-            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-        ):
-            assert build_file_upload_url_pattern(7, "u1", "data.parquet") == expected
 
 
 def _xlsx_bytes(frame: pd.DataFrame) -> bytes:

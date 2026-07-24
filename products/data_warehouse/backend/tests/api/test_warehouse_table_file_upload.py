@@ -254,11 +254,9 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert table.external_data_source is None
         assert table.credential is None
         assert table.format == "CSVWithNames"
-        # Under test/local setup the URL is http and path-style (bucket as the first segment), the
-        # same shape synced tables use so ClickHouse can address the object.
         assert (
             table.url_pattern
-            == f"http://warehouse.posthog.test/test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
+            == f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
         )
         assert table.columns == FAKE_COLUMNS
         # No pipeline source is created — this is the whole point of the self-managed shape.
