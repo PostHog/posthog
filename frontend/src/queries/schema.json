@@ -24299,6 +24299,13 @@
                     },
                     "type": "array"
                 },
+                "searchKeywords": {
+                    "description": "Additional terms used to find the item",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
