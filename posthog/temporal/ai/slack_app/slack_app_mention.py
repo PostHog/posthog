@@ -24,6 +24,11 @@ SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
 SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
+# Seeding the carry-over in __init__ rather than run() changes which messages a
+# first-workflow-task signal queues, and therefore which child workflows the
+# execution starts. Executions already running when this shipped must keep
+# replaying their recorded order, so the move is patched.
+SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
@@ -80,8 +85,14 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         # new_message signal buffered into the same first workflow task cannot be
         # processed before these keys exist. Seeding in run() left a race where a
         # redelivered event slipped past dedup and got queued.
-        self._seen_keys: dict[str, None] = dict.fromkeys(inputs.processed_event_keys)
+        self._seen_keys: dict[str, None] = {}
         self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+        if workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
+            self._seed(inputs)
+
+    def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
+        for key in inputs.processed_event_keys:
+            self._seen_keys[key] = None
         for message in inputs.pending_messages:
             self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
             self._queue.append(message)
@@ -169,7 +180,11 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         # State is seeded from inputs in __init__ (@workflow.init), before any
-        # signal handler can run.
+        # signal handler can run. Executions that predate the patch recorded
+        # their history with the seeding here, so they keep it.
+        if not workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
+            self._seed(inputs)
+
         while True:
             try:
                 await workflow.wait_condition(
