@@ -6,11 +6,19 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST_CLASSES, HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
 from posthog.hogql.errors import (
+    ExposedHogQLError,
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+from posthog.hogql.visitor import MAX_QUERY_DEPTH, CloningVisitor, TraversingVisitor, Visitor
+
+
+def _nested_arithmetic(depth: int) -> ast.Expr:
+    node: ast.Expr = ast.Constant(value=1)
+    for _ in range(depth):
+        node = ast.ArithmeticOperation(left=node, right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add)
+    return node
 
 
 class TestVisitor(BaseTest):
@@ -249,3 +257,20 @@ class TestVisitor(BaseTest):
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+
+    @parameterized.expand([("cloning", CloningVisitor), ("traversing", TraversingVisitor)])
+    def test_deeply_nested_ast_raises_exposed_error_not_recursion_error(self, _name, visitor_cls):
+        # A pathologically deep tree must fail as an exposed (4xx) error rather than overflowing the
+        # Python stack with an uncaught RecursionError that reads as a platform failure.
+        deep = _nested_arithmetic(MAX_QUERY_DEPTH * 20)
+        try:
+            visitor_cls().visit(deep)
+            self.fail("expected the depth guard to reject a deeply nested tree")
+        except ExposedHogQLError:
+            pass
+        except RecursionError:
+            self.fail("deep traversal overflowed the stack instead of failing gracefully")
+
+    def test_depth_at_limit_still_traverses(self):
+        # Guard against an over-eager bound: a tree within the limit must traverse without error.
+        TraversingVisitor().visit(_nested_arithmetic(MAX_QUERY_DEPTH - 2))
