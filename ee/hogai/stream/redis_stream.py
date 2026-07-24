@@ -415,4 +415,4 @@ class ConversationRedisStream:
 
         except Exception as e:
             await self._write_status(StatusPayload(status="error", error=str(e)))
-            raise StreamError("Failed to write to stream")
+            raise StreamError("Failed to write to stream") from e

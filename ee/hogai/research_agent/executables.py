@@ -1,3 +1,5 @@
+from langchain_core.messages import BaseMessage
+
 from posthog.schema import AgentMode
 
 from ee.hogai.core.plan_mode import PlanModeExecutable, PlanModeToolsExecutable
@@ -22,9 +24,15 @@ class ResearchAgentExecutable(PlanModeExecutable):
     THINKING_CONFIG = {"type": "enabled", "budget_tokens": 4096}
     MAX_TOKENS = 16_384
 
-    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+    def _get_model(
+        self, state: AssistantState, tools: list["MaxTool"], langchain_messages: list[BaseMessage] | None = None
+    ):
         is_research_mode = state.supermode == AgentMode.RESEARCH
         model_name = "claude-opus-4-6" if is_research_mode else "claude-sonnet-4-6"
+        if langchain_messages is not None and self._ends_with_assistant_message(langchain_messages):
+            # Neither opus-4-6 nor sonnet-4-6 support assistant-message prefill; fall back to a
+            # model that tolerates a conversation ending with an assistant turn.
+            model_name = "claude-sonnet-4-5"
 
         base_model = MaxChatAnthropic(
             model=model_name,

@@ -202,3 +202,43 @@ class TestChatAgentGatewayRouting(BaseTest):
             self.assertNotIn("default_headers", call_kwargs)
             self.assertIs(call_kwargs["bypass_proxy"], False)
             self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+
+    @parameterized.expand(
+        [
+            # A conversation whose converted history ends with an assistant turn must not use the
+            # default model, which rejects assistant-message prefill and would 400.
+            ("trailing_assistant", "ai", "claude-sonnet-4-5"),
+            ("trailing_user", "human", "claude-sonnet-4-6"),
+            ("empty", "empty", "claude-sonnet-4-6"),
+        ]
+    )
+    @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
+    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="control")
+    def test_get_model_falls_back_on_trailing_assistant_message(
+        self, _name, trailing_kind, expected_model, _mock_variant, mock_model_init
+    ):
+        from langchain_core.messages import (
+            AIMessage as LangchainAIMessage,
+            HumanMessage as LangchainHumanMessage,
+        )
+
+        from ee.hogai.chat_agent.executables import ChatAgentExecutable
+        from ee.hogai.utils.types.base import AssistantState
+
+        executable = ChatAgentExecutable(
+            team=self.team,
+            user=self.user,
+            toolkit_manager_class=MagicMock(),
+            prompt_builder_class=MagicMock(),
+            node_path=(),
+        )
+
+        langchain_messages = {
+            "ai": [LangchainHumanMessage(content="hi"), LangchainAIMessage(content="here is your report")],
+            "human": [LangchainAIMessage(content="here is your report"), LangchainHumanMessage(content="thanks")],
+            "empty": [],
+        }[trailing_kind]
+
+        executable._get_model(AssistantState(messages=[]), [], langchain_messages)
+
+        self.assertEqual(mock_model_init.call_args.kwargs["model"], expected_model)
