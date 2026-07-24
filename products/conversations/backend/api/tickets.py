@@ -585,12 +585,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         # Staff-only: rank by the plan-tag tiering (see backend/plan_tags.py),
         # ties broken by SLA deadline (soonest first, no deadline last) so one
-        # click yields the triage order. Non-staff requests fall through to the
-        # default ordering like any other unknown order_by value.
+        # click yields the triage order, then by id — without a unique final
+        # key, rows tied on rank+SLA (e.g. no deadline) have no stable order
+        # and LimitOffsetPagination can skip or duplicate them across pages.
+        # Non-staff requests fall through to the default ordering like any
+        # other unknown order_by value.
         if order_by in ("plan", "-plan") and self.request.user.is_staff:
             return queryset.annotate(plan_rank=plan_rank_annotation()).order_by(
                 "-plan_rank" if order_by.startswith("-") else "plan_rank",
                 F("sla_due_at").asc(nulls_last=True),
+                "id",
             )
 
         if order_by not in allowed_orderings:

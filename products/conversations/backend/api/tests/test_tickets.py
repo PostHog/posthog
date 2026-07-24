@@ -626,6 +626,29 @@ class TestTicketAPI(APIBaseTest):
         ids = self._list_ordered_ids("plan")
         self.assertEqual(ids, [str(sooner.id), str(later.id), str(no_sla.id)])
 
+    def test_order_by_plan_paginates_deterministically_within_ties(self, mock_on_commit):
+        """Tickets tied on plan rank AND SLA (e.g. all null) need a stable
+        tiebreak, or LimitOffsetPagination can skip/duplicate rows between
+        page queries. Ties order by id, so page slices always agree."""
+        self.user.is_staff = True
+        self.user.save()
+        self.ticket.delete()
+        tied = [self._ticket_with_tags("plan_enterprise") for _ in range(5)]  # all sla_due_at=None
+        expected_ids = sorted(str(t.id) for t in tied)
+
+        full = self._list_ordered_ids("plan")
+        self.assertEqual(full, expected_ids)
+
+        paged = []
+        for offset in range(0, 5, 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/",
+                data={"order_by": "plan", "limit": 2, "offset": offset},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged.extend(r["id"] for r in response.json()["results"])
+        self.assertEqual(paged, expected_ids)
+
     def test_order_by_plan_composes_with_tag_filters(self, mock_on_commit):
         """Plan ordering works on top of the tag filters' DISTINCT queryset,
         without duplicating multi-matched rows."""

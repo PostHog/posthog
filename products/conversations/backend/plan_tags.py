@@ -43,10 +43,10 @@ def plan_rank_annotation() -> Case:
     with a matching tag wins, courtesy of Case evaluating Whens in order.
     Untagged/unmatched tickets take the default rank 0 (Triage).
 
-    Perf note: this is one correlated EXISTS per group (10 today). Each can be
-    served by TaggedItem's partial unique index on (tag, ticket) probed
-    tag-first (the group's tag ids are few), but there is no ticket-leading
-    index — if staff usage makes this sort hot at scale, consider adding one.
+    Perf note: this is one correlated EXISTS per group (10 today). Each is
+    served by TaggedItem's ticket-leading index (posthog_taggeditem_ticket_id_idx,
+    migration 1033) with the tag-name filter applied to the handful of rows a
+    ticket carries.
     """
     return Case(
         *[
