@@ -31,6 +31,7 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -1765,8 +1766,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             scope_kwargs: dict[str, Any] = {"scope_type": "team", "scope_user": None, "scope_service_account": None}
         else:
             scope_kwargs = {"scope_type": "member", "scope_user": installation.user, "scope_service_account": None}
-        MCPToolPolicy.objects.unscoped().update_or_create(
-            team_id=installation.team_id,
+        policy_team_id = resolve_effective_team_id(installation.team_id)
+        MCPToolPolicy.objects.for_team(policy_team_id, canonical=True).update_or_create(
+            team_id=policy_team_id,
             gateway_server_id=installation.gateway_server_id,
             tool_name=tool_name,
             **scope_kwargs,

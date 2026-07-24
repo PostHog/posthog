@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -424,6 +425,46 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             format="json",
         )
         assert legacy_above_ceiling_response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_legacy_tool_approval_updates_reuse_policy_for_child_environment(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
+        server = MCPGatewayServer.objects.for_team(child.id).create(
+            team=child,
+            name="Child environment server",
+            url="https://mcp.child-environment.example.com/mcp",
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=child,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        tool = MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="child_tool",
+            approval_state="approved",
+            last_seen_at=timezone.now(),
+        )
+        url = f"/api/environments/{child.id}/mcp_server_installations/{installation.id}/tools/{tool.tool_name}/"
+
+        first_response = self.client.patch(url, data={"approval_state": "do_not_use"}, format="json")
+        second_response = self.client.patch(url, data={"approval_state": "needs_approval"}, format="json")
+
+        assert first_response.status_code == status.HTTP_200_OK
+        assert second_response.status_code == status.HTTP_200_OK
+        policy = MCPToolPolicy.objects.for_team(self.team.id).get(
+            gateway_server=server,
+            scope_type="member",
+            scope_user=self.user,
+            tool_name=tool.tool_name,
+        )
+        assert policy.team_id == self.team.id
+        assert policy.state == "needs_approval"
 
     def test_team_scope_displays_an_always_allow_ceiling(self) -> None:
         self._make_admin()
