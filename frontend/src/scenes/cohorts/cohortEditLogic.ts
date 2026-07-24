@@ -127,8 +127,6 @@ export interface cohortEditLogicValues {
     personsToCreateStaticCohort: Record<string, boolean>
     pollTimeout: number | null
     query: DataTableNode
-    removePersonFromCohort: any
-    removePersonFromCohortLoading: boolean
     showCohortErrors: boolean
     staticCohortMode: StaticCohortMode
     usedIn: CohortUsedInResponseApi | null
@@ -259,24 +257,6 @@ export interface cohortEditLogicActions {
     }
     removePersonFromCohort: (personId: string) => {
         personId: string
-    }
-    removePersonFromCohortFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    removePersonFromCohortSuccess: (
-        removePersonFromCohort: void,
-        payload?: {
-            personId: string
-        }
-    ) => {
-        removePersonFromCohort: void
-        payload?: {
-            personId: string
-        }
     }
     removePersonFromCreateStaticCohort: (personId: string) => {
         personId: string
@@ -1026,27 +1006,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
 
-        removePersonFromCohort: [
-            null as any,
-            {
-                removePersonFromCohort: async ({ personId }) => {
-                    if (!values.cohort.id || values.cohort.id === 'new') {
-                        throw new Error('Cannot remove person from unsaved cohort')
-                    }
-
-                    try {
-                        await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
-                        lemonToast.success('Person removed from cohort')
-                    } catch (error: any) {
-                        throw error
-                    }
-                    // Refresh cohort data + count
-                    actions.refreshPersonsData()
-                    actions.updateCohortCount()
-                },
-            },
-        ],
-
         usedIn: [
             null as CohortUsedInResponseApi | null,
             {
@@ -1112,6 +1071,17 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
         deleteCohort: () => {
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
+        },
+        removePersonFromCohort: async ({ personId }) => {
+            if (!values.cohort.id || values.cohort.id === 'new') {
+                throw new Error('Cannot remove person from unsaved cohort')
+            }
+
+            await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
+            lemonToast.success('Person removed from cohort')
+            // Refresh cohort data + count
+            actions.refreshPersonsData()
+            actions.updateCohortCount()
         },
         submitCohortFailure: () => {
             scrollToFormError({
