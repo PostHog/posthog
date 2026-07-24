@@ -792,13 +792,15 @@ class UserAccessControl:
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
+    def has_object_rules(self, resource: APIScopeObject, resource_id: str) -> bool:
+        """Whether any access control rules on this specific object apply to this user."""
+        return bool(self._get_access_controls(self._access_controls_filters_for_object(resource, resource_id)))
+
     def warehouse_table_effective_level(self, table: Optional[Model], source: Model) -> Optional[AccessControlLevel]:
         """Effective access level for a synced table: the table's own `warehouse_table` rules if any
         apply to this user, otherwise the source's level. `table` is None before the first sync.
         Used by both the schema serializer and WarehouseTableSyncPermission."""
-        if table is not None and self._get_access_controls(
-            self._access_controls_filters_for_object("warehouse_table", str(table.pk))
-        ):
+        if table is not None and self.has_object_rules("warehouse_table", str(table.pk)):
             return self.get_user_access_level(table)
         return self.get_user_access_level(source)
 
