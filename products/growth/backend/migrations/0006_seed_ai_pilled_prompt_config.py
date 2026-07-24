@@ -11,7 +11,7 @@ AI-pilled = a company that builds software as its product, ships AI-first, uses 
 NOT ai-pilled = companies that don't build software as their core product: traditional/non-tech businesses, agencies, consultancies, brick-and-mortar, and large non-technical enterprises. Also hobbyists and generic free-email signups (gmail.com, outlook.com, etc.) where the company is unknown.
 Do NOT disqualify a company just because its industry is finance, ops, or recruiting. Judge on "do they build software with engineers," not the vertical.
 Judge only from the domain and what you know about that company. If you don't recognize it, infer from the domain name; if there's no signal, return false with low confidence.
-Email: {email}"""
+Email domain: {email}"""
 
 AI_PILLED_INPUT_FIELDS = [
     "name",

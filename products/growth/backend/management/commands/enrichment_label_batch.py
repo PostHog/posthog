@@ -25,7 +25,7 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     get_active_config,
     latest_fetches_qs,
-    signup_email_for_organization,
+    signup_domain_for_organization,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
@@ -73,8 +73,8 @@ class Command(BaseCommand):
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
-                email = signup_email_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, email, client)
+                signup_domain = signup_domain_for_organization(fetch.organization)
+                output = classify_payload(config, fetch.payload, signup_domain, client)
                 # Lock the config row and re-verify its content before persisting, pairing with
                 # the save()/delete() guards — a verdict computed against a config that changed
                 # mid-run is discarded rather than stamped under the wrong version.

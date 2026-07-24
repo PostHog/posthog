@@ -52,7 +52,7 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
         )
         client = MagicMock()
 
-        result = classify_payload(config, payload, "signup@example.com", client)
+        result = classify_payload(config, payload, "example.com", client)
 
         # Missing data must never come back as a confident false verdict.
         assert result["ai_pilled"] == UNKNOWN

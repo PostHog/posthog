@@ -16,12 +16,12 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     get_active_config,
     recent_latest_fetches_qs,
-    signup_email_for_organization,
+    signup_domain_for_organization,
 )
 from products.growth.backend.models import EnrichmentLabelResult
 
 _COMPANY_WIDTH = 30
-_EMAIL_WIDTH = 28
+_DOMAIN_WIDTH = 24
 _VERDICT_WIDTH = 8
 _CONF_WIDTH = 6
 _REASONING_WIDTH = 60
@@ -69,8 +69,8 @@ class Command(BaseCommand):
 
         ordered_fetches = list(recent_latest_fetches_qs().select_related("organization")[:sample])
 
-        column_widths = [_COMPANY_WIDTH, _EMAIL_WIDTH, _VERDICT_WIDTH, _CONF_WIDTH, _REASONING_WIDTH]
-        headers = ["Company", "Email", "Verdict", "Conf", "Reasoning"]
+        column_widths = [_COMPANY_WIDTH, _DOMAIN_WIDTH, _VERDICT_WIDTH, _CONF_WIDTH, _REASONING_WIDTH]
+        headers = ["Company", "Domain", "Verdict", "Conf", "Reasoning"]
         if compare_version:
             column_widths += [_VERDICT_WIDTH, _CONF_WIDTH]
             headers += ["Prev", "PrevConf"]
@@ -83,8 +83,8 @@ class Command(BaseCommand):
         for fetch in ordered_fetches:
             company = fetch.payload.get("name") or fetch.organization.name
             try:
-                email = signup_email_for_organization(fetch.organization)
-                verdict = classify_payload(config, fetch.payload, email, client)
+                signup_domain = signup_domain_for_organization(fetch.organization)
+                verdict = classify_payload(config, fetch.payload, signup_domain, client)
             except Exception as e:
                 errors += 1
                 row: list[str] = [
@@ -107,7 +107,7 @@ class Command(BaseCommand):
 
             row = [
                 _truncate(company, _COMPANY_WIDTH),
-                _truncate(email, _EMAIL_WIDTH) if email else "-",
+                _truncate(signup_domain, _DOMAIN_WIDTH) if signup_domain else "-",
                 _verdict_str(ai_pilled),
                 f"{verdict.get('confidence', 0.0):.2f}",
                 _truncate(str(verdict.get("reasoning", "")), _REASONING_WIDTH),

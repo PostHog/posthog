@@ -48,9 +48,13 @@ def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> di
     return result
 
 
-def build_messages(config: EnrichmentPromptConfig, inputs: dict[str, Any], email: str | None) -> list[dict[str, str]]:
+def build_messages(
+    config: EnrichmentPromptConfig, inputs: dict[str, Any], signup_domain: str | None
+) -> list[dict[str, str]]:
     # .replace, not .format: prompt_text is free-form and may itself contain braces.
-    system = config.prompt_text.replace("{email}", email or "unknown")
+    # Domain only, never the full address: the signup email's local part is personal data
+    # with no classification signal, and nothing else internal sends PII to the gateway.
+    system = config.prompt_text.replace("{email}", signup_domain or "unknown")
     user = (
         "Company data:\n"
         + json.dumps(inputs, indent=2)
@@ -87,7 +91,7 @@ def _call_and_parse(config: EnrichmentPromptConfig, messages: list[dict[str, str
 
 
 def classify_payload(
-    config: EnrichmentPromptConfig, payload: dict[str, Any] | None, email: str | None, client: OpenAI
+    config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
 ) -> dict[str, Any]:
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
@@ -95,20 +99,22 @@ def classify_payload(
         return {"ai_pilled": UNKNOWN, "confidence": 0.0, "reasoning": "missing or empty archived payload"}
 
     inputs = extract_input_fields(payload, config.input_fields)
-    messages = build_messages(config, inputs, email)
+    messages = build_messages(config, inputs, signup_domain)
     verdict = _call_and_parse(config, messages, client)
     return {"ai_pilled": verdict.ai_pilled, "confidence": verdict.confidence, "reasoning": verdict.reasoning}
 
 
-def signup_email_for_organization(organization: Organization) -> str | None:
-    """Earliest member's email, standing in for the signup user's identity."""
+def signup_domain_for_organization(organization: Organization) -> str | None:
+    """Earliest member's email domain, standing in for the signup company identity."""
     membership = (
         OrganizationMembership.objects.filter(organization=organization)
         .select_related("user")
         .order_by("joined_at")
         .first()
     )
-    return membership.user.email if membership else None
+    if membership is None or not membership.user.email or "@" not in membership.user.email:
+        return None
+    return membership.user.email.rsplit("@", 1)[1].lower()
 
 
 def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:

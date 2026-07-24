@@ -29,7 +29,7 @@ from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     classify_payload,
     recent_latest_fetches_qs,
-    signup_email_for_organization,
+    signup_domain_for_organization,
 )
 from products.growth.backend.models import (
     EnrichmentLabelResult,
@@ -369,7 +369,7 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
             )
         if "prompt_text" in self.fields:
             self.fields["prompt_text"].help_text = (
-                "{email} is replaced with the signup email at runtime. The JSON output "
+                "{email} is replaced with the signup email domain at runtime. The JSON output "
                 "instruction is appended automatically - describe only the judgment."
             )
         if "is_active" in self.fields:
@@ -423,25 +423,25 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         fetches = list(candidates.select_related("organization")[:sample])
 
         # All ORM work happens here on the request thread; workers only make LLM calls.
-        inputs = [(fetch, signup_email_for_organization(fetch.organization)) for fetch in fetches]
+        inputs = [(fetch, signup_domain_for_organization(fetch.organization)) for fetch in fetches]
         client = get_llm_client(product="growth")
 
         def _classify(pair: tuple[OrganizationEnrichmentFetch, str | None]) -> dict[str, Any]:
-            fetch, email = pair
+            fetch, signup_domain = pair
             company = fetch.payload.get("name") or fetch.organization.name
             try:
-                verdict = classify_payload(config, fetch.payload, email, client)
+                verdict = classify_payload(config, fetch.payload, signup_domain, client)
             except Exception as e:
                 return {
                     "company": company,
-                    "email": email,
+                    "domain": signup_domain,
                     "verdict": "ERROR",
                     "confidence": "-",
                     "reasoning": str(e)[:200],
                 }
             return {
                 "company": company,
-                "email": email,
+                "domain": signup_domain,
                 "verdict": str(verdict.get("ai_pilled")).lower(),
                 "confidence": f"{verdict.get('confidence', 0.0):.2f}",
                 "reasoning": verdict.get("reasoning", ""),
@@ -463,7 +463,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
                 '<td><span class="verdict verdict-{}">{}</span></td>'
                 "<td>{}</td><td>{}</td></tr>\n",
                 row["company"],
-                row["email"] or "-",
+                row["domain"] or "-",
                 row["verdict"].lower(),
                 row["verdict"],
                 row["confidence"],
