@@ -51,11 +51,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s delta-rs's Rust `object_store` crate raises from
-# `DeltaTable.is_deltatable()` when it can't reach or authenticate against our own S3-backed
-# data-warehouse bucket (IMDS/STS blips, dispatch timeouts) — not a customer credential problem.
-# Transient and self-recovering: the next maintenance pass re-lists from scratch, so these
-# shouldn't be treated the same as a bug in our maintenance logic.
+# Substrings of the object-store errors delta-rs raises when it can't reach or authenticate against
+# our own S3-backed data-warehouse bucket (IMDS/STS blips, dispatch timeouts, request-rate throttling)
+# — not a customer credential problem. Transient and self-recovering: the next maintenance pass
+# retries from scratch, so these shouldn't be treated the same as a bug in our maintenance logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
     "an error occurred while loading credentials",
     "the credential provider was not enabled",
@@ -64,7 +63,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+    """True for a transient object-store error, however delta-rs happened to surface it.
+
+    `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
+    (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
+    `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
+    which delta-rs entry point hit it.
+    """
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
