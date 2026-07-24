@@ -1,4 +1,6 @@
+import { compress as zstdCompress } from '@mongodb-js/zstd'
 import { DateTime } from 'luxon'
+import { gzipSync } from 'node:zlib'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -358,6 +360,20 @@ describe('HogInvocationResultsService', () => {
                 event: { uuid: 'legacy-uuid' },
                 project: { id: 7 },
             })
+        })
+
+        // Rows written before the zstd codec swap stay gzip-encoded until they age out under
+        // the table TTL — the decoder must keep handling both codecs, whichever one the writer
+        // is currently on.
+        it.each([
+            ['gzip', (json: string): Promise<string> => Promise.resolve(gzipSync(json).toString('base64'))],
+            [
+                'zstd',
+                async (json: string): Promise<string> => (await zstdCompress(Buffer.from(json))).toString('base64'),
+            ],
+        ])('decodes %s+base64 rows', async (_codec, encode) => {
+            const payload = { event: { uuid: 'codec-uuid' }, project: { id: 7 } }
+            expect(await decodeInvocationGlobals(await encode(JSON.stringify(payload)))).toEqual(payload)
         })
     })
 

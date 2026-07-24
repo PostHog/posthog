@@ -1,3 +1,4 @@
+import { decompress as zstdDecompress } from '@mongodb-js/zstd'
 import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
 import { Counter, Gauge } from 'prom-client'
@@ -252,17 +253,31 @@ const compressInvocationGlobals = async (globalsJson: string): Promise<string> =
     return (await gzipAsync(globalsJson)).toString('base64')
 }
 
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
+const GZIP_MAGIC = Buffer.from([0x1f, 0x8b])
+
 /**
  * Inverse of `compressInvocationGlobals`. Used by the rerun paginator to read
- * `invocation_globals` back off ClickHouse. Rows written before field
- * compression landed are still raw JSON — base64 can never start with `{`, so
- * the prefix is an unambiguous discriminator for the legacy fallback.
+ * `invocation_globals` back off ClickHouse. Three encodings coexist until old
+ * rows age out under the table TTL: zstd+base64, gzip+base64 (written before
+ * the codec swap), and raw JSON (written before field compression landed —
+ * base64 can never start with `{`, so the prefix is an unambiguous
+ * discriminator). The compressed variants are told apart by magic bytes.
+ * Mirrored in Python by `_decode_invocation_globals` (posthog/api/
+ * hog_invocation_results.py) — keep the two in sync.
  */
 export const decodeInvocationGlobals = async (stored: string): Promise<unknown> => {
     if (stored.startsWith('{')) {
         return parseJSON(stored)
     }
-    return parseJSON((await gunzipAsync(Buffer.from(stored, 'base64'))).toString('utf8'))
+    const raw = Buffer.from(stored, 'base64')
+    if (raw.subarray(0, 4).equals(ZSTD_MAGIC)) {
+        return parseJSON((await zstdDecompress(raw)).toString('utf8'))
+    }
+    if (raw.subarray(0, 2).equals(GZIP_MAGIC)) {
+        return parseJSON((await gunzipAsync(raw)).toString('utf8'))
+    }
+    throw new Error('Unknown invocation_globals encoding')
 }
 
 const sumDurationMs = (invocation: CyclotronJobInvocation): number | null => {
