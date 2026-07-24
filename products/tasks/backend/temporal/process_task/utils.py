@@ -132,6 +132,13 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
+    "claude-opus-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
