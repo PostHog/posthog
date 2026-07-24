@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -39,9 +39,11 @@ describe('DateRangePicker', () => {
         const { setDateRange } = renderPicker()
 
         await userEvent.click(screen.getByText('Last 1 hour'))
-        await userEvent.click(screen.getByText('5 minutes'))
+        // The preset list lives in a portaled popover overlay, so wait for it to
+        // appear instead of assuming it rendered within the click's act() flush.
+        await userEvent.click(await screen.findByText('5 minutes'))
 
-        expect(setDateRange).toHaveBeenCalledWith({ date_from: '-5M', date_to: null })
+        await waitFor(() => expect(setDateRange).toHaveBeenCalledWith({ date_from: '-5M', date_to: null }))
     })
 
     it.each<[string, string | undefined, boolean]>([
@@ -53,8 +55,11 @@ describe('DateRangePicker', () => {
         await userEvent.click(screen.getByText('Last 1 hour'))
 
         if (shouldShow) {
-            expect(screen.getByTestId('timezone-select')).toBeInTheDocument()
+            expect(await screen.findByTestId('timezone-select')).toBeInTheDocument()
         } else {
+            // Anchor on overlay content first, so the absence check can't pass
+            // trivially against a not-yet-rendered popover.
+            await screen.findByText('Custom range')
             expect(screen.queryByTestId('timezone-select')).not.toBeInTheDocument()
         }
     })
