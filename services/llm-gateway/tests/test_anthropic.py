@@ -1508,6 +1508,7 @@ class TestAnthropicCircuitBreakerIntegration:
                 )
             )
             breaker.record_outcome = AsyncMock()
+            breaker.uses_cross_request_fallback.return_value = False
             authenticated_client.app.state.anthropic_circuit_breaker = breaker
             return breaker
 
@@ -1715,31 +1716,62 @@ class TestAnthropicCircuitBreakerIntegration:
         assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
-    def test_fable_fresh_failure_arms_cross_request_fallback(
+    def test_fable_failure_opens_breaker_for_next_request(
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        install_breaker,
+        mock_response_dict: dict,
     ) -> None:
-        breaker = install_breaker(bypass=False)
+        from fakeredis import aioredis as fakeredis
+
+        from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+        from llm_gateway.config import ModelCircuitBreakerPolicy
+
+        breaker = AnthropicCircuitBreaker(
+            redis=fakeredis.FakeRedis(),
+            failure_threshold=0.25,
+            window_seconds=300,
+            bypass_probability=0.9,
+            min_requests=20,
+            model_policies={"claude-fable-5": ModelCircuitBreakerPolicy(min_requests=1, cross_request_fallback=True)},
+            enabled=True,
+        )
+        authenticated_client.app.state.anthropic_circuit_breaker = breaker
         error = Exception("timed out")
         error.status_code = 504  # type: ignore[attr-defined]
         error.message = "timed out"  # type: ignore[attr-defined]
         error.type = "timeout_error"  # type: ignore[attr-defined]
-        mock_anthropic.side_effect = error
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
 
-        response = authenticated_client.post(
-            "/v1/messages",
-            json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]},
-            headers={
-                "Authorization": "Bearer phx_test_key",
-                "X-PostHog-Use-Bedrock-Fallback": "true",
-            },
-        )
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            first_response = authenticated_client.post(
+                "/v1/messages",
+                json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]},
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+            second_response = authenticated_client.post(
+                "/v1/messages",
+                json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi again"}]},
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
 
-        assert response.status_code == 504
-        assert mock_anthropic.call_count == 1
-        breaker.record_outcome.assert_awaited_once_with(success=False, model="claude-fable-5")
+        assert first_response.status_code == 504
+        assert second_response.status_code == 200
+        assert [call.kwargs["model"] for call in mock_anthropic.call_args_list] == [
+            "anthropic/claude-fable-5",
+            "bedrock/us.anthropic.claude-fable-5",
+        ]
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_anthropic_only_param_stripped_before_bedrock_fallback(

@@ -12,6 +12,7 @@ from llm_gateway.circuit_breaker import (
     KEY_PREFIX,
     AnthropicCircuitBreaker,
 )
+from llm_gateway.config import ModelCircuitBreakerPolicy
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def make_breaker(
     window_seconds: int = 300,
     bypass_probability: float = 0.9,
     min_requests: int = 5,
-    model_min_requests: dict[str, int] | None = None,
+    model_policies: dict[str, ModelCircuitBreakerPolicy] | None = None,
     enabled: bool = True,
 ) -> AnthropicCircuitBreaker:
     return AnthropicCircuitBreaker(
@@ -42,7 +43,9 @@ def make_breaker(
         window_seconds=window_seconds,
         bypass_probability=bypass_probability,
         min_requests=min_requests,
-        model_min_requests={"claude-fable-5": 5} if model_min_requests is None else model_min_requests,
+        model_policies={"claude-fable-5": ModelCircuitBreakerPolicy(min_requests=5, cross_request_fallback=True)}
+        if model_policies is None
+        else model_policies,
         enabled=enabled,
     )
 
@@ -116,7 +119,11 @@ class TestAnthropicCircuitBreaker:
     async def test_unconfigured_model_uses_only_aggregate_keys(
         self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
     ) -> None:
-        breaker = make_breaker(fake_redis, min_requests=20, model_min_requests={"claude-fable-5": 5})
+        breaker = make_breaker(
+            fake_redis,
+            min_requests=20,
+            model_policies={"claude-fable-5": ModelCircuitBreakerPolicy(min_requests=5)},
+        )
         unknown_model = "unknown-" + ("x" * 1_000)
         for _ in range(5):
             await breaker.record_outcome(success=False, model=unknown_model)
@@ -129,21 +136,21 @@ class TestAnthropicCircuitBreaker:
         assert all(b":aggregate:" in key for key in keys)
 
     @pytest.mark.parametrize(
-        "model_min_requests",
+        "model_policies",
         [
-            {"claude-fable-5": 0},
-            {"": 5},
-            {"x" * 201: 5},
-            {f"model-{index}": 5 for index in range(51)},
+            {"claude-fable-5": {"min_requests": 0}},
+            {"": {"min_requests": 5}},
+            {"x" * 201: {"min_requests": 5}},
+            {f"model-{index}": {"min_requests": 5} for index in range(51)},
         ],
     )
-    def test_rejects_invalid_model_breaker_configuration(self, model_min_requests: dict[str, int]) -> None:
+    def test_rejects_invalid_model_breaker_configuration(self, model_policies: dict[str, dict[str, int]]) -> None:
         from pydantic import ValidationError
 
         from llm_gateway.config import Settings
 
         with pytest.raises(ValidationError):
-            Settings(anthropic_circuit_breaker_model_min_requests=model_min_requests)
+            Settings(anthropic_circuit_breaker_model_policies=model_policies)
 
     async def test_closes_when_failure_rate_drops(
         self, fake_redis: fakeredis.FakeRedis, frozen_time: MagicMock
@@ -278,6 +285,10 @@ class TestPublishGaugesLoop:
         for _ in range(5):
             await breaker.record_outcome(success=False, model="claude-fable-5")
 
+        original_pipeline = fake_redis.pipeline
+        pipeline_calls = MagicMock(wraps=original_pipeline)
+        fake_redis.pipeline = pipeline_calls
+
         task = _asyncio.create_task(publish_anthropic_breaker_gauges_loop(breaker, interval_seconds=10))
         await _asyncio.sleep(0.05)
         task.cancel()
@@ -286,6 +297,7 @@ class TestPublishGaugesLoop:
         except _asyncio.CancelledError:
             pass
 
+        assert pipeline_calls.call_count == 1
         assert ANTHROPIC_CIRCUIT_BREAKER_OPEN._value.get() == 1
         assert ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE._value.get() == pytest.approx(0.25)
         assert ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS._value.get() == 20
