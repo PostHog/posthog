@@ -378,6 +378,53 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
+    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
+    filter value against a string-typed one compiles to equals(<String>, <number>), which
+    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
+    mirroring _stringify_group_key_value for group keys.
+
+    Numeric-, Boolean-, and DateTime-typed properties are cast to a Float / Bool / DateTime
+    LHS by PropertySwapper, so their comparisons already resolve to a common type — those are
+    left untouched (stringifying them would reintroduce the mismatch the other way around).
+    Only the narrow numeric-value-vs-string-property shape is coerced."""
+    # bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+
+    if property.type == "person":
+        definition_type = PropertyDefinition.Type.PERSON
+        extra_filters: dict[str, object] = {}
+    elif property.type == "group":
+        definition_type = PropertyDefinition.Type.GROUP
+        extra_filters = {"group_type_index": property.group_type_index}
+    elif property.type == "event":
+        definition_type = PropertyDefinition.Type.EVENT
+        extra_filters = {}
+    else:
+        # Other property types (session, data warehouse, logs, spans, …) resolve to properly
+        # typed columns, so a numeric comparison already has a common type — leave them alone.
+        return value
+
+    property_type = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, name=property.key, type=definition_type, **extra_filters)
+        .values_list("property_type", flat=True)
+        .first()
+    )
+
+    if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
+        return value
+
+    # String-typed or as-yet-undefined property: the LHS stays a JSON-extracted String, so
+    # stringify to keep both sides comparable. An integer-valued float loses its '.0' (13.0 -> '13').
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -565,7 +612,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
@@ -578,7 +629,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
@@ -630,7 +685,13 @@ def _expr_to_compare_op(
         if not isinstance(value, list):
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+        return ast.CompareOperation(
+            op=op,
+            left=expr,
+            right=ast.Array(
+                exprs=[ast.Constant(value=_coerce_numeric_value_for_string_property(v, property, team)) for v in value]
+            ),
+        )
     elif operator == PropertyOperator.SEMVER_EQ:
         return _gate_on_valid_semver(
             expr,
@@ -1052,7 +1113,14 @@ def property_to_expr(
                         else expr
                     )
                     compare_op = ast.CompareOperation(
-                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                        op=op,
+                        left=left,
+                        right=ast.Tuple(
+                            exprs=[
+                                ast.Constant(value=_coerce_numeric_value_for_string_property(v, property, team))
+                                for v in value
+                            ]
+                        ),
                     )
 
                     if is_exception_string_array_property:
