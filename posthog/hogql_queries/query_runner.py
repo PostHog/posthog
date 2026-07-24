@@ -118,9 +118,11 @@ from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown,
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_failure_handling import (
+    ReplayedQueryError,
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
+    flight_failure_from_exception,
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
@@ -139,6 +141,13 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
     QueryFailureRecord,
+)
+from posthog.query_cache.single_flight import (
+    FLIGHT_WAIT_SECONDS,
+    QUERY_SINGLE_FLIGHT_COUNTER,
+    QUERY_SINGLE_FLIGHT_FLAG,
+    FlightFailure,
+    QuerySingleFlight,
 )
 from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
@@ -1634,6 +1643,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except Exception:
             return False
 
+    @cached_property
+    def _query_single_flight_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network - this runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    QUERY_SINGLE_FLIGHT_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
+
     def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
         """The one breaker rule: a failure outcome that is fresh for the given execution budget
         substitutes for the execution it would forbid."""
@@ -1913,6 +1946,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # classified and captured when it happened.
                         slo.succeed(error_category="query_failure_cache")
                         raise
+                    if getattr(exc, "replayed_from_single_flight", False):
+                        # The leader already classified, captured, and recorded its failure.
+                        slo.succeed(error_category="single_flight")
+                        raise
                     # Don't pass execution_path here: whichever branch tag was set before the raise
                     # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
                     # dashboards can attribute errors to the path they happened in. Errors that fire
@@ -1956,6 +1993,73 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if self._query_failure_caching_enabled:
             self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
 
+        flight: Optional[QuerySingleFlight] = None
+        if self._query_single_flight_enabled:
+            flight = cache_manager.flight()
+            if not flight.acquire():
+                served = self._await_flight(flight, cache_manager)
+                if served is not None:
+                    return served
+                # The leader vanished or left nothing usable; run without leadership.
+                flight = None
+        try:
+            return self._calculate_and_cache_blocking(
+                cache_key=cache_key,
+                cache_manager=cache_manager,
+                execution_mode=execution_mode,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                trigger=trigger,
+                user=user,
+                start_time=start_time,
+                analytics_props=analytics_props,
+            )
+        except Exception as exc:
+            if flight is not None:
+                shared = flight_failure_from_exception(exc)
+                if shared is not None:
+                    # The envelope must land before the lock is released, so waiting
+                    # followers never observe a released flight with no outcome.
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader_error_shared").inc()
+                    flight.record_failure(shared)
+            raise
+        finally:
+            if flight is not None:
+                flight.release()
+
+    def _await_flight(self, flight: QuerySingleFlight, cache_manager: QueryCache) -> Optional[CR]:
+        outcome = flight.wait(FLIGHT_WAIT_SECONDS)
+        if isinstance(outcome, FlightFailure):
+            QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_error").inc()
+            raise ReplayedQueryError(outcome)
+        if outcome == "released":
+            entry = cache_manager.lookup().entry
+            full = entry.as_full_response() if entry else None
+            if full is not None:
+                try:
+                    cached_response = self.cached_response_type(**{**full, "is_cached": True})
+                except Exception:
+                    cached_response = None
+                if cached_response is not None:
+                    cached_response, _ = self.apply_series_custom_names(cached_response)
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
+                    return cached_response
+        QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_fallback").inc()
+        return None
+
+    def _calculate_and_cache_blocking(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCache,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional["AnalyticsProps"] = None,
+    ) -> CR:
         CachedResponse: type[CR] = self.cached_response_type
 
         last_refresh = datetime.now(UTC)
