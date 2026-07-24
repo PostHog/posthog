@@ -241,7 +241,7 @@ class TestLoginAPI(APIBaseTest):
 
         # Once the member's own domain is verified for the org, login works again.
         OrganizationDomain.objects.create(
-            domain=self.CONFIG_EMAIL.split("@")[1], organization=self.organization, verified_at=timezone.now()
+            domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
         )
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)

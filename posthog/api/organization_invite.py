@@ -710,7 +710,7 @@ class OrganizationInviteViewSet(
             },
         )
         if not serializer.is_valid():
-            raise first_bulk_invite_error(serializer.errors)
+            raise first_bulk_invite_error(cast(list[Any], serializer.errors))
         serializer.save()
 
         organization = Organization.objects.get(id=self.organization_id)
