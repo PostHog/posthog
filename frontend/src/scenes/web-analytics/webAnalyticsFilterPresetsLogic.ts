@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -295,7 +295,20 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                     order: '-last_modified_at',
                     limit: 20,
                 }
-                return await api.webAnalyticsFilterPresets.list(toParams(params))
+                try {
+                    return await api.webAnalyticsFilterPresets.list(toParams(params))
+                } catch (error) {
+                    // Swallow transient network blips on scene mount (offline, ad blocker, tab closed
+                    // mid-request) so they don't surface as error tracking noise — they arrive as an
+                    // ApiError with no HTTP status, or an AbortError. Re-raise genuine server errors.
+                    const isNetworkBlip =
+                        (error instanceof ApiError && error.status == null) ||
+                        (error instanceof Error && error.name === 'AbortError')
+                    if (isNetworkBlip) {
+                        return values.presets
+                    }
+                    throw error
+                }
             },
         },
         savedPreset: {
