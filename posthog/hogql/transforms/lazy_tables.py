@@ -24,6 +24,21 @@ def resolve_lazy_tables(
     LazyTableResolver(stack=stack, context=context, dialect=dialect, resolver_factory=resolver_factory).visit(node)
 
 
+def _find_registered_table_name(select_type: ast.SelectQueryType, lazy_table: "ast.LazyTable") -> Optional[str]:
+    """Find the scope alias a lazy table was registered under, matching by identity.
+
+    `get_long_table_name` returns a lazy table's printed long name, which is not always the alias the
+    resolver keyed it under in `select_type.tables` (namespace-mounted tables are keyed by their
+    reference chain instead). Return the actual key, or None if the table isn't in scope yet.
+    """
+    for name, table_type in select_type.tables.items():
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.LazyTableType) and table_type.table is lazy_table:
+            return name
+    return None
+
+
 @dataclasses.dataclass
 class ConstraintOverride:
     alias: str
@@ -580,6 +595,17 @@ class LazyTableResolver(TraversingVisitor):
                     context=self.context,
                     setTimeZones=False,
                 ).visit(subquery)
+            # `table_name` here is the lazy table's printed long name (`to_printed_hogql()`), which is
+            # not always the alias the resolver registered it under. A table mounted under a namespace
+            # (e.g. `posthog.error_tracking_fingerprint_issue_state`, `system.information_schema.tables`)
+            # is keyed in scope by its reference chain, which can differ from the printed long name. Look
+            # the table up by its actual scope key when the long name misses, and if it isn't in scope yet
+            # skip it — the retry pass below (see `lazy_finder`) resolves it — rather than raising KeyError.
+            if table_name not in select_type.tables:
+                registered_name = _find_registered_table_name(select_type, table_to_add.lazy_table)
+                if registered_name is None:
+                    continue
+                table_name = registered_name
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
