@@ -147,6 +147,12 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
+# Labels are attacker-settable strings headed for the terminal and a docker
+# command line; strip anything outside the compose name charset.
+sanitize_compose_name() {
+    printf '%s' "${1//[^a-zA-Z0-9_.-]/}"
+}
+
 # Pre-flight: detect who already holds the host ports the dev stack needs. A stale
 # stack under a *different* compose project binds the same ports, so one of our
 # containers fails to bind — and that aborts the entire `docker compose up`,
@@ -186,9 +192,7 @@ preflight_port_check() {
         container="${holder%%|*}"
         project="${holder#*|}"
         project="${project%%|*}"
-        # Labels are attacker-settable strings headed for the terminal and a
-        # docker command line; strip anything outside the compose name charset.
-        project="${project//[^a-zA-Z0-9_.-]/}"
+        project="$(sanitize_compose_name "$project")"
         # Our own project's container holding its own port is the happy path.
         if [[ "$project" != "$COMPOSE_PROJECT_NAME" ]]; then
             report+="     • port $port ($name): container '$container' from compose project '${project:-<none>}'"$'\n'
@@ -205,7 +209,7 @@ preflight_port_check() {
             --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null || true)
         for stack in $(sort -u <<< "$foreign_candidates"); do
             while IFS= read -r project; do
-                project="${project//[^a-zA-Z0-9_.-]/}"
+                project="$(sanitize_compose_name "$project")"
                 if [[ "$project" == "$stack" ]]; then
                     foreign_projects+="$stack"$'\n'
                     break
@@ -274,6 +278,25 @@ preflight_port_check() {
     return 0
 }
 preflight_port_check || true
+
+# One-time notice for the July 2026 named-volume switch: the named volume is
+# absent until the first `up` after the switch, and if a clickhouse container
+# already exists under this project, its data is about to be reset. See the
+# "Local ClickHouse suddenly empty" gotcha in developing-locally.md. Fail-open,
+# like preflight_port_check above.
+named_volume_reset_notice() {
+    command -v docker &>/dev/null || return 0
+    docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
+    docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
+        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+        | grep -qx "$COMPOSE_PROJECT_NAME" || return 0
+    echo "⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start"
+    echo "   recreates them empty, so local ClickHouse data resets once (happens once"
+    echo "   per machine). Run 'hogli migrations:run' after, or 'hogli dev:reset' for a"
+    echo "   full wipe plus demo data. See 'Local ClickHouse suddenly empty' in"
+    echo "   docs/published/handbook/engineering/developing-locally.md to salvage old data."
+}
+named_volume_reset_notice || true
 
 # Geo files
 ./bin/download-mmdb

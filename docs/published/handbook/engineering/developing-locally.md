@@ -229,7 +229,7 @@ docker run --rm -v <volume>:/v alpine ls /v
 ```
 
 The ClickHouse volume contains `store` and `metadata`; the ZooKeeper snapshot volume has `version-2/snapshot.*`; the ZooKeeper transaction-log volume has `version-2/log.*`.
-Copy each old volume into its named replacement:
+Copy each old volume into its named replacement. The `posthog_` prefix below is the compose project name (`$COMPOSE_PROJECT_NAME`, `posthog` by default); substitute yours if you've overridden it:
 
 ```bash
 docker run --rm -v <old-clickhouse-volume>:/from -v posthog_clickhouse-data:/to alpine sh -c 'rm -rf /to/* && cp -a /from/. /to/'
