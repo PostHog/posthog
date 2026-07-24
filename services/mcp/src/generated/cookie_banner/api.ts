@@ -37,13 +37,13 @@ export const CookieBannerCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const cookieBannerCreateBodyAppearanceOneTitleMax = 200
+export const cookieBannerCreateBodyAppearanceOneTitleMax = 25
 
-export const cookieBannerCreateBodyAppearanceOneDescriptionMax = 1000
+export const cookieBannerCreateBodyAppearanceOneDescriptionMax = 200
 
-export const cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax = 100
+export const cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax = 11
 
-export const cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax = 100
+export const cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax = 11
 
 export const cookieBannerCreateBodyAppearanceOneBackgroundColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
@@ -155,13 +155,13 @@ export const CookieBannerPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const cookieBannerPartialUpdateBodyAppearanceOneTitleMax = 200
+export const cookieBannerPartialUpdateBodyAppearanceOneTitleMax = 25
 
-export const cookieBannerPartialUpdateBodyAppearanceOneDescriptionMax = 1000
+export const cookieBannerPartialUpdateBodyAppearanceOneDescriptionMax = 200
 
-export const cookieBannerPartialUpdateBodyAppearanceOneAcceptButtonTextMax = 100
+export const cookieBannerPartialUpdateBodyAppearanceOneAcceptButtonTextMax = 11
 
-export const cookieBannerPartialUpdateBodyAppearanceOneDeclineButtonTextMax = 100
+export const cookieBannerPartialUpdateBodyAppearanceOneDeclineButtonTextMax = 11
 
 export const cookieBannerPartialUpdateBodyAppearanceOneBackgroundColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'

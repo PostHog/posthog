@@ -35,8 +35,8 @@ DEFAULT_APPEARANCE: dict[str, str | bool] = {
 COLOR_KEYS: list[str] = ["backgroundColor", "textColor", "buttonColor", "buttonTextColor"]
 
 MAX_TEXT_LENGTHS: dict[str, int] = {
-    "title": 200,
-    "description": 1000,
-    "acceptButtonText": 100,
-    "declineButtonText": 100,
+    "title": 25,
+    "description": 200,
+    "acceptButtonText": 11,
+    "declineButtonText": 11,
 }

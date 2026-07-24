@@ -13,13 +13,13 @@ import * as zod from 'zod'
  * Manage the project's cookie banner. A project has at most one banner,
  * so list returns zero or one items and create fails once one exists.
  */
-export const cookieBannerCreateBodyAppearanceOneTitleMax = 200
+export const cookieBannerCreateBodyAppearanceOneTitleMax = 25
 
-export const cookieBannerCreateBodyAppearanceOneDescriptionMax = 1000
+export const cookieBannerCreateBodyAppearanceOneDescriptionMax = 200
 
-export const cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax = 100
+export const cookieBannerCreateBodyAppearanceOneAcceptButtonTextMax = 11
 
-export const cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax = 100
+export const cookieBannerCreateBodyAppearanceOneDeclineButtonTextMax = 11
 
 export const cookieBannerCreateBodyAppearanceOneBackgroundColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
@@ -122,13 +122,13 @@ export const CookieBannerCreateBody = /* @__PURE__ */ zod.object({
  * Manage the project's cookie banner. A project has at most one banner,
  * so list returns zero or one items and create fails once one exists.
  */
-export const cookieBannerUpdateBodyAppearanceOneTitleMax = 200
+export const cookieBannerUpdateBodyAppearanceOneTitleMax = 25
 
-export const cookieBannerUpdateBodyAppearanceOneDescriptionMax = 1000
+export const cookieBannerUpdateBodyAppearanceOneDescriptionMax = 200
 
-export const cookieBannerUpdateBodyAppearanceOneAcceptButtonTextMax = 100
+export const cookieBannerUpdateBodyAppearanceOneAcceptButtonTextMax = 11
 
-export const cookieBannerUpdateBodyAppearanceOneDeclineButtonTextMax = 100
+export const cookieBannerUpdateBodyAppearanceOneDeclineButtonTextMax = 11
 
 export const cookieBannerUpdateBodyAppearanceOneBackgroundColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'
@@ -231,13 +231,13 @@ export const CookieBannerUpdateBody = /* @__PURE__ */ zod.object({
  * Manage the project's cookie banner. A project has at most one banner,
  * so list returns zero or one items and create fails once one exists.
  */
-export const cookieBannerPartialUpdateBodyAppearanceOneTitleMax = 200
+export const cookieBannerPartialUpdateBodyAppearanceOneTitleMax = 25
 
-export const cookieBannerPartialUpdateBodyAppearanceOneDescriptionMax = 1000
+export const cookieBannerPartialUpdateBodyAppearanceOneDescriptionMax = 200
 
-export const cookieBannerPartialUpdateBodyAppearanceOneAcceptButtonTextMax = 100
+export const cookieBannerPartialUpdateBodyAppearanceOneAcceptButtonTextMax = 11
 
-export const cookieBannerPartialUpdateBodyAppearanceOneDeclineButtonTextMax = 100
+export const cookieBannerPartialUpdateBodyAppearanceOneDeclineButtonTextMax = 11
 
 export const cookieBannerPartialUpdateBodyAppearanceOneBackgroundColorRegExp = new RegExp(
     '^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$'

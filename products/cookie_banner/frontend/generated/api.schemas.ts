@@ -48,22 +48,22 @@ export const PositionEnumApi = {
 export interface CookieBannerAppearanceApi {
     /**
      * Banner headline. Plain text only. Defaults to 'We use cookies'.
-     * @maxLength 200
+     * @maxLength 25
      */
     title?: string
     /**
      * Body copy explaining what cookies are used for. Plain text only.
-     * @maxLength 1000
+     * @maxLength 200
      */
     description?: string
     /**
      * Label for the button that opts the visitor in to tracking. Defaults to 'Accept'.
-     * @maxLength 100
+     * @maxLength 11
      */
     acceptButtonText?: string
     /**
      * Label for the button that opts the visitor out of tracking. Defaults to 'Decline'.
-     * @maxLength 100
+     * @maxLength 11
      */
     declineButtonText?: string
     /** Artwork shown on the banner: the PostHog logo, hedgehog art, or none. Defaults to 'posthog-logo'.

@@ -23,8 +23,10 @@ class TestCookieBannerAppearanceValidation(SimpleTestCase):
             ("unknown_position", {"position": "top-bar"}),
             ("non_hex_color", {"backgroundColor": "red"}),
             ("css_injection_in_color", {"buttonColor": "#fff; } body { display: none"}),
-            ("title_too_long", {"title": "a" * 201}),
-            ("description_too_long", {"description": "a" * 1001}),
+            ("title_too_long", {"title": "a" * 26}),
+            ("description_too_long", {"description": "a" * 201}),
+            ("accept_button_text_too_long", {"acceptButtonText": "a" * 12}),
+            ("decline_button_text_too_long", {"declineButtonText": "a" * 12}),
         ]
     )
     def test_rejects_invalid_appearance(self, _name: str, appearance: dict) -> None:
