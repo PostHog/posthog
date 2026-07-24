@@ -852,6 +852,19 @@ export interface experimentLogicActions {
         newUuid: string
         uuid: string
     }
+    duplicateSharedMetricAsInlineMetric: ({
+        sharedMetricId,
+        isSecondary,
+        newUuid,
+    }: {
+        isSecondary: boolean
+        newUuid: string
+        sharedMetricId: SharedMetric['id']
+    }) => {
+        isSecondary: boolean
+        newUuid: string
+        sharedMetricId: number
+    }
     endExperiment: (openCleanupPr?: boolean) => {
         openCleanupPr: boolean
     }
@@ -1622,6 +1635,19 @@ export const experimentLogic = kea<experimentLogicType>([
             isSecondary,
             newUuid,
         }),
+        duplicateSharedMetricAsInlineMetric: ({
+            sharedMetricId,
+            isSecondary,
+            newUuid,
+        }: {
+            sharedMetricId: SharedMetric['id']
+            isSecondary: boolean
+            newUuid: string
+        }) => ({
+            sharedMetricId,
+            isSecondary,
+            newUuid,
+        }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
         saveMetricsReorder: (
@@ -1835,6 +1861,48 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                duplicateSharedMetricAsInlineMetric: (state, { sharedMetricId, isSecondary, newUuid }) => {
+                    const metricType = isSecondary ? 'secondary' : 'primary'
+                    const savedMetric = (state?.saved_metrics || []).find(
+                        (m: ExperimentSavedMetric) =>
+                            m.saved_metric === sharedMetricId && m.metadata?.type === metricType
+                    )
+
+                    if (!savedMetric) {
+                        return state
+                    }
+
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    const query = savedMetric.query
+                    const name = savedMetric.name
+                        ? `${savedMetric.name} (copy)`
+                        : query.kind === NodeKind.ExperimentMetric
+                          ? `${getDefaultMetricTitle(query)} (copy)`
+                          : undefined
+
+                    /**
+                     * Build a single-use (inline) copy of the shared metric. The shared metric's
+                     * breakdowns live on the join metadata, so merge them into breakdownFilter here
+                     * the same way we do when rendering shared metrics.
+                     */
+                    const newMetric = {
+                        ...query,
+                        uuid: newUuid,
+                        name,
+                        breakdownFilter: {
+                            ...query?.breakdownFilter,
+                            breakdowns: savedMetric.metadata?.breakdowns || [],
+                        },
+                    }
+                    metrics.push(newMetric)
 
                     return {
                         ...state,
