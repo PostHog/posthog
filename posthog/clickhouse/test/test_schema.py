@@ -1,3 +1,4 @@
+import re
 import uuid
 
 import pytest
@@ -15,6 +16,11 @@ from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
+)
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
 )
 
 
@@ -51,6 +57,29 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
+
+
+def test_flag_evaluations_column_lists_stay_in_sync():
+    # The shared column template is the canonical column list for the Kafka
+    # and Distributed tables. The sharded data table inlines its own copy (to
+    # carry CODEC/INDEX/DEFAULT annotations) and the MV hand-writes its SELECT
+    # projection, so both must be updated by hand whenever a column is added
+    # or removed here. A column present in the shared list but missing from
+    # one of the other two would silently drop data on the write path (MV) or
+    # mismatch the Distributed/local table shape (sharded table), neither of
+    # which raises an error at creation time.
+    column_names = {line.strip().split()[0] for line in FLAG_EVALUATIONS_KAFKA_COLUMNS.strip().splitlines()}
+    assert column_names
+
+    sharded_table_sql = FLAG_EVALUATIONS_TABLE_SQL()
+    mv_sql = FLAG_EVALUATIONS_MV_SQL()
+
+    for name in column_names:
+        pattern = rf"\b{re.escape(name)}\b"
+        assert re.search(pattern, sharded_table_sql), (
+            f"{name!r} is in the shared column list but missing from the sharded data table's DDL"
+        )
+        assert re.search(pattern, mv_sql), f"{name!r} is in the shared column list but not projected by the MV"
 
 
 @pytest.fixture(autouse=True)

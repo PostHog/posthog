@@ -501,6 +501,7 @@ services:
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \
+                    clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
