@@ -8,6 +8,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
 )
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -16,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.schema import CachedPathsQueryResponse
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
@@ -1117,3 +1119,19 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         sources_and_targets = [r.source + r.target for r in result.results]
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
+
+    def test_query_timeout_surfaces_paths_specific_guidance(self):
+        runner = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": {}}, team=self.team)
+
+        with patch(
+            "products.product_analytics.backend.hogql_queries.paths.paths_query_runner.execute_hogql_query",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            with self.assertRaises(ClickHouseQueryTimeOut) as cm:
+                runner.calculate()
+
+        detail = str(cm.exception.detail)
+        assert "date range" in detail
+        assert "step and edge limits" in detail
+        # The generic copy pushes materialization, which paths can't do — make sure it's gone.
+        assert "materialize" not in detail.lower()
