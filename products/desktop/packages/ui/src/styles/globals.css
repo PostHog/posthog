@@ -1,0 +1,1339 @@
+/*
+ * Explicit cascade layer order. Without this, Tailwind v4's internal
+ * `@layer theme, base, components, utilities;` declaration pushes
+ * `radix` (declared by the @import layer() below) to the front, so
+ * preflight's `* { padding: 0; margin: 0 }` in the `base` layer beats
+ * radix's `.rt-r-p-2 { padding: calc(var(--space-2)) }` and every
+ * radix component collapses.
+ *
+ * Order: base (preflight) < radix (component defaults) < utilities
+ * (consumer + quill overrides). Quill is NOT layered — its classes
+ * live in the top-level `utilities` layer alongside this app's own.
+ */
+@layer theme, base, radix, components, utilities;
+
+@import "@radix-ui/themes/styles.css" layer(radix);
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 ignores `darkMode: "class"` from the legacy v3 config loaded
+ * via @config, so we re-declare the dark variant here. This tracks the
+ * `.dark` class that themeStore syncs onto <html>, keeping `dark:` utilities
+ * in sync with the in-app theme toggle (rather than just OS preference).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * @posthog/quill — shadcn-style integration.
+ *
+ *   tokens.css   registers quill's design tokens (:root + .dark CSS
+ *                custom properties AND the @theme inline block) with
+ *                this app's Tailwind v4 instance so utilities like
+ *                `bg-fill-hover` and `text-muted-foreground` compile.
+ *
+ *   base.css     one `* { border-border outline-ring/50 }` reset,
+ *                load-bearing for primitives that write plain `border`.
+ *
+ *   tailwind.css `@source "./**\/*.js"` — tells this app's Tailwind to
+ *                scan quill's compiled library JS for class-name
+ *                strings. No pre-compiled stylesheet, no cascade-layer
+ *                fight. Consumer overrides via `className` just work
+ *                because tailwind-merge inside quill dedupes and this
+ *                app's utilities land in the same `utilities` layer.
+ */
+@import "@posthog/quill/tokens.css";
+@import "@posthog/quill/base.css";
+@import "@posthog/quill/primitives.css";
+@import "@posthog/quill/tailwind.css";
+
+/* Edge-fade utilities (`scroll-mask-*`) used by quill scrollable lists. */
+@import "tailwindcss-scroll-mask";
+
+/*
+ * Explicit @source directive alongside the import above. Tailwind v4's
+ * `@config` legacy-compat mode (loading tailwind.config.js) appears to
+ * ignore `@source` directives nested inside imported CSS files, so the
+ * `@source "./**\/*.js"` sitting in @posthog/quill/tailwind.css never
+ * actually runs. Pointing the scanner at quill's dist directly here
+ * guarantees the primitive/component class strings get compiled.
+ */
+@source "../../../../node_modules/@posthog/quill/dist/**/*.js";
+
+/*
+ * Indeterminate "section loading" bar — a thin accent bar that swoops across the
+ * top of a container while work is in flight (e.g. a canvas agent turn). Mirrors
+ * PostHog Cloud's LemonTableLoader. Put it as an absolutely-positioned child of a
+ * `position: relative` container and toggle the `--active` modifier to reveal it.
+ */
+.quill-section-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Barely-there track; the moving bar is the hard Quill brand color. */
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  transition: height 200ms ease;
+}
+
+.quill-section-loading::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  content: "";
+  background: var(--primary);
+  animation: quill-section-loading-swoop 1.5s linear infinite;
+}
+
+.quill-section-loading--active {
+  height: 0.125rem;
+}
+
+@keyframes quill-section-loading-swoop {
+  0% {
+    left: 0;
+    width: 33.333%;
+    transform: translateX(-100%);
+  }
+  50% {
+    width: 50%;
+  }
+  100% {
+    left: 100%;
+    width: 33.333%;
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * Indeterminate progress bar for the in-flight conversation-compaction row.
+ * Compaction is a single streaming summarization call with no measurable
+ * percentage, so the bar swoops continuously (reusing the section-loading
+ * keyframe above) to signal ongoing work while the row's elapsed timer carries
+ * the concrete progress signal. Blue-tinted to match the compaction status row.
+ */
+.compacting-progress {
+  position: relative;
+  width: 100%;
+  height: 0.1875rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--blue-9) 15%, transparent);
+}
+
+.compacting-progress::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  content: "";
+  border-radius: 9999px;
+  background: var(--blue-9);
+  animation: quill-section-loading-swoop 1.5s linear infinite;
+}
+
+/* No swoop when the user prefers reduced motion; leave a static filled track. */
+@media (prefers-reduced-motion: reduce) {
+  .compacting-progress::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/*
+ * Quill ships its dialog backdrop at `opacity-20` (light) / `opacity-70`
+ * (dark). The light value is barely visible — bump it so dialogs feel
+ * properly modal across the app, matching Radix Themes.
+ *
+ * The doubled `[data-slot]` attribute selector raises specificity to
+ * (0,2,0) so it beats Tailwind's `dark:opacity-70` (which compiles to
+ * `.opacity-70:where(.dark, .dark *)` at (0,1,0)) without `!important`.
+ */
+[data-slot="dialog-overlay"][data-slot="dialog-overlay"] {
+  background-color: rgba(0, 0, 0, 0.55);
+  opacity: 1;
+}
+.dark [data-slot="dialog-overlay"][data-slot="dialog-overlay"] {
+  background-color: rgba(0, 0, 0, 0.7);
+  opacity: 1;
+}
+
+/*
+ * Quill portaled popovers/comboboxes default to z-index 50.
+ *
+ * - Settings (z-100) stacks above them — raise z-index.
+ * - Radix modal Dialog sets `body { pointer-events: none }` and only re-enables
+ *   pointer events on the dialog DismissableLayer. Quill portals are separate
+ *   body children, so they stay inert unless we set pointer-events here.
+ *   (Radix Select/Popover add their own DismissableLayer; Quill does not.)
+ */
+body:has([data-overlay="settings"]) [data-quill-portal],
+body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
+  z-index: 101;
+  pointer-events: auto;
+}
+
+@config "../../tailwind.config.js";
+
+/*
+ * Tighten the default line-height paired with each named font-size utility.
+ * Tailwind v4 ships --text-{size}--line-height tokens; overriding them here
+ * means every <element className="text-sm"> automatically gets the tighter
+ * leading without needing a leading-* class at every call site.
+ *
+ * Body sizes (xs/sm/base) use snug (1.375), heading sizes (lg/xl/2xl) use
+ * tight (1.25) to match how hero titles already render.
+ */
+@theme {
+  /*
+   * Default font stacks. Tailwind v4 derives --default-font-family
+   * from --font-sans, which the preflight applies to <html>. So setting
+   * these here means Open Runde / Berkeley Mono cascade to every element
+   * in the document — no per-component or body-level override needed.
+   *
+   * The Radix Themes scope (.radix-themes) re-declares its own font
+   * variables further down in this file; those reference var(--font-sans)
+   * so Radix-rendered components share the same source of truth.
+   */
+  --font-sans:
+    "Open Runde", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol";
+  --font-mono:
+    "Berkeley Mono", "JetBrains Mono", "Consolas", "Monaco", monospace;
+
+  /*
+   * Tighten the default line-height paired with each named font-size utility.
+   * Tailwind v4 ships --text-{size}--line-height tokens; overriding them here
+   * means every <element className="text-sm"> automatically gets the tighter
+   * leading without needing a leading-* class at every call site.
+   *
+   * Body sizes (xs/sm/base) use snug (1.375), heading sizes (lg/xl/2xl) use
+   * tight (1.25) to match how hero titles already render.
+   */
+  --text-xs--line-height: calc(0.75rem * 1.375); /* 12 → 16.5px */
+  --text-sm--line-height: calc(0.875rem * 1.375); /* 14 → 19.25px */
+  --text-base--line-height: calc(1rem * 1.375); /* 16 → 22px */
+  --text-lg--line-height: calc(1.125rem * 1.25); /* 18 → 22.5px */
+  --text-xl--line-height: calc(1.25rem * 1.25); /* 20 → 25px */
+  --text-2xl--line-height: calc(1.5rem * 1.25); /* 24 → 30px */
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("../assets/fonts/BerkeleyMono/BerkeleyMono-Regular.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("../assets/fonts/BerkeleyMono/BerkeleyMono-Oblique.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("../assets/fonts/BerkeleyMono/BerkeleyMono-Bold.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Berkeley Mono";
+  src: url("../assets/fonts/BerkeleyMono/BerkeleyMono-Bold-Oblique.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-Light.woff2")
+    format("woff2");
+  font-weight: 300;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-LightItalic.woff2")
+    format("woff2");
+  font-weight: 300;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-Regular.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-Italic.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-Medium.woff2")
+    format("woff2");
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-MediumItalic.woff2")
+    format("woff2");
+  font-weight: 500;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-SemiBold.woff2")
+    format("woff2");
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-SemiBoldItalic.woff2")
+    format("woff2");
+  font-weight: 600;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-Bold.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMono-BoldItalic.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src:
+    url("../assets/fonts/OpenRunde/OpenRunde-Regular.woff2") format("woff2"),
+    url("../assets/fonts/OpenRunde/OpenRunde-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src:
+    url("../assets/fonts/OpenRunde/OpenRunde-Medium.woff2") format("woff2"),
+    url("../assets/fonts/OpenRunde/OpenRunde-Medium.woff") format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src:
+    url("../assets/fonts/OpenRunde/OpenRunde-Semibold.woff2") format("woff2"),
+    url("../assets/fonts/OpenRunde/OpenRunde-Semibold.woff") format("woff");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src:
+    url("../assets/fonts/OpenRunde/OpenRunde-Bold.woff2") format("woff2"),
+    url("../assets/fonts/OpenRunde/OpenRunde-Bold.woff") format("woff");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --ph-orange: #f54d00;
+  --ph-yellow: #f8be2a;
+}
+
+/* Zen hedgehog float animation for auth/onboarding screens */
+@keyframes zen-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+.zen-float {
+  animation: zen-float 3.5s ease-in-out infinite;
+}
+
+/* Braille-dots spinner: 10 stacked frames, each held for 10% of the cycle.
+   step-end holds each keyframe value so frames swap hard instead of fading.
+   Pure CSS so spinners cost no JS timers, React renders or DOM mutations
+   (DOM mutations would otherwise be serialized by session replay). */
+@keyframes ph-dots-frame {
+  0% {
+    opacity: 1;
+  }
+  10%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.ph-dots-frame {
+  grid-area: 1 / 1;
+  opacity: 0;
+  animation: ph-dots-frame 800ms step-end infinite;
+}
+
+/* Pulse animation for generating indicator */
+@keyframes ph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    color: var(--accent-9);
+  }
+  50% {
+    opacity: 0.5;
+    color: var(--accent-11);
+  }
+}
+
+.ph-pulse {
+  animation: ph-pulse 1s ease-in-out infinite;
+}
+
+/* Freeze CSS keyframe animations while the app window is unfocused or hidden.
+   Perpetual indicators (spinners, pulses, floats) otherwise keep the compositor
+   and GPU busy in the background for animations nobody is looking at — and some,
+   like ph-pulse's color shift, force main-thread repaints every frame. The class
+   is toggled from the renderer focus store (see GlobalEventHandlers). Transitions
+   are unaffected, and animations resume where they left off on refocus. */
+body.ph-window-blurred *,
+body.ph-window-blurred *::before,
+body.ph-window-blurred *::after {
+  animation-play-state: paused !important;
+}
+
+.radix-themes {
+  --cursor-button: pointer;
+  --cursor-checkbox: pointer;
+  --cursor-menu-item: pointer;
+  --cursor-radio: pointer;
+  --cursor-switch: pointer;
+  --cursor-slider-thumb: pointer;
+  --cursor-slider-thumb-active: grab;
+
+  /*
+   * Radix Themes font variables — wired to the @theme tokens above so the
+   * Open Runde / Berkeley Mono stacks are defined exactly once.
+   */
+  --default-font-family: var(--font-sans);
+  --heading-font-family: var(--font-sans);
+  --strong-font-family: var(--font-sans);
+  --em-font-family: var(--font-sans);
+  --quote-font-family: var(--font-sans);
+  --code-font-family: var(--font-mono);
+
+  /* Font weights — Berkeley Mono provides 400/700, JetBrains Mono fills 300/500/600 */
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  /*
+   * Override Radix's smallest text size to 13px / 20px LH (default is
+   * 12 / 16). This still applies to *Radix-internal* components that
+   * read --font-size-1 — buttons with size="1", DropdownMenu items,
+   * TextField with size="1", etc. App-level <Text> / <Heading>
+   * typography is now controlled via Tailwind utilities, not these
+   * tokens.
+   */
+  --font-size-1: calc(13px * var(--scaling));
+  --line-height-1: calc(20px * var(--scaling));
+}
+
+body {
+  /* font-family inherited from <html> via Tailwind preflight + --font-sans */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.plan-markdown {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.plan-markdown h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.plan-markdown h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 14px 0 8px;
+}
+
+.plan-markdown h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.plan-markdown p {
+  margin: 0 0 8px;
+}
+
+.plan-markdown ul,
+.plan-markdown ol {
+  margin: 0 0 10px 16px;
+  padding: 0;
+}
+
+.plan-markdown ul {
+  list-style-type: disc;
+  padding-left: 4px;
+}
+
+.plan-markdown ol {
+  list-style-type: decimal;
+  padding-left: 4px;
+}
+
+.plan-markdown li {
+  margin: 2px 0;
+  display: list-item;
+}
+
+.plan-markdown code {
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Monaco", "Menlo", "Ubuntu Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+  background: var(--blue-a5);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.plan-markdown pre {
+  background: var(--blue-a3);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0 12px;
+}
+
+.plan-markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.plan-markdown table {
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+  width: 100%;
+  font-size: 12px;
+}
+
+.plan-markdown th,
+.plan-markdown td {
+  border: 1px solid var(--blue-a6);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.plan-markdown blockquote {
+  margin: 8px 0 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--blue-a6);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gray-3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-8);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-9);
+}
+
+[data-slot="autocomplete-list"]::-webkit-scrollbar {
+  width: 6px;
+}
+[data-slot="autocomplete-list"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-slot="autocomplete-list"]::-webkit-scrollbar-thumb {
+  background-color: var(--gray-a7);
+  border-radius: 10px;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-overlay {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.scrollbar-overlay::-webkit-scrollbar {
+  height: 4px;
+  background: transparent;
+}
+
+.scrollbar-overlay::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-overlay::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.scrollbar-overlay:hover::-webkit-scrollbar-thumb {
+  background: var(--gray-a6);
+}
+
+.scrollbar-overlay:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-a8);
+}
+
+.scrollbar-overlay-y {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.scrollbar-overlay-y::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+.scrollbar-overlay-y::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-overlay-y::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.scrollbar-overlay-y:hover {
+  scrollbar-color: var(--gray-a6) transparent;
+}
+
+.scrollbar-overlay-y:hover::-webkit-scrollbar-thumb {
+  background: var(--gray-a6);
+}
+
+.scrollbar-overlay-y:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-a8);
+}
+
+/* File mention list styles */
+.file-mention-item {
+  padding: var(--space-2);
+  cursor: pointer;
+  background-color: var(--gray-1);
+  border-radius: var(--radius-2);
+  transition: background-color 0.1s ease;
+}
+
+.file-mention-item:hover {
+  background-color: var(--accent-a2);
+}
+
+.file-mention-item.is-selected {
+  background-color: var(--accent-a3);
+  color: var(--accent-11);
+}
+
+/* Rich text editor styles */
+.file-mention {
+  background-color: var(--accent-a3);
+  border: 1px solid var(--accent-a6);
+  border-radius: var(--radius-1);
+  padding: 0.125rem 0.375rem;
+  color: var(--accent-11);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.rich-text-link {
+  color: var(--accent-11);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.rich-text-link:hover {
+  color: var(--accent-12);
+}
+
+.markdown-link {
+  color: var(--accent-11);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.markdown-link:hover {
+  text-decoration: underline;
+}
+
+.rich-text-editor-content {
+  /* font-family inherited from --font-sans via the global cascade */
+  line-height: 1.6;
+}
+
+.rich-text-editor-content p {
+  margin: 0;
+  padding: 0;
+}
+
+.rich-text-editor-content p + p {
+  margin-top: 0.75em;
+}
+
+.rich-text-editor-content h1,
+.rich-text-editor-content h2,
+.rich-text-editor-content h3,
+.rich-text-editor-content h4,
+.rich-text-editor-content h5,
+.rich-text-editor-content h6 {
+  margin: 1em 0 0.5em 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.rich-text-editor-content h1 {
+  font-size: 1.875rem;
+}
+.rich-text-editor-content h2 {
+  font-size: 1.5rem;
+}
+.rich-text-editor-content h3 {
+  font-size: 1.25rem;
+}
+.rich-text-editor-content h4 {
+  font-size: 1.125rem;
+}
+.rich-text-editor-content h5 {
+  font-size: 1rem;
+}
+.rich-text-editor-content h6 {
+  font-size: 0.875rem;
+}
+
+.rich-text-editor-content ul,
+.rich-text-editor-content ol {
+  margin: 0.75em 0;
+  padding-left: 1.5rem;
+}
+
+.rich-text-editor-content li {
+  margin: 0.25em 0;
+}
+
+.rich-text-editor-content blockquote {
+  margin: 0.75em 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--gray-a6);
+  color: var(--gray-11);
+  font-style: italic;
+}
+
+.rich-text-editor-content pre {
+  background-color: var(--gray-a3);
+  border: 1px solid var(--gray-a6);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  margin: 0.75em 0;
+  overflow-x: auto;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.rich-text-editor-content code {
+  background-color: var(--gray-a3);
+  border: 1px solid var(--gray-a6);
+  border-radius: var(--radius-1);
+  padding: 0.125rem 0.25rem;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.875rem;
+}
+
+.rich-text-editor-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.rich-text-editor-content strong {
+  font-weight: 600;
+}
+
+.rich-text-editor-content em {
+  font-style: italic;
+}
+
+.rich-text-editor-content u {
+  text-decoration: underline;
+}
+
+.rich-text-editor-content s {
+  text-decoration: line-through;
+}
+
+.rich-text-editor-content hr {
+  border: none;
+  border-top: 2px solid var(--gray-a6);
+  margin: 1.5em 0;
+}
+
+.rich-text-editor-content p.is-editor-empty:first-child::before {
+  color: var(--gray-a9);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.ProseMirror-focused {
+  outline: none;
+}
+
+.ProseMirror {
+  outline: none;
+}
+
+.ProseMirror a {
+  color: var(--accent-11);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ProseMirror a:hover {
+  color: var(--accent-12);
+}
+
+.CollapsibleContent {
+  overflow: hidden;
+}
+
+.CollapsibleContent[data-state="open"] {
+  animation: slideDown 300ms ease-out;
+}
+
+.CollapsibleContent[data-state="closed"] {
+  animation: slideUp 300ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+/* Resting opacity is 1, so a dropped/stalled animation can never leave the app invisible. */
+.app-fade-in {
+  animation: appFadeIn 0.5s ease-out forwards;
+}
+
+/* The window-blur freeze above pauses every keyframe animation; let this one-shot entrance finish anyway, or a blur mid-fade would strand the app invisible. */
+body.ph-window-blurred .app-fade-in {
+  animation-play-state: running !important;
+}
+
+@keyframes appFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tree-item-hover:hover {
+  background-color: var(--gray-3);
+}
+
+.tree-item-active {
+  background-color: var(--gray-3);
+}
+
+.tree-item-action-hover {
+  color: var(--accent-9);
+}
+
+.tree-item-action-hover:hover {
+  background-color: var(--accent-3);
+  color: var(--accent-11);
+}
+
+.tree-item-action-hover-red {
+  color: var(--red-9);
+}
+
+.tree-item-action-hover-red:hover {
+  background-color: var(--red-3);
+  color: var(--red-11);
+}
+
+.sidebar-tree {
+  /* font-family inherited from --font-sans via the global cascade */
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gray-11);
+  user-select: none;
+}
+
+/* CLI cursor blink animation */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.cli-cursor-blink {
+  animation: blink 1.4s step-end infinite;
+}
+
+/* Loading dots animation */
+@keyframes loadingDots {
+  0% {
+    content: ".";
+  }
+  33% {
+    content: "..";
+  }
+  66% {
+    content: "...";
+  }
+  100% {
+    content: ".";
+  }
+}
+
+.loading-dots::after {
+  content: ".";
+  animation: loadingDots 1.5s steps(1, end) infinite;
+}
+
+/* Panel resize handle styles */
+[data-panel-resize-handle-enabled] {
+  @apply relative outline-none flex-shrink-0;
+  width: 1px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+[data-panel-group-direction="vertical"] > [data-panel-resize-handle-enabled] {
+  width: 100%;
+  height: 1px;
+  cursor: row-resize;
+}
+
+[data-panel-resize-handle-enabled][data-resize-handle-state="hover"]
+  .panel-resize-handle-bar,
+[data-panel-resize-handle-enabled][data-resize-handle-state="drag"]
+  .panel-resize-handle-bar {
+  background-color: var(--gray-8);
+}
+
+:root,
+.light,
+.light-theme {
+  /* PostHog brand orange scale (accent for light mode) */
+  --orange-1: #fff5f0;
+  --orange-2: #ffe8dc;
+  --orange-3: #ffd0b8;
+  --orange-4: #ffb38a;
+  --orange-5: #ff8f56;
+  --orange-6: #f57030;
+  --orange-7: #e05a18;
+  --orange-8: #c94800;
+  --orange-9: #f54d00;
+  --orange-10: #e64600;
+  --orange-11: #a33300;
+  --orange-12: #4d1800;
+
+  --orange-a1: rgba(245, 77, 0, 0.04);
+  --orange-a2: rgba(245, 77, 0, 0.1);
+  --orange-a3: rgba(245, 77, 0, 0.18);
+  --orange-a4: rgba(245, 77, 0, 0.3);
+  --orange-a5: rgba(245, 77, 0, 0.42);
+  --orange-a6: rgba(245, 77, 0, 0.54);
+  --orange-a7: rgba(200, 60, 0, 0.64);
+  --orange-a8: rgba(180, 50, 0, 0.76);
+  --orange-a9: rgba(245, 77, 0, 0.9);
+  --orange-a10: rgba(220, 70, 0, 0.9);
+  --orange-a11: rgba(160, 48, 0, 0.94);
+  --orange-a12: rgba(60, 16, 0, 0.94);
+
+  --orange-contrast: #fff;
+  --orange-surface: rgba(255, 245, 240, 0.8);
+  --orange-indicator: #f54d00;
+  --orange-track: #f54d00;
+}
+
+:root,
+.light,
+.light-theme {
+  /* PostHog-inspired neutral greenish-grey palette */
+  --gray-1: #f2f3ee;
+  --gray-2: #eceee8;
+  --gray-3: #e4e5de;
+  --gray-4: #d8dbd1;
+  --gray-5: #cbd0c3;
+  --gray-6: #bcc1b4;
+  --gray-7: #a9af9f;
+  --gray-8: #93998a;
+  --gray-9: #6b7165;
+  --gray-10: #5a6054;
+  --gray-11: #3a4036;
+  --gray-12: #0d0d0d;
+
+  --gray-a1: rgba(20, 24, 10, 0.02);
+  --gray-a2: rgba(20, 24, 10, 0.05);
+  --gray-a3: rgba(20, 24, 10, 0.1);
+  --gray-a4: rgba(20, 24, 10, 0.16);
+  --gray-a5: rgba(20, 24, 10, 0.22);
+  --gray-a6: rgba(20, 24, 10, 0.29);
+  --gray-a7: rgba(20, 24, 10, 0.38);
+  --gray-a8: rgba(20, 24, 10, 0.48);
+  --gray-a9: rgba(20, 24, 10, 0.62);
+  --gray-a10: rgba(20, 24, 10, 0.7);
+  --gray-a11: rgba(20, 24, 10, 0.79);
+  --gray-a12: rgba(13, 13, 13, 0.92);
+
+  --gray-contrast: #ffffff;
+  --gray-surface: rgba(242, 243, 238, 0.8);
+  --gray-indicator: #6b7165;
+  --gray-track: #6b7165;
+}
+
+:root,
+.light,
+.light-theme,
+.radix-themes {
+  --color-background: #f2f3ee;
+  --terminal-foreground: #0d0d0d;
+  --terminal-background: transparent;
+  --terminal-cursor: #f54d00;
+  --terminal-cursor-accent: #f2f3ee;
+  --terminal-selection-bg: rgba(245, 77, 0, 0.2);
+  --terminal-selection-fg: #0d0d0d;
+}
+
+.dark,
+.dark-theme {
+  /* PostHog brand yellow scale (accent for dark mode) */
+  --yellow-1: #14120a;
+  --yellow-2: #1a1608;
+  --yellow-3: #261e07;
+  --yellow-4: #362900;
+  --yellow-5: #443300;
+  --yellow-6: #524007;
+  --yellow-7: #6b561a;
+  --yellow-8: #8c7230;
+  --yellow-9: #f8be2a;
+  --yellow-10: #ebb520;
+  --yellow-11: #fcc84e;
+  --yellow-12: #fde8b8;
+
+  --yellow-a1: rgba(248, 190, 42, 0.02);
+  --yellow-a2: rgba(248, 190, 42, 0.05);
+  --yellow-a3: rgba(248, 190, 42, 0.1);
+  --yellow-a4: rgba(248, 190, 42, 0.18);
+  --yellow-a5: rgba(248, 190, 42, 0.25);
+  --yellow-a6: rgba(248, 190, 42, 0.35);
+  --yellow-a7: rgba(248, 190, 42, 0.48);
+  --yellow-a8: rgba(248, 190, 42, 0.62);
+  --yellow-a9: rgba(248, 190, 42, 0.92);
+  --yellow-a10: rgba(230, 175, 30, 0.9);
+  --yellow-a11: rgba(252, 200, 78, 0.96);
+  --yellow-a12: rgba(253, 232, 184, 0.98);
+
+  --yellow-contrast: #1a1200;
+  --yellow-surface: rgba(20, 18, 10, 0.5);
+  --yellow-indicator: #f8be2a;
+  --yellow-track: #f8be2a;
+}
+
+.dark,
+.dark-theme {
+  /* PostHog-inspired cool blue-grey dark palette */
+  --gray-1: #131316;
+  --gray-2: #18181f;
+  --gray-3: #1e1e28;
+  --gray-4: #24243e;
+  --gray-5: #2a2a37;
+  --gray-6: #2e2e3d;
+  --gray-7: #40405a;
+  --gray-8: #616180;
+  --gray-9: #7c7c9e;
+  --gray-10: #8d8daa;
+  --gray-11: #9898b6;
+  --gray-12: #e6e6e6;
+
+  --gray-a1: rgba(200, 200, 240, 0);
+  --gray-a2: rgba(200, 200, 240, 0.03);
+  --gray-a3: rgba(200, 200, 240, 0.07);
+  --gray-a4: rgba(200, 200, 240, 0.1);
+  --gray-a5: rgba(200, 200, 240, 0.14);
+  --gray-a6: rgba(200, 200, 240, 0.18);
+  --gray-a7: rgba(200, 200, 240, 0.24);
+  --gray-a8: rgba(200, 200, 240, 0.36);
+  --gray-a9: rgba(200, 200, 240, 0.48);
+  --gray-a10: rgba(200, 200, 240, 0.55);
+  --gray-a11: rgba(200, 200, 240, 0.7);
+  --gray-a12: rgba(230, 230, 230, 0.92);
+
+  --gray-contrast: #ffffff;
+  --gray-surface: rgba(19, 19, 22, 0.5);
+  --gray-indicator: #7c7c9e;
+  --gray-track: #7c7c9e;
+}
+
+.dark,
+.dark-theme,
+:is(.dark, .dark-theme) :where(.radix-themes:not(.light, .light-theme)) {
+  --color-background: #131316;
+  --terminal-foreground: #e6e6e6;
+  --terminal-background: transparent;
+  --terminal-cursor: #f8be2a;
+  --terminal-cursor-accent: #131316;
+  --terminal-selection-bg: rgba(248, 190, 42, 0.25);
+  --terminal-selection-fg: #e6e6e6;
+}
+
+/* Buttons and menu items should have pointer cursor */
+button,
+[type="button"],
+[role="button"],
+[role="menuitem"] {
+  cursor: pointer;
+}
+
+.quill-button.quill-button--variant-outline:hover {
+  background-color: var(--color-fill-hover);
+}
+
+/* PostHog Lemon UI button style — applies to solid buttons in explicitly-light Theme wrappers
+   (auth screen, onboarding flow). Uses the 3D depth shadow and lift-on-hover effect. */
+.radix-themes[data-appearance="light"] .rt-Button[data-variant="solid"] {
+  box-shadow: 0 3px 0 -1px var(--accent-8);
+  border-radius: 6px;
+  transition:
+    transform 100ms ease,
+    box-shadow 100ms ease;
+}
+.radix-themes[data-appearance="light"] .rt-Button[data-variant="solid"]:hover {
+  transform: translateY(-1px);
+}
+.radix-themes[data-appearance="light"] .rt-Button[data-variant="solid"]:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+/* Custom hover states for Select/Menu items - slightly lighter than background */
+.rt-SelectItem[data-highlighted],
+.rt-BaseMenuItem[data-highlighted] {
+  background-color: var(--gray-4);
+  color: var(--gray-12);
+}
+
+/* Select/Menu dropdown background matches theme */
+.rt-SelectContent,
+.rt-BaseMenuContent {
+  background-color: var(--gray-2);
+}
+
+/* Select trigger matches theme */
+.rt-SelectTrigger {
+  background-color: var(--gray-2);
+}
+
+/* Radix ScrollArea wraps viewport children in a div with display:table,
+   which expands to content width. This class overrides that so content
+   wraps within the viewport width instead of overflowing horizontally. */
+.scroll-area-constrain-width > .rt-ScrollAreaViewport > div {
+  display: block;
+  width: 100%;
+}
+
+/* Inbox report list: Radix ScrollArea thumb defaults to 100ms background-color transition */
+.scroll-area-constrain-width.inbox-report-list-scroll .rt-ScrollAreaThumb {
+  transition: none;
+}
+
+/* GitHub avatar loading placeholder */
+.github-avatar:not(.loaded) {
+  outline: 1px dashed var(--gray-7);
+  outline-offset: -1px;
+}
+
+/* Inbox warming-up ellipsis wave */
+@keyframes inboxEllipsisWave {
+  0%,
+  60%,
+  100% {
+    opacity: 0.12;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
+.inbox-ellipsis-dot {
+  display: inline-block;
+  animation: inboxEllipsisWave 1.05s ease-in-out infinite;
+}
+
+.inbox-ellipsis-dot:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.inbox-ellipsis-dot:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.inbox-ellipsis-dot:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+/* Radix Checkbox ships no hover/active rules — add them globally.
+   Unchecked: darken the border on hover, gray-fill on active.
+   Checked/indeterminate: deepen the accent fill on hover/active. */
+.rt-BaseCheckboxRoot {
+  &:enabled:hover:not(:active)::before {
+    box-shadow: inset 0 0 0 1px var(--gray-10);
+  }
+  &:enabled:hover:not(:active)[data-state="checked"]::before,
+  &:enabled:hover:not(:active)[data-state="indeterminate"]::before {
+    background-color: var(--accent-10);
+  }
+
+  &:enabled:active[data-state="unchecked"]::before {
+    background-color: var(--gray-3);
+    box-shadow: inset 0 0 0 1px var(--gray-9);
+  }
+  &:enabled:active[data-state="checked"]::before,
+  &:enabled:active[data-state="indeterminate"]::before {
+    background-color: var(--accent-11);
+  }
+}
+
+::highlight(search-match) {
+  background-color: var(--yellow-a5);
+}
+
+::highlight(search-match-active) {
+  background-color: var(--orange-a8);
+}
+
+/*
+ * @posthog/quill toast — the description carries error summaries which can be
+ * long, unbroken JSON strings (e.g. `{"type":"validation_error",...}`) with no
+ * spaces to wrap at. Quill's `.quill-toast-card__description` sets no
+ * overflow-wrap, so such a token blows past the fixed 360px card. Break
+ * anywhere and clamp to a few lines — the toast is only a summary; the full
+ * payload lives behind the "Details" action.
+ */
+.quill-toast-card__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/*
+ * @posthog/quill Dialog — make the backdrop visible against this app's
+ * dark theme (Quill defaults to opacity-20/dark:opacity-70 which barely
+ * shows), and center the popup vertically (Quill anchors to ~10vh).
+ */
+[data-slot="dialog-overlay"] {
+  background-color: rgb(0 0 0 / 0.6);
+  opacity: 1;
+}
+.dark [data-slot="dialog-overlay"] {
+  background-color: rgb(0 0 0 / 0.7);
+  opacity: 1;
+}

@@ -1,0 +1,113 @@
+{
+  "name": "@posthog/harness",
+  "version": "0.0.0-dev",
+  "description": "Spawn the pi.dev coding agent (CLI + SDK) against the PostHog LLM gateway with PostHog OAuth",
+  "type": "module",
+  "bin": {
+    "harness": "dist/cli.js",
+    "hog": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./extensions": {
+      "types": "./dist/extensions/registry.d.ts",
+      "import": "./dist/extensions/registry.js"
+    },
+    "./extensions/hog-branding": {
+      "types": "./dist/extensions/hog-branding/extension.d.ts",
+      "import": "./dist/extensions/hog-branding/extension.js"
+    },
+    "./extensions/hog-branding/*": {
+      "types": "./dist/extensions/hog-branding/*.d.ts",
+      "import": "./dist/extensions/hog-branding/*.js"
+    },
+    "./extensions/posthog-provider": {
+      "types": "./dist/extensions/posthog-provider/extension.d.ts",
+      "import": "./dist/extensions/posthog-provider/extension.js"
+    },
+    "./extensions/posthog-provider/*": {
+      "types": "./dist/extensions/posthog-provider/*.d.ts",
+      "import": "./dist/extensions/posthog-provider/*.js"
+    },
+    "./extensions/web-access": {
+      "types": "./dist/extensions/web-access/extension.d.ts",
+      "import": "./dist/extensions/web-access/extension.js"
+    },
+    "./extensions/web-access/*": {
+      "types": "./dist/extensions/web-access/*.d.ts",
+      "import": "./dist/extensions/web-access/*.js"
+    },
+    "./extensions/subagent": {
+      "types": "./dist/extensions/subagent/extension.d.ts",
+      "import": "./dist/extensions/subagent/extension.js"
+    },
+    "./extensions/subagent/*": {
+      "types": "./dist/extensions/subagent/*.d.ts",
+      "import": "./dist/extensions/subagent/*.js"
+    },
+    "./extensions/workflow": {
+      "types": "./dist/extensions/workflow/extension.d.ts",
+      "import": "./dist/extensions/workflow/extension.js"
+    },
+    "./extensions/workflow/*": {
+      "types": "./dist/extensions/workflow/*.d.ts",
+      "import": "./dist/extensions/workflow/*.js"
+    },
+    "./extensions/mcp": {
+      "types": "./dist/extensions/mcp/extension.d.ts",
+      "import": "./dist/extensions/mcp/extension.js"
+    },
+    "./extensions/mcp/*": {
+      "types": "./dist/extensions/mcp/*.d.ts",
+      "import": "./dist/extensions/mcp/*.js"
+    },
+    "./extensions/footer-focus-demo": {
+      "types": "./dist/extensions/footer-focus-demo/extension.d.ts",
+      "import": "./dist/extensions/footer-focus-demo/extension.js"
+    },
+    "./extensions/footer-focus-demo/*": {
+      "types": "./dist/extensions/footer-focus-demo/*.d.ts",
+      "import": "./dist/extensions/footer-focus-demo/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup && pnpm build:types",
+    "build:types": "tsc --emitDeclarationOnly --declaration --noEmit false --outDir dist --rootDir src",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-tui": "catalog:",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@posthog/shared": "workspace:*",
+    "lru-cache": "^11.1.0",
+    "turndown": "^7.2.4",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.6",
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ]
+}

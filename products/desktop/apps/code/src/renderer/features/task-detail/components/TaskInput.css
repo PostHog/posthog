@@ -1,0 +1,35 @@
+/* Task Input specific overrides - base styles in message-editor.css */
+
+.worktree-toggle-button {
+  color: var(--gray-11);
+}
+
+.worktree-toggle-button:hover {
+  background-color: var(--gray-a4);
+}
+
+.worktree-toggle-button[data-active="true"] {
+  background-color: var(--blue-a4);
+  color: var(--blue-11);
+}
+
+.worktree-toggle-button[data-active="true"]:hover {
+  background-color: var(--blue-a5);
+}
+
+.plan-mode-toggle-button {
+  color: var(--gray-11);
+}
+
+.plan-mode-toggle-button:hover {
+  background-color: var(--gray-a4);
+}
+
+.plan-mode-toggle-button[data-active="true"] {
+  background-color: var(--amber-a4);
+  color: var(--amber-11);
+}
+
+.plan-mode-toggle-button[data-active="true"]:hover {
+  background-color: var(--amber-a5);
+}

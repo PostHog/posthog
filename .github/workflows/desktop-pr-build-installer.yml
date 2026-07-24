@@ -1,0 +1,206 @@
+name: Desktop PR Build Installer
+
+# On-demand, signed macOS test builds for a pull request. Add the
+# `build-installer` label to package apps/code and get a downloadable .dmg/.zip
+# attached to the run, with a sticky comment on the PR linking to it. Testers
+# download the artifact and run the app locally.
+#
+# This deliberately does NOT publish a GitHub release or notarize the build. It
+# signs but skips notarization (which lives in the real release pipeline,
+# code-release.yml, on v* tags). Because the build is unnotarized, macOS
+# quarantines the downloaded app and Gatekeeper reports it as "damaged"; the PR
+# comment tells testers to clear the flag with `xattr -dr com.apple.quarantine`.
+#
+# Gating: only same-repo PRs run — fork PRs never receive the signing/AWS
+# secrets, so building them would red spuriously.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-pr-build-installer.yml'
+
+concurrency:
+    group: desktop-pr-build-installer-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-macos:
+        # Run on a same-repo PR that carries the `build-installer` label (either
+        # just added, or already present on a push).
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            (
+              (github.event.action == 'labeled' && github.event.label.name == 'build-installer') ||
+              (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'build-installer'))
+            )
+        runs-on: macos-15
+        timeout-minutes: 45
+        permissions:
+            id-token: write
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            npm_config_arch: arm64
+            npm_config_platform: darwin
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.POSTHOG_SOURCEMAP_API_KEY }}
+            POSTHOG_ENV_ID: ${{ secrets.POSTHOG_ENV_ID }}
+            POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+            CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+            CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            # Sign but do not notarize: keeps the build fast. macOS quarantines the
+            # downloaded app, and Gatekeeper blocks a quarantined, unnotarized build as
+            # "damaged", so testers clear the flag with `xattr -dr com.apple.quarantine`
+            # (see the PR comment). Notarization runs only in the tag release
+            # (code-release.yml).
+            SKIP_NOTARIZE: '1'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Explicit restore/save instead of setup-node's `cache: pnpm`: that
+            # auto-saves on every run (PRs included, ungatable), which the workflow
+            # lint forbids. This PR-only job restores from the store seeded by desktop-test master runs and never saves.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - name: Download BerkeleyMono fonts from S3
+              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            # build/Assets.car is gitignored; regenerate it so the packaged app ships
+            # the liquid-glass icon (the script falls back to .icns if actool fails).
+            - name: Compile macOS liquid-glass icon
+              working-directory: products/desktop/apps/code
+              run: bash scripts/compile-glass-icon.sh
+
+            - name: Build app
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  pnpm exec electron-builder build --mac --arm64 --publish never --config electron-builder.ts
+
+            - name: Upload installer artifact
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-macos-arm64
+                  path: |
+                      products/desktop/apps/code/out/*.dmg
+                      products/desktop/apps/code/out/*-mac.zip
+                  retention-days: 7
+                  if-no-files-found: error
+
+    comment:
+        # Update the sticky comment once the build finishes, on success OR failure,
+        # so a failed re-run replaces a prior "ready" comment instead of leaving it
+        # pointing at stale artifacts. Skipped only when build-macos itself was
+        # skipped (no label / fork), where there is nothing to report.
+        needs: build-macos
+        if: ${{ !cancelled() && (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+            pull-requests: write
+        steps:
+            - name: Post build status on the PR
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BUILD_RESULT: ${{ needs.build-macos.result }}
+              run: |
+                  set -euo pipefail
+                  MARKER="<!-- pr-installer-build -->"
+                  RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                  if [ "${BUILD_RESULT}" = "success" ]; then
+                    {
+                      echo "$MARKER"
+                      echo "### 🖥️ macOS test build (Apple Silicon)"
+                      echo ""
+                      echo "A signed macOS build for this PR is ready to download and run."
+                      echo ""
+                      echo "**[⬇️ Open this run and download the \`code-macos-arm64\` artifact](${RUN_URL}#artifacts)** (Apple Silicon / M-series)."
+                      echo ""
+                      echo "Unzip it to get the \`.dmg\`, open it, and drag **PostHog** into **Applications**."
+                      echo ""
+                      echo "This build is **signed but not notarized**, so macOS quarantines it on download and Gatekeeper reports *\"PostHog is damaged and can't be opened\"*. That is the missing notarization, not a corrupt file — clear the quarantine flag once and it launches:"
+                      echo ""
+                      echo "\`\`\`sh"
+                      echo "xattr -dr com.apple.quarantine \"/Applications/PostHog.app\""
+                      echo "\`\`\`"
+                      echo ""
+                      echo "Then open **PostHog Code** normally. (Fully notarized, double-click-to-run builds ship only from the tagged release pipeline.)"
+                      echo ""
+                      echo "<sub>Built from ${GITHUB_SHA} · rebuilds on each push while the \`build-installer\` label is present. Downloading requires being signed in to GitHub with repo access.</sub>"
+                    } > comment-body.md
+                  else
+                    {
+                      echo "$MARKER"
+                      echo "### 🖥️ macOS test build failed"
+                      echo ""
+                      echo "The macOS build for this PR **failed**, so there is no downloadable artifact for the latest commit."
+                      echo ""
+                      echo "**[🔎 View the failed run](${RUN_URL})** for logs."
+                      echo ""
+                      echo "<sub>Failed on ${GITHUB_SHA} · rebuilds on each push while the \`build-installer\` label is present.</sub>"
+                    } > comment-body.md
+                  fi
+
+                  COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+                    --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n1 || true)
+
+                  if [ -n "${COMMENT_ID}" ]; then
+                    gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@comment-body.md
+                  else
+                    gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -F body=@comment-body.md
+                  fi

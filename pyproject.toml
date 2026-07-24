@@ -323,6 +323,8 @@ exclude = [
     "./env",
     "./posthog/hogql/grammar",
     "products/*/skills/*/scripts",
+    # imported desktop app; Biome-linted by its own desktop-* CI
+    "products/desktop",
 ]
 
 [tool.ruff.lint]
@@ -450,7 +452,7 @@ ignore_missing_imports = true
 exclude_gitignore = true
 # conftest.py: the root pytest bootstrap collides with services/stripe-mock/tests/conftest.py
 # (both resolve to top-level module "conftest")
-exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|products/desktop/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

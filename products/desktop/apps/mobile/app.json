@@ -1,0 +1,133 @@
+{
+  "expo": {
+    "name": "PostHog",
+    "slug": "posthog",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "bundler": "metro",
+    "scheme": "posthog",
+    "icon": "./assets/app-icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f0f0f"
+    },
+    "ios": {
+      "icon": "./assets/app.icon",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.posthog.code.mobile",
+      "associatedDomains": ["applinks:code.posthog.com"],
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow PostHog to use your microphone for voice-to-text input",
+        "NSSpeechRecognitionUsageDescription": "Allow PostHog to transcribe your voice input on-device",
+        "NSPhotoLibraryUsageDescription": "Allow PostHog to access your photos for attaching images to tasks",
+        "NSCameraUsageDescription": "Allow PostHog to use your camera to scan QR codes for sign-in",
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["posthog-code"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.posthog.code.mobile",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CAMERA"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "code.posthog.com"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow PostHog to use your microphone for voice-to-text input"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow PostHog to use your camera to scan QR codes for sign-in"
+        }
+      ],
+      "./plugins/withPodfileResourceBundleFix",
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Open Runde",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/OpenRunde/OpenRunde-Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/OpenRunde/OpenRunde-Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/OpenRunde/OpenRunde-Semibold.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/OpenRunde/OpenRunde-Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              }
+            ]
+          },
+          "ios": {
+            "fonts": [
+              "./assets/fonts/OpenRunde/OpenRunde-Regular.ttf",
+              "./assets/fonts/OpenRunde/OpenRunde-Medium.ttf",
+              "./assets/fonts/OpenRunde/OpenRunde-Semibold.ttf",
+              "./assets/fonts/OpenRunde/OpenRunde-Bold.ttf"
+            ]
+          }
+        }
+      ],
+      "expo-localization",
+      "expo-notifications",
+      "./plugins/with-adi-registration",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PostHog to use your microphone for voice-to-text input",
+          "speechRecognitionPermission": "Allow PostHog to transcribe your voice input on-device"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9"
+      }
+    },
+    "owner": "posthog"
+  }
+}

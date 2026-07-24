@@ -1,0 +1,44 @@
+{
+  "name": "@posthog/core",
+  "version": "1.0.0",
+  "description": "Host-agnostic business layer. Domain types, schemas, pure functions, and orchestration services that consume @posthog/platform capability interfaces via Inversify constructor injection. No I/O implementation, no Electron/Node host syscalls, no UI. Runs anywhere the platform interfaces are bound (desktop, web, mobile, cloud).",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "@json-render/core": "^0.19.0",
+    "@modelcontextprotocol/ext-apps": "^1.1.2",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@pierre/diffs": "^1.2.10",
+    "@posthog/agent": "workspace:*",
+    "@posthog/api-client": "workspace:*",
+    "@posthog/di": "workspace:*",
+    "@posthog/platform": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@posthog/workspace-client": "workspace:*",
+    "fuse.js": "^7.1.0",
+    "inversify": "catalog:",
+    "reflect-metadata": "catalog:",
+    "zod": "^4.1.12",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@posthog/git": "workspace:*",
+    "@posthog/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "src/**/*"
+  ]
+}

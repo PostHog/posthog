@@ -1,0 +1,113 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreWorkspaces": ["apps/mobile", "apps/twig", "apps/web"],
+  "workspaces": {
+    ".": {
+      "entry": ["mprocs.yaml", "scripts/*.{mjs,js,ts}"]
+    },
+    "apps/code": {
+      "entry": [
+        "src/main/bootstrap.ts",
+        "src/main/index.ts",
+        "src/main/preload.ts",
+        "src/renderer/main.tsx",
+        "src/renderer/desktop-services.ts",
+        "src/renderer/desktop-contributions.ts",
+        "electron.vite.config.ts",
+        "vite-main-plugins.mts",
+        "vite.shared.mts",
+        "scripts/*.{ts,mjs}"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"],
+      "ignoreDependencies": [
+        "typed-openapi",
+        "chokidar",
+        "detect-libc",
+        "is-glob",
+        "micromatch",
+        "node-addon-api",
+        "@vitest/coverage-v8"
+      ]
+    },
+    "apps/cli": {
+      "entry": ["src/cli.ts"],
+      "project": ["src/**/*.ts", "bin/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/agent": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["src/templates/**"],
+      "ignoreDependencies": ["yoga-wasm-web", "@vitest/coverage-v8"],
+      "includeEntryExports": true
+    },
+    "packages/api-client": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["src/generated.ts", "src/generated.augment.ts"],
+      "includeEntryExports": true
+    },
+    "packages/core": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["reflect-metadata"],
+      "includeEntryExports": true
+    },
+    "packages/di": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/electron-trpc": {
+      "entry": [
+        "src/main/index.ts",
+        "src/renderer/index.ts",
+        "main.d.ts",
+        "renderer.d.ts"
+      ],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/enricher": {
+      "entry": ["src/**/*.test.ts", "scripts/*.cjs"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["tree-sitter-cli"],
+      "includeEntryExports": true
+    },
+    "packages/git": {
+      "entry": ["src/*.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/host-router": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/host-trpc": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/platform": {
+      "entry": ["src/*.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/shared": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["src/test/**", "src/**/*.stories.tsx"],
+      "ignoreDependencies": ["vite"],
+      "includeEntryExports": true
+    },
+    "packages/workspace-client": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/workspace-server": {
+      "entry": ["tsup.config.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    }
+  }
+}

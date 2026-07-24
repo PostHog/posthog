@@ -1,0 +1,194 @@
+{
+  "name": "@posthog/agent",
+  "version": "0.0.0-dev",
+  "repository": "https://github.com/PostHog/code",
+  "description": "TypeScript agent framework wrapping Claude Agent SDK with Git-based task execution for PostHog",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./acp-extensions": {
+      "types": "./dist/acp-extensions.d.ts",
+      "import": "./dist/acp-extensions.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js"
+    },
+    "./gateway-models": {
+      "types": "./dist/gateway-models.d.ts",
+      "import": "./dist/gateway-models.js"
+    },
+    "./posthog-api": {
+      "types": "./dist/posthog-api.d.ts",
+      "import": "./dist/posthog-api.js"
+    },
+    "./posthog-products": {
+      "types": "./dist/posthog-products.d.ts",
+      "import": "./dist/posthog-products.js"
+    },
+    "./pi/rpc-client": {
+      "types": "./dist/pi/rpc-client.d.ts",
+      "import": "./dist/pi/rpc-client.js"
+    },
+    "./pi/conversation": {
+      "types": "./dist/pi/conversation/translatePiConversation.d.ts",
+      "import": "./dist/pi/conversation/translatePiConversation.js"
+    },
+    "./pi/runtime": {
+      "types": "./dist/pi/runtime.d.ts",
+      "import": "./dist/pi/runtime.js"
+    },
+    "./pi/types": {
+      "types": "./dist/pi/types.d.ts",
+      "import": "./dist/pi/types.js"
+    },
+    "./pr-url-detector": {
+      "types": "./dist/pr-url-detector.d.ts",
+      "import": "./dist/pr-url-detector.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./adapters/claude/questions/utils": {
+      "types": "./dist/adapters/claude/questions/utils.d.ts",
+      "import": "./dist/adapters/claude/questions/utils.js"
+    },
+    "./adapters/claude/permissions/permission-options": {
+      "types": "./dist/adapters/claude/permissions/permission-options.d.ts",
+      "import": "./dist/adapters/claude/permissions/permission-options.js"
+    },
+    "./adapters/claude/tools": {
+      "types": "./dist/adapters/claude/tools.d.ts",
+      "import": "./dist/adapters/claude/tools.js"
+    },
+    "./adapters/claude/conversion/tool-use-to-acp": {
+      "types": "./dist/adapters/claude/conversion/tool-use-to-acp.d.ts",
+      "import": "./dist/adapters/claude/conversion/tool-use-to-acp.js"
+    },
+    "./adapters/claude/session/jsonl-hydration": {
+      "types": "./dist/adapters/claude/session/jsonl-hydration.d.ts",
+      "import": "./dist/adapters/claude/session/jsonl-hydration.js"
+    },
+    "./adapters/claude/session/models": {
+      "types": "./dist/adapters/claude/session/models.d.ts",
+      "import": "./dist/adapters/claude/session/models.js"
+    },
+    "./adapters/claude/session/mcp-config": {
+      "types": "./dist/adapters/claude/session/mcp-config.d.ts",
+      "import": "./dist/adapters/claude/session/mcp-config.js"
+    },
+    "./adapters/reasoning-effort": {
+      "types": "./dist/adapters/reasoning-effort.d.ts",
+      "import": "./dist/adapters/reasoning-effort.js"
+    },
+    "./adapters/claude/mcp/tool-metadata": {
+      "types": "./dist/adapters/claude/mcp/tool-metadata.d.ts",
+      "import": "./dist/adapters/claude/mcp/tool-metadata.js"
+    },
+    "./execution-mode": {
+      "types": "./dist/execution-mode.d.ts",
+      "import": "./dist/execution-mode.js"
+    },
+    "./resume": {
+      "types": "./dist/resume.d.ts",
+      "import": "./dist/resume.js"
+    },
+    "./handoff-checkpoint": {
+      "types": "./dist/handoff-checkpoint.d.ts",
+      "import": "./dist/handoff-checkpoint.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/rpc-client.d.ts",
+      "import": "./dist/pi/rpc-client.js"
+    },
+    "./server": {
+      "types": "./dist/server/agent-server.d.ts",
+      "import": "./dist/server/agent-server.js"
+    },
+    "./server/schemas": {
+      "types": "./dist/server/schemas.d.ts",
+      "import": "./dist/server/schemas.js"
+    }
+  },
+  "bin": {
+    "agent-server": "./dist/server/bin.cjs"
+  },
+  "type": "module",
+  "keywords": [
+    "posthog",
+    "claude",
+    "agent",
+    "ai",
+    "git",
+    "typescript"
+  ],
+  "author": "PostHog",
+  "license": "MIT",
+  "scripts": {
+    "build": "node ../../scripts/rimraf.mjs dist && tsup && pnpm build:types && node build/verify-local-tools-mcp-server.mjs",
+    "build:types": "tsc -p tsconfig.build.json",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "pnpm exec tsc --noEmit",
+    "prepublishOnly": "pnpm run build",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@posthog/shared": "workspace:*",
+    "@posthog/git": "workspace:*",
+    "@posthog/enricher": "workspace:*",
+    "@posthog/harness": "workspace:*",
+    "@types/bun": "latest",
+    "@types/tar": "^6.1.13",
+    "msw": "^2.12.7",
+    "tsup": "^8.5.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.1.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.197",
+    "@anthropic-ai/sdk": "0.109.0",
+    "@earendil-works/pi-agent-core": "catalog:",
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@hono/node-server": "^1.19.9",
+    "@openai/codex": "0.144.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.208.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.208.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.208.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/sdk-logs": "^0.208.0",
+    "@opentelemetry/sdk-trace-base": "^2.8.0",
+    "@opentelemetry/semantic-conventions": "^1.28.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "commander": "^14.0.2",
+    "fflate": "^0.8.2",
+    "hono": "^4.11.7",
+    "jsonwebtoken": "^9.0.2",
+    "minimatch": "^10.0.3",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "tar": "^7.5.0",
+    "uuid": "13.0.0",
+    "yoga-wasm-web": "^0.3.3",
+    "zod": "^4.2.0"
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

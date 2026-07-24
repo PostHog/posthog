@@ -1,0 +1,56 @@
+{
+  "name": "@posthog/workspace-server",
+  "version": "1.0.0",
+  "description": "Workspace server: hosts privileged local/sandbox work (git, fs, watchers, processes) behind a tRPC server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs .turbo",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:view": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.22.1",
+    "@anthropic-ai/claude-agent-sdk": "0.3.156",
+    "@hono/node-server": "catalog:",
+    "@hono/trpc-server": "catalog:",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@parcel/watcher": "catalog:",
+    "@posthog/agent": "workspace:*",
+    "@posthog/di": "workspace:*",
+    "@posthog/enricher": "workspace:*",
+    "@posthog/git": "workspace:*",
+    "@posthog/platform": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@trpc/server": "catalog:",
+    "better-sqlite3": "^12.8.0",
+    "drizzle-orm": "^0.45.1",
+    "fflate": "^0.8.2",
+    "hono": "catalog:",
+    "ignore": "^7.0.5",
+    "inversify": "catalog:",
+    "node-pty": "1.1.0",
+    "reflect-metadata": "catalog:",
+    "smol-toml": "^1.6.0",
+    "superjson": "catalog:",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@inversifyjs/strongly-typed": "2.2.0",
+    "@posthog/tsconfig": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "catalog:",
+    "drizzle-kit": "^0.31.9",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  }
+}

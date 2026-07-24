@@ -1,0 +1,29 @@
+{
+  "name": "@posthog/host-trpc",
+  "version": "1.0.0",
+  "description": "Shared tRPC base instance for the Electron main (host) router. One initTRPC instance with a container-bearing context, shared by host feature routers (colocated with their services in core/workspace-server) and the host that serves them over electron-trpc. Leaf package so colocated routers share a base without a dependency cycle.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "@trpc/server": "catalog:",
+    "superjson": "catalog:"
+  },
+  "peerDependencies": {
+    "inversify": "catalog:"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "inversify": "catalog:",
+    "typescript": "catalog:"
+  }
+}

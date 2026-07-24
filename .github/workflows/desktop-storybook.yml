@@ -1,0 +1,278 @@
+name: Desktop Storybook
+
+# Captures a screenshot of every story (dark + light) and submits them to the
+# PostHog Visual Review product, which diffs against the signed baseline
+# manifest committed at products/desktop/apps/code/snapshots.yml. Visual changes are
+# reviewed and approved at https://us.posthog.com/project/2/visual_review; on
+# approval the VR backend commits the updated manifest back to the PR branch.
+# PNGs are never committed to this repo.
+#
+# Until the one-time setup is done (VR repo registration + VR_API_TOKEN secret
+# + committed snapshots.yml), the vr step silently no-ops: the job still runs
+# the capture, which catches stories that crash or never settle.
+
+on:
+    pull_request:
+    push:
+        branches: [master]
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-storybook.yml'
+    # Required so `Desktop Storybook Pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already ran in
+    # full on the PR) and the aggregator treats skipped as success.
+    merge_group:
+
+concurrency:
+    group: desktop-storybook-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            pull-requests: read
+        outputs:
+            code: ${{ steps.filter.outputs.code }}
+            baseline_only_push: ${{ steps.baseline_push.outputs.result }}
+        steps:
+            - name: Detect relevant changes
+              id: filter
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              with:
+                  predicate-quantifier: every
+                  filters: |
+                      # Anything that can change a rendered story. The baseline manifest
+                      # is excluded, but note paths-filter diffs the whole PR against
+                      # its base, so once a PR has code changes this filter stays true
+                      # for every later push — the baseline_push step below is what
+                      # skips the VR backend's own approval commits.
+                      code:
+                        - "{products/desktop/apps/code/**,products/desktop/packages/**,products/desktop/pnpm-lock.yaml,.github/workflows/desktop-storybook.yml}"
+                        - "!products/desktop/apps/code/snapshots.yml"
+                        - "!products/desktop/**/*.md"
+
+            # Visual Review commits the approved baseline back to the PR branch as
+            # a bot; re-running the suite for that push is pure waste (only the
+            # manifest changed). Compare the push delta (before...after), not the
+            # PR diff, so it only matches the bot's own baseline commit.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  case "$ACTOR" in
+                    *'[bot]' | posthog-bot) is_bot=true ;;
+                    *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                    # compare uses merge-base(before, after), which for an appended
+                    # commit is exactly the push delta; a force-push/rebase widens it
+                    # and won't match.
+                    files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                    if [ -n "$files" ] && ! grep -qv '^products/desktop/apps/code/snapshots\.yml$' <<<"$files"; then
+                      result=true
+                    fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
+    visual-regression:
+        needs: changes
+        # Fail closed: if change detection failed (or this is a master push, where
+        # `changes` is skipped), run instead of skipping — unless the push was
+        # just the VR bot committing an approved baseline.
+        if: >-
+            ${{ !cancelled() && github.event_name != 'merge_group' &&
+            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') &&
+            needs.changes.outputs.baseline_only_push != 'true' }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Explicit restore/save instead of setup-node's `cache: pnpm`: that
+            # auto-saves on every run (PRs included, ungatable), which the workflow
+            # lint forbids. Saves are gated to master pushes.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: desktop-pnpm-${{ runner.os }}-
+
+            - name: Restore Playwright browsers cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              id: playwright-cache
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-chromium-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      playwright-chromium-${{ runner.os }}-
+
+            # Only dependency builds are cached, the storybook build itself always runs.
+            - name: Restore turbo cache
+              uses: ./.github/actions/desktop-restore-turbo-cache
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              env:
+                  # Storybook never launches the packaged app, so the Electron-ABI rebuild is unused.
+                  SKIP_ELECTRON_REBUILD: '1'
+
+            - name: Install Playwright Chromium
+              if: steps.playwright-cache.outputs.cache-hit != 'true'
+              working-directory: products/desktop/apps/code
+              run: pnpm exec playwright install --with-deps chromium
+
+            - name: Install Playwright system dependencies
+              # The cache restores browser binaries but not the OS packages they need.
+              if: steps.playwright-cache.outputs.cache-hit == 'true'
+              working-directory: products/desktop/apps/code
+              run: pnpm exec playwright install-deps chromium
+
+            - name: Build workspace packages
+              run: pnpm run build:deps
+
+            - name: Build Storybook
+              working-directory: products/desktop/apps/code
+              run: pnpm build-storybook
+
+            - name: Serve Storybook
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec http-server storybook-static --port 6006 --silent &
+                  pnpm exec wait-on http://127.0.0.1:6006/iframe.html --timeout 30000
+
+            - name: Capture story screenshots
+              working-directory: products/desktop/apps/code
+              run: |
+                  rm -rf .storybook/__snapshots__
+                  pnpm test:visual:ci:update
+
+            # The vr CLI lives in this repository; check out master's copy the same
+            # way the pre-import workflow pulled it cross-repo, so the CLI version
+            # tracks master rather than the PR branch.
+            - name: Checkout Visual Review CLI
+              if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: PostHog/posthog
+                  path: vr-cli
+                  persist-credentials: false
+                  sparse-checkout: |
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                  sparse-checkout-cone-mode: false
+
+            - name: Install Visual Review CLI
+              if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+              working-directory: vr-cli/products/visual_review/cli
+              run: npm ci && npm run build && npm link
+
+            - name: Submit snapshots to Visual Review
+              # Fork PRs can't read the token; their captures still ran above, so a
+              # broken story fails the job either way.
+              if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+              # On master pushes the run is tracking-only ("observe"), but vr submit
+              # still exits 1 when it detects changes; keep master green regardless.
+              continue-on-error: ${{ github.event_name == 'push' }}
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # Lets the VR web UI re-trigger this job via the Actions API.
+                  JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
+              run: |
+                  if [ -z "$VR_TOKEN" ]; then
+                    echo "::notice::VR_API_TOKEN secret not set - skipping Visual Review submission"
+                    exit 0
+                  fi
+                  vr submit \
+                    --type storybook \
+                    --dir apps/code/.storybook/__snapshots__/ \
+                    --baseline apps/code/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    ${VR_PR:+--pr "$VR_PR"} \
+                    --purpose "$VR_PURPOSE" \
+                    --token "$VR_TOKEN"
+
+            - name: Upload failure screenshots
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6.0.0
+              with:
+                  name: storybook-visual-failures
+                  path: |
+                      products/desktop/apps/code/.storybook/__snapshots__/__diff_output__/
+                      products/desktop/apps/code/.storybook/__snapshots__/__failures__/
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Upload test results to Trunk
+              # Run even when tests fail so flaky/failed results are still reported,
+              # but never let an upload problem fail the job.
+              if: ${{ !cancelled() }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: 'products/desktop/apps/code/junit.xml'
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+    # Collation job for the required status check; must be registered as the
+    # required check instead of the individual jobs.
+    desktop-storybook-pass:
+        needs: [changes, visual-regression]
+        name: Desktop Storybook Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ github.event_name }}" == "merge_group" ]]; then
+                    echo "Merge queue entry: the suite already ran on the PR."
+                    exit 0
+                  fi
+                  result="${{ needs.visual-regression.result }}"
+                  if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+                    echo "Desktop storybook job did not succeed: $result"
+                    exit 1
+                  fi
+                  echo "Desktop storybook passed or was skipped."

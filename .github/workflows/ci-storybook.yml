@@ -79,6 +79,9 @@ jobs:
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         # quill is consumed app-wide via `workspace:*`, so a change here
                         # alters rendering across the main-app stories — run the suite.

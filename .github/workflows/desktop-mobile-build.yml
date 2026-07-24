@@ -1,0 +1,97 @@
+name: Desktop Mobile Build
+
+# Builds the Expo mobile app (products/desktop/apps/mobile) for iOS and Android on EAS.
+# The two platforms run as parallel matrix jobs, so both builds are queued
+# simultaneously.
+#
+# Required repository secret:
+#   EXPO_TOKEN - an Expo access token with build permissions for the
+#                "posthog" account (https://expo.dev/settings/access-tokens).
+
+on:
+    workflow_dispatch:
+        inputs:
+            profile:
+                description: 'EAS build profile'
+                type: choice
+                default: production
+                options:
+                    - development
+                    - preview
+                    - production
+            wait:
+                description: 'Wait for the EAS build to finish (uncheck to just queue and exit)'
+                type: boolean
+                default: true
+
+concurrency:
+    group: desktop-mobile-build-${{ github.ref }}-${{ inputs.profile }}
+    cancel-in-progress: false
+
+jobs:
+    build:
+        name: Build (${{ matrix.platform }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        strategy:
+            fail-fast: false
+            matrix:
+                platform: [ios, android]
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop/apps/mobile
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+                  cache-dependency-path: products/desktop/pnpm-lock.yaml
+
+            - name: Setup EAS
+              uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9.0.0
+              with:
+                  eas-version: latest
+                  token: ${{ secrets.EXPO_TOKEN }}
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+              working-directory: products/desktop
+
+            - name: EAS build
+              env:
+                  PLATFORM: ${{ matrix.platform }}
+                  PROFILE: ${{ inputs.profile }}
+                  WAIT_FLAG: ${{ inputs.wait && '--wait' || '--no-wait' }}
+              run: |
+                  eas build \
+                    --non-interactive \
+                    --platform "$PLATFORM" \
+                    --profile "$PROFILE" \
+                    "$WAIT_FLAG"
+
+    # Auto-promote the freshly built production binaries. Only runs when the build
+    # job waited for completion (otherwise there is no finished build to submit).
+    promote:
+        permissions:
+            contents: read
+        needs: build
+        if: ${{ inputs.profile == 'production' && inputs.wait }}
+        uses: ./.github/workflows/desktop-mobile-promote.yml
+        with:
+            platform: all
+            profile: production
+        secrets:
+            EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

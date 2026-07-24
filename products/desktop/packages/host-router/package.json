@@ -1,0 +1,43 @@
+{
+  "name": "@posthog/host-router",
+  "version": "1.0.0",
+  "description": "Aggregated Electron main (host) tRPC router. Sits above core + workspace-server: composes their colocated host feature routers into one root HostRouter type, and exposes the renderer useHostTRPC hook. The renderer imports HostRouter type-only (no node code enters the bundle), mirroring how workspace-client consumes workspace-server.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.22.1",
+    "@json-render/core": "^0.19.0",
+    "@posthog/core": "workspace:*",
+    "@posthog/di": "workspace:*",
+    "@posthog/host-trpc": "workspace:*",
+    "@posthog/platform": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@posthog/workspace-client": "workspace:*",
+    "@posthog/workspace-server": "workspace:*",
+    "@trpc/client": "catalog:",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "catalog:",
+    "@trpc/tanstack-react-query": "catalog:",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@trpc/tanstack-react-query": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:"
+  }
+}
