@@ -34,13 +34,14 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute("TRUNCATE TABLE IF EXISTS logs32")
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool) -> list[dict]:
+    def _run(self, *, exclude: bool, custom_columns: list[str] | None = None) -> list[dict]:
         query = LogsQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             serviceNames=["argo-rollouts"],
             severityLevels=[],
             filterGroup={"type": "AND", "values": []},
             excludeAttributes=exclude,
+            customColumns=custom_columns or [],
         )
         return LogsQueryRunner(query, self.team).run().results
 
@@ -60,3 +61,11 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertTrue(results[0]["attributes"])
             self.assertEqual(results[0]["resource_attributes"]["service.name"], "argo-rollouts")
+
+    def test_custom_column_indexing_attribute_key_with_exclusion(self):
+        # A custom column that indexes into an attribute map is lowered to arrayElement(map, 'key').
+        # When attributes are excluded the map is replaced by a placeholder; that placeholder must
+        # carry a real key type or ClickHouse rejects arrayElement with "Illegal types of arguments:
+        # Map(Nothing, Nothing), String" and the whole query hard-fails. Assert the query runs.
+        results = self._run(exclude=True, custom_columns=["resource_attributes.k8s.container.name"])
+        self.assertEqual(len(results), 1)
