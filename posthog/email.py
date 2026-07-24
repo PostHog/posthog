@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Organization, Team, User
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -152,6 +152,28 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "wizard_pr_ready": "74",
     "loop_run_summary": "73",  # placeholder id, needs creating in Customer.io
 }
+
+
+def get_email_footer_context(
+    team: Optional["Team"] = None,
+    organization: Optional["Organization"] = None,
+) -> dict[str, str]:
+    """
+    Context for the Customer.io transactional email footer: team_name, organization_name,
+    and customer_id (the billing customer). Absent values are omitted, so the footer
+    renders only what's present.
+    """
+    if organization is None and team is not None:
+        organization = team.organization
+    context: dict[str, str] = {}
+    if team is not None and team.name:
+        context["team_name"] = team.name
+    if organization is not None:
+        if organization.name:
+            context["organization_name"] = organization.name
+        if organization.customer_id:
+            context["customer_id"] = organization.customer_id
+    return context
 
 
 def get_customer_io_template_id(template_name: str) -> str:

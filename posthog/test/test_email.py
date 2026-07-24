@@ -26,6 +26,7 @@ from posthog.email import (
     _send_email,
     _send_via_http,
     _send_via_smtp,
+    get_email_footer_context,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -35,6 +36,34 @@ from posthog.test.persons import (
     add_distinct_id as add_test_distinct_id,
     create_person as create_test_person,
 )
+
+
+class TestEmailFooterContext(BaseTest):
+    def test_team_derives_org_name_and_customer_id_from_org(self):
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
+        assert get_email_footer_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
+
+    def test_organization_only_yields_org_name_and_customer_id(self):
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
+        assert get_email_footer_context(organization=self.organization) == {
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
+
+    def test_blank_values_are_omitted_so_footer_renders_only_whats_present(self):
+        self.organization.customer_id = None
+        self.organization.save()
+        assert get_email_footer_context() == {}
+        assert get_email_footer_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+        }
 
 
 class TestEmail(BaseTest):

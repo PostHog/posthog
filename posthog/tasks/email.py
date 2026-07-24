@@ -18,7 +18,7 @@ from prometheus_client import Counter, Histogram
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
-from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_footer_context, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
@@ -297,6 +297,7 @@ def send_invite(invite_id: str) -> None:
             "invitee_first_name": invitee_first_name,
             "invite_message": invite_message,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
+            **get_email_footer_context(organization=invite.organization),
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -390,6 +391,8 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         subject=f"{invitee_first_name} joined you on PostHog",
         template_name="member_join",
         template_context={
+            # Footer context first so the sanitized organization_name below wins over the raw value.
+            **get_email_footer_context(organization=organization),
             "invitee": invitee,
             "organization": organization,
             "invitee_first_name": invitee_first_name,
@@ -978,6 +981,7 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
         "task_id": str(context.task_id),
         "run_id": str(context.run_id),
         "site_url": settings.SITE_URL,
+        **get_email_footer_context(team=team),
     }
     message = EmailMessage(
         use_http=True,
@@ -1749,6 +1753,7 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
             "more_info": more_info,
             "mask_value": mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+            **get_email_footer_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1782,6 +1787,7 @@ def send_project_secret_api_key_exposed(
             "more_info": more_info,
             "mask_value": old_mask_value,
             "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            **get_email_footer_context(team=team),
         },
     )
     for membership in memberships_to_email:
@@ -1868,12 +1874,12 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
         subject=f"[Ticket #{ticket.ticket_number}] New support ticket in {team.name}",
         template_name="new_conversation_ticket",
         template_context={
-            "team_name": team.name,
             "ticket_number": ticket.ticket_number,
             "customer_name": customer_name,
             "customer_email": customer_email,
             "first_message": first_message_content[:500] if first_message_content else "",
             "ticket_url": ticket_url,
+            **get_email_footer_context(team=team),
         },
     )
 
@@ -1905,8 +1911,8 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
         subject=f"Restore your conversations with {team.name}",
         template_name="conversation_restore",
         template_context={
-            "team_name": team.name,
             "restore_url": restore_url,
+            **get_email_footer_context(team=team),
         },
     )
 
@@ -1934,6 +1940,7 @@ def send_project_deleted_email(
         template_name="project_deleted",
         template_context={
             "project_name": project_name,
+            "team_name": project_name,
             "site_url": settings.SITE_URL,
         },
     )
@@ -2262,8 +2269,8 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
             "integration_kind": kind,
             "reason": sanitized_reason,
             "org_name": org_name,
-            "team_name": team.name,
             "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+            **get_email_footer_context(team=team),
         },
         reply_to=requester.email or "",
     )
@@ -2326,6 +2333,8 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
         subject=f"{requester_name} requested access to PostHog AI",
         template_name="posthog_ai_access_requested",
         template_context={
+            # Footer context first so the sanitized organization_name below wins over the raw value.
+            **get_email_footer_context(organization=organization),
             "requester_name": requester_name,
             "requester_email": requester.email or "",
             "organization_name": org_name,
