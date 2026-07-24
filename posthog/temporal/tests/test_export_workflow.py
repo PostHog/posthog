@@ -14,7 +14,7 @@ from posthog.hogql.errors import QueryError
 from posthog.errors import CHQueryErrorS3Error
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
-from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity, record_export_failure_activity
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -31,7 +31,7 @@ async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
         env.client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         workflows=[ExportAssetWorkflow],
-        activities=[export_asset_activity],
+        activities=[export_asset_activity, record_export_failure_activity],
         interceptors=[SloInterceptor()],
         workflow_runner=UnsandboxedWorkflowRunner(),
         activity_executor=ThreadPoolExecutor(max_workers=5),
@@ -203,3 +203,29 @@ async def test_export_failure_emits_slo_outcome(
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_terminal_failure_is_recorded_on_asset(
+    mock_exporter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+):
+    # Simulate a worker that dies before its in-process handler can persist an exception:
+    # the export raises but leaves the asset empty with no exception recorded.
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
+
+    def silent_failing_export(asset_obj, **kwargs):
+        raise QueryError("Invalid HogQL query")
+
+    with pytest.raises(Exception):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            await _run_export_workflow(env, asset, team, mock_exporter, silent_failing_export)
+
+    # The workflow must record the terminal failure so the asset is never left silently empty.
+    await sync_to_async(asset.refresh_from_db)()
+    assert not asset.has_content
+    assert asset.exception is not None
+    assert "Invalid HogQL query" in asset.exception
+    assert asset.exception_type == "QueryError"

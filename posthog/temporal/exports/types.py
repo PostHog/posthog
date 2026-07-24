@@ -11,6 +11,13 @@ class ExportAssetActivityInputs:
 
 
 @dataclasses.dataclass
+class RecordExportFailureInputs:
+    exported_asset_id: int
+    message: str
+    exception_type: str
+
+
+@dataclasses.dataclass
 class ExportError:
     exception_class: str
     error_trace: str = ""

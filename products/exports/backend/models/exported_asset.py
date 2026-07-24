@@ -10,12 +10,13 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 
 import structlog
-from rest_framework.exceptions import NotFound
+from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDT
-from posthog.settings import DEBUG
+from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -26,6 +27,34 @@ PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
 EXPORTED_ASSET_PURPOSE_RENDER = "render"
 EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
+
+# Backstop for an export left empty with no recorded exception this many seconds past its
+# query-timeout budget. The workflow now records terminal failures onto the asset directly,
+# so this only catches the pathological case where the workflow itself never got to record
+# (e.g. it was terminated). Treated as a silent failure rather than "still processing".
+STUCK_EXPORT_GRACE_SECONDS = 30
+
+STUCK_EXPORT_MESSAGE = (
+    "Export failed without throwing an exception. Please try to rerun this export and "
+    "contact support if it fails to complete multiple times."
+)
+
+
+class ExportFailedError(APIException):
+    """The export ran but failed to produce content."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "This export failed to generate. Please try running it again."
+    default_code = "export_failed"
+
+
+class ExportNotReadyError(APIException):
+    """The export is still being generated and has no content yet."""
+
+    status_code = status.HTTP_425_TOO_EARLY
+    default_detail = "This export is still being generated. Please try again shortly."
+    default_code = "export_not_ready"
+
 
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
@@ -240,6 +269,31 @@ def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
     return asset, info.get("purpose")
 
 
+def is_export_stuck(asset: ExportedAsset) -> bool:
+    """True if the export produced no content and recorded no exception well past its
+    query-timeout budget — the workflow neither succeeded nor recorded a failure."""
+    if asset.has_content or asset.exception:
+        return False
+    if not asset.created_at:
+        return False
+    timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + STUCK_EXPORT_GRACE_SECONDS)
+    return asset.created_at < timeout_threshold
+
+
+def get_export_error(asset: ExportedAsset) -> Optional[str]:
+    """User-facing failure message for an export, or None if it hasn't failed.
+
+    A recorded ``exception`` always wins — the export workflow persists one for every terminal
+    failure. The stuck check is only a backstop for the pathological case where the workflow
+    never got to record, so callers surface a real error instead of pretending the asset is
+    missing."""
+    if asset.exception:
+        return asset.exception
+    if is_export_stuck(asset):
+        return STUCK_EXPORT_MESSAGE
+    return None
+
+
 def get_content_response(asset: ExportedAsset, download: bool = False):
     if asset.content_location:
         content_disposition = f'attachment; filename="{asset.filename}"' if download else None
@@ -253,7 +307,12 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
 
     content = asset.content
     if not content:
-        raise NotFound()
+        # The row exists but has no bytes. Distinguish a genuine failure (surface the real error
+        # instead of a bare 404) from an export that is simply still being generated.
+        error = get_export_error(asset)
+        if error is not None:
+            raise ExportFailedError(error)
+        raise ExportNotReadyError()
 
     res = HttpResponse(content, content_type=asset.export_format)
     if download:
