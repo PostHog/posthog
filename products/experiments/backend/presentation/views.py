@@ -639,8 +639,10 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
 
         # Holdout and shared-metric changes log under the Experiment scope with the child
-        # object's own id, so they need their own type-matched clauses.
-        activity_filter = Q(item_id=str(experiment.id))
+        # object's own id, so they need their own type-matched clauses. The experiment's own
+        # clause must exclude those detail types in turn: an unrelated holdout or shared
+        # metric whose pk collides with this experiment's id would otherwise leak in.
+        activity_filter = Q(item_id=str(experiment.id)) & ~Q(detail__type__in=["holdout", "shared_metric"])
         if experiment.holdout_id is not None:
             activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
         saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]

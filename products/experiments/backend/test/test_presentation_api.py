@@ -6995,6 +6995,15 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{other_experiment_id}/", {"description": "Unrelated update"}
         )
+        # An unrelated shared metric whose pk collides with the experiment's id
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="updated",
+            detail={"type": "shared_metric", "name": "Colliding metric"},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -7009,6 +7018,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         detail_types = {(entry["detail"] or {}).get("type") for entry in results}
         self.assertIn("holdout", detail_types)
         self.assertIn("shared_metric", detail_types)
+        self.assertFalse(
+            any(
+                entry["item_id"] == str(experiment_id) and (entry["detail"] or {}).get("type") == "shared_metric"
+                for entry in results
+            )
+        )
 
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(
