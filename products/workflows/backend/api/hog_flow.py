@@ -1416,6 +1416,13 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
 
 
 class HogFlowGraphUpdateSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored "
+            "graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit."
+        ),
+    )
     operations = serializers.ListField(
         child=HogFlowGraphOperationSerializer(),
         allow_empty=False,
@@ -1883,6 +1890,16 @@ class HogFlowViewSet(
                     "workflows-archive — they can't be combined with other field updates."
                 )
 
+            # Whole-graph replacement through a plain update wipes any step the payload omits - a
+            # partial actions list has destroyed live graphs. MCP edits the graph exclusively through
+            # the id-addressed patch endpoint; the web builder keeps full-save semantics.
+            if keys & {"actions", "edges"}:
+                raise exceptions.ValidationError(
+                    "actions/edges can't be replaced via workflows-update - a partial list silently "
+                    "drops every step it omits. Edit the graph with workflows-patch-graph instead; it "
+                    "changes steps by id and leaves the rest of the graph untouched."
+                )
+
             # Content edits on an active workflow stage a draft when the revisions cycle is on for the
             # team; otherwise active workflows stay read-only via MCP. Status-only PATCHes (lifecycle
             # tools) pass through either way, and metadata-only edits apply live once the flag is on.
@@ -2076,6 +2093,20 @@ class HogFlowViewSet(
                 if not revisions_enabled:
                     raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
                 route_to_draft = True
+
+            # Optimistic concurrency, mirroring perform_update: the graph endpoint is the only MCP
+            # path that writes graph content, so it carries the base_updated_at staleness contract.
+            # Draft edits race against other draft edits, so the baseline is the draft's timestamp
+            # once one exists.
+            base_updated_at_raw = request.data.get("base_updated_at")
+            base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+            if base_updated_at is not None and timezone.is_naive(base_updated_at):
+                base_updated_at = timezone.make_aware(base_updated_at)
+            guard_timestamp = locked.updated_at
+            if route_to_draft and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleWorkflowUpdateError()
 
             # Draft edits compose on the staged draft, not on live — a second patch must see the first.
             if route_to_draft and locked.draft:

@@ -6411,6 +6411,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter1 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
@@ -6444,6 +6446,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter2 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
@@ -6473,6 +6477,8 @@ export namespace Schemas {
     export interface ConversionGoalFilter3 {
       conversion_goal_id: string;
       conversion_goal_name: string;
+      /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+      counts_as_customer?: boolean | null;
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
@@ -48651,6 +48657,8 @@ export namespace Schemas {
     }
 
     export interface PatchedHogFlowGraphUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
       /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
       operations?: HogFlowGraphOperation[];
     }
