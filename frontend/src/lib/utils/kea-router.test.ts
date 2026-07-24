@@ -1,4 +1,9 @@
-import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    ensureRoutablePathname,
+    stripTrailingSlash,
+    stripTrailingWhitespace,
+} from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -69,6 +74,23 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
+        })
+    })
+
+    describe('stripTrailingWhitespace', () => {
+        // A stray trailing space (e.g. `/surveys/<id>%20` from a copy-pasted link) decodes to a real
+        // space in the matched route param. Logics that build a route key from that param —
+        // `surveyLogic` keys on `urls.survey(props.id)` — then feed whitespace into `url-pattern`,
+        // which throws `argument must not contain whitespace`. Strip trailing whitespace so the route
+        // still resolves, but never touch embedded whitespace that routes like `/person/foo bar` need.
+        it.each([
+            ['/surveys/019f4b78-8d09-0000-7622-6965eb2fbcfb ', '/surveys/019f4b78-8d09-0000-7622-6965eb2fbcfb'],
+            ['/person/foo bar', '/person/foo bar'], // embedded whitespace preserved
+            ['/person/foo bar ', '/person/foo bar'], // only the trailing space goes
+            ['/insights/abc', '/insights/abc'], // plain path untouched
+            ['/', '/'], // root untouched
+        ])('normalizes %s to %s', (input, expected) => {
+            expect(stripTrailingWhitespace(input)).toEqual(expected)
         })
     })
 

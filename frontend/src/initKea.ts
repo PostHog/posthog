@@ -15,6 +15,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingWhitespace,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -106,7 +107,7 @@ export function initKea({
                 return addProjectIdIfMissing(ensureRoutablePathname(path))
             },
             pathFromWindowToRoutes: (path) => {
-                return stripTrailingSlash(removeProjectIdIfPresent(path))
+                return stripTrailingSlash(stripTrailingWhitespace(removeProjectIdIfPresent(path)))
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
