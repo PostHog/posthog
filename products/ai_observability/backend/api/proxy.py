@@ -197,7 +197,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
     def _create_streaming_response(self, stream: Generator[bytes]) -> HttpResponseBase:
         """Creates a properly configured SSE streaming response"""
         astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
-        return sse_streaming_response(astream, endpoint="ai_observability_proxy")
+        return sse_streaming_response(
+            astream, endpoint="ai_observability_proxy", killswitch_flag="ai-observability-sse-killswitch"
+        )
 
     def _handle_completion_request(self, request: Request) -> HttpResponseBase | Response:
         """Handler for completion requests using unified Client"""

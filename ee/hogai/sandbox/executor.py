@@ -16,7 +16,7 @@ from rest_framework import exceptions
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
-from posthog.api.streaming import sse_streaming_response
+from posthog.api.streaming import sse_killswitch_rejection, sse_streaming_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
@@ -57,6 +57,13 @@ def handle_sandbox_message(
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
     if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
         raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
+
+    # Everything below has side effects (conversation writes, task runs,
+    # Temporal workflow launches), so the killswitch must answer first; the
+    # copy inside sse_streaming_response would fire only after that work ran.
+    rejection = sse_killswitch_rejection("sandbox_execute", "sandbox-sse-killswitch")
+    if rejection is not None:
+        return rejection
 
     if is_new_conversation:
         conversation.title = content[:80]
@@ -192,6 +199,7 @@ def _make_streaming_response(
         if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
         else async_to_sync(async_generator_factory),
         endpoint="sandbox_execute",
+        killswitch_flag="sandbox-sse-killswitch",
     )
 
 

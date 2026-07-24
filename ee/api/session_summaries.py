@@ -603,6 +603,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return sse_streaming_response(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
             endpoint="session_summaries",
+            killswitch_flag="session-summaries-sse-killswitch",
         )
 
     @extend_schema(
