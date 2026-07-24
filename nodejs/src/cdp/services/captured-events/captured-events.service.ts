@@ -1,6 +1,10 @@
-import { Gauge } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import {
+    InternalCaptureEvent,
+    InternalCaptureService,
+    isTransientNetworkError,
+} from '~/common/services/internal-capture'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -10,6 +14,12 @@ import { CyclotronJobInvocationResult } from '../../types'
 const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
+})
+
+const capturedEventsFlushErrors = new Counter({
+    name: 'cdp_captured_events_flush_errors',
+    help: 'Internal capture failures during flush, split by whether they were reported to error tracking.',
+    labelNames: ['transient'],
 })
 
 /**
@@ -98,6 +108,16 @@ export class CapturedEventsService {
         await Promise.all(
             events.map((event) =>
                 this.internalCaptureService.capture(event).catch((error) => {
+                    // Capture is fire-and-forget, so a transient in-cluster DNS/network
+                    // blip (that already survived the retries in InternalCaptureService)
+                    // breaks nothing downstream. Don't page error tracking with it, or it
+                    // buries genuine failures. Real, non-transient failures still report.
+                    if (isTransientNetworkError(error)) {
+                        capturedEventsFlushErrors.inc({ transient: 'true' })
+                        logger.warn('Transient network error capturing internal event, not reporting', { error })
+                        return
+                    }
+                    capturedEventsFlushErrors.inc({ transient: 'false' })
                     logger.error('Error capturing internal event', { error })
                     captureException(error)
                 })
