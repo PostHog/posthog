@@ -153,10 +153,42 @@ export const WithEmailFromQuery: Story = {
             },
             post: {
                 '/api/reset': {},
+                '/api/login/precheck': { sso_enforcement: null, saml_available: false },
             },
         })
 
         useDelayedOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
+
+        return <PasswordReset />
+    },
+}
+
+export const SSOEnforced: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': true,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+                '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false },
+            },
+        })
+
+        useDelayedOnMountEffect(() =>
+            router.actions.push(urls.passwordReset(), { email: 'user@sso-enforced-domain.com' })
+        )
 
         return <PasswordReset />
     },
