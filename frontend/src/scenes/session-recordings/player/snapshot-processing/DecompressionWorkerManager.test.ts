@@ -4,6 +4,9 @@ import {
     terminateDecompressionWorker,
 } from './DecompressionWorkerManager'
 
+// jest.setup.ts mocks this module globally (to dodge import.meta.url in the worker chain);
+// these tests exercise the real implementation, with only the WASM dependency mocked.
+jest.unmock('./DecompressionWorkerManager')
 jest.mock('snappy-wasm')
 
 describe('DecompressionWorkerManager', () => {
@@ -63,6 +66,112 @@ describe('DecompressionWorkerManager', () => {
         })
     })
 
+    describe('worker path resilience', () => {
+        type MockBehavior = 'ready' | 'decompress-error-response'
+
+        class MockWorker {
+            static instances: MockWorker[] = []
+            static behavior: MockBehavior = 'ready'
+
+            listeners: Record<string, ((event: any) => void)[]> = {}
+            postMessage = jest.fn((message: any) => {
+                setTimeout(() => {
+                    if (MockWorker.behavior === 'decompress-error-response') {
+                        this.emit('message', { data: { id: message.id, decompressedData: null, error: 'boom' } })
+                    } else {
+                        this.emit('message', { data: { id: message.id, decompressedData: message.compressedData } })
+                    }
+                }, 0)
+            })
+            terminate = jest.fn()
+
+            constructor() {
+                MockWorker.instances.push(this)
+                // Workers post a `ready` message synchronously on module eval; emulate that on the next tick
+                setTimeout(() => this.emit('message', { data: { type: 'ready' } }), 0)
+            }
+
+            addEventListener(type: string, cb: (event: any) => void): void {
+                ;(this.listeners[type] ||= []).push(cb)
+            }
+            removeEventListener(type: string, cb: (event: any) => void): void {
+                this.listeners[type] = (this.listeners[type] || []).filter((fn) => fn !== cb)
+            }
+            emit(type: string, event: any): void {
+                ;(this.listeners[type] || []).slice().forEach((cb) => cb(event))
+            }
+        }
+
+        const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5))
+        const originalWorker = (global as any).Worker
+
+        beforeEach(() => {
+            MockWorker.instances = []
+            MockWorker.behavior = 'ready'
+            ;(global as any).Worker = MockWorker
+        })
+
+        afterEach(() => {
+            ;(global as any).Worker = originalWorker
+        })
+
+        it('decompresses off-thread when the worker is available', async () => {
+            const workerManager = new DecompressionWorkerManager()
+            await flush()
+
+            const data = new Uint8Array([1, 2, 3])
+            const result = await workerManager.decompress(data)
+
+            expect(result).toEqual(data)
+            expect(MockWorker.instances).toHaveLength(1)
+            expect(MockWorker.instances[0].postMessage).toHaveBeenCalledTimes(1)
+
+            workerManager.terminate()
+        })
+
+        it('recovers from a mid-session worker crash instead of routing chunks to a dead worker', async () => {
+            const workerManager = new DecompressionWorkerManager()
+            await flush()
+            expect(MockWorker.instances).toHaveLength(1)
+
+            // Simulate the worker crashing after it became ready
+            MockWorker.instances[0].emit('error', { message: 'crash' })
+            expect(MockWorker.instances[0].terminate).toHaveBeenCalled()
+
+            // Next decompression must still resolve quickly (not stall on the dead worker)
+            const data = new Uint8Array([4, 5, 6])
+            const result = await workerManager.decompress(data)
+            await flush()
+
+            expect(result).toEqual(data)
+            // A fresh worker is spun up to keep decompression off the main thread
+            expect(MockWorker.instances.length).toBeGreaterThan(1)
+
+            workerManager.terminate()
+        })
+
+        it('stops using the worker after repeated decompression failures', async () => {
+            MockWorker.behavior = 'decompress-error-response'
+            const workerManager = new DecompressionWorkerManager()
+            await flush()
+
+            const data = new Uint8Array([7, 8, 9])
+            // Each call falls back to the main thread; after the failure threshold the
+            // worker is abandoned and no further messages are posted to it
+            await workerManager.decompress(data)
+            await workerManager.decompress(data)
+            const result = await workerManager.decompress(data)
+            const postMessageCallsAfterThreshold = MockWorker.instances[0].postMessage.mock.calls.length
+
+            await workerManager.decompress(data)
+
+            expect(result).toEqual(data)
+            expect(MockWorker.instances[0].postMessage.mock.calls.length).toEqual(postMessageCallsAfterThreshold)
+
+            workerManager.terminate()
+        })
+    })
+
     describe('singleton functions', () => {
         afterEach(() => {
             terminateDecompressionWorker()
@@ -84,8 +193,8 @@ describe('DecompressionWorkerManager', () => {
         })
 
         it('recreates instance when posthog config changes', () => {
-            const mockPosthog1 = {} as any
-            const mockPosthog2 = {} as any
+            const mockPosthog1 = { capture: jest.fn() } as any
+            const mockPosthog2 = { capture: jest.fn() } as any
 
             const instance1 = getDecompressionWorkerManager(mockPosthog1)
             const instance2 = getDecompressionWorkerManager(mockPosthog2)
@@ -94,7 +203,7 @@ describe('DecompressionWorkerManager', () => {
         })
 
         it('returns same instance when config has not changed', () => {
-            const mockPosthog = {} as any
+            const mockPosthog = { capture: jest.fn() } as any
 
             const instance1 = getDecompressionWorkerManager(mockPosthog)
             const instance2 = getDecompressionWorkerManager(mockPosthog)
