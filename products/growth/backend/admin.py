@@ -631,7 +631,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         persisted = EnrichmentPromptConfig.objects.filter(name=label, model=request.POST.get("model", "")).first()
         form = EnrichmentLabRunForm(data=request.POST, persisted=persisted)
         if not form.is_valid():
-            errors = "; ".join(e for field_errors in form.errors.values() for e in field_errors)
+            errors = "; ".join(str(e) for field_errors in form.errors.values() for e in field_errors)
             return HttpResponseBadRequest(escape(errors), content_type="text/plain")
 
         contains = form.cleaned_data["contains"].strip()
@@ -682,7 +682,7 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         form = EnrichmentLabSaveForm(data=request.POST, label=label, persisted=persisted)
         versions = list(EnrichmentPromptConfig.objects.filter(name=label).order_by("-created_at"))
         if not form.is_valid():
-            errors = [e for field_errors in form.errors.values() for e in field_errors]
+            errors = [str(e) for field_errors in form.errors.values() for e in field_errors]
             selected = self._select_lab_version(request, versions)
             context = self._lab_context(
                 request,
