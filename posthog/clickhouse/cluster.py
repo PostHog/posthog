@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
@@ -684,6 +685,10 @@ class MutationNotFound(Exception):
     pass
 
 
+# not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
+TOO_MANY_MUTATIONS = 692
+
+
 @dataclass
 class MutationWaiter:
     table: str
@@ -719,6 +724,24 @@ class MutationWaiter:
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
             time.sleep(15.0)
+
+
+@dataclass
+class MutationWaiters:
+    """Waits on several mutations as one unit — e.g. the same delete applied to the legacy and
+    native-JSON events tables."""
+
+    waiters: Sequence[MutationWaiter]
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
+    def is_done(self, client: Client) -> bool:
+        return all(waiter.is_done(client) for waiter in self.waiters)
+
+    def wait(self, client: Client) -> None:
+        for waiter in self.waiters:
+            waiter.wait(client)
 
 
 @dataclass
@@ -763,7 +786,17 @@ class MutationRunner(abc.ABC):
         if not commands_to_enqueue:
             return MutationWaiter(self.table, set(mutations_running.values()))
 
-        client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+        while True:
+            self.wait_for_mutation_capacity(client)
+            try:
+                client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+                break
+            except ServerException as e:
+                # another mutation can land in the gap between the capacity check and our ALTER, so
+                # go back to waiting instead of failing
+                if e.code != TOO_MANY_MUTATIONS:
+                    raise
+                logger.info("Mutation rejected by %s due to unfinished mutations, waiting for capacity...", self.table)
 
         # mutations are not always immediately visible, so give anything new a bit of time to show up
         start = time.time()
@@ -776,6 +809,31 @@ class MutationRunner(abc.ABC):
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
         )
+
+    def wait_for_mutation_capacity(self, client: Client, poll_interval: float = 60.0) -> None:
+        """
+        Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
+        configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
+        backfill) are still in flight.
+        """
+        while True:
+            [[count]] = client.execute(
+                """
+                SELECT count()
+                FROM system.mutations
+                WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
+                """,
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
+            )
+            if count == 0:
+                return
+            logger.info(
+                "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
+                count,
+                self.table,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
 
     def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
         """

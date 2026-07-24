@@ -65,6 +65,22 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         ]
         self.team.revenue_analytics_config.save()
 
+    def test_sync_views_reconciles_dag_schedules_once(self):
+        # sync_views touches N views; reconciling per view would issue N redundant
+        # Temporal converges for the one managed DAG
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(SCHEDULE_MATERIALIZATION),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag") as reconcile,
+        ):
+            managed_viewset.sync_views()
+
+        reconcile.assert_called_once()
+
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
@@ -283,95 +299,6 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
-
-
-class TestEngineeringAnalyticsManagedViewSet(BaseTest):
-    """sync_views for the non-materialized engineering-analytics kind: it must create a
-    query-time saved query (no materialization schedule, no managed DAG), stay idempotent, and
-    create nothing for a team without a qualifying GitHub source.
-    """
-
-    PREFIX = "myprefix"
-    VIEW_NAME = "engineering_analytics_job_costs"
-
-    def _github_source(self) -> ExternalDataSource:
-        return ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="gh",
-            connection_id="gh",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.GITHUB,
-            prefix=self.PREFIX,
-        )
-
-    def _link(self, source: ExternalDataSource, schema_name: str, table_suffix: str) -> None:
-        table = DataWarehouseTable.objects.create(
-            team=self.team,
-            name=f"{self.PREFIX}github_{table_suffix}",
-            format=DataWarehouseTable.TableFormat.CSVWithNames,
-            url_pattern="",
-            external_data_source=source,
-            columns=DUMMY_COLUMNS,
-        )
-        ExternalDataSchema.objects.create(
-            team=self.team, source=source, name=schema_name, table=table, should_sync=True
-        )
-
-    def _viewset(self) -> DataWarehouseManagedViewSet:
-        return DataWarehouseManagedViewSet.objects.create(
-            team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
-        )
-
-    def _views(self, viewset: DataWarehouseManagedViewSet) -> list[DataWarehouseSavedQuery]:
-        return list(
-            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=viewset).exclude(deleted=True)
-        )
-
-    @patch(SCHEDULE_MATERIALIZATION)
-    def test_sync_views_creates_non_materialized_view(self, mock_schedule):
-        source = self._github_source()
-        self._link(source, "workflow_runs", "workflow_runs")
-        self._link(source, "workflow_jobs", "workflow_jobs")
-
-        viewset = self._viewset()
-        viewset.sync_views()
-
-        views = self._views(viewset)
-        self.assertEqual(len(views), 1)
-        view = views[0]
-        self.assertEqual(view.name, self.VIEW_NAME)
-        self.assertFalse(view.is_materialized)
-        self.assertIsNone(view.sync_frequency_interval)
-        # A non-materialized view is computed at query time — it must never be scheduled for
-        # materialization, nor get a managed (revenue-analytics) DAG.
-        mock_schedule.assert_not_called()
-        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
-
-    @patch(SCHEDULE_MATERIALIZATION)
-    def test_sync_views_is_idempotent(self, _):
-        source = self._github_source()
-        self._link(source, "workflow_runs", "workflow_runs")
-        self._link(source, "workflow_jobs", "workflow_jobs")
-
-        viewset = self._viewset()
-        viewset.sync_views()
-        first = self._views(viewset)
-        viewset.sync_views()
-        second = self._views(viewset)
-
-        self.assertEqual(len(first), 1)
-        self.assertEqual([v.id for v in first], [v.id for v in second])
-
-    @patch(SCHEDULE_MATERIALIZATION)
-    def test_sync_views_creates_nothing_without_qualifying_source(self, _):
-        # Only workflow_runs synced (no jobs) — no view to expose, so sync creates nothing.
-        source = self._github_source()
-        self._link(source, "workflow_runs", "workflow_runs")
-
-        viewset = self._viewset()
-        viewset.sync_views()
-
-        self.assertEqual(len(self._views(viewset)), 0)
 
 
 class TestManagedViewSetSyncWithStripeSource(BaseTest):

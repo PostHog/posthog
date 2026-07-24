@@ -177,15 +177,30 @@ SANDBOX_MCP_URL=https://<mcp-8787-subdomain>.ngrok-free.app/mcp
 
 `SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
 
-### MCP server `.dev.vars`
+### Agent run telemetry (optional)
 
-`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP Worker running at `localhost:8787`. The Worker reads its config from `services/mcp/.dev.vars` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the Worker will either refuse to start or return broken responses to the sandbox.
+To ship agent-server run metadata to PostHog Logs, set both of the first two; the third additionally produces one APM trace per run (root `task_run` span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call) with trace/span ids stamped on the log records:
 
 ```bash
-cd services/mcp && cp .dev.vars.example .dev.vars
+SANDBOX_AGENT_OTEL_LOGS_URL=http://localhost:8000/i/v1/logs  # or https://us.i.posthog.com/i/v1/logs
+SANDBOX_AGENT_OTEL_LOGS_TOKEN=<project API key of the telemetry project>
+SANDBOX_AGENT_OTEL_TRACES_URL=http://localhost:8000/i/v1/traces  # optional, enables APM spans
 ```
 
-Then fill in the secrets. `INKEEP_API_KEY` (for the `docs-search` tool) lives in 1Password under **"Inkeep API key - mcp"**. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.dev.vars`.
+In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-telemetry` feature flag (org-targeted, stamped into run state at dispatch; it also gates the scout run-log mirror). `DEBUG` bypasses the flag, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
+The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
+Telemetry stays off when either of the first two vars is unset.
+For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
+
+### MCP server `.env`
+
+`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
+
+```bash
+cd services/mcp && cp .env.example .env
+```
+
+Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
 ### Local agent packages
 
@@ -236,6 +251,39 @@ into the container, and `clone_repository` becomes a no-op for those
 repositories.
 
 > **Note:** This only works with `SANDBOX_PROVIDER=docker`.
+
+### Task-run log mirroring to PostHog Logs (dogfooding)
+
+Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) are also mirrored into the PostHog Logs product,
+so runs can be browsed and sampled in the Logs UI instead of fetching S3 blobs.
+
+In production there is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
+and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up.
+The collector parses each JSON key into a queryable attribute and turns the emitted `request_id` (the run uuid) into a trace id,
+so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
+
+```bash
+# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Set empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
+```
+
+The mirror also has a **direct OTLP leg** that ships each batch straight to a logs ingest endpoint:
+
+```bash
+TASK_RUN_LOGS_MIRROR_OTLP_URL=http://localhost:8000/i/v1/logs  # prod: https://us.i.posthog.com/i/v1/logs
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN=<project API key of the internal logs project>
+```
+
+The token pins the destination: scout runs execute for customer teams,
+but their mirrored transcripts must only ever land in — and bill — PostHog's own internal logs project, never the customer's.
+Records arrive under `service.name=task-run-log-mirror` with the run uuid as the trace id.
+
+Locally the direct leg is the only delivery path: `append_log` runs in the host Django process,
+and the dev collector (`otel-collector-config.dev.yaml`) only tails docker-compose container stdout,
+so without these settings the mirrored lines only show up in the Django phrocs pane.
+
+Mirroring failures are logged and never break the run's log write.
 
 ### How `MODAL_DOCKER` works
 

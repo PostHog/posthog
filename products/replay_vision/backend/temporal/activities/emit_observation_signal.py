@@ -8,6 +8,7 @@ from temporalio import activity
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.metrics import record_side_effect_failure
 from products.replay_vision.backend.temporal.scanners.base import MIN_SIGNAL_CONFIDENCE
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import EmitObservationSignalInputs, ScannerLlmInputs, ScannerSnapshot
@@ -25,7 +26,7 @@ def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
 
 
 @activity.defn
-@track_activity()
+@track_activity(side_effect="signal")
 def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
     """Emit the observation's side-mission findings as PostHog Signals; fails soft, returns the emitted count."""
     try:
@@ -71,6 +72,7 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
             base_extra["recording_active_seconds"] = meta.active_seconds
 
         emitted = 0
+        any_failed = False
         for index, signal in enumerate(inputs.signals):
             if signal.confidence < MIN_SIGNAL_CONFIDENCE:
                 continue
@@ -95,13 +97,19 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                 emitted += 1
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.
+                any_failed = True
                 logger.exception(
                     "replay_vision.signal_emission_failed",
                     observation_id=str(inputs.observation_id),
                     finding_index=index,
                 )
+        if any_failed:
+            # Per activity, not per finding, so the counter is comparable to the other effects.
+            record_side_effect_failure("signal")
         return emitted
     except Exception:
-        # Never fail the observation over emission.
+        # Never fail the observation over emission. Counted here because the swallow means
+        # track_activity sees a success.
+        record_side_effect_failure("signal")
         logger.exception("replay_vision.signal_emission_failed", observation_id=str(inputs.observation_id))
         return 0

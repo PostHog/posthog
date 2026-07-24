@@ -29,8 +29,6 @@ class FeatureFlagVisitor(
         "analytics_dashboards",
         "last_called_at",
         "deleted",
-        "rollback_conditions",
-        "performed_rollback",
         "_evaluation_tag_names",
     ],
     friendly_name="Feature flag",

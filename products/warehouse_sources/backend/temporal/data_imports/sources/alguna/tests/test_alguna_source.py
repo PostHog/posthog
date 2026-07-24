@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.alg
 from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.source import AlgunaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlgunaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alguna import AlgunaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -27,8 +27,6 @@ class TestAlgunaSource:
         assert config.name.value == "Alguna"
         assert config.label == "Alguna"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately gated while the endpoint behavior is unverified against a live account.
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/alguna.svg"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

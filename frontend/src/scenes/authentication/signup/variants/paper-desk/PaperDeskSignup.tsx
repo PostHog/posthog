@@ -8,6 +8,7 @@ import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -23,6 +24,9 @@ import { LoginMethod } from '~/types'
 
 import { signupLogic } from '../../signupForm/signupLogic'
 
+// Bare text nodes below are wrapped in <span>s: Chrome's in-page translation replaces text
+// nodes with <font> elements, which crashes React's sibling insert/remove operations
+// (removeChild/insertBefore NotFoundError, see react#11538). Text inside its own element is safe.
 const NOTES: Record<number, string[]> = {
     0: ['// create an account', '// 1M events free, every month'],
     1: ['// step 2 of 2', '// make it a good one'],
@@ -44,7 +48,7 @@ function SignupEmailPanel(): JSX.Element {
 
     const footer = preflight?.demo ? undefined : (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            Already have an account?{' '}
+            <span>Already have an account?</span>{' '}
             <Link
                 to={loginUrl}
                 data-attr="signup-login-link"
@@ -144,9 +148,9 @@ function PendingInvitePanel(): JSX.Element {
                 title="You've already been invited"
                 sub={
                     <span>
-                        <b className="text-primary">{org}</b> invited{' '}
-                        <span className="PaperDesk__mono">{signupPanelEmail.email}</span> to join them on PostHog. The
-                        invite link is in your inbox.
+                        <b className="text-primary">{org}</b> <span>invited</span>{' '}
+                        <span className="PaperDesk__mono">{signupPanelEmail.email}</span>{' '}
+                        <span>to join them on PostHog. The invite link is in your inbox.</span>
                     </span>
                 }
                 className="mb-5"
@@ -200,15 +204,15 @@ function SignupAuthPanel(): JSX.Element {
     const footer = (
         <>
             <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
-                By creating an account, you agree to our{' '}
+                <span>By creating an account, you agree to our</span>{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service ↗
                 </Link>{' '}
-                and{' '}
+                <span>and</span>{' '}
                 <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy ↗
                 </Link>
-                .
+                <span>.</span>
             </p>
             <p className="mt-3 mb-0 text-sm text-secondary text-center">
                 <Link
@@ -227,13 +231,13 @@ function SignupAuthPanel(): JSX.Element {
                 title="Secure your account"
                 sub={
                     <span>
-                        Signing up as <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
+                        <span>Signing up as</span> <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
                     </span>
                 }
             />
             {passkeyError && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
-                    {passkeyError}
+                    <span>{passkeyError}</span>
                 </div>
             )}
             {passkeySignupEnabled &&
@@ -322,6 +326,7 @@ function SignupProfilePanel(): JSX.Element {
     } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const submitLabel = !preflight?.demo
         ? 'Create account'
@@ -332,15 +337,17 @@ function SignupProfilePanel(): JSX.Element {
     const footer = (
         <>
             <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
-                By {preflight?.demo ? 'entering the demo environment' : 'creating an account'}, you agree to our{' '}
+                <span>
+                    By {preflight?.demo ? 'entering the demo environment' : 'creating an account'}, you agree to our
+                </span>{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service ↗
                 </Link>{' '}
-                and{' '}
+                <span>and</span>{' '}
                 <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy ↗
                 </Link>
-                .
+                <span>.</span>
             </p>
             {!preflight?.demo && (
                 <p className="mt-5 mb-0 text-sm text-secondary text-center">
@@ -361,13 +368,34 @@ function SignupProfilePanel(): JSX.Element {
                 title="Tell us about yourself"
                 sub={
                     <span>
-                        Setting up the account for <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
+                        <span>Setting up the account for</span>{' '}
+                        <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
                     </span>
                 }
             />
             {signupPanelOnboardingManualErrors?.generic && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
-                    {signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}
+                    <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
+                    {preflight?.cloud && (
+                        <>
+                            {' '}
+                            <Link
+                                data-attr="login-error-contact-support"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    openSupportForm({
+                                        kind: 'support',
+                                        target_area: 'login',
+                                        email: signupPanelEmail.email,
+                                    })
+                                }}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Contact us
+                            </Link>{' '}
+                            <span>to resolve this.</span>
+                        </>
+                    )}
                 </div>
             )}
             <Form

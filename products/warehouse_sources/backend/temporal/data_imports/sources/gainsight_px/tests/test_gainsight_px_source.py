@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GainsightPxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
+    GainsightPxSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -32,7 +34,6 @@ class TestGainsightPxSource:
         assert config.name.value == "GainsightPx"
         assert config.label == "Gainsight PX"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/gainsight_px.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/gainsight-px"
         assert len(config.fields) == 2
@@ -128,7 +129,8 @@ class TestGainsightPxSource:
             api_key="key",
             region="us",
             endpoint="users",
-            logger=logger,
+            team_id=self.team_id,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
         assert response is mock_gainsight_source.return_value

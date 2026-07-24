@@ -5,16 +5,22 @@ from django.utils import timezone
 
 import pytz
 import structlog
-from dateutil.relativedelta import MO, relativedelta
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.scheduling import (
+    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
+    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    next_calendar_check_time,
+    to_calendar_interval,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -46,9 +52,6 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
-REAL_TIME_CADENCE_MINUTES = 2
-EVERY_15_MINUTES_CADENCE_MINUTES = 15
-
 # Cheaper, more time-sensitive checks get workers first when the due batch is large.
 # Single source for both the Python ordering and the ORM Case in
 # posthog/temporal/alerts/activities.py retrieve_due_alerts.
@@ -71,69 +74,20 @@ def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> 
         raise ValueError(f"Unhandled alert calculation interval: {interval!r}")
 
 
-def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
-    match alert_calculation_interval:
-        case AlertCalculationInterval.REAL_TIME:
-            return relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
-        case AlertCalculationInterval.HOURLY:
-            return relativedelta(hours=1)
-        case AlertCalculationInterval.DAILY:
-            return relativedelta(days=1)
-        case AlertCalculationInterval.WEEKLY:
-            return relativedelta(weeks=1)
-        case AlertCalculationInterval.MONTHLY:
-            return relativedelta(months=1)
-        case _ as unreachable:
-            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
-
-
 def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
     if not alert.skip_weekend:
         return False
-
-    now = datetime.now(pytz.UTC)
-    team_timezone = pytz.timezone(alert.team.timezone)
-
-    now_local = now.astimezone(team_timezone)
-    return now_local.isoweekday() in [6, 7]
+    return is_weekend(datetime.now(pytz.UTC), alert.team.timezone)
 
 
 def _next_check_time_core(alert: AlertConfiguration) -> datetime:
     """Nominal next check instant before schedule_restriction snapping."""
-    now = datetime.now(pytz.UTC)
-    team_timezone = pytz.timezone(alert.team.timezone)
-
-    match alert.calculation_interval:
-        case AlertCalculationInterval.REAL_TIME:
-            return (alert.next_check_at or now) + relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return (alert.next_check_at or now) + relativedelta(minutes=15)
-        case AlertCalculationInterval.HOURLY:
-            return (alert.next_check_at or now) + relativedelta(hours=1)
-        case AlertCalculationInterval.DAILY:
-            # Get the next date in the specified timezone
-            tomorrow_local = datetime.now(team_timezone) + relativedelta(days=1)
-            # set hour to 1 AM
-            # only replacing hour and not minute/second... to distribute execution of all daily alerts
-            one_am_local = tomorrow_local.replace(hour=1)
-            # Convert to UTC
-            return one_am_local.astimezone(pytz.utc)
-        case AlertCalculationInterval.WEEKLY:
-            next_monday_local = datetime.now(team_timezone) + relativedelta(days=1, weekday=MO(1))
-            # Set the hour to around 3 AM on next Monday
-            next_monday_1am_local = next_monday_local.replace(hour=3)
-            # Convert to UTC
-            return next_monday_1am_local.astimezone(pytz.utc)
-        case AlertCalculationInterval.MONTHLY:
-            next_month_local = datetime.now(team_timezone) + relativedelta(months=1)
-            # Set hour to 4 AM on first day of next month
-            next_month_1am_local = next_month_local.replace(day=1, hour=4)
-            # Convert to UTC
-            return next_month_1am_local.astimezone(pytz.utc)
-        case _ as unreachable:
-            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
+    return next_calendar_check_time(
+        to_calendar_interval(alert.calculation_interval),
+        now=datetime.now(pytz.UTC),
+        tz_name=alert.team.timezone,
+        next_check_at=alert.next_check_at,
+    )
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
@@ -231,7 +185,9 @@ def send_notifications_for_breaches(
         campaign_key = f"alert-firing-notification-{idempotency_key}"
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
-        message = EmailMessage(
+        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        send_alert_email(
+            recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
             template_name="alert_check_firing",
@@ -244,12 +200,6 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
-
-        for target in email_targets:
-            message.add_recipient(email=target)
-
-        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        message.send()
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
@@ -437,7 +387,8 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
     campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
+    send_alert_email(
+        recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
         template_name="alert_disabled",
@@ -450,7 +401,3 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "project_name": alert.team.name,
         },
     )
-    for target in targets:
-        message.add_recipient(email=target)
-
-    message.send()

@@ -1,6 +1,8 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportRefundApi,
+    type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -31,10 +33,21 @@ export interface EnrichedReviewer {
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null
+    /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
+    reason?: string | null
 }
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
+
+/** Threshold options over SignalReportPriority, strictest first. Shared by the auto-start and Slack min-priority selects. */
+export const PRIORITY_THRESHOLD_OPTIONS: { value: SignalReportPriority; label: string }[] = [
+    { value: 'P0', label: 'P0 only' },
+    { value: 'P1', label: 'P1 and above' },
+    { value: 'P2', label: 'P2 and above' },
+    { value: 'P3', label: 'P3 and above' },
+    { value: 'P4', label: 'P4 and above' },
+]
 
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
@@ -71,10 +84,19 @@ export interface SignalReport {
     scout_name?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
+     * resolved report may have been resolved directly, without a merged PR. */
+    implementation_pr_merged?: boolean
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** The report's PR refund, when one exists (one refund per report, ever). */
+    refund?: SignalReportRefundApi | null
+    /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
+    billing_exempt_reason?: string | null
+    /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+    refund_ineligibility_reason?: string | null
 }
 
 export enum SignalReportStatus {
@@ -176,6 +198,11 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
+/** Small tag rendered next to a tab's label in the tab bar. */
+export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
+    'not-actionable': 'Staff',
+}
+
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
@@ -198,14 +225,18 @@ export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
 // The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
-// relationship vocabulary below is retained only for the task-creation kickoff path, where the
-// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
+// relationship vocabulary below is what a client may assert on the task-creation kickoff path via
+// `signal_report_task_relationship`: `implementation` starts a PR run (and opens the auto-start
+// spend gate), `discussion` links a discuss-the-report task. `research` is reserved for the
+// server-side research pipeline and is rejected by the tasks API.
 
-export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
+export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['implementation', 'discussion'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
+
+export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelationship = 'discussion'
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
@@ -223,7 +254,9 @@ export interface SignalUserAutonomyConfig {
 
 export interface SignalTeamConfig {
     id?: string
-    /** Team-wide default PR auto-start threshold. null = never auto-start by default. */
+    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
+    autostart_enabled?: boolean | null
+    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
@@ -258,63 +291,13 @@ export interface SignalRun {
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
-/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
-export type ScoutOrigin = 'canonical' | 'custom'
-
-/** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
-export interface SignalScoutConfig {
-    id: string
-    /** The `signals-scout-*` skill this config controls. Fixed at creation. */
-    skill_name: string
-    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
-    description: string
-    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
-    scout_origin: ScoutOrigin
-    /** Whether this scout runs on its schedule. */
-    enabled: boolean
-    /** Whether the scout writes findings to the inbox. false = dry-run. */
-    emit: boolean
-    /** Minutes between runs (30–43200). */
-    run_interval_minutes: number
-    /** When the coordinator last dispatched this scout; null if never. */
-    last_run_at: string | null
-    created_at: string
-}
-
-/** Editable subset of a scout config (PATCH `signals/scout/configs/{id}`). */
-export interface SignalScoutConfigUpdate {
-    enabled?: boolean
-    emit?: boolean
-    run_interval_minutes?: number
-}
-
 /** Status from the linked TaskRun behind a scout run. */
-export type SignalScoutRunStatus = 'not_started' | 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+export type SignalScoutRunStatus = SignalScoutRunSummaryApi['status']
 
-/** Lightweight projection of a scout run row (newest-first list response). */
-export interface SignalScoutRunSummary {
-    run_id: string
-    skill_name: string
-    skill_version: number
-    status: SignalScoutRunStatus
-    /** Bridge-row creation timestamp — the field the runs endpoint filters/orders on (the pagination cursor). */
-    created_at: string
-    started_at: string
-    completed_at: string | null
-    task_id?: string | null
-    task_run_id?: string | null
-    /** Relative deep-link to cloud's Tasks UI, e.g. `/project/{id}/tasks/{task}?runId={run}`. */
-    task_url?: string | null
-    summary: string
-    emitted_count: number
-    emitted_finding_ids: string[]
-    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
-     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
-    emitted_report_ids: string[]
-    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
-     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
-    edited_report_ids: string[]
-}
+/** Lightweight projection of a scout run row (newest-first list response).
+ * An interface extension (not a type alias) so kea-typegen keeps the domain name
+ * instead of inlining `import(...)` references to the generated type. */
+export interface SignalScoutRunSummary extends SignalScoutRunSummaryApi {}
 
 /** One finding a scout run emitted to the inbox. */
 export interface SignalScoutEmission {

@@ -18,7 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.source import AssemblyAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AssemblyAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.assemblyai import (
+    AssemblyAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -42,7 +44,6 @@ class TestAssemblyAISource:
         assert config.label == "AssemblyAI"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/assemblyai.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/assemblyai"
 
@@ -143,6 +144,8 @@ class TestAssemblyAISource:
         assert kwargs["api_key"] == "key"
         assert kwargs["region"] == "us"
         assert kwargs["endpoint"] == "transcripts"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
 
     def test_canonical_descriptions_keyed_by_endpoint(self):

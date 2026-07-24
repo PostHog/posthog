@@ -30,6 +30,42 @@ describe('webhook trigger: real e2e', () => {
         await closeSharedPool()
     })
 
+    it('config.filters gates deliveries deterministically — non-matching is ACKed 200 with no session', async () => {
+        c.setScript([fauxText('ack')])
+        await c.deployAgent({
+            slug: 'wh-filtered',
+            spec: {
+                triggers: [
+                    {
+                        type: 'webhook',
+                        config: {
+                            path: '/webhook',
+                            filters: [
+                                { path: 'action', equals: 'review_requested' },
+                                { path: 'requested_team.slug', equals: 'team-security' },
+                            ],
+                        },
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                ],
+            },
+        })
+
+        // The noise GitHub actually sends: same event type, wrong action.
+        const miss = await request(c.ingress).post('/agents/wh-filtered/webhook').send({ action: 'synchronize' })
+        expect(miss.status).toBe(200)
+        expect(miss.body).toEqual({ ok: true, filtered: true })
+
+        const hit = await request(c.ingress)
+            .post('/agents/wh-filtered/webhook')
+            .send({ action: 'review_requested', requested_team: { slug: 'team-security' } })
+        expect(hit.status).toBe(200)
+        expect(hit.body.session_id).toBeTruthy()
+        await c.drain()
+        const session = await c.queue.get(hit.body.session_id)
+        expect(session!.state).toBe('completed')
+    })
+
     it('creates a session with the JSON body as content', async () => {
         c.setScript([fauxText('ack')])
         await c.deployAgent({ slug: 'wh', spec: {} })

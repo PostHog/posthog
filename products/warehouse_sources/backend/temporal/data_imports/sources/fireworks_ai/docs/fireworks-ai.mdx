@@ -1,0 +1,76 @@
+---
+title: Linking Fireworks AI as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: FireworksAI
+beta: true
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/fireworks-ai.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import SourceParameters from '../_snippets/source-parameters.mdx'
+import SourceTables from '../_snippets/source-tables.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Fireworks AI](https://fireworks.ai) is an inference and fine-tuning platform for open models.
+Linking it as a source syncs your platform data — models, datasets, deployments, fine-tuning jobs,
+batch inference jobs, evaluations, and account users — into the PostHog Data warehouse, so you can
+join it with your product data (for example, correlating training runs or deployment fleet state
+with in-product usage).
+
+## Prerequisites
+
+To connect Fireworks AI, you need:
+
+- A Fireworks AI account.
+- An API key generated from your Fireworks AI account settings (used as a bearer token).
+- Your Fireworks account ID, shown in your account settings and in every resource name
+  (`accounts/<account-id>/...`).
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open Fireworks AI and go to your [API keys settings](https://app.fireworks.ai/settings/users/api-keys).
+2. Create a new API key and copy it.
+3. Paste the key into the **API key** field in PostHog.
+4. Enter your Fireworks account ID into the **Account ID** field.
+
+## Sync modes
+
+<SyncModes />
+
+Fireworks AI's list endpoints paginate with an opaque page token and don't expose a verified
+server-side "updated since" filter, so every table syncs as a **full refresh** — each sync
+re-reads the collection and merges on the primary key. These collections are small per account,
+so a full refresh is cheap. Schedule syncs at a cadence that fits how often your Fireworks AI
+activity changes.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **"Invalid Fireworks AI API key"** when connecting: the key is wrong or has been revoked.
+  Generate a new key in your Fireworks AI account settings and re-enter it.
+- **"Fireworks AI account not found"** when connecting: the account ID doesn't match the API
+  key's account. Copy the account ID from your account settings — it's the segment after
+  `accounts/` in any resource name.
+
+<TroubleshootingLink />

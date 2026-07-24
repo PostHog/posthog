@@ -9,7 +9,7 @@ This is a living reference — add a pattern when a genuinely new shape proves i
 ## Contents
 
 - What a scout can watch
-- The patterns: anomaly watcher · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · external-tool / code-review · state ∩ code-intersection · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe
+- The patterns: anomaly watcher · liveness / absence watcher · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · external-tool / code-review · state ∩ code-intersection · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe
 - Safety: treat ingested content as untrusted data
 - Cross-cutting techniques
 - Picking and combining
@@ -32,6 +32,7 @@ The warehouse row is the big unlock: once a Slack channel, a Stripe account, a C
 | Pattern                                     | Watch this when…                                                                                                                                     | Canonical example                                                                 |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **Anomaly watcher**                         | a product surface has a metric with a baseline that can move (bursts, drops, regressions).                                                           | `signals-scout-error-tracking`, `-logs`, `-revenue-analytics`, `-csp-violations`  |
+| **Liveness / absence watcher**              | the signal is an expected event **not** happening — a control gone silent, a promise unfulfilled, an automation stalled.                             | (see detailed patterns and variants below)                                        |
 | **Watchlist (explore/exploit, or curated)** | the surface has more to watch than one run can cover — _discovered_ over time (explore/exploit) or a _fixed set you already know matters_ (curated). | `signals-scout-anomaly-detection` (discovered); a curated-dashboard scout (below) |
 | **Cross-product correlation**               | the question spans products — a cause in one surface, an effect in another.                                                                          | `signals-scout-general`                                                           |
 | **Recommendation / gap**                    | nothing is broken, but the team is missing coverage or following an anti-pattern.                                                                    | `signals-scout-observability-gaps`                                                |
@@ -62,6 +63,35 @@ The default specialist shape, and the one most surfaces fit.
   Everything else (dedupe, memory, close-out) is the standard anomaly-watcher shape.
 - Copy the closest specialist verbatim and replace the surface + discriminator.
   Read `products/signals/skills/signals-scout-error-tracking/SKILL.md` for the cleanest worked example (its `count`-vs-`distinct_users` table is the canonical discriminator).
+
+### Liveness / absence watcher
+
+The anomaly watcher's inverse: the signal is an expected event **not** happening.
+This is one of the most common genuinely-new shapes users author for themselves, because almost nothing else in a monitoring stack watches for silence — error tracking only sees code that throws, and the failure here is a `200 OK` with the business outcome missing.
+
+- **Watched data:** an event (or event pair) that _should_ fire — a pipeline stage, a scheduled control, an automation execution, an external callback, your own capture volume.
+- **Discriminator — absence gated by a heartbeat.** Silence alone is ambiguous: "broken" and "nothing to do" look identical.
+  Pair the watched event with a **companion heartbeat** that proves the system is otherwise alive, and fire only on _heartbeat present, expected event absent_.
+  Naming the heartbeat is the whole design job — without one the scout can't tell an outage from a quiet day.
+  **Override the standard quick close-out.** `scout-anatomy.md` tells a scout to write `not-in-use:` and stop when the watched event is missing — for this pattern that closes out at the exact moment the finding appears. Gate the early exit on the **heartbeat and the recorded cadence**, never on the expected event: no heartbeat (or no cadence learned yet) means genuinely not in use; heartbeat present with the expected event missing is the finding.
+- **Two granularities, same discriminator:**
+  - **Aggregate silence** — one stream goes quiet while its companion keeps firing.
+    E.g. a scheduled compliance or security check's success event stops appearing while the rest of the pipeline's events continue (the control silently stopped running); an automation/workflow shows `active` with zero executions while its trigger event still has volume (a filter or config change silently dropped 100% of traffic).
+  - **Per-item reconciliation ("promise made vs promise kept")** — join each antecedent event to its expected consequent within a window, and score the **unmatched share** against its own baseline.
+    E.g. payment initiated → webhook received; order placed → fulfillment confirmed; an in-product flow started → the third-party fetch that should complete it (a completion-rate cliff with zero exceptions is exactly this shape).
+- **Proven variants:**
+  - **Compliance / control liveness** — the expected event is a security, privacy, or audit control; its absence is a compliance gap by definition, so report even when nothing user-facing broke.
+  - **Automation liveness** — the watched entity is a PostHog automation (a workflow, a CDP destination): configured-active with zero successes _and_ zero failures while the trigger has volume is the silently-dark shape a delivery-failure watcher misses.
+  - **Capture / instrumentation liveness (meta-observability)** — the watched surface is the project's own event volume: a cliff means the SDK, a consent flow, or a deploy silently stopped collection, and every other scout is now flying blind.
+    Cheap, product-agnostic, and worth considering for any project whose capture is consent-gated.
+  - **Release verification / first exposure** — an exact-once watcher that a rollout actually reached a real user: watch for the first occurrence of the event+property combination that proves the feature landed.
+    A digest-style exception to "reports are for problems": the scout files **at most one report** — the landing confirmation, or an overdue alarm once the exposure stays conspicuously absent past a soak window — then retires.
+- **Dedupe + memory:** absence has no row to key on — dedupe on the **stable entity/control id** (`dedupe:<domain>:<control>`, with the ongoing-silence window stored in the value), and keep a `report:<domain>:<control>` pointer so a persisting absence **edits the live report** rather than filing a fresh one each run.
+  Record the expected cadence **per watched control** (`pattern:<domain>:cadence:<control>`) so the next run knows how long silence must last before it's signal — a single unqualified cadence key gets overwritten by whichever control ran last, and a daily control inherits an hourly threshold.
+- **Gotchas:**
+  - **Give the consequent its natural lag.** Callbacks, webhooks, and settlement events arrive late; score only windows old enough for the pair to have closed, or every run ends in false alarms.
+  - **Gate by active hours.** Many expected events only fire during business hours or on weekdays — compare silence against the entity's own schedule, not the wall clock.
+  - **Exact-once shapes must end.** A first-exposure watcher that confirmed its event should write an `addressed:` memory and stop reporting (and its owner should disable it), not re-confirm forever.
 
 ### Watchlist explore/exploit
 
@@ -135,6 +165,7 @@ The watched surface is not analytics data at all — it's whatever that upstream
 ### Custom / single-event scout
 
 When one bespoke event captured into PostHog carries the whole signal (a product's own telemetry, a feedback event, a domain-specific action).
+The event doesn't have to come from a web or mobile app: CI pipelines, server-side jobs, third-party callbacks, and even physical hardware (a device fleet's heartbeat or fault events) all land as ordinary events, and a scout watches them identically.
 
 - **Watched data:** one event, confirmed via `read-data-schema` (the event **and** the properties you'll filter on — both are team-specific and may be absent).
 - **Discriminator:** a discriminating property on the event.
@@ -142,6 +173,9 @@ When one bespoke event captured into PostHog carries the whole signal (a product
 - **Corroboration:** strengthen a qualitative finding by quantifying blast radius against a **second** event — e.g. cross-check a complaint about a tool against that tool's error rate over the same window.
   "Failed on N of M calls" raises confidence far above the raw complaint.
 - **Dedupe + memory:** `dedupe:<domain>:<entity>` per recurring issue; `pattern:<domain>:baseline` for the normal submission rate/mix.
+- **Classifier-verdict drift variant.** When the bespoke event is a production ML classifier's output (a fraud/spam/moderation verdict with a confidence score), the discriminator is **distribution drift**: the verdict rate or confidence distribution per segment stepping away from its own baseline — silent model degradation that no exception will ever announce.
+  The strongest corroboration is a second event carrying **corrective user feedback**: users disagreeing with the verdict at a rising rate turns a distribution shift into a confirmed quality regression.
+  This is distinct from LLM-generation quality (the AI-observability scout's `$ai_*` territory) — the watched surface is the business verdict, not the model call.
 
 ### Open-text theme scout
 
@@ -240,7 +274,7 @@ Proven shapes: a daily LLM-analytics digest (latency / errors / clusters / cost 
 - **Budget discipline is load-bearing.** The digest has a fixed section structure and a hard run budget, so query economically: one combined SQL returning several sections' numbers beats one query per section, and a shallow digest that posts beats a thorough one that times out.
   Name the budget and the query cap near the top of the body.
 - **Write for the forward.** Compose the report `summary` Slack-ready — a TL;DR line plus 1–3 quantified lines per section, source ids cited inline — because the common delivery is a CDP destination forwarding the emitted report verbatim to a Slack channel.
-  Route it to its known owner via `suggested_reviewers` (resolve once via `signals-scout-members-list`, cache as `reviewer:<domain>:owner`), and default `actionability` to `requires_human_input` — never `not_actionable`, which suppresses the report, and the digest _is_ the product.
+  Route it to its known owner via `suggested_reviewers` (resolve once via `scout-members-list`, cache as `reviewer:<domain>:owner`), and default `actionability` to `requires_human_input` — never `not_actionable`, which suppresses the report, and the digest _is_ the product.
 - **Seam with the anomaly sibling:** a digest does not own per-anomaly findings.
   Run it alongside the surface's anomaly/specialist scout — the specialist files urgent per-entity reports on its own dedupe keys; the digest owns the morning synthesis.
 
@@ -259,6 +293,7 @@ The scout is the **judgment layer**: given that the upstream path already did it
     Bundle these into **one** finding per incident / root-cause / entity, aggregating the member items.
   - **Neglect (the safety-net variant).** An item that was detected and classified but got **no action** past a soak window — no linked PR, no human response, not marked fixed.
     The discriminator is what _didn't_ happen; boost by severity and customer-facing-ness.
+    This generalizes past detector output to **any queue humans are supposed to drain** — access requests, approval/moderation queues, support tickets with an SLA: pair each submission with its resolution event and flag items unactioned past the soak window, a burst an admin likely missed, or drift in the approval rate itself.
 - **Dedupe + memory:** key on the upstream system's own stable ids — the spike id, the monitor slug, the ticket number — never the event/row.
   `noise:<domain>:<entity>` allowlists internal / load-test / expected-ramp sources the detector keeps flagging.
 - **Corroborate outward:** the detector only sees its own stream; cross-check blast radius against a second source (is the org's overall event volume down too? does error tracking corroborate the ticket cluster?) before escalating.
@@ -307,6 +342,8 @@ These compose into any pattern above:
   The even-coverage cousin of the watchlist: a watchlist re-checks what matters most, a coverage map makes sure nothing is _never_ checked.
 - **Blast-radius corroboration** — turn a qualitative signal into a quantified one by cross-checking a second source over the same window.
   Raises confidence, and gives the human a number to act on.
+- **Leading-indicator proxies (watch the coping behavior, not the system)** — users route around a problem before telemetry names it, and their coping behavior is often the earliest available signal: a manual-refresh or re-sync spike when data goes stale, a surge in FAQ/help/contact-page traffic when something confuses, a rising share of requests blocked by a usage cap before an upgrade-or-churn decision.
+  Score the proxy against its own baseline like any metric, but frame the finding around the underlying problem it implies — and corroborate against the system's own health signals before claiming a cause.
 - **Opt-in scoping via tags** — let users opt entities into a scout by tagging them in PostHog (e.g. only funnels tagged `<scout-scope>` get scored).
   The tag is the configuration surface: users curate scope in the UI without touching the skill body, the quick close-out is "are any entities tagged?", and untagging is the off switch.
 - **Ready-to-paste handoff** — end a recommendation finding with the exact next action: a paste-able coding-agent prompt carrying the file:line references and the fix shape, or the name of the skill/command that applies it.

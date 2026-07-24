@@ -20,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-from .client import LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
+from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
@@ -33,6 +35,15 @@ module_logger = structlog.get_logger(__name__)
 # call volume exhausts LinkedIn's per-member/app daily budget and trips the 429 DAY throttle. Cap the
 # initial lookback like the other ad-reporting sources do (mirrors Bing Ads' 5-year window).
 INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
+
+
+class LinkedinAdsTokenRefreshError(Exception):
+    """The stored OAuth token expired and could not be refreshed. Its message is already user-facing
+    (see `get_non_retryable_errors`)."""
+
+
+class LinkedinAdsMissingTokenError(ValueError):
+    """Subclasses ValueError so callers that only expect a ValueError here keep working."""
 
 
 @dataclass
@@ -143,9 +154,11 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
-    """Initialize a LinkedIn Ads client with provided config."""
-    integration = _get_integration(config.linkedin_ads_integration_id, team_id)
+def linkedin_ads_client_for_integration(
+    integration_id: int, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client from an OAuth integration id."""
+    integration = _get_integration(integration_id, team_id)
 
     # LinkedIn access tokens expire (~60 days). Refresh a stale-but-refreshable token here so it gets
     # renewed instead of 401ing into a forced re-authorization. `access_token_expired` is a no-op when
@@ -154,13 +167,20 @@ def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> Linked
     if oauth_integration.access_token_expired():
         oauth_integration.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise Exception(
+            raise LinkedinAdsTokenRefreshError(
                 "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration."
             )
 
     if not integration.access_token:
-        raise ValueError("LinkedIn Ads integration does not have an access token")
-    return LinkedinAdsClient(integration.access_token)
+        raise LinkedinAdsMissingTokenError("LinkedIn Ads integration does not have an access token")
+    return LinkedinAdsClient(integration.access_token, api_version=api_version)
+
+
+def linkedin_ads_client(
+    config: LinkedinAdsSourceConfig, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client with provided config."""
+    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id, api_version=api_version)
 
 
 def linkedin_ads_source(
@@ -173,6 +193,7 @@ def linkedin_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    api_version: str = API_VERSION,
 ) -> SourceResponse:
     """A data warehouse LinkedIn Ads source.
 
@@ -183,7 +204,7 @@ def linkedin_ads_source(
     schema = get_schemas()[resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        client = linkedin_ads_client(config, team_id)
+        client = linkedin_ads_client(config, team_id, api_version=api_version)
         resource = LinkedinAdsResource(resource_name)
 
         # Determine date range for analytics resources

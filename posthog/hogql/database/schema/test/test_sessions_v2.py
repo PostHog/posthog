@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.utils import uuid7
+from posthog.uuidt import uuid7
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -872,6 +872,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             ["Organic Social"],
             ["Organic Video"],
             ["Organic Shopping"],
+            ["AI"],
             ["Push"],
             ["SMS"],
             ["Audio"],

@@ -1,5 +1,4 @@
 import { S3Client } from '@aws-sdk/client-s3'
-import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { Upload } from '@aws-sdk/lib-storage'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
@@ -36,11 +35,10 @@ function getS3Client(): S3Client {
             region: config.s3Region,
             ...(config.s3Endpoint ? { endpoint: config.s3Endpoint, forcePathStyle: true } : {}),
             ...(requestHandler ? { requestHandler } : {}),
-            // Route the IRSA credential-refresh STS call through the proxy too.
-            // The SDK's default credential provider spawns an internal STSClient
-            // that does NOT inherit our requestHandler — pass clientConfig so it
-            // does. Without this, S3 goes via smokescreen but STS dials direct.
-            ...(requestHandler ? { credentials: defaultProvider({ clientConfig: { requestHandler } }) } : {}),
+            // S3 goes through the proxy, but credential refresh must dial direct
+            // (the SDK does not honor NO_PROXY). The default credential provider
+            // does this on its own, so long as we don't hand it our proxied
+            // requestHandler.
         })
     }
     return s3Client

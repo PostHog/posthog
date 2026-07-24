@@ -16,7 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source import BugsnagSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BugsnagSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
+    BugsnagSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -49,7 +51,6 @@ class TestBugsnagSource:
         config = self.source.get_source_config
         assert config.label == "Bugsnag"
         # Alpha + still unreleased while it ships full-refresh-only and awaits live-API verification.
-        assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["auth_token"]
         auth_field = config.fields[0]

@@ -3,7 +3,7 @@ import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
-import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils/strings'
 
@@ -40,6 +40,15 @@ export const GET_HELP_BUTTON: ToastButton = {
     label: 'Get help',
     action: () => {
         window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast', '_blank')
+    },
+}
+
+// Fallback for when submitting a support ticket in-app fails: let the user reach us
+// directly by email instead of being sent back to the form that just failed.
+export const EMAIL_SUPPORT_BUTTON: ToastButton = {
+    label: 'Email us directly',
+    action: () => {
+        window.location.href = 'mailto:supportreply@posthog.com?subject=PostHog support request'
     },
 }
 

@@ -12,6 +12,7 @@ import typing
 from django.conf import settings
 
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -48,6 +49,25 @@ EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS = [
     300_000.0,  # 5m
 ]
 
+# Schedule-to-start latency is the queue-pressure signal: how long an activity sat in the task queue before
+# a worker picked it up. Buckets reach 30m (vs 5m for execution latency) because queue wait under backlog is
+# unbounded by the activity timeout; that is exactly the regime this histogram exists to observe.
+EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS = (
+    "experiment_metrics_recalculation_activity_schedule_to_start_latency",
+)
+EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS = [
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1s
+    5_000.0,  # 5s
+    10_000.0,  # 10s
+    30_000.0,  # 30s
+    60_000.0,  # 1m
+    300_000.0,  # 5m
+    600_000.0,  # 10m
+    1_800_000.0,  # 30m
+]
+
 # Bucket boundaries for `_activity_success_attempts` (counts the attempt number at which success was reached).
 # With `RetryPolicy(maximum_attempts=2)` today, only buckets [1, 2] are populated, but the wider range survives
 # a future policy change without needing a new histogram.
@@ -75,6 +95,14 @@ def increment_workflow_finished(status: str) -> None:
     ).add(1)
 
 
+def _failure_error_type(exc: BaseException) -> str:
+    """Low-cardinality label for the failure counter: the ApplicationError type set by the activity
+    (taxonomy strings like out_of_memory, or the backpressure class names), else the exception class name."""
+    if isinstance(exc, ApplicationError) and exc.type:
+        return exc.type
+    return type(exc).__name__
+
+
 class _ActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
         info = activity.info()
@@ -85,6 +113,14 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
         meter = activity.metric_meter().with_additional_attributes(
             {"activity_type": activity_type, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
         )
+        # Queue-pressure signal (see bucket comment above). Per-attempt scheduling time, so retry backoff
+        # (including the intentional quota-wait delays) doesn't read as queue pressure.
+        if info.current_attempt_scheduled_time and info.started_time:
+            meter.create_histogram_timedelta(
+                name="experiment_metrics_recalculation_activity_schedule_to_start_latency",
+                description="Time between the current attempt's scheduling and start (task queue wait).",
+                unit="ms",
+            ).record(info.started_time - info.current_attempt_scheduled_time)
         # Fires on every attempt (first run + each retry). Comparing this to `_activity_successes` reveals
         # retry rate; without it a transient ClickHouse blip is indistinguishable from a healthy first-try
         # success. Pattern mirrors batch_exports' `batch_exports_activity_attempts`.
@@ -103,8 +139,8 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
                 },
             ):
                 result = await super().execute_activity(input)
-        except Exception:
-            meter.create_counter(
+        except Exception as e:
+            meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
                 "experiment_metrics_recalculation_activity_failures",
                 "Number of failed experiment metrics recalculation activity executions.",
             ).add(1)

@@ -2,23 +2,29 @@ import re
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 import requests
 import structlog
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import (
     METABASE_ENDPOINTS,
     MetabaseEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
 
 HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
 
@@ -156,17 +162,42 @@ def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBo
     return {"X-Metabase-Session": token, "Accept": "application/json"}
 
 
-def _extract_items(data: Any) -> list[dict[str, Any]]:
-    """Normalize Metabase's two list shapes into a flat list of records.
+def _connection_error_message(error: Exception) -> str:
+    """Translate a low-level requests connection failure into a short, actionable message.
 
-    Some endpoints (``/api/card``, ``/api/dashboard``, ``/api/collection``) return a bare JSON
-    array; others (``/api/database``, ``/api/user``) wrap it as ``{"data": [...], "total": N}``.
+    requests surfaces these as host-revealing blobs (e.g. "HTTPSConnectionPool(host='<ip>',
+    port=3000): ... SSLError(... WRONG_VERSION_NUMBER ...)"). Returning that verbatim leaks the
+    customer's host/IP and tells them nothing they can act on.
     """
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    if isinstance(data, dict) and isinstance(data.get("data"), list):
-        return [item for item in data["data"] if isinstance(item, dict)]
-    return []
+    # Match on the exception type first: substring checks against str(error) alone would misfire on
+    # a hostname that happens to contain "ssl"/"timeout" (e.g. https://sslserver.com).
+    text = str(error).lower()
+    if isinstance(error, requests.exceptions.SSLError):
+        if "wrong_version_number" in text:
+            return (
+                "Couldn't establish a secure (HTTPS) connection to your Metabase instance. "
+                "PostHog connects over HTTPS, so the instance must be served over HTTPS. Check the Instance URL."
+            )
+        return (
+            "Couldn't establish a secure (TLS) connection to your Metabase instance. "
+            "Check that the Instance URL is correct and its TLS certificate is valid."
+        )
+    if isinstance(error, requests.exceptions.Timeout):
+        return (
+            "Connecting to your Metabase instance timed out. "
+            "Check that the Instance URL is correct and reachable from the public internet."
+        )
+    if isinstance(error, requests.exceptions.ConnectionError) and (
+        "name or service not known" in text or "nodename nor servname" in text or "failed to resolve" in text
+    ):
+        return (
+            "Couldn't resolve the Metabase host. "
+            "Check that the Instance URL is spelled correctly and reachable from the public internet."
+        )
+    return (
+        "Couldn't connect to your Metabase instance. "
+        "Check that the Instance URL is correct and reachable from the public internet."
+    )
 
 
 def validate_credentials(
@@ -201,7 +232,7 @@ def validate_credentials(
     try:
         response = session.get(f"{base_url}/api/user/current", headers=headers, timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _connection_error_message(e)
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -231,6 +262,7 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     team_id: int,
+    job_id: str = "",
 ) -> Iterator[list[dict[str, Any]]]:
     config = METABASE_ENDPOINTS[endpoint]
     base_url = normalize_host(host)
@@ -241,43 +273,38 @@ def get_rows(
     if not host_ok:
         raise MetabaseHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
+    # Resolve auth once (session auth mints a short-lived token here via one POST /api/session).
+    # The secret rides in a header via the framework auth config so it's scrubbed from any raised
+    # error; the tracked session's value redaction covers it (and the creds/token) in logs/samples.
     headers = _resolve_auth_headers(base_url, auth, logger)
+    if "x-api-key" in headers:
+        auth_header_name, secret = "x-api-key", headers["x-api-key"]
+    else:
+        auth_header_name, secret = "X-Metabase-Session", headers["X-Metabase-Session"]
+
     session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))
 
-    url = f"{base_url}{config.path}"
-    if config.params:
-        url = f"{url}?{urlencode(config.params)}"
+    endpoint_config: Endpoint = {"path": config.path, "params": dict(config.params)}
+    if config.data_selector:
+        endpoint_config["data_selector"] = config.data_selector
 
-    @retry(
-        retry=retry_if_exception_type((MetabaseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch(page_url: str) -> requests.Response:
-        # Don't follow redirects: a customer-controlled host could 3xx to an internal address,
-        # bypassing the host check above (SSRF).
-        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "name": auth_header_name, "api_key": secret, "location": "header"},
+            # Metabase list endpoints are unpaginated — one request returns the whole collection.
+            "paginator": SinglePagePaginator(),
+            # A pre-built tracked session carries the value redaction; disabling redirects rejects a
+            # customer-controlled host that 3xx-es toward an internal address (SSRF).
+            "session": session,
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise MetabaseRetryableError(
-                f"Metabase API error (retryable): status={response.status_code}, url={page_url}"
-            )
-        if response.is_redirect or response.is_permanent_redirect:
-            raise MetabaseHostNotAllowedError(
-                f"Metabase API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-        if not response.ok:
-            logger.error(f"Metabase API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
-
-    # Metabase list endpoints are unpaginated — one request returns the whole collection.
-    response = fetch(url)
-    items = _extract_items(response.json())
-    if items:
-        yield items
+    yield from rest_api_resource(rest_config, team_id, job_id, None)
 
 
 def metabase_source(
@@ -286,12 +313,13 @@ def metabase_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     team_id: int,
+    job_id: str = "",
 ) -> SourceResponse:
     config: MetabaseEndpointConfig = METABASE_ENDPOINTS[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(host=host, auth=auth, endpoint=endpoint, logger=logger, team_id=team_id),
+        items=lambda: get_rows(host=host, auth=auth, endpoint=endpoint, logger=logger, team_id=team_id, job_id=job_id),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

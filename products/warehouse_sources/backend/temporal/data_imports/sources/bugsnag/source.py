@@ -30,13 +30,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BugsnagSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
+    BugsnagSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2",)  # Data Access API X-Version header value
+    default_version = "2"
+    api_docs_url = "https://developer.smartbear.com/bugsnag/docs/data-access"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -54,7 +59,6 @@ class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
 You can generate a personal auth token in the **My Account** section of your [BugSnag account settings](https://app.bugsnag.com/settings/my-account/). The token inherits your account's access, so it can read every organization and project you can see.""",
             iconPath="/static/services/bugsnag.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bugsnag",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -93,6 +97,7 @@ You can generate a personal auth token in the **My Account** section of your [Bu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
@@ -120,7 +125,11 @@ You can generate a personal auth token in the **My Account** section of your [Bu
         return schemas
 
     def validate_credentials(
-        self, config: BugsnagSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BugsnagSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_bugsnag_credentials(config.auth_token)
 

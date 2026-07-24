@@ -6,7 +6,7 @@ from unittest import mock
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NoCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocrm import NoCRMResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -25,7 +25,6 @@ class TestNoCRMSource:
         config = self.source.get_source_config
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/nocrm"
         # Behind the release gate while in alpha.
-        assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["subdomain", "api_key"]
 
@@ -114,6 +113,8 @@ class TestNoCRMSource:
         assert captured["api_key"] == "key"
         assert captured["subdomain"] == "acme"
         assert captured["endpoint"] == "leads"
+        assert captured["team_id"] is inputs.team_id
+        assert captured["job_id"] is inputs.job_id
         assert captured["resumable_source_manager"] is manager
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"

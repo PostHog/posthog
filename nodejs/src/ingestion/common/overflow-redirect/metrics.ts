@@ -43,7 +43,8 @@ export const overflowRedirectCacheSize = new Gauge({
 export const overflowRedirectRateLimitDecisions = new Counter({
     name: 'overflow_redirect_rate_limit_decisions_total',
     help: 'Total number of rate limit decisions',
-    labelNames: ['type', 'decision'], // decision: 'allowed' | 'exceeded'
+    // strategy: OverflowStrategy.label of the strategy that decided (e.g. 'event_rate')
+    labelNames: ['type', 'strategy', 'decision'], // decision: 'allowed' | 'exceeded'
 })
 
 // Redirect source metrics - tracks WHERE the redirect decision came from

@@ -31,13 +31,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BoldSignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.boldsign import (
+    BoldSignSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.boldsign.com"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -50,7 +55,6 @@ class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]
             category=DataWarehouseSourceCategory.SALES,
             label="BoldSign",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your BoldSign API key to pull your eSignature documents, templates, and contacts into the PostHog Data warehouse.
 
 Create an API key in your [BoldSign account settings](https://app.boldsign.com/settings) under **API** → **API Key**. API keys carry all scopes by default.
@@ -92,7 +96,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # 401/403 surface as a requests HTTPError when the REST client calls `raise_for_status()`.
             # Retrying can never satisfy a credential problem, so stop the sync. Match the stable
             # status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.boldsign.com": "Your BoldSign API key is invalid or has been revoked. Create a new key in your BoldSign account settings, then reconnect.",
@@ -108,6 +112,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -128,7 +133,11 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
         return schemas
 
     def validate_credentials(
-        self, config: BoldSignSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BoldSignSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_boldsign_credentials(config.region, config.api_key)
 
@@ -145,6 +154,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
             region=config.region,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

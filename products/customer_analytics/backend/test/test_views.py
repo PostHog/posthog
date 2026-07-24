@@ -15,8 +15,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
@@ -28,11 +30,14 @@ from products.customer_analytics.backend.models import (
     CustomPropertyDefinition,
     CustomPropertySource,
     DisplayType,
+    TargetType,
 )
 from products.customer_analytics.backend.models.account import AccountAssignment
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -1960,6 +1965,305 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
+
+    def _person_definition_and_schema(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Plan tier", target_type=TargetType.PERSON.value
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+        return definition, schema
+
+    def test_create_person_source_round_trip(self):
+        # Wiring guard: the viewset routes a person-target source through serializer + facade.
+        definition, schema = self._person_definition_and_schema()
+
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        body = created.json()
+        assert body["external_data_schema"] == str(schema.id)
+        assert body["column_property_map"] == {"plan": "plan_tier"}
+        assert body["saved_query"] is None
+
+    def test_create_person_source_with_account_binding_is_rejected(self):
+        definition, _schema = self._person_definition_and_schema()
+
+        response = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _create_person_source(self):
+        definition, schema = self._person_definition_and_schema()
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_person_source_actions_are_flag_gated(self, _flag):
+        # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
+        # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        source_id = self._create_person_source()
+        for action in ("sync", "backfill"):
+            response = self.client.post(f"{self.endpoint}{source_id}/{action}/")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, (action, response.content)
+
+    @patch("products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True)
+    @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
+        # Wiring guard: the actions route through the facade to the temporal seam, return the typed
+        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        source_id = self._create_person_source()
+
+        synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
+        assert synced.status_code == status.HTTP_202_ACCEPTED, synced.content
+        assert synced.json()["status"] == "triggered"
+        mock_trigger_sync.assert_called_once()
+
+        backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
+        assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
+        assert backfilled.json() == {"status": "started", "already_running": False}
+        mock_start_backfill.assert_called_once()
+
+        runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
+        assert runs.status_code == status.HTTP_200_OK
+        assert any(run["status"] == "running" for run in runs.json()["results"])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_create_group_definition_and_source_round_trip(self, _flag):
+        # Group support: a group definition carries a group_type_index, and its source binds the same
+        # warehouse way as a person source (external_data_schema + column_property_map + key_column).
+        definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        definition = self.client.post(
+            definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        assert definition.json()["group_type_index"] == 0
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        assert created.json()["external_data_schema"] == str(schema.id)
+
+    @parameterized.expand(
+        [
+            ("group_without_index", {"target_type": "group"}),
+            ("index_without_group", {"target_type": "person", "group_type_index": 0}),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_type_index_validation(self, _name, extra, _flag):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/custom_property_definitions/",
+            {"name": "X", "display_type": "text", **extra},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
+class TestCustomPropertyGroupScope(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.definitions_endpoint = f"/api/projects/{self.team.id}/custom_property_definitions/"
+        self.sources_endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
+    @parameterized.expand(
+        [
+            ("account_only", ["account:write", "group:read"], status.HTTP_403_FORBIDDEN),
+            ("with_group_write", ["account:write", "group:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_create_requires_group_write_scope(self, _name, scopes, expected, _flag):
+        # Group-target definitions write group properties, so an account-scoped token must also carry
+        # group:write — a regression that drops this guard would let an account-only key configure the
+        # group-writing pipeline.
+        token = self._token(scopes)
+        response = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == expected, response.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_mutation_requires_group_write_scope(self, _flag):
+        # An account-only token must not be able to enable/mutate a source feeding a group definition.
+        # The group def + source are set up as an admin session, which the scope check exempts.
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        token = self._token(["account:write", "group:read"])
+        patched = self.client.patch(
+            f"{self.sources_endpoint}{source_id}/",
+            {"is_enabled": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert patched.status_code == status.HTTP_403_FORBIDDEN, patched.content
+
+    def _create_group_definition_and_source(self):
+        definition = self.client.post(
+            self.definitions_endpoint,
+            {"name": "Plan tier", "display_type": "text", "target_type": "group", "group_type_index": 0},
+            format="json",
+        )
+        assert definition.status_code == status.HTTP_201_CREATED, definition.content
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="orgs")
+        created = self.client.post(
+            self.sources_endpoint,
+            {
+                "definition": definition.json()["id"],
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier"},
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        return definition.json()["id"], created.json()["id"]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_reads_require_group_read_scope(self, _flag):
+        # A token without group read must not see group-target definitions in the list or detail;
+        # group:read makes them visible again.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert def_id not in [d["id"] for d in listed.json()["results"]]
+        detail = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
+
+        group_token = self._token(["account:read", "group:read"])
+        listed2 = self.client.get(self.definitions_endpoint, headers={"authorization": f"Bearer {group_token}"})
+        assert def_id in [d["id"] for d in listed2.json()["results"]]
+        detail2 = self.client.get(
+            f"{self.definitions_endpoint}{def_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_source_reads_require_group_read_scope(self, _flag):
+        # Sources feeding a group definition are hidden from list and detail without group read.
+        # (The runs action rejects personal API keys outright, so it isn't reachable via a token.)
+        _, source_id = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        listed = self.client.get(self.sources_endpoint, headers={"authorization": f"Bearer {account_token}"})
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert source_id not in [s["id"] for s in listed.json()["results"]]
+        detail = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {account_token}"}
+        )
+        assert detail.status_code == status.HTTP_404_NOT_FOUND, detail.content
+
+        group_token = self._token(["account:read", "group:read"])
+        detail2 = self.client.get(
+            f"{self.sources_endpoint}{source_id}/", headers={"authorization": f"Bearer {group_token}"}
+        )
+        assert detail2.status_code == status.HTTP_200_OK, detail2.content
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_group_definition_value_suggestions_require_group_read_scope(self, _flag):
+        # The values action loads a definition by id, so it must apply the same group-read gate as
+        # list/detail — an account-only token must not read a group-target definition's suggestions.
+        def_id, _ = self._create_group_definition_and_source()
+
+        account_token = self._token(["account:read"])
+        denied = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {account_token}"},
+        )
+        assert denied.status_code == status.HTTP_404_NOT_FOUND, denied.content
+
+        group_token = self._token(["account:read", "group:read"])
+        allowed = self.client.get(
+            f"{self.definitions_endpoint}values/?key={def_id}",
+            headers={"authorization": f"Bearer {group_token}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
 
 class TestAccountNotesViewSet(APIBaseTest):

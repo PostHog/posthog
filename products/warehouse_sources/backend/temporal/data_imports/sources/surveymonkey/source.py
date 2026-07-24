@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SurveyMonkeySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveymonkey import (
+    SurveyMonkeySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.settings import (
     DATA_CENTER_BASE_URLS,
     DEFAULT_DATA_CENTER,
@@ -44,6 +46,10 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://api.surveymonkey.com/v3/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -114,6 +120,7 @@ Make sure to grant the following read scopes:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -130,7 +137,11 @@ Make sure to grant the following read scopes:
         return schemas
 
     def validate_credentials(
-        self, config: SurveyMonkeySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SurveyMonkeySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_surveymonkey_credentials(config.access_token, _base_url_for(config))
 
@@ -147,7 +158,8 @@ Make sure to grant the following read scopes:
             access_token=config.access_token,
             base_url=_base_url_for(config),
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -5,7 +5,7 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source import ClerkSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ClerkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

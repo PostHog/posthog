@@ -27,13 +27,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlphaVantageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alphavantage import (
+    AlphaVantageSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.alphavantage.co/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -62,6 +65,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Alpha Vantage has no server-side updated-at cursor, so every table is full refresh only.
         schemas = [
@@ -84,7 +88,11 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: AlphaVantageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AlphaVantageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         _, symbols_error = validate_symbols(config.symbols)
         if symbols_error:
@@ -115,7 +123,6 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["stocks", "market data", "financial", "equities", "fundamentals"],
             caption="""Enter your Alpha Vantage API key and the stock symbols you want to track to pull market data and company fundamentals into the PostHog Data warehouse.
 

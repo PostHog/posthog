@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CimisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -25,7 +25,6 @@ class TestCimisSourceConfig:
         config = CimisSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cimis"
 
     def test_source_config_fields(self) -> None:

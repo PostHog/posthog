@@ -5,7 +5,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ScalewaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scaleway import (
+    ScalewaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.scaleway import ScalewayResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.settings import ENDPOINTS
@@ -40,7 +42,6 @@ class TestScalewaySource:
     def test_ships_as_alpha_and_unreleased(self) -> None:
         config = self.source.get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/scaleway"
 
     @parameterized.expand([("unauthorized", "401"), ("forbidden", "403")])

@@ -5,6 +5,7 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -23,6 +24,7 @@
         "@testing-library/dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
+        "@tiptap/core": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

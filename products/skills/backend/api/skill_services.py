@@ -7,7 +7,13 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata
+from ..models.skills import (
+    LLMSkill,
+    LLMSkillFile,
+    LLMSkillOwner,
+    annotate_llm_skill_version_history_metadata,
+    category_for_skill_name,
+)
 
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
@@ -46,6 +52,13 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@dataclass
+class LLMSkillOwnerNotFoundError(Exception):
+    """A user_uuid passed as an owner is not a member of the team (has no access)."""
+
+    user_uuid: str
 
 
 @dataclass
@@ -355,6 +368,7 @@ def create_skill(
                 name=name,
                 description=description,
                 body=body,
+                category=category_for_skill_name(name),
                 license=license or "",
                 compatibility=compatibility or "",
                 allowed_tools=allowed_tools or [],
@@ -368,6 +382,9 @@ def create_skill(
             if "unique_llm_skill_latest_per_team" in err_str or "unique_llm_skill_version_per_team" in err_str:
                 raise LLMSkillDuplicateNameConflictError() from err
             raise
+
+        # The creator owns the skill by default — durable, not reconstructed from version history.
+        seed_skill_owner(team, name, user)
 
         if files:
             try:
@@ -437,6 +454,10 @@ def duplicate_skill(
             if "unique_llm_skill_latest_per_team" in str(err) or "unique_llm_skill_version_per_team" in str(err):
                 raise LLMSkillDuplicateNameConflictError() from err
             raise
+
+        # A duplicate is a brand-new, user-authored skill: the duplicating user owns it, not the
+        # source's owners (who never chose to own this fork).
+        seed_skill_owner(team, new_name, user)
 
         _copy_files(source_latest, new_skill)
 
@@ -597,4 +618,121 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
             is_latest=False,
             updated_at=timezone.now(),
         )
+        # Owners are keyed on the logical `(team, skill_name)`, so they'd otherwise outlive the
+        # archived skill and attach to a later skill that reuses the name. Retire them with it.
+        clear_skill_owners(team, skill_name)
     return skill_versions
+
+
+# --- Skill owners ---------------------------------------------------------------------------------
+# Owners are keyed on the *logical* skill `(team, skill_name)`, so nothing here touches a version row:
+# editing a skill body never changes who owns it. Every read and write goes through `_owner_qs`, which
+# scopes to the *exact* environment team (`canonical=True` skips the child→parent resolution) so owners
+# line up with `LLMSkill`'s environment scoping — see the `LLMSkillOwner` model docstring.
+
+
+def _owner_qs(team: Team) -> "QuerySet[LLMSkillOwner]":
+    """Owner rows scoped to the exact environment team (not the canonical parent).
+
+    `canonical=True` tells `for_team` the id is the scope to filter on as-is; it does not mean the id
+    *is* canonical here — it deliberately bypasses the parent resolution so environment-scoped skills
+    and their owners share one key. Works inside a request and outside one (harness, commands).
+    """
+    return LLMSkillOwner.objects.for_team(team.id, canonical=True)
+
+
+def resolve_owner_users(team: Team, user_uuids: list[str]) -> list[User]:
+    """Resolve owner UUIDs to team members, preserving order and deduping.
+
+    Fail-loud: a UUID that isn't a member with access raises `LLMSkillOwnerNotFoundError` rather than
+    silently dropping — an owner who can't be resolved could never be routed a review anyway, and a
+    quietly-lost owner is exactly the misattribution this primitive exists to prevent.
+    """
+    members = {str(u.uuid): u for u in team.all_users_with_access()}
+    resolved: list[User] = []
+    seen: set[str] = set()
+    for raw_uuid in user_uuids:
+        uuid = str(raw_uuid)
+        if uuid in seen:
+            continue
+        seen.add(uuid)
+        user = members.get(uuid)
+        if user is None:
+            raise LLMSkillOwnerNotFoundError(user_uuid=uuid)
+        resolved.append(user)
+    return resolved
+
+
+def resolve_skill_owners(team: Team, skill_name: str) -> list[User]:
+    """Owners of a logical skill, seed-creator first (earliest `created_at`).
+
+    Restricted to `team.all_users_with_access()`: an owner row survives a member losing access
+    (rows aren't cascade-cleaned on access revocation), and this read path serializes the user
+    through `UserBasicSerializer` on `skill-get` / `skill-list` (both MCP-exposed), so a former
+    member's profile must not keep flowing out — matching the write and scout-prompt paths.
+    """
+    rows = (
+        _owner_qs(team)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .select_related("user")
+        .order_by("created_at", "id")
+    )
+    return [row.user for row in rows]
+
+
+def resolve_skill_owners_for_names(team: Team, skill_names: list[str]) -> dict[str, list[User]]:
+    """Batch `resolve_skill_owners` for many skills in one query — for the list endpoint's N rows.
+
+    Same current-access filter as `resolve_skill_owners` so the list endpoint never leaks a former
+    member's profile or reports an unroutable owner.
+    """
+    if not skill_names:
+        return {}
+    rows = (
+        _owner_qs(team)
+        .filter(skill_name__in=skill_names, user__in=team.all_users_with_access())
+        .select_related("user")
+        .order_by("created_at", "id")
+    )
+    owners_by_name: dict[str, list[User]] = {}
+    for row in rows:
+        owners_by_name.setdefault(row.skill_name, []).append(row.user)
+    return owners_by_name
+
+
+def clear_skill_owners(team: Team, skill_name: str) -> None:
+    """Drop every owner row for a logical skill — called on archive so a later skill that reuses the
+    name (recreate / import / duplicate) doesn't inherit the archived skill's owners."""
+    _owner_qs(team).filter(skill_name=skill_name).delete()
+
+
+def seed_skill_owner(team: Team, skill_name: str, user: User) -> None:
+    """Idempotently record `user` as an owner — the default seed on skill creation.
+
+    Routed through `_owner_qs` (not the ambient-context manager) so it works both inside a request and
+    outside one (harness, management commands).
+    """
+    _owner_qs(team).get_or_create(team=team, skill_name=skill_name, user=user)
+
+
+def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[User]:
+    """Replace the owner set for a logical skill with `users` (deduped, order preserved).
+
+    An empty list clears all owners. This is the explicit owner-management op — it is only ever
+    called when a caller passes `owners`, never as a side effect of a body edit.
+    """
+    seen: set[int] = set()
+    ordered: list[User] = []
+    for user in users:
+        if user.pk in seen:
+            continue
+        seen.add(user.pk)
+        ordered.append(user)
+
+    with transaction.atomic():
+        _owner_qs(team).filter(skill_name=skill_name).delete()
+        for user in ordered:
+            # One-by-one (not bulk_create) so `save()` runs per row; `_owner_qs` scoping keeps the
+            # write context-independent (works outside a request too).
+            _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
+    return resolve_skill_owners(team, skill_name)

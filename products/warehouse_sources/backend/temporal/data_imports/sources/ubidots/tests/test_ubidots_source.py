@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UbidotsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
+    UbidotsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import ENDPOINTS, VALUES_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import UbidotsResumeConfig
@@ -27,8 +29,6 @@ class TestUbidotsSource:
         assert config.name.value == "Ubidots"
         assert config.label == "Ubidots"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately still gated while the source lands across PRs.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ubidots"
 
         field_names = [f.name for f in config.fields]

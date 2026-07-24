@@ -11,7 +11,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubplannerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubplanner import (
+    HubplannerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.hubplanner import (
     HubPlannerResumeConfig,
@@ -33,7 +35,6 @@ class TestHubplannerSource:
         config = self.source.get_source_config
         assert config.label == "Hub Planner"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hubplanner"
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AccountCustomPropertyFilter,
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -42,6 +43,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
@@ -726,6 +728,7 @@ def property_to_expr(
         | EventMetadataPropertyFilter
         | PersonMetadataPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | AccountCustomPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -876,6 +879,7 @@ def property_to_expr(
         or property.type == "span_attribute"
         or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
+        or property.type == "account_custom_property"
         or property.type == "workflow_variable"
     ):
         if (
@@ -884,6 +888,9 @@ def property_to_expr(
             or (scope != "event" and property.type == "event_metadata")
             or (scope == "revenue_analytics" and property.type != "revenue_analytics")
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
+            # Account custom properties resolve inside customer analytics queries only;
+            # no generic HogQL scope can join them, so fail loudly instead of no-oping.
+            or property.type == "account_custom_property"
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
 
@@ -1009,12 +1016,9 @@ def property_to_expr(
             # Use the all_urls array field to filter for pages visited during recording.
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
-        is_exception_string_array_property = property.type == "event" and property.key in [
-            "$exception_types",
-            "$exception_values",
-            "$exception_sources",
-            "$exception_functions",
-        ]
+        is_exception_string_array_property = (
+            property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
+        )
 
         if is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them

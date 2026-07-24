@@ -1,8 +1,10 @@
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { HealthCheckResultOk } from '~/types'
 
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
-import { OverflowEventBatch } from './overflow-redirect-service'
+import { OverflowEventGroup } from './overflow-redirect-service'
 import { OverflowRedisRepository } from './overflow-redis-repository'
+import { eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     batchCheck: jest.fn().mockResolvedValue(new Map()),
@@ -11,14 +13,16 @@ const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     healthCheck: jest.fn().mockResolvedValue(new HealthCheckResultOk()),
 })
 
-const createBatch = (
+const createGroup = (
     token: string,
     distinctId: string,
     eventCount: number = 1,
     firstTimestamp: number = Date.now()
-): OverflowEventBatch => ({
+): OverflowEventGroup => ({
     key: { token, distinctId },
-    eventCount,
+    headersPerEvent: Array.from({ length: eventCount }, () =>
+        createTestEventHeaders({ token, distinct_id: distinctId })
+    ),
     firstTimestamp,
 })
 
@@ -30,8 +34,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
-            bucketCapacity: 10,
-            replenishRate: 1,
+            strategies: [{ ...eventRateStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
         })
@@ -44,7 +47,7 @@ describe('MainLaneOverflowRedirect', () => {
 
     describe('handleEventBatch', () => {
         it('returns empty set when no events exceed rate limit', async () => {
-            const batch = [createBatch('token1', 'user1', 5)]
+            const batch = [createGroup('token1', 'user1', 5)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -53,7 +56,7 @@ describe('MainLaneOverflowRedirect', () => {
 
         it('returns keys that exceed rate limit', async () => {
             // Bucket capacity is 10, so 15 events should exceed
-            const batch = [createBatch('token1', 'user1', 15)]
+            const batch = [createGroup('token1', 'user1', 15)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -62,7 +65,7 @@ describe('MainLaneOverflowRedirect', () => {
         })
 
         it('flags newly rate-limited keys in Redis', async () => {
-            const batch = [createBatch('token1', 'user1', 15)]
+            const batch = [createGroup('token1', 'user1', 15)]
 
             await service.handleEventBatch(batch)
 
@@ -70,7 +73,7 @@ describe('MainLaneOverflowRedirect', () => {
         })
 
         it('checks Redis for keys not in local cache', async () => {
-            const batch = [createBatch('token1', 'user1', 5)]
+            const batch = [createGroup('token1', 'user1', 5)]
 
             await service.handleEventBatch(batch)
 
@@ -80,7 +83,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('returns keys that are already flagged in Redis', async () => {
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
-            const batch = [createBatch('token1', 'user1', 1)]
+            const batch = [createGroup('token1', 'user1', 1)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -92,14 +95,14 @@ describe('MainLaneOverflowRedirect', () => {
             // First call: Redis says key is flagged
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
-            const batch1 = [createBatch('token1', 'user1', 1)]
+            const batch1 = [createGroup('token1', 'user1', 1)]
             await service.handleEventBatch(batch1)
 
             // Reset mock
             mockRepository.batchCheck.mockClear()
 
             // Second call: should use cache, not repository
-            const batch2 = [createBatch('token1', 'user1', 1)]
+            const batch2 = [createGroup('token1', 'user1', 1)]
             const result = await service.handleEventBatch(batch2)
 
             expect(result.size).toBe(1)
@@ -111,7 +114,7 @@ describe('MainLaneOverflowRedirect', () => {
             // First call: key not in Redis
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
 
-            const batch1 = [createBatch('token1', 'user1', 1)]
+            const batch1 = [createGroup('token1', 'user1', 1)]
             await service.handleEventBatch(batch1)
 
             // Reset mock
@@ -119,7 +122,7 @@ describe('MainLaneOverflowRedirect', () => {
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
             // Second call: should use cache (null), not check repository again
-            const batch2 = [createBatch('token1', 'user1', 1)]
+            const batch2 = [createGroup('token1', 'user1', 1)]
             await service.handleEventBatch(batch2)
 
             expect(mockRepository.batchCheck).not.toHaveBeenCalled()
@@ -134,8 +137,8 @@ describe('MainLaneOverflowRedirect', () => {
             )
 
             const batch = [
-                createBatch('token1', 'user1', 5), // Below limit
-                createBatch('token1', 'user2', 15), // Exceeds limit
+                createGroup('token1', 'user1', 5), // Below limit
+                createGroup('token1', 'user2', 15), // Exceeds limit
             ]
 
             const result = await service.handleEventBatch(batch)
@@ -147,9 +150,9 @@ describe('MainLaneOverflowRedirect', () => {
 
         it('batches all keys in a single batchCheck call', async () => {
             const batch = [
-                createBatch('token1', 'user1', 1),
-                createBatch('token1', 'user2', 1),
-                createBatch('token2', 'user1', 1),
+                createGroup('token1', 'user1', 1),
+                createGroup('token1', 'user2', 1),
+                createGroup('token2', 'user1', 1),
             ]
 
             await service.handleEventBatch(batch)
@@ -169,7 +172,7 @@ describe('MainLaneOverflowRedirect', () => {
             // Simulate repository fail-open by returning the default "not flagged" result
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
 
-            const batch = [createBatch('token1', 'user1', 5)]
+            const batch = [createGroup('token1', 'user1', 5)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -179,7 +182,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('still redirects based on rate limit even when batchFlag is a no-op', async () => {
             // Even if batchFlag does nothing (e.g. repository fail-open), the local
             // rate limit decision still causes a redirect for this batch
-            const batch = [createBatch('token1', 'user1', 15)]
+            const batch = [createGroup('token1', 'user1', 15)]
 
             const result = await service.handleEventBatch(batch)
 
@@ -191,12 +194,12 @@ describe('MainLaneOverflowRedirect', () => {
     describe('rate limiting behavior', () => {
         it('rate limit state persists across batches', async () => {
             // First batch: consume 8 of 10 tokens
-            const batch1 = [createBatch('token1', 'user1', 8)]
+            const batch1 = [createGroup('token1', 'user1', 8)]
             const result1 = await service.handleEventBatch(batch1)
             expect(result1.size).toBe(0)
 
             // Second batch: consume 3 more tokens (total 11, exceeds 10)
-            const batch2 = [createBatch('token1', 'user1', 3)]
+            const batch2 = [createGroup('token1', 'user1', 3)]
             const result2 = await service.handleEventBatch(batch2)
             expect(result2.size).toBe(1)
             expect(result2.has('token1:user1')).toBe(true)
@@ -204,15 +207,62 @@ describe('MainLaneOverflowRedirect', () => {
 
         it('different keys have independent rate limits', async () => {
             // Exhaust tokens for user1
-            const batch1 = [createBatch('token1', 'user1', 15)]
+            const batch1 = [createGroup('token1', 'user1', 15)]
             await service.handleEventBatch(batch1)
 
             // user2 should still have tokens
-            const batch2 = [createBatch('token1', 'user2', 5)]
+            const batch2 = [createGroup('token1', 'user2', 5)]
             const result = await service.handleEventBatch(batch2)
 
             expect(result.size).toBe(0)
         })
+    })
+
+    describe('merge event rate strategy', () => {
+        const createMergeAwareService = (): MainLaneOverflowRedirect =>
+            createService({
+                strategies: [
+                    { ...eventRateStrategy(), bucketCapacity: 100, replenishRate: 1 },
+                    { ...mergeEventRateStrategy(), bucketCapacity: 3, replenishRate: 0.01 },
+                ],
+            })
+
+        const createGroupWithEvents = (
+            token: string,
+            distinctId: string,
+            eventNames: (string | undefined)[]
+        ): OverflowEventGroup => ({
+            key: { token, distinctId },
+            headersPerEvent: eventNames.map((event) =>
+                createTestEventHeaders({ token, distinct_id: distinctId, event })
+            ),
+            firstTimestamp: Date.now(),
+        })
+
+        it.each(['$identify', '$create_alias', '$merge_dangerously'])(
+            'redirects a key whose %s rate exceeds the merge bucket while under the event bucket',
+            async (eventName) => {
+                const mergeAwareService = createMergeAwareService()
+                const batch = [createGroupWithEvents('token1', 'user1', Array(5).fill(eventName))]
+
+                const result = await mergeAwareService.handleEventBatch(batch)
+
+                expect(result.has('token1:user1')).toBe(true)
+            }
+        )
+
+        it.each([['$pageview'], [undefined]])(
+            'does not count non-merge events (%s) against the merge bucket',
+            async (eventName) => {
+                const mergeAwareService = createMergeAwareService()
+                // 50 events: over the merge bucket capacity (3) but under the event bucket (100)
+                const batch = [createGroupWithEvents('token1', 'user1', Array(50).fill(eventName))]
+
+                const result = await mergeAwareService.handleEventBatch(batch)
+
+                expect(result.size).toBe(0)
+            }
+        )
     })
 
     describe('healthCheck', () => {
@@ -228,7 +278,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('clears local cache', async () => {
             // Populate cache
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
-            await service.handleEventBatch([createBatch('token1', 'user1', 1)])
+            await service.handleEventBatch([createGroup('token1', 'user1', 1)])
 
             await service.shutdown()
 
@@ -236,7 +286,7 @@ describe('MainLaneOverflowRedirect', () => {
             // Next call should check repository again
             mockRepository.batchCheck.mockClear()
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
-            await service.handleEventBatch([createBatch('token1', 'user1', 1)])
+            await service.handleEventBatch([createGroup('token1', 'user1', 1)])
 
             expect(mockRepository.batchCheck).toHaveBeenCalled()
         })

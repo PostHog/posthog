@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WritesonicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
+    WritesonicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -38,6 +40,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class WritesonicSource(ResumableSource[WritesonicSourceConfig, WritesonicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.writesonic.com/reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -67,7 +72,6 @@ You'll need:
             iconPath="/static/services/writesonic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/writesonic",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["seo", "geo", "ai visibility", "content marketing"],
             fields=cast(
                 list[FieldType],
@@ -114,6 +118,7 @@ You'll need:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -134,7 +139,11 @@ You'll need:
         return schemas
 
     def validate_credentials(
-        self, config: WritesonicSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WritesonicSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_writesonic_credentials(
             api_key=config.api_key,

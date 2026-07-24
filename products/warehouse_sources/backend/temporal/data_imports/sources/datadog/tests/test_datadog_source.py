@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.se
     LIMITED_RETENTION_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DatadogSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
+    DatadogSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"logs", "audit_logs", "events"}

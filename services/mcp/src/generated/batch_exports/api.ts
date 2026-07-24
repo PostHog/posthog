@@ -12,7 +12,7 @@ export const BatchExportsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -25,7 +25,7 @@ export const BatchExportsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -41,6 +41,7 @@ export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefa
 export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -52,10 +53,10 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
             .enum(['events', 'persons', 'sessions'])
-            .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions')
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
             ),
         destination: zod
             .union([
@@ -87,7 +88,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Databricks batch-export destination.'),
@@ -111,20 +112,20 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet'
+                                        'File format used for exported objects.\n\n\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -134,7 +135,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an Azure Blob Storage batch-export destination.'),
@@ -161,7 +162,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
@@ -192,7 +193,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -215,20 +216,20 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                        'File format used for exported objects.\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -248,7 +249,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe("KMS key ID to use when encryption is 'aws:kms'."),
                             })
                             .describe(
-                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an AWS S3 batch-export destination.'),
@@ -271,20 +272,20 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                        'File format used for exported objects.\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -300,26 +301,56 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe('Use virtual-hosted-style addressing rather than path-style.'),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
             .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
             .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
+                '\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             )
             .describe(
-                'How often the batch export should run.\n\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
+                'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         timezone: zod
             .string()
             .nullish()
             .describe(
-                "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+                "IANA timezone name (e.g. 'America\/New_York', 'Europe\/London', 'UTC') controlling daily and weekly interval boundaries."
             ),
         offset_day: zod
             .number()
@@ -335,7 +366,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .describe('Hour-of-day offset (0-23) for daily and weekly intervals.'),
     })
     .describe(
-        'Request body for create/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
+        'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
 export const BatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -343,7 +374,7 @@ export const BatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -352,7 +383,7 @@ export const BatchExportsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -368,6 +399,7 @@ export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedC
 export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -379,10 +411,10 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().optional().describe('Human-readable name for the batch export.'),
         model: zod
             .enum(['events', 'persons', 'sessions'])
-            .describe('* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions')
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n* `events` - Events\n* `persons` - Persons\n* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
             ),
         destination: zod
             .union([
@@ -414,7 +446,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a Databricks batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`DatabricksBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Databricks batch-export destination.'),
@@ -438,20 +470,20 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet'
+                                        'File format used for exported objects.\n\n\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -461,7 +493,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an Azure Blob Storage batch-export destination.'),
@@ -488,7 +520,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
@@ -521,7 +553,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -544,20 +576,20 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                        'File format used for exported objects.\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -577,7 +609,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe("KMS key ID to use when encryption is 'aws:kms'."),
                             })
                             .describe(
-                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an AWS S3 batch-export destination.'),
@@ -600,20 +632,20 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                         zod
                                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                             .describe(
-                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                             ),
                                         zod.null(),
                                     ])
                                     .optional()
                                     .describe(
-                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                     ),
                                 file_format: zod
                                     .enum(['Parquet', 'JSONLines'])
-                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                                     .default(batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault)
                                     .describe(
-                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                        'File format used for exported objects.\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'
                                     ),
                                 max_file_size_mb: zod
                                     .number()
@@ -629,28 +661,58 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe('Use virtual-hosted-style addressing rather than path-style.'),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Snowflake']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Snowflake database to write to.'),
+                                warehouse: zod.string().describe('Snowflake compute warehouse to use.'),
+                                schema: zod
+                                    .string()
+                                    .describe('Schema inside the database containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault)
+                                    .describe('Destination table name.'),
+                                role: zod
+                                    .string()
+                                    .nullish()
+                                    .describe('Optional Snowflake role to assume for the session.'),
+                            })
+                            .describe(
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
             .enum(['hour', 'day', 'week', 'every 5 minutes', 'every 15 minutes'])
             .describe(
-                '* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
+                '\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             )
             .optional()
             .describe(
-                'How often the batch export should run.\n\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes'
+                'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         timezone: zod
             .string()
             .nullish()
             .describe(
-                "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+                "IANA timezone name (e.g. 'America\/New_York', 'Europe\/London', 'UTC') controlling daily and weekly interval boundaries."
             ),
         offset_day: zod
             .number()
@@ -666,7 +728,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Hour-of-day offset (0-23) for daily and weekly intervals.'),
     })
     .describe(
-        'Request body for create/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
+        'Request body for create\/partial_update on BatchExportViewSet.\n\nMirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic\n`destination` schema so integration_id is marked required on the types that need\nit. Responses continue to use `BatchExportSerializer`.'
     )
 
 export const BatchExportsDestroyParams = /* @__PURE__ */ zod.object({
@@ -674,7 +736,7 @@ export const BatchExportsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -685,7 +747,7 @@ export const FileDownloadBatchExportsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -705,21 +767,21 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                 .object({
                     format: zod
                         .enum(['Parquet', 'JSONLines'])
-                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                        .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyOneFileFormatDefault)
-                        .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
+                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
                     compression: zod
                         .union([
                             zod
                                 .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                 .describe(
-                                    '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                 ),
                             zod.null(),
                         ])
                         .optional()
                         .describe(
-                            'Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy'
+                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
                         ),
                     max_size_mb: zod
                         .number()
@@ -741,21 +803,21 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                 .object({
                     format: zod
                         .enum(['Parquet', 'JSONLines'])
-                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                        .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyTwoFileFormatDefault)
-                        .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
+                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
                     compression: zod
                         .union([
                             zod
                                 .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                 .describe(
-                                    '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                 ),
                             zod.null(),
                         ])
                         .optional()
                         .describe(
-                            'Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy'
+                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
                         ),
                     max_size_mb: zod
                         .number()
@@ -775,21 +837,21 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                 .object({
                     format: zod
                         .enum(['Parquet', 'JSONLines'])
-                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                        .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyThreeFileFormatDefault)
-                        .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
+                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
                     compression: zod
                         .union([
                             zod
                                 .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                                 .describe(
-                                    '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                                 ),
                             zod.null(),
                         ])
                         .optional()
                         .describe(
-                            'Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy'
+                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
                         ),
                     max_size_mb: zod
                         .number()
@@ -817,7 +879,7 @@ export const FileDownloadBatchExportsRetrieveParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -829,7 +891,7 @@ export const FileDownloadBatchExportsCancelCreateParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -842,21 +904,21 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             .object({
                 format: zod
                     .enum(['Parquet', 'JSONLines'])
-                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                    .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
                     .default(fileDownloadBatchExportsCancelCreateBodyFileFormatDefault)
-                    .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
+                    .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
                 compression: zod
                     .union([
                         zod
                             .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
                             .describe(
-                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
                             ),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy'
+                        'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
                     ),
                 max_size_mb: zod
                     .number()
@@ -867,7 +929,7 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod
             .enum(['events', 'persons', 'sessions'])
-            .describe('* `events` - events\n* `persons` - persons\n* `sessions` - sessions'),
+            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions'),
         include: zod.array(zod.string()).optional(),
         exclude: zod.array(zod.string()).optional(),
         data_interval_start: zod.iso.datetime({ offset: true }),

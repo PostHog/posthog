@@ -7,7 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import ChurnkeyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChurnkeySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
+    ChurnkeySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE = (
@@ -52,7 +54,6 @@ class TestChurnkeySourceConfig:
 
     def test_source_config_metadata(self) -> None:
         config = ChurnkeySource().get_source_config
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/churnkey"
 

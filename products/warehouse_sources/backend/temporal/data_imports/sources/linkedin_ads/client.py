@@ -23,6 +23,8 @@ logger = structlog.get_logger(__name__)
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
 CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
+# Default LinkedIn Marketing API version header. Callers pass a resolved version through the
+# source's version dispatch; this default backs the legacy `v1` pin and credential-probe paths.
 API_VERSION = "202508"
 
 # `q=analytics` silently truncates a response at 15k elements. With DAILY granularity an element
@@ -69,6 +71,18 @@ class LinkedinAdsDailyRateLimitError(Exception):
     """
 
 
+class LinkedinAdsApiError(Exception):
+    """A non-retryable LinkedIn API response.
+
+    Not named `status_code`: drf-exceptions-hog reads that attribute off any escaping exception and
+    would render LinkedIn's status as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_status_code: int) -> None:
+        super().__init__(message)
+        self.api_status_code = api_status_code
+
+
 def _parse_retry_after(response: Any) -> float | None:
     """Pull a numeric Retry-After (seconds) off the underlying requests.Response, if present.
     LinkedIn sends integer seconds; HTTP-date forms and negative/garbage values are ignored
@@ -107,16 +121,23 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 class LinkedinAdsClient:
     """LinkedIn Marketing API client."""
 
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, api_version: str = API_VERSION):
         if not access_token:
             raise ValueError("Access token required")
         self.access_token = access_token
         self.client = RestliClient()
-        self.api_version = API_VERSION
+        self.api_version = api_version
 
     def get_accounts(self) -> list[dict[str, Any]]:
-        """Get ad accounts."""
-        return self._make_request(endpoint=LinkedinAdsResource.Accounts, finder="search")
+        """Every ad account the authorized member can access. `q=search` is paginated, so a single
+        request returns only the first page."""
+        accounts: list[dict[str, Any]] = []
+        for elements, _ in self._make_paginated_request(
+            endpoint=LinkedinAdsResource.Accounts,
+            path=f"/{LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]}",
+        ):
+            accounts.extend(elements)
+        return accounts
 
     def get_campaigns(
         self, account_id: str, starting_page_token: Optional[str] = None
@@ -314,7 +335,9 @@ class LinkedinAdsClient:
                 f"LinkedIn API error (retryable, {response.status_code}): {response.response.text}"
             )
         if response.status_code != 200:
-            raise Exception(f"LinkedIn API error ({response.status_code}): {response.response.text}")
+            raise LinkedinAdsApiError(
+                f"LinkedIn API error ({response.status_code}): {response.response.text}", response.status_code
+            )
 
         return response
 

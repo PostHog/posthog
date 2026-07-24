@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HarveySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import (
     HarveyResumeConfig,
     check_endpoint_access,
@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
+    api_docs_url = "https://developers.harvey.ai/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -90,7 +91,6 @@ Each token carries a per-endpoint permissions list — grant access for the endp
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 
@@ -116,6 +116,7 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Audit logs are immutable, so append-only is the only incremental mode we offer.
         append_only_endpoints = {"audit_logs"}
@@ -145,7 +146,11 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         return schemas
 
     def validate_credentials(
-        self, config: HarveySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HarveySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not validate_harvey_credentials(config.api_key, config.region):
             return False, "Invalid Harvey API token"
@@ -160,7 +165,7 @@ Each token carries a per-endpoint permissions list — grant access for the endp
         return True, None
 
     def get_endpoint_permissions(
-        self, config: HarveySourceConfig, team_id: int, endpoints: list[str]
+        self, config: HarveySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return {
             endpoint: check_endpoint_access(config.api_key, config.region, endpoint)

@@ -3,33 +3,99 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { EmailSuppressionService } from './email-suppression.service'
 
-type MessageFunctionActionType = 'function_email' | 'function_sms'
+type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
+// Why the send was skipped, so callers can render a user-facing log/metric that names the actual
+// reason instead of collapsing suppression and opt-out into a single "opted out" message.
+export type RecipientSkipReason = 'suppressed' | 'opted_out'
+
+// Split a comma-separated address list and, for each entry, extract the bare email from an RFC-822
+// `"Name" <email@x>` form so it can be matched against normalized suppression identifiers.
+const extractEmailsFromAddressList = (value: unknown): string[] => {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        return []
+    }
+    return value
+        .split(',')
+        .map((raw) => {
+            const trimmed = raw.trim()
+            const bracketed = trimmed.match(/<([^>]+)>/)
+            return (bracketed ? bracketed[1] : trimmed).trim()
+        })
+        .filter((addr) => addr.length > 0)
+}
+
 export class RecipientPreferencesService {
-    constructor(private recipientsManager: RecipientsManagerService) {}
+    constructor(
+        private recipientsManager: RecipientsManagerService,
+        private emailSuppressionService: EmailSuppressionService
+    ) {}
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
-    ): Promise<boolean> {
+    ): Promise<RecipientSkipReason | null> {
         if (!this.isSubjectToRecipientPreferences(action)) {
-            return false
+            return null
+        }
+
+        // Suppression is a deliverability signal, not a messaging preference: an address that can't
+        // receive mail can't receive it regardless of category. So we check it even for
+        // transactional messages, and before the transactional opt-out bypass below.
+        if (await this.isRecipientSuppressed(invocation, action)) {
+            return 'suppressed'
         }
 
         // Transactional messages are not eligible for opt-outs, so they send regardless of
         // whether the recipient has opted out of this category or of all marketing messaging.
         if (action.config.message_category_type === 'transactional') {
+            return null
+        }
+
+        return (await this.isRecipientOptedOutOfAction(invocation, action)) ? 'opted_out' : null
+    }
+
+    private async isRecipientSuppressed(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: MessageAction
+    ): Promise<boolean> {
+        // Suppression is driven by email bounces, so it only applies to email sends.
+        if (action.type !== 'function_email') {
             return false
         }
 
-        return await this.isRecipientOptedOutOfAction(invocation, action)
+        // Check every destination address SES will see — `to`, `cc`, and `bcc`. A suppressed
+        // address in any of the three blocks the send, not just when it appears in `to`.
+        const emailInputs = invocation.state.globals.inputs?.email
+        const to = emailInputs?.to?.email
+        const recipients = [
+            ...(typeof to === 'string' && to.trim() ? [to.trim()] : []),
+            ...extractEmailsFromAddressList(emailInputs?.cc),
+            ...extractEmailsFromAddressList(emailInputs?.bcc),
+        ]
+
+        if (recipients.length === 0) {
+            return false
+        }
+
+        try {
+            const results = await Promise.all(
+                recipients.map((email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email))
+            )
+            return results.some(Boolean)
+        } catch (error) {
+            // Fail open — never block a send on a suppression-lookup error.
+            logger.error(`Failed to check suppression list for recipients ${recipients.join(', ')}:`, error)
+            return false
+        }
     }
 
     private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {
-        return ['function_email', 'function_sms'].includes(action.type)
+        return ['function_email', 'function_sms', 'function_push'].includes(action.type)
     }
 
     private async isRecipientOptedOutOfAction(
@@ -42,6 +108,13 @@ export class RecipientPreferencesService {
             identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
             identifier = invocation.state.globals.inputs?.email?.to?.email
+        } else if (action.type === 'function_push') {
+            // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
+            // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
+            // not the configurable inputs.distinctId or the triggering event — so the recipient we check
+            // is always the recipient we deliver to. Fall back to the event distinct_id when the person
+            // has no resolved one.
+            identifier = invocation.state.globals.person?.distinct_id ?? invocation.state.globals.event?.distinct_id
         }
 
         if (!identifier) {

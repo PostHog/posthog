@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InvoicedSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiced import (
+    InvoicedSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.invoiced import (
     InvoicedResumeConfig,
     invoiced_source,
@@ -37,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://developer.invoiced.com/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -69,7 +76,6 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -92,25 +98,18 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every list endpoint documents a server-side `updated_after` UNIX-timestamp filter, so
         # each schema advertises `updated_at` as a genuine incremental cursor.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=True,
-                supports_append=True,
-                incremental_fields=INCREMENTAL_FIELDS[endpoint],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: InvoicedSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InvoicedSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Invoiced API keys are account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)
@@ -130,7 +129,8 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
         return invoiced_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

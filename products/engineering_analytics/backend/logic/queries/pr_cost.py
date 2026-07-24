@@ -23,6 +23,8 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     PRCostSummary,
@@ -40,7 +42,6 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
     normalize_bucket,
-    pick_granularity,
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -244,6 +245,7 @@ def query_workflow_window_costs(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workload: Workload = Workload.DEFAULT,
 ) -> dict[str, PRCostAggregate]:
     """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
 
@@ -268,13 +270,15 @@ def query_workflow_window_costs(
         .replace("__BRANCH__", branch_clause)
         .replace("__RUN_SCOPE__", run_scope_clause)
     )
-    response = curated.run(sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders)
+    response = curated.run(
+        sql, query_type="engineering_analytics.workflow_window_costs", placeholders=placeholders, workload=workload
+    )
     return {(workflow or ""): _aggregate(*agg) for workflow, *agg in response.results or []}
 
 
 # One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
 # attributed to the author through their PRs, keyed on (repo_owner, repo_name, pr_number) — never
-# pr_number alone, since PR numbers restart per repo (SPEC §7). Windowed on the run start so the figure
+# pr_number alone, since PR numbers restart per repo (SPEC §6). Windowed on the run start so the figure
 # answers "spend over [window]", never an unbounded all-time.
 _AUTHOR_WORKFLOW_SELECT = """
     SELECT c.workflow_name AS workflow_name, __COST_AGGREGATES__
@@ -298,7 +302,7 @@ def query_author_workflow_costs(
     """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
 
     Empty when the jobs source isn't synced. Grouped and costed in SQL over the shared cost source; the
-    author→runs link goes through their PR numbers (the one attribution rule, SPEC §7) — the cost
+    author→runs link goes through their PR numbers (the one attribution rule, SPEC §6) — the cost
     source's normalized pr_number never matches on an unattributed (NULL) run.
     """
     cost_source = curated.job_cost_source()
@@ -325,7 +329,7 @@ def query_author_workflow_costs(
 
 # The window-cost shape twice over — the current window and the equal-length one before it — as
 # per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
-# scan twice. Window predicates mirror the two separate calls exactly.
+# scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
 _WINDOW_COST_WITH_PREV_SELECT = """
     SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__
     FROM __COST_SOURCE__ AS c
@@ -357,7 +361,8 @@ def query_workflow_window_costs_with_prev(
         "prev_from": ast.Constant(value=prev_from),
     }
     cur = "(c.run_started_at >= {date_from}" + (" AND c.run_started_at <= {date_to})" if date_to else ")")
-    prev = "(c.run_started_at >= {prev_from} AND c.run_started_at <= {date_from})"
+    # Half-open: a run starting exactly at date_from is current, not both windows.
+    prev = "(c.run_started_at >= {prev_from} AND c.run_started_at < {date_from})"
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
@@ -420,19 +425,19 @@ def query_cost_per_merge_series(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-) -> tuple[Granularity, list[CostPerMergeBucket]]:
-    """CI cost per merged PR across [date_from, date_to], bucketed to fit the window, oldest first.
+    granularity: Granularity,
+) -> list[CostPerMergeBucket]:
+    """CI cost per merged PR across [date_from, date_to] at ``granularity``, oldest first.
 
-    Returns ``(granularity, buckets)``. ``buckets`` is zero-filled across the whole window so the trend
-    has no gaps; each bucket's ``cost_per_merge_usd`` is the trailing-window ratio (see
-    ``_ROLLING_BUCKETS``) while ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced there's no cost to divide, so ``buckets`` is
-    empty (the UI shows the same "sync jobs" state as the other cost surfaces); the granularity is still
-    returned so the caller can label an empty chart consistently.
+    Buckets are zero-filled across the whole window so the trend has no gaps; each bucket's
+    ``cost_per_merge_usd`` is the trailing-window ratio (see ``_ROLLING_BUCKETS``) while
+    ``estimated_cost_usd``/``merges`` stay bucket-local. When the job-level source isn't synced
+    there's no cost to divide, so the series is empty (the UI shows the same "sync jobs" state as
+    the other cost surfaces).
     """
-    granularity = pick_granularity(date_from, date_to)
     cost_source = curated.job_cost_source()
     if cost_source is None:
-        return granularity, []
+        return []
 
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_runs = ""
@@ -486,7 +491,7 @@ def query_cost_per_merge_series(
                 else None,
             )
         )
-    return granularity, buckets
+    return buckets
 
 
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped

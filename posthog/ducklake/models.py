@@ -176,6 +176,13 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         db_constraint=False,
     )
 
+    # When the sink last applied a live (non-backfill) imported batch to duckgres for this
+    # schema, stamped by the sink at apply time. The web tier reads it from the main DB so
+    # the Data ops UI can report import activity without querying the warehouse-sources
+    # queue DB (which it has no access to). NULL = no live apply recorded since this field
+    # shipped. It's an event timestamp, not a liveness signal — history, never "stale".
+    queue_last_applied_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_duckgressinkschemastate"
         verbose_name = "Duckgres sink schema state"

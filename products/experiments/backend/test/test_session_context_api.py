@@ -5,15 +5,23 @@ from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table, TableNode
+
 from posthog.constants import AvailableFeature
-from posthog.models import Team, User
+from posthog.models import PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-from products.experiments.backend.models.experiment import Experiment
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.actions.backend.models.action import Action
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -24,8 +32,22 @@ RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
 
 
+def _hogql_table_tree(node: TableNode) -> dict[str, Any]:
+    table = node.table
+    return {
+        "fields": sorted(table.fields) if isinstance(table, Table) else None,
+        "children": {name: _hogql_table_tree(child) for name, child in node.children.items()},
+    }
+
+
 @freeze_time("2026-01-02T12:00:00Z")
 class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Every test shares SESSION_ID and the local-memory cache outlives a test; the context
+        # cache key includes the per-test team, but clear anyway so no test can see another's entry.
+        cache.clear()
+
     def _create_recording(self, session_id: str = SESSION_ID, team_id: Optional[int] = None) -> None:
         produce_replay_summary(
             team_id=team_id if team_id is not None else self.team.pk,
@@ -43,6 +65,8 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         start_date: datetime = datetime(2025, 12, 1, tzinfo=UTC),
         end_date: Optional[datetime] = None,
         created_by: Optional[User] = None,
+        exposure_criteria: Optional[dict[str, Any]] = None,
+        metrics: Optional[list[dict[str, Any]]] = None,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -66,12 +90,14 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             created_by=created_by or self.user,
             start_date=start_date,
             end_date=end_date,
+            exposure_criteria=exposure_criteria or {},
+            metrics=metrics or [],
         )
 
-    def _enable_access_controls(self) -> None:
+    def _enable_access_controls(self, feature: str = AvailableFeature.ACCESS_CONTROL) -> None:
         features = self.organization.available_product_features or []
-        if not any(feature["key"] == AvailableFeature.ACCESS_CONTROL for feature in features):
-            features.append({"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL})
+        if not any(existing["key"] == feature for existing in features):
+            features.append({"key": feature, "name": feature})
             self.organization.available_product_features = features
             self.organization.save()
 
@@ -134,7 +160,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert result["variant"] == "test"
         assert result["variants_seen"] == ["test"]
         assert result["multiple_variants"] is False
-        assert result["first_flag_evaluation_timestamp"] == "2026-01-01T10:02:11Z"
+        assert result["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
         assert result["experiment_end_date"] is None
 
     def test_resolves_variant_from_stamped_properties_when_no_exposure_event(self) -> None:
@@ -154,7 +180,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["variants_seen"] == ["test"]
         assert results[0]["multiple_variants"] is False
-        assert results[0]["first_flag_evaluation_timestamp"] is None
+        assert results[0]["first_exposure_timestamp"] is None
 
     def test_multiple_variants_detected(self) -> None:
         self._create_recording()
@@ -176,7 +202,291 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "control"
         assert sorted(results[0]["variants_seen"]) == ["control", "test"]
         assert results[0]["multiple_variants"] is True
-        assert results[0]["first_flag_evaluation_timestamp"] == "2026-01-01T10:02:11Z"
+        assert results[0]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+
+    def test_custom_exposure_event_defines_exposure_timestamp(self) -> None:
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        # The flag evaluation happens first, but with a custom exposure event configured it
+        # must not define the exposure moment.
+        self._create_session_event(
+            timestamp="2026-01-01T10:02:11Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+
+    def test_custom_exposure_event_absent_yields_null_timestamp(self) -> None:
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        # The session evaluated the flag but never fired the custom exposure event — the
+        # flag-evaluation moment must not masquerade as an exposure timestamp.
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(event="$pageview", properties={"$feature/checkout-cta": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] is None
+
+    def test_flag_evaluation_evidences_variant_for_custom_criteria(self) -> None:
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        # Only a flag evaluation — no custom exposure event, no stamped properties (e.g.
+        # server-evaluated flags). The replay still shows what the session was served, so the
+        # experiment must surface with its variant; only the exposure moment stays undefined.
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] is None
+
+    def test_default_event_with_property_filters_defines_exposure_timestamp(self) -> None:
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [{"key": "plan", "value": ["premium"], "operator": "exact", "type": "event"}],
+                }
+            }
+        )
+        # The experiment analysis applies the property filters even on the default event, so
+        # the earlier non-matching flag call must not define the exposure moment — and the
+        # variant must still come from $feature_flag_response (nothing stamps $feature/<key>).
+        self._create_session_event(
+            timestamp="2026-01-01T10:02:11Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            timestamp="2026-01-01T10:06:00Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test", "plan": "premium"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] == "2026-01-01T10:06:00Z"
+
+    def test_property_filters_respect_viewer_property_access_control(self) -> None:
+        self._enable_access_controls(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+        self._create_recording()
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "$feature_flag_called",
+                    "properties": [{"key": "plan", "value": ["premium"], "operator": "exact", "type": "event"}],
+                }
+            }
+        )
+        # A user-specific denial leaves the default rules permissive, so it is only enforced
+        # when the viewer threads through to the exposure queries — userless execution would
+        # let the denied property's filter match and leak an exposure signal.
+        plan_prop = PropertyDefinition.objects.create(
+            team=self.team, name="plan", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(plan_prop.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+        self._create_session_event(
+            timestamp="2026-01-01T10:06:00Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test", "plan": "premium"},
+        )
+        self._create_session_event(event="$pageview", properties={"$feature/checkout-cta": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] is None
+
+    def test_unresolvable_property_filter_fails_soft(self) -> None:
+        self._create_recording()
+        # A duplicated experiment can carry a cohort id from its source project; resolving that
+        # filter raises. One such experiment must not 500 the endpoint — it degrades to
+        # stamped-property evidence with no exposure moment.
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [{"key": "id", "value": 999999, "type": "cohort"}],
+                }
+            }
+        )
+        self._create_session_event(event="$pageview", properties={"$feature/checkout-cta": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] is None
+
+    def test_default_and_custom_experiments_sharing_a_flag_resolve_independently(self) -> None:
+        self._create_recording()
+        default_experiment = self._create_experiment(name="Default criteria")
+        # Two experiments on one flag with different criteria — exposure evidence must stay
+        # keyed by experiment id, not flag key: each takes its exposure moment from its own path.
+        custom_experiment = Experiment.objects.create(
+            team=self.team,
+            name="Custom criteria",
+            feature_flag=default_experiment.feature_flag,
+            created_by=self.user,
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_session_event(
+            timestamp="2026-01-01T10:02:11Z",
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        by_id = {result["experiment_id"]: result for result in results}
+        assert by_id[default_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+        assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert all(result["variant"] == "test" for result in results)
+
+    def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
+        self._create_recording()
+        # Two custom-criteria experiments force a real multi-branch UNION ALL — a single branch
+        # collapses to a plain SelectQuery, so only this shape proves the set query compiles
+        # (a set-level LIMIT after the last branch's LIMIT 500ed the endpoint in production).
+        first = self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            }
+        )
+        second = self._create_experiment(
+            key="pricing-banner",
+            name="Pricing banner",
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "pricing viewed",
+                    "properties": [],
+                }
+            },
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2026-01-01T10:05:00Z",
+            properties={"$feature/checkout-cta": "test"},
+        )
+        self._create_session_event(
+            event="pricing viewed",
+            timestamp="2026-01-01T10:07:00Z",
+            properties={"$feature/pricing-banner": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        by_id = {result["experiment_id"]: result for result in results}
+        assert by_id[first.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
+        assert by_id[second.id]["first_exposure_timestamp"] == "2026-01-01T10:07:00Z"
+
+    def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
+        self._create_recording()
+        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])
+        self._create_experiment(
+            exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.pk}},
+        )
+        self._create_session_event(
+            event="purchase",
+            timestamp="2026-01-01T10:07:00Z",
+            properties={"$feature/checkout-cta": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "control"
+        assert results[0]["first_exposure_timestamp"] == "2026-01-01T10:07:00Z"
 
     def test_exposure_event_rescues_experiment_beyond_candidate_cap(self) -> None:
         self._create_recording()
@@ -279,6 +589,102 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
 
+    def test_cached_context_is_not_shared_across_users(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        private_experiment = self._create_experiment(
+            key="private-exp", name="Private experiment", created_by=other_user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "private-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        # Prime the cache as the private experiment's creator, who sees both experiments.
+        self.client.force_login(other_user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta", "private-exp"]
+
+        # The cached entry must not leak the private experiment to a viewer without access.
+        self.client.force_login(self.user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
+    def test_repeat_request_is_served_from_cache(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        first = self._get_session_context()
+        assert first.status_code == status.HTTP_200_OK
+
+        with patch("products.experiments.backend.session_context._compute_session_experiment_context") as compute:
+            second = self._get_session_context()
+        compute.assert_not_called()
+        assert second.json() == first.json()
+
+    def test_uncached_request_shares_one_readonly_hogql_database(self) -> None:
+        # Building the HogQL virtual database costs seconds on teams with a large warehouse
+        # schema, so the endpoint builds one and shares it across every scan (exposures,
+        # stamped properties, metric events) — concurrently, in production. Two regressions
+        # pinned: a scan quietly building its own database (reintroduces the multi-second
+        # latency), and a scan mutating the shared one (e.g. an information_schema-touching
+        # query registers hidden external tables on it — a silent data race across the
+        # production thread pool).
+        self._create_recording()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        self._create_experiment(metrics=[metric])
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        built: list[tuple[Database, dict[str, Any]]] = []
+        original_create_for = Database.create_for
+
+        def _capturing_create_for(*args: Any, **kwargs: Any) -> Database:
+            database = original_create_for(*args, **kwargs)
+            built.append((database, _hogql_table_tree(database.tables)))
+            return database
+
+        with patch.object(Database, "create_for", side_effect=_capturing_create_for) as create_for:
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["metrics_in_session"][0]["metric_uuid"] == metric["uuid"]
+        assert create_for.call_count == 1
+        database, tree_before_scans = built[0]
+        assert _hogql_table_tree(database.tables) == tree_before_scans
+
+    def test_recording_not_found_is_not_cached(self) -> None:
+        # A recording can 404 while still ingesting; that answer must not stick for the TTL.
+        assert self._get_session_context().status_code == status.HTTP_404_NOT_FOUND
+
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
     def test_403_without_session_recording_resource_access(self) -> None:
         self._enable_access_controls()
         AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
@@ -311,6 +717,93 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_metrics_in_session(self) -> None:
+        self._create_recording()
+        # Two overlapping experiments with a metric each force a multi-metric aggregate set in
+        # the metric scan, proving the combined single-pass query compiles end to end through
+        # the endpoint — and that a metric with no matching events stays inert.
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        other_metric = {
+            **metric,
+            "uuid": "22222222-2222-2222-2222-222222222222",
+            "name": "Pricing clicks",
+            "source": {"kind": "EventsNode", "event": "pricing clicked"},
+        }
+        with_hit = self._create_experiment(metrics=[metric])
+        without_hit = self._create_experiment(key="pricing-banner", name="Pricing banner", metrics=[other_metric])
+        for key in ("checkout-cta", "pricing-banner"):
+            self._create_session_event(properties={"$feature_flag": key, "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["experiment_id"]: result for result in response.json()["results"]}
+        assert by_id[with_hit.id]["metrics_in_session"] == [
+            {
+                "metric_uuid": metric["uuid"],
+                "metric_name": "Purchases",
+                "event_count": 1,
+                "first_timestamp": "2026-01-01T10:09:00Z",
+                "timestamps": ["2026-01-01T10:09:00Z"],
+            }
+        ]
+        # No metric event fired for the other experiment — the additive fields stay inert and
+        # every pre-existing field keeps its value (the no-regression claim for current consumers).
+        assert by_id[without_hit.id] == {
+            "experiment_id": without_hit.id,
+            "experiment_name": "Pricing banner",
+            "flag_key": "pricing-banner",
+            "variant": "test",
+            "variants_seen": ["test"],
+            "multiple_variants": False,
+            "first_exposure_timestamp": "2026-01-01T10:02:11Z",
+            "experiment_start_date": "2025-12-01T00:00:00Z",
+            "experiment_end_date": None,
+            "metrics_in_session": [],
+        }
+
+    def test_metrics_in_session_includes_saved_metric(self) -> None:
+        self._create_recording()
+        inline_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "11111111-1111-1111-1111-111111111111",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        saved_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Signups",
+            "source": {"kind": "EventsNode", "event": "signup"},
+        }
+        experiment = self._create_experiment(metrics=[inline_metric])
+        saved = ExperimentSavedMetric.objects.create(team=self.team, name="Signups", query=saved_query)
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved, metadata={})
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="signup", timestamp="2026-01-01T10:08:00Z")
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        result = next(r for r in response.json()["results"] if r["experiment_id"] == experiment.id)
+        # Both the inline and the saved/shared metric surface, sorted by first occurrence.
+        assert [(hit["metric_uuid"], hit["metric_name"]) for hit in result["metrics_in_session"]] == [
+            (saved_query["uuid"], "Signups"),
+            (inline_metric["uuid"], "Purchases"),
+        ]
 
     def test_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")

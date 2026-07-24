@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IP2WhoisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ip2whois import (
+    IP2WhoisSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.ip2whois import (
     ip2whois_source,
     validate_credentials as validate_ip2whois_credentials,
@@ -33,6 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.ip2whois.com/developers-api"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
@@ -48,7 +53,6 @@ class IP2WhoisSource(SimpleSource[IP2WhoisSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IP2WHOIS",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your IP2WHOIS API key and the domains you want to look up to pull WHOIS registration data into the PostHog Data warehouse.
 
 IP2WHOIS (by IP2Location) is a domain WHOIS lookup API. Create an API key in your [IP2WHOIS dashboard](https://www.ip2whois.com/) — the free tier includes 500 lookups per month.
@@ -114,6 +118,7 @@ Each sync looks up every configured domain once and replaces the table with the 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # IP2WHOIS has no server-side change cursor, so the single table is full refresh only.
         schemas = [
@@ -132,7 +137,11 @@ Each sync looks up every configured domain once and replaces the table with the 
         return schemas
 
     def validate_credentials(
-        self, config: IP2WhoisSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: IP2WhoisSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_ip2whois_credentials(config.api_key, config.domains)
 

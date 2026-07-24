@@ -1,16 +1,21 @@
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
+    CheckoutBranchInSandboxInput,
+    CheckoutBranchInSandboxOutput,
     PrepareSandboxForRepositoryOutput,
     _build_environment_variables,
     _build_sandbox_tags,
     _to_modal_domain_allowlist,
+    checkout_branch_in_sandbox,
 )
 
 _PROVISION = "products.tasks.backend.temporal.process_task.activities.provision_sandbox"
@@ -52,15 +57,27 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
     return PrepareSandboxForRepositoryOutput(**defaults)
 
 
+# A prefixed-dispatch id (not the derived task-processing-<task>-<run> shape): the tags read the
+# RUNNING workflow's id via activity.info(), which only exists inside an activity context — and
+# labeling prefixed dispatches correctly is the reason the derived id was dropped.
+_WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
+
+
+def _build_tags(*args, **kwargs):
+    with patch(f"{_PROVISION}.activity") as mock_activity:
+        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
+        return _build_sandbox_tags(*args, **kwargs)
+
+
 def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
 
     assert tags == {
         "task_id": "task-123",
         "task_run_id": "run-456",
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": "task-processing-task-123-run-456",
+        "workflow_id": _WORKFLOW_ID,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -68,20 +85,20 @@ def test_build_sandbox_tags_includes_all_identifiers():
 
 @pytest.mark.parametrize("use_vm_sandbox, expected", [(True, "vm"), (False, "gvisor")])
 def test_build_sandbox_tags_marks_runtime(use_vm_sandbox, expected):
-    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=use_vm_sandbox)
+    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=use_vm_sandbox)
 
     assert tags["sandbox_runtime"] == expected
 
 
 @pytest.mark.parametrize("image_source", ["base_image", "resume_snapshot", "repository_snapshot"])
 def test_build_sandbox_tags_reflects_image_source(image_source):
-    tags = _build_sandbox_tags(_context(), _prepared(image_source=image_source), use_vm_sandbox=False)
+    tags = _build_tags(_context(), _prepared(image_source=image_source), use_vm_sandbox=False)
 
     assert tags["image_source"] == image_source
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_sandbox_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
 
     assert "origin_product" not in tags
     assert all(isinstance(value, str) for value in tags.values())
@@ -117,6 +134,46 @@ def test_to_modal_domain_allowlist_resolves_exact_list(allowed_domains, expected
     assert _to_modal_domain_allowlist(allowed_domains) == expected
 
 
+@patch(f"{_PROVISION}.emit_agent_log")
+@patch(f"{_PROVISION}.Sandbox.get_by_id")
+@pytest.mark.parametrize(
+    "used_snapshot, expected_checkout",
+    [
+        (False, "git checkout -B new-task-branch HEAD"),
+        (True, "git fetch --depth 1 origin -- HEAD && git checkout -B new-task-branch FETCH_HEAD"),
+    ],
+)
+def test_checkout_branch_creates_missing_branch_from_current_default_branch(
+    mock_get_sandbox, _mock_emit_agent_log, used_snapshot, expected_checkout
+):
+    sandbox = mock_get_sandbox.return_value
+
+    def execute(command, **_kwargs):
+        exit_code = 2 if "git ls-remote" in command else 0
+        return ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+
+    sandbox.execute.side_effect = execute
+    activity_body = cast(
+        Callable[[CheckoutBranchInSandboxInput], CheckoutBranchInSandboxOutput],
+        vars(checkout_branch_in_sandbox)["__wrapped__"],
+    )
+
+    activity_body(
+        CheckoutBranchInSandboxInput(
+            context=_context(),
+            sandbox_id="sandbox-123",
+            repository="posthog/posthog",
+            branch="new-task-branch",
+            github_token="token",
+            shallow_clone=True,
+            used_snapshot=used_snapshot,
+        )
+    )
+
+    checkout_command = sandbox.execute.call_args_list[-1].args[0]
+    assert expected_checkout in checkout_command
+
+
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
@@ -140,3 +197,58 @@ def test_build_environment_variables_disables_telemetry_when_restricted(
         assert all(env.get(k) == "1" for k in keys)
     else:
         assert not (keys & env.keys())
+
+
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+@pytest.mark.parametrize(
+    "url, token, traces_url, expected_keys",
+    [
+        (
+            "https://us.i.posthog.com/i/v1/logs",
+            "phc_telemetry",
+            "https://us.i.posthog.com/i/v1/traces",
+            {"POSTHOG_AGENT_OTEL_LOGS_URL", "POSTHOG_AGENT_OTEL_LOGS_TOKEN", "POSTHOG_AGENT_OTEL_TRACES_URL"},
+        ),
+        (
+            "https://us.i.posthog.com/i/v1/logs",
+            "phc_telemetry",
+            None,
+            {"POSTHOG_AGENT_OTEL_LOGS_URL", "POSTHOG_AGENT_OTEL_LOGS_TOKEN"},
+        ),
+        ("https://us.i.posthog.com/i/v1/logs", None, None, set()),
+        (None, "phc_telemetry", None, set()),
+        # Traces alone are useless without the logs pair carrying the token.
+        (None, None, "https://us.i.posthog.com/i/v1/traces", set()),
+    ],
+)
+def test_build_environment_variables_injects_otel_env_only_when_fully_configured(
+    _api, _jwt, _git, url, token, traces_url, expected_keys
+):
+    ctx = _context(agent_otel_telemetry_enabled=True)
+
+    with override_settings(
+        SANDBOX_AGENT_OTEL_LOGS_URL=url,
+        SANDBOX_AGENT_OTEL_LOGS_TOKEN=token,
+        SANDBOX_AGENT_OTEL_TRACES_URL=traces_url,
+    ):
+        env = _build_environment_variables(ctx, MagicMock(), "", "access-token")
+
+    assert {key for key in env if key.startswith("POSTHOG_AGENT_OTEL_")} == expected_keys
+
+
+@patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
+@patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
+@patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")
+def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jwt, _git):
+    ctx = _context()
+
+    with override_settings(
+        SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+        SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+        SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+    ):
+        env = _build_environment_variables(ctx, MagicMock(), "", "access-token")
+
+    assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)

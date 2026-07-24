@@ -11,13 +11,19 @@ to wording in the wrapper text show up as a diff in
 ``__snapshots__/test_task_creation.ambr`` rather than as a silent regression.
 """
 
+import pytest
+from unittest.mock import patch
+
+from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _SLACK_DELIVERY_CONSTRAINTS,
     _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY,
+    _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
     _build_posthog_code_task_description,
+    _canvas_file_delivery_available,
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
@@ -88,6 +94,49 @@ def test_build_description_omits_canvas_and_file_adapters_when_flag_off():
     assert "choose adapter" not in out
     assert "do not use the `slack_canvas` or `slack_file` adapters" in out
     assert "using adapter `slack_message`" in out
+
+
+def test_build_description_limits_delivery_to_text_when_artifact_flag_off():
+    out = _build_posthog_code_task_description(
+        "do something",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "background", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "2.000"},
+        ],
+        "2.000",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
+        living_artifacts_enabled=False,
+    )
+
+    assert out.endswith("do something")
+    assert _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY in out
+    assert "/living_artifacts/" not in out
+    assert "slack_canvas" not in out
+    assert "slack_file" not in out
+    assert "slack_message" not in out
+
+
+@pytest.mark.parametrize(
+    "flag_enabled,granted_scopes,expected",
+    [
+        (True, "chat:write,canvases:write,files:write", True),
+        (True, "chat:write,canvases:write", False),
+        (True, "chat:write", False),
+        (False, "chat:write,canvases:write,files:write", False),
+    ],
+)
+def test_canvas_file_delivery_requires_flag_and_scopes(flag_enabled, granted_scopes, expected):
+    # A flag-on workspace whose Slack install lacks the adapter scopes must not be
+    # offered canvas/file delivery in the prompt — the agent would create artifacts
+    # that delivery then rejects. Capability = rollout flag AND granted scopes.
+    integration = Integration(kind="slack", config={"scope": granted_scopes})
+
+    with patch(
+        "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
+        return_value=flag_enabled,
+    ):
+        assert _canvas_file_delivery_available(integration) is expected
 
 
 def test_build_description_renders_labeled_mention_for_each_author():

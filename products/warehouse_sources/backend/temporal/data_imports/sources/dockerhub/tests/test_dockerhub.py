@@ -386,10 +386,25 @@ class TestCheckAccess:
         with patch.object(dockerhub, "make_tracked_session", return_value=session):
             assert check_access("tom", "bad-token", "acme") == (status, None)
 
-    def test_login_server_error_returns_status_and_message(self) -> None:
-        session = self._session(self._response(500))
+    @parameterized.expand(
+        [
+            # A bare status echo left the user nothing to act on; a 400 (Docker Hub rejects e.g. an
+            # email in the username field) now points at the username/token, a 5xx reads as transient.
+            ("bad_request", 400, "username"),
+            ("server_error", 500, "temporarily unavailable"),
+            ("unexpected", 418, "unexpected response"),
+        ]
+    )
+    def test_login_unexpected_status_returns_actionable_message(
+        self, _name: str, status: int, expected_substr: str
+    ) -> None:
+        session = self._session(self._response(status))
         with patch.object(dockerhub, "make_tracked_session", return_value=session):
-            assert check_access("tom", "token", "acme") == (500, "Docker Hub returned HTTP 500")
+            result_status, message = check_access("tom", "token", "acme")
+        assert result_status == status
+        assert message is not None
+        assert expected_substr in message
+        assert message != f"Docker Hub returned HTTP {status}"
 
     def test_login_connection_error_maps_to_zero(self) -> None:
         session = self._session(requests.ConnectionError("boom"))
@@ -436,7 +451,13 @@ class TestCheckAccess:
                 False,
                 "Your personal access token does not have access to the 'acme' namespace",
             ),
-            ("server_error", 500, None, False, "Docker Hub returned HTTP 500"),
+            (
+                "server_error",
+                500,
+                None,
+                False,
+                "Docker Hub is temporarily unavailable (HTTP 500). Please try again in a few minutes.",
+            ),
         ]
     )
     def test_validate_credentials(

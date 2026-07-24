@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
     SolarwindsServiceDeskSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
@@ -38,8 +38,6 @@ class TestSolarwindsServiceDeskSource:
         assert config.name.value == "SolarwindsServiceDesk"
         assert config.label == "SolarWinds Service Desk"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately hidden until the sync has been exercised against a live account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/solarwinds-service-desk"
 
         field_names = [f.name for f in config.fields]

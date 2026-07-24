@@ -15,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.source import AppfollowSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AppfollowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfollow import (
+    AppfollowSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -33,7 +35,6 @@ class TestAppfollowSource:
         assert config.name.value == "Appfollow"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/appfollow.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/appfollow"
 

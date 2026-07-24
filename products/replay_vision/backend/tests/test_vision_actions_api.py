@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -10,6 +10,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api.vision_actions import MAX_ENABLED_ALERTS_PER_SCANNER
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
@@ -49,7 +50,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -96,6 +97,62 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.team_id, self.team.id)
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
+
+    def test_targeting_a_scanner_the_editor_cannot_read_is_rejected(self) -> None:
+        # The engine reads observations as the action's CREATOR, so a lower-privileged editor
+        # re-pointing an action at a scanner they can't read would exfiltrate that scanner's data
+        # via the delivery channel. Targeting writes must be checked against the requesting user.
+        hidden = self._create_scanner(name="restricted")
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(hidden.id)), format="json")
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+
+            # An action a privileged creator already pointed at the hidden scanner: an edit that
+            # doesn't touch targeting (rename) stays allowed, but touching targeting re-checks.
+            theirs = VisionAction.all_teams.create(
+                team=self.team,
+                scanner=hidden,
+                name="theirs",
+                trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+            )
+            resp = self.client.patch(f"{self.actions_url}{theirs.id}/", data={"name": "renamed"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            resp = self.client.patch(
+                f"{self.actions_url}{theirs.id}/", data={"selection": {"verdict": ["yes"]}}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_enabled_alert_cap_per_scanner(self) -> None:
+        # Alerts evaluate on every scanner sweep, so unbounded fan-out multiplies sweep work — the
+        # cap must reject the N+1th enabled alert while still allowing a disabled one.
+        for i in range(MAX_ENABLED_ALERTS_PER_SCANNER):
+            VisionAction.all_teams.create(
+                team=self.team,
+                scanner=self.scanner,
+                name=f"alert-{i}",
+                mode="alert",
+                alert_config={"frequency": "every_match", "metric": "count"},
+                trigger_config={"rrule": "FREQ=HOURLY", "timezone": "UTC"},
+            )
+        payload = self._create_payload(
+            name="one-too-many",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+            selection={},
+        )
+        resp = self.client.post(self.actions_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("at most", resp.json()["detail"])
+
+        resp = self.client.post(self.actions_url, data={**payload, "enabled": False}, format="json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        # Re-enabling it later must hit the same cap.
+        resp = self.client.patch(f"{self.actions_url}{resp.json()['id']}/", data={"enabled": True}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
 
     def test_second_digest_for_scanner_rejected(self) -> None:
         first = self.client.post(
@@ -329,6 +386,19 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         self.assertNotIn("synthesized_markdown", completed)
         self.assertNotIn("observations", completed)
 
+    def test_hides_alert_state_bookkeeping_runs(self) -> None:
+        # Quiet alert checks (not_breached/still_breached skips) are engine state, not user-facing
+        # outcomes — run history must show only actual firings, failures, and summary skips.
+        fired = self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="3 new matches")
+        failed = self._create_run(status=VisionActionRunStatus.FAILED, error={"message": "boom"})
+        quiet = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "not_breached"})
+        suppressed = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "still_breached"})
+
+        results = self.client.get(self.runs_url()).json()["results"]
+        self.assertEqual({r["id"] for r in results}, {str(fired.id), str(failed.id)})
+        self.assertEqual(self.client.get(f"{self.runs_url()}{quiet.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"{self.runs_url()}{suppressed.id}/").status_code, 404)
+
     def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
         obs_a = self._create_observation("sess-a", title="Checkout")
         obs_b = self._create_observation("sess-b", title="Onboarding")
@@ -449,3 +519,94 @@ class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
         # The action belongs to another team, so the nested route must 404 rather than leak its runs.
         resp = self.client.get(f"/api/projects/{self.team.id}/vision/actions/{self.other_action.id}/runs/")
         self.assertEqual(resp.status_code, 404)
+
+
+class TestVisionActionRunNow(_VisionActionAPITestCase):
+    """POST /vision/actions/{id}/run/ starts the processing workflow now without touching the schedule."""
+
+    def _summary(self, **overrides: Any) -> VisionAction:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
+            "scanner": self.scanner,
+            "name": "daily digest",
+            "created_by": self.user,
+            "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8", "timezone": "UTC"},
+        }
+        defaults.update(overrides)
+        return VisionAction.objects.for_team(self.team.id).create(**defaults)
+
+    def _run_url(self, action_id: str) -> str:
+        return f"{self.actions_url}{action_id}/run/"
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_starts_the_workflow_now_and_leaves_the_schedule_untouched(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        action = self._summary()
+        next_run_before = action.next_run_at
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        body = resp.json()
+        self.assertFalse(body["already_running"])
+        self.assertEqual(body["workflow_id"], build_process_vision_action_workflow_id(action.id))
+
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        inputs = args[1]
+        self.assertEqual(inputs.vision_action_id, action.id)
+        self.assertEqual(inputs.mode, "group_summary")
+        self.assertIsNotNone(inputs.scheduled_at)  # anchors the window at "now"
+
+        # The run must not advance the recurring schedule — that only happens at scheduled claim time.
+        action.refresh_from_db()
+        self.assertEqual(action.next_run_at, next_run_before)
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_coalesces_onto_an_already_running_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
+        from products.replay_vision.backend.temporal.constants import (
+            PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            build_process_vision_action_workflow_id,
+        )
+
+        action = self._summary()
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=build_process_vision_action_workflow_id(action.id),
+                workflow_type=PROCESS_VISION_ACTION_WORKFLOW_NAME,
+            )
+        )
+
+        resp = self.client.post(self._run_url(str(action.id)), format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        self.assertTrue(resp.json()["already_running"])
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_rejects_alerts(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Alerts check continuously on the sweep, so there's no meaningful on-demand run for them.
+        alert = self._summary(
+            name="rage alert",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+        )
+        resp = self.client.post(self._run_url(str(alert.id)), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+        start_workflow = mock_async_to_sync.return_value
+        start_workflow.assert_not_called()

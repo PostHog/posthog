@@ -3,11 +3,13 @@ use std::time::Duration;
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use health::HealthRegistry;
 use rdkafka::producer::FutureProducer;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::PgPool;
 
+use crate::core::config::build_pg_pool;
 use crate::core::error::UnhandledError;
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::signals::{MaybeSignalClient, SignalClient};
+use crate::modes::notifications::temporal::MaybeIssueCreatedWorkflowStarter;
 
 #[derive(Clone)]
 pub struct NotificationsContext {
@@ -17,14 +19,16 @@ pub struct NotificationsContext {
     pub signal_client: MaybeSignalClient,
     pub embedding_worker_topic: String,
     pub internal_events_topic: String,
+    pub issue_created_workflow_starter: MaybeIssueCreatedWorkflowStarter,
 }
 
 impl NotificationsContext {
     pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
-        let posthog_pool = PgPoolOptions::new()
-            .max_connections(config.max_pg_connections)
-            .connect(&config.database_url)
-            .await?;
+        let posthog_pool = build_pg_pool(
+            &config.database_url,
+            config.max_pg_connections,
+            "cymbal_notifications",
+        )?;
         let immediate_producer = build_immediate_producer(config).await?;
 
         Ok(Self {
@@ -34,6 +38,8 @@ impl NotificationsContext {
             signal_client: build_signal_client(config),
             embedding_worker_topic: config.embedding_worker_topic.clone(),
             internal_events_topic: config.internal_events_topic.clone(),
+            issue_created_workflow_starter: MaybeIssueCreatedWorkflowStarter::from_config(config)
+                .await?,
         })
     }
 }

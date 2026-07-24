@@ -276,7 +276,20 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
 export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMax = 4
 
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
@@ -295,6 +308,21 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsCreateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsCreateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -347,6 +375,10 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
 
@@ -364,6 +396,21 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
             )
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -416,6 +463,10 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
+export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
@@ -435,6 +486,21 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+            ),
+        target_type: zod
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
+            .default(customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault)
+            .describe(
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -498,15 +564,33 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .describe('UUID of the custom property definition this source feeds. One source per definition.'),
         saved_query: zod
             .uuid()
-            .describe('UUID of the data-warehouse saved query (materialized view) to read values from.'),
+            .nullish()
+            .describe(
+                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+            ),
+        external_data_schema: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+            ),
         source_column: zod
             .string()
             .max(customPropertySourcesCreateBodySourceColumnMax)
-            .describe('Column in the view whose value is written to the property.'),
+            .nullish()
+            .describe('Account sources only: column in the view whose value is written to the property.'),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
-            .describe("Column in the view whose value matches an account's external_id."),
+            .describe(
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
+            ),
         is_enabled: zod
             .boolean()
             .default(customPropertySourcesCreateBodyIsEnabledDefault)
@@ -515,7 +599,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
 export const customPropertySourcesUpdateBodySourceColumnMax = 400

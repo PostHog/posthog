@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
     ENDPOINTS,
     FIRECRAWL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FirecrawlSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
+    FirecrawlSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -41,6 +43,9 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.firecrawl.dev/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +58,6 @@ class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Firecrawl",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Firecrawl API key to pull your Firecrawl account activity and usage into the PostHog Data warehouse.
 
 You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.dev/app/api-keys). A single key grants access to all of the tables below.""",
@@ -98,6 +102,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FIRECRAWL_ENDPOINTS[endpoint]
@@ -120,7 +125,11 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return schemas
 
     def validate_credentials(
-        self, config: FirecrawlSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FirecrawlSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # A Firecrawl key is all-or-nothing (no per-endpoint scopes), so the same token probe covers
         # both source-create (schema_name=None) and the per-schema check.
@@ -140,6 +149,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return firecrawl_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

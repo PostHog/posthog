@@ -158,6 +158,24 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-web-vitals:
+        schema_ref: AssistantWebVitalsPathBreakdownQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web vitals path breakdown query
+        description_file: ./prompts/query-web-vitals.md
+        system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
     query-llm-traces-list:
         schema_ref: AssistantTracesQuery
         enabled: true

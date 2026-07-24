@@ -4,6 +4,8 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn().mockResolvedValue({ result: [] }),
 }))
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -20,10 +22,12 @@ import { performQuery } from '~/queries/query'
 import {
     FunnelsQuery,
     InsightVizNode,
+    Node,
     NodeKind,
     ResultCustomizationBy,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId, InsightType } from '~/types'
 
@@ -298,7 +302,7 @@ describe('insightDataLogic', () => {
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             breakdownFilter: {
@@ -358,9 +362,8 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
         })
         it('does not set query override is not set', async () => {
@@ -551,5 +554,67 @@ describe('insightDataLogic', () => {
                 sceneLogic.unmount()
             }
         })
+    })
+
+    describe('draft query persistence', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const newInsightQuery = (mutate?: (query: any) => void): Node => {
+            const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+            mutate?.(query)
+            return query
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+
+        beforeEach(() => {
+            localStorage.removeItem(draftKey)
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            logic = insightDataLogic({ dashboardItemId: 'new' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sceneLogic.unmount()
+            localStorage.removeItem(draftKey)
+        })
+
+        const cosmeticOnlyEdit = (q: any): void => {
+            q.source.dateRange = { date_from: '-90d' }
+        }
+        const tooLargeEdit = (q: any): void => {
+            q.source.series[0].event = 'x'.repeat(1024 * 1024 + 1)
+        }
+
+        it.each([
+            ['reverts to a cosmetic-only diff', cosmeticOnlyEdit],
+            ['grows too large to store', tooLargeEdit],
+        ])('clears the draft it persisted when the query %s', async (_, mutate) => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.series[0].event = 'purchase')))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery(mutate))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it.each([
+            ['a cosmetic-only query', cosmeticOnlyEdit],
+            ['a too-large query', tooLargeEdit],
+        ])(
+            "does not clear another session's draft when it has not persisted one itself and sets %s",
+            async (_, mutate) => {
+                localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+                await expectLogic(logic, () => {
+                    logic.actions.setQuery(newInsightQuery(mutate))
+                }).toFinishAllListeners()
+                expect(localStorage.getItem(draftKey)).not.toBeNull()
+            }
+        )
     })
 })

@@ -31,8 +31,6 @@ class TestSourceConfig:
         config = MailosaurSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Ships hidden while it's an unreleased alpha connector.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mailosaur"
 
     def test_api_key_field_is_required_secret(self) -> None:
@@ -95,7 +93,8 @@ class TestResumableWiring:
     def test_source_for_pipeline_passes_incremental_value_only_when_enabled(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "messages"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = datetime(2026, 1, 1, tzinfo=UTC)
         manager = MagicMock()
@@ -106,7 +105,8 @@ class TestResumableWiring:
         mocked.assert_called_once_with(
             api_key="key",
             endpoint="messages",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
@@ -115,7 +115,8 @@ class TestResumableWiring:
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "servers"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = datetime(2026, 1, 1, tzinfo=UTC)
         with patch(

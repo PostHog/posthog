@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LingoDevSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lingodev import (
+    LingoDevSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.lingo_dev import (
     LingoDevResumeConfig,
     lingo_dev_source,
@@ -36,6 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LingoDevSource(ResumableSource[LingoDevSourceConfig, LingoDevResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://lingo.dev/en/docs/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -68,7 +71,6 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
                 ],
             ),
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -85,6 +87,7 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Lingo.dev has no server-side timestamp filters, so only full refresh is supported.
         schemas = [
@@ -111,7 +114,11 @@ You can create an API key in your [Lingo.dev dashboard](https://lingo.dev/app). 
         }
 
     def validate_credentials(
-        self, config: LingoDevSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LingoDevSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_lingo_dev_credentials(config.api_key)
 

@@ -83,9 +83,8 @@ describe('AiIngestionPipeline', () => {
         await pipeline.feed(batch)
         let result = await pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void promiseScheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
@@ -177,6 +176,13 @@ describe('AiIngestionPipeline', () => {
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
             // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
             topHog: ((step) => step) as TopHogWrapper,
+            aiBlobStore: null,
+            aiBlobOffloadConfig: {
+                isTeamEnabled: (): boolean => false,
+                minBase64Length: 8192,
+                maxBlobsPerEvent: 50,
+                uploadMaxConcurrency: 8,
+            },
         }
     })
 

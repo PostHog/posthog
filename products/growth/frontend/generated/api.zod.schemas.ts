@@ -443,3 +443,372 @@ export const IdentityMatchingRunsResponseApi = zod.object({
 
 export type IdentityMatchingRunsResponseApi = zod.input<typeof IdentityMatchingRunsResponseApi>
 export type IdentityMatchingRunsResponseApiOutput = zod.output<typeof IdentityMatchingRunsResponseApi>
+
+export const OverallHealthEnumApi = zod
+    .enum(['healthy', 'needs_attention'])
+    .describe('\* `healthy` - healthy\n\* `needs_attention` - needs_attention')
+
+export type OverallHealthEnumApi = zod.input<typeof OverallHealthEnumApi>
+export type OverallHealthEnumApiOutput = zod.output<typeof OverallHealthEnumApi>
+
+export const HealthEnumApi = zod
+    .enum(['success', 'warning', 'danger'])
+    .describe('\* `success` - success\n\* `warning` - warning\n\* `danger` - danger')
+
+export type HealthEnumApi = zod.input<typeof HealthEnumApi>
+export type HealthEnumApiOutput = zod.output<typeof HealthEnumApi>
+
+export const LibEnumApi = zod
+    .enum([
+        'web',
+        'posthog-ios',
+        'posthog-android',
+        'posthog-java',
+        'posthog-server',
+        'posthog-node',
+        'posthog-python',
+        'posthog-php',
+        'posthog-ruby',
+        'posthog-go',
+        'posthog-flutter',
+        'posthog-react-native',
+        'posthog-kmp',
+        'posthog-dotnet',
+        'posthog-elixir',
+    ])
+    .describe(
+        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+    )
+
+export type LibEnumApi = zod.input<typeof LibEnumApi>
+export type LibEnumApiOutput = zod.output<typeof LibEnumApi>
+
+export const SdkAssessmentSeverityEnumApi = zod
+    .enum(['none', 'warning', 'danger'])
+    .describe('\* `none` - none\n\* `warning` - warning\n\* `danger` - danger')
+
+export type SdkAssessmentSeverityEnumApi = zod.input<typeof SdkAssessmentSeverityEnumApi>
+export type SdkAssessmentSeverityEnumApiOutput = zod.output<typeof SdkAssessmentSeverityEnumApi>
+
+export const SdkReleaseAssessmentApi = zod.object({
+    version: zod.string().describe("In-use SDK version string, e.g. '1.298.0'."),
+    count: zod.number().describe('Number of events captured with this version in the last 7 days.'),
+    max_timestamp: zod.string().describe('Timestamp of the most recent event seen for this version (ISO 8601).'),
+    release_date: zod
+        .string()
+        .nullable()
+        .describe('When this version was published on GitHub (ISO 8601), or null if unknown.'),
+    days_since_release: zod.number().nullable().describe('Days since this version was released, or null if unknown.'),
+    released_ago: zod
+        .string()
+        .nullable()
+        .describe(
+            "Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown."
+        ),
+    is_outdated: zod.boolean().describe('True when this version is flagged as outdated by smart-semver rules.'),
+    is_old: zod
+        .boolean()
+        .describe('True when this version is flagged as old by age alone (separate from semver rules).'),
+    needs_updating: zod.boolean().describe('True if is_outdated OR is_old.'),
+    is_current_or_newer: zod
+        .boolean()
+        .describe('True when this version equals or exceeds the latest known published version.'),
+    status_reason: zod
+        .string()
+        .describe(
+            "Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions."
+        ),
+    sql_query: zod
+        .string()
+        .describe(
+            'SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet.'
+        ),
+    activity_page_url: zod
+        .string()
+        .describe(
+            "Relative URL path (starting with \/project\/{id}\/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link."
+        ),
+})
+
+export type SdkReleaseAssessmentApi = zod.input<typeof SdkReleaseAssessmentApi>
+export type SdkReleaseAssessmentApiOutput = zod.output<typeof SdkReleaseAssessmentApi>
+
+export const OutdatedTrafficAlertApi = zod.object({
+    version: zod.string().describe('Outdated version handling significant traffic.'),
+    threshold_percent: zod
+        .number()
+        .describe('Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web).'),
+})
+
+export type OutdatedTrafficAlertApi = zod.input<typeof OutdatedTrafficAlertApi>
+export type OutdatedTrafficAlertApiOutput = zod.output<typeof OutdatedTrafficAlertApi>
+
+export const SdkAssessmentApi = zod.object({
+    lib: zod
+        .enum([
+            'web',
+            'posthog-ios',
+            'posthog-android',
+            'posthog-java',
+            'posthog-server',
+            'posthog-node',
+            'posthog-python',
+            'posthog-php',
+            'posthog-ruby',
+            'posthog-go',
+            'posthog-flutter',
+            'posthog-react-native',
+            'posthog-kmp',
+            'posthog-dotnet',
+            'posthog-elixir',
+        ])
+        .describe(
+            '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+        )
+        .describe(
+            "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
+        ),
+    readable_name: zod
+        .string()
+        .describe("Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS')."),
+    latest_version: zod.string().describe('Most recent published version of this SDK.'),
+    needs_updating: zod.boolean().describe('True if this SDK needs attention (is_outdated OR is_old).'),
+    is_outdated: zod.boolean().describe('True if the primary in-use version is flagged as outdated.'),
+    is_old: zod.boolean().describe('True if the primary in-use version is flagged as old by age alone.'),
+    migration_required: zod
+        .boolean()
+        .describe('True when this SDK must be replaced by a supported successor rather than upgraded in place.'),
+    severity: zod
+        .enum(['none', 'warning', 'danger'])
+        .describe('\* `none` - none\n\* `warning` - warning\n\* `danger` - danger')
+        .describe(
+            "UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.\n\n\* `none` - none\n\* `warning` - warning\n\* `danger` - danger"
+        ),
+    reason: zod
+        .string()
+        .describe(
+            'Per-SDK programmatic summary (used for ranking\/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly.'
+        ),
+    banners: zod
+        .array(zod.string())
+        .describe(
+            "Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users."
+        ),
+    releases: zod
+        .array(
+            zod.object({
+                version: zod.string().describe("In-use SDK version string, e.g. '1.298.0'."),
+                count: zod.number().describe('Number of events captured with this version in the last 7 days.'),
+                max_timestamp: zod
+                    .string()
+                    .describe('Timestamp of the most recent event seen for this version (ISO 8601).'),
+                release_date: zod
+                    .string()
+                    .nullable()
+                    .describe('When this version was published on GitHub (ISO 8601), or null if unknown.'),
+                days_since_release: zod
+                    .number()
+                    .nullable()
+                    .describe('Days since this version was released, or null if unknown.'),
+                released_ago: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        "Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown."
+                    ),
+                is_outdated: zod
+                    .boolean()
+                    .describe('True when this version is flagged as outdated by smart-semver rules.'),
+                is_old: zod
+                    .boolean()
+                    .describe('True when this version is flagged as old by age alone (separate from semver rules).'),
+                needs_updating: zod.boolean().describe('True if is_outdated OR is_old.'),
+                is_current_or_newer: zod
+                    .boolean()
+                    .describe('True when this version equals or exceeds the latest known published version.'),
+                status_reason: zod
+                    .string()
+                    .describe(
+                        "Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions."
+                    ),
+                sql_query: zod
+                    .string()
+                    .describe(
+                        'SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet.'
+                    ),
+                activity_page_url: zod
+                    .string()
+                    .describe(
+                        "Relative URL path (starting with \/project\/{id}\/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link."
+                    ),
+            })
+        )
+        .describe('Per-version assessment for all versions seen in the last 7 days.'),
+    outdated_traffic_alerts: zod
+        .array(
+            zod.object({
+                version: zod.string().describe('Outdated version handling significant traffic.'),
+                threshold_percent: zod
+                    .number()
+                    .describe(
+                        'Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web).'
+                    ),
+            })
+        )
+        .describe(
+            'Outdated versions that handle a significant share of traffic (above the threshold). Not populated for mobile SDKs.'
+        ),
+})
+
+export type SdkAssessmentApi = zod.input<typeof SdkAssessmentApi>
+export type SdkAssessmentApiOutput = zod.output<typeof SdkAssessmentApi>
+
+export const SdkHealthReportApi = zod.object({
+    overall_health: zod
+        .enum(['healthy', 'needs_attention'])
+        .describe('\* `healthy` - healthy\n\* `needs_attention` - needs_attention')
+        .describe(
+            "'healthy' when no SDKs need updating, 'needs_attention' otherwise.\n\n\* `healthy` - healthy\n\* `needs_attention` - needs_attention"
+        ),
+    health: zod
+        .enum(['success', 'warning', 'danger'])
+        .describe('\* `success` - success\n\* `warning` - warning\n\* `danger` - danger')
+        .describe(
+            "UI-level status — 'success' when healthy, 'warning' when some SDKs are outdated, 'danger' when the majority are outdated.\n\n\* `success` - success\n\* `warning` - warning\n\* `danger` - danger"
+        ),
+    needs_updating_count: zod.number().describe('Number of SDKs that need updating.'),
+    team_sdk_count: zod.number().describe('Number of distinct PostHog SDKs the project is actively using.'),
+    sdks: zod
+        .array(
+            zod.object({
+                lib: zod
+                    .enum([
+                        'web',
+                        'posthog-ios',
+                        'posthog-android',
+                        'posthog-java',
+                        'posthog-server',
+                        'posthog-node',
+                        'posthog-python',
+                        'posthog-php',
+                        'posthog-ruby',
+                        'posthog-go',
+                        'posthog-flutter',
+                        'posthog-react-native',
+                        'posthog-kmp',
+                        'posthog-dotnet',
+                        'posthog-elixir',
+                    ])
+                    .describe(
+                        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+                    )
+                    .describe(
+                        "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
+                    ),
+                readable_name: zod
+                    .string()
+                    .describe(
+                        "Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS')."
+                    ),
+                latest_version: zod.string().describe('Most recent published version of this SDK.'),
+                needs_updating: zod.boolean().describe('True if this SDK needs attention (is_outdated OR is_old).'),
+                is_outdated: zod.boolean().describe('True if the primary in-use version is flagged as outdated.'),
+                is_old: zod.boolean().describe('True if the primary in-use version is flagged as old by age alone.'),
+                migration_required: zod
+                    .boolean()
+                    .describe(
+                        'True when this SDK must be replaced by a supported successor rather than upgraded in place.'
+                    ),
+                severity: zod
+                    .enum(['none', 'warning', 'danger'])
+                    .describe('\* `none` - none\n\* `warning` - warning\n\* `danger` - danger')
+                    .describe(
+                        "UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.\n\n\* `none` - none\n\* `warning` - warning\n\* `danger` - danger"
+                    ),
+                reason: zod
+                    .string()
+                    .describe(
+                        'Per-SDK programmatic summary (used for ranking\/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly.'
+                    ),
+                banners: zod
+                    .array(zod.string())
+                    .describe(
+                        "Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users."
+                    ),
+                releases: zod
+                    .array(
+                        zod.object({
+                            version: zod.string().describe("In-use SDK version string, e.g. '1.298.0'."),
+                            count: zod
+                                .number()
+                                .describe('Number of events captured with this version in the last 7 days.'),
+                            max_timestamp: zod
+                                .string()
+                                .describe('Timestamp of the most recent event seen for this version (ISO 8601).'),
+                            release_date: zod
+                                .string()
+                                .nullable()
+                                .describe('When this version was published on GitHub (ISO 8601), or null if unknown.'),
+                            days_since_release: zod
+                                .number()
+                                .nullable()
+                                .describe('Days since this version was released, or null if unknown.'),
+                            released_ago: zod
+                                .string()
+                                .nullable()
+                                .describe(
+                                    "Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown."
+                                ),
+                            is_outdated: zod
+                                .boolean()
+                                .describe('True when this version is flagged as outdated by smart-semver rules.'),
+                            is_old: zod
+                                .boolean()
+                                .describe(
+                                    'True when this version is flagged as old by age alone (separate from semver rules).'
+                                ),
+                            needs_updating: zod.boolean().describe('True if is_outdated OR is_old.'),
+                            is_current_or_newer: zod
+                                .boolean()
+                                .describe(
+                                    'True when this version equals or exceeds the latest known published version.'
+                                ),
+                            status_reason: zod
+                                .string()
+                                .describe(
+                                    "Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions."
+                                ),
+                            sql_query: zod
+                                .string()
+                                .describe(
+                                    'SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet.'
+                                ),
+                            activity_page_url: zod
+                                .string()
+                                .describe(
+                                    "Relative URL path (starting with \/project\/{id}\/) for the Activity > Explore page pre-filtered to events captured with this lib and lib_version over the last 7 days. Combine with the user's PostHog host (e.g. us.posthog.com) for a clickable link."
+                                ),
+                        })
+                    )
+                    .describe('Per-version assessment for all versions seen in the last 7 days.'),
+                outdated_traffic_alerts: zod
+                    .array(
+                        zod.object({
+                            version: zod.string().describe('Outdated version handling significant traffic.'),
+                            threshold_percent: zod
+                                .number()
+                                .describe(
+                                    'Traffic-percentage threshold that triggered the alert (10% for most SDKs, 20% for web).'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Outdated versions that handle a significant share of traffic (above the threshold). Not populated for mobile SDKs.'
+                    ),
+            })
+        )
+        .describe('Per-SDK health assessments.'),
+})
+
+export type SdkHealthReportApi = zod.input<typeof SdkHealthReportApi>
+export type SdkHealthReportApiOutput = zod.output<typeof SdkHealthReportApi>

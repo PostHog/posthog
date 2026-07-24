@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -70,7 +71,7 @@ except ImportError:
 from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
     "01977f7b-7f29-0000-a028-7275d1a767a4": {
@@ -557,7 +558,12 @@ class TestQueryRunner(BaseTest):
         )
         response = runner.calculate()
         assert response.clickhouse is not None
-        assert "events.`mat_$browser" in response.clickhouse
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json AS events" in response.clickhouse
+            assert "events.properties.`$browser`" in response.clickhouse
+            assert "events.`mat_$browser" not in response.clickhouse
+        else:
+            assert "events.`mat_$browser" in response.clickhouse
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),

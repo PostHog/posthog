@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -1157,6 +1159,27 @@ class TestProperty(BaseTest):
             self._parse_expr("revenue_analytics_product.name = 'Product A'"),
         )
 
+    @parameterized.expand([("event_scope", "event"), ("person_scope", "person")])
+    def test_account_custom_property_rejected_in_generic_scopes(self, _name, scope):
+        # Account custom properties only resolve inside customer analytics queries. Before the
+        # explicit guard, the non-strict dict path swallowed the unknown type into Constant(1),
+        # silently widening any query that carried such a filter.
+        with self.assertRaises(QueryError) as e:
+            self._property_to_expr(
+                {
+                    "type": "account_custom_property",
+                    "key": "11111111-2222-3333-4444-555555555555",
+                    "value": "b",
+                    "operator": "exact",
+                },
+                scope=scope,
+                strict=False,
+            )
+        self.assertEqual(
+            str(e.exception),
+            f"The 'account_custom_property' property filter does not work in '{scope}' scope",
+        )
+
     def test_revenue_analytics_property_multiple_values(self):
         self.assertEqual(
             self._property_to_expr(
@@ -1888,10 +1911,9 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
     NOT_SET: Any = object()
 
-    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
-    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
-    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
-    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
+    # Expected is_set value can be True, False, or a callable(uses_legacy_materialized_columns) -> bool.
+    # Legacy materialized columns turn empty string and "null" string into NULL due to nullIf wrapping.
+    ONLY_WHEN_NOT_LEGACY_MATERIALIZED = staticmethod(lambda uses_legacy_mat_cols: not uses_legacy_mat_cols)
 
     def setUp(self):
         super().setUp()
@@ -1902,8 +1924,8 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
-            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
+            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
             # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
@@ -1950,10 +1972,11 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         )
 
     def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
+        uses_legacy_materialized_columns = is_materialized and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
         result = {}
         for prop_name, _, _, expected in self.test_cases:
             if callable(expected):
-                result[prop_name] = 1 if expected(is_materialized) else 0
+                result[prop_name] = 1 if expected(uses_legacy_materialized_columns) else 0
             else:
                 result[prop_name] = 1 if expected else 0
         return result

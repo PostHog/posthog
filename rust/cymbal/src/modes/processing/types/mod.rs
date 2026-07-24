@@ -14,7 +14,7 @@ use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 pub mod batch;
 pub mod event;
-pub mod exception_properties;
+pub mod exception_event;
 pub mod operator;
 pub mod stage;
 
@@ -99,88 +99,140 @@ impl ExceptionList {
     }
 }
 
-// Given a Clickhouse Event's properties, we care about the contents
-// of only a small subset. This struct is used to give us a strongly-typed
-// "view" of those event properties we care about.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RawErrProps {
+/// Untrusted exception properties accepted from ClickHouse and SDK event payloads.
+///
+/// Deserialization checks only the wire shape. Sanitization, non-empty list
+/// validation, normalization, and construction of `ExceptionEvent<Parsed>`
+/// happen at the event conversion boundary.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RawExceptionProperties {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
     #[serde(
         rename = "$exception_fingerprint",
         skip_serializing_if = "Option::is_none"
     )]
-    pub fingerprint: Option<String>, // Clients can send us fingerprints, which we'll use if present
+    pub fingerprint: Option<String>,
     #[serde(rename = "$issue_name", skip_serializing_if = "Option::is_none")]
-    pub issue_name: Option<String>, // Clients can send us custom issue names, which we'll use if present
+    pub issue_name: Option<String>,
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
-    pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
+    pub issue_description: Option<String>,
     #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
-    pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
+    pub handled: Option<bool>,
     #[serde(
         rename = "$debug_images",
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub debug_images: Vec<DebugImage>, // Debug images sent by native SDKs (apple, rust) for symbolication
+    pub debug_images: Vec<DebugImage>,
+    /// Properties not interpreted by Cymbal, preserved across processing.
     #[serde(flatten)]
-    // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
 }
 
-impl RawErrProps {
-    pub fn add_error_message(&mut self, msg: impl ToString) {
-        let mut errors = match self.other.remove("$cymbal_errors") {
-            Some(serde_json::Value::Array(errors)) => errors,
-            _ => Vec::new(),
-        };
-
-        errors.push(serde_json::Value::String(msg.to_string()));
-
-        self.other.insert(
-            "$cymbal_errors".to_string(),
-            serde_json::Value::Array(errors),
-        );
-    }
-}
-
-// We emit this
-#[derive(Debug, Default, Serialize, Deserialize, Clone)]
-pub struct OutputErrProps {
+/// The stable JSON representation of exception properties after Cymbal processing.
+///
+/// The public wrapper prevents ordinary callers from defaulting or independently
+/// assembling successful pipeline products. This private DTO remains the single
+/// source of truth for the external property names and omission behavior.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ProcessedExceptionPropertiesWire {
     #[serde(rename = "$exception_list")]
-    pub exception_list: ExceptionList,
+    exception_list: ExceptionList,
     #[serde(rename = "$exception_fingerprint")]
-    pub fingerprint: String,
+    fingerprint: String,
     #[serde(
         rename = "$exception_fingerprint_version",
         skip_serializing_if = "Option::is_none"
     )]
-    pub fingerprint_version: Option<FingerprintVersion>,
+    fingerprint_version: Option<FingerprintVersion>,
     #[serde(rename = "$exception_fingerprint_record")]
-    pub fingerprint_record: Vec<FingerprintRecordPart>,
+    fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
-    pub issue_id: Uuid,
+    issue_id: Uuid,
     #[serde(flatten)]
-    pub other: HashMap<String, Value>,
-
-    // Metadata
+    other: HashMap<String, Value>,
     #[serde(rename = "$exception_handled")]
-    pub handled: bool,
+    handled: bool,
     #[serde(
         rename = "$exception_releases",
         skip_serializing_if = "HashMap::is_empty",
         default
     )]
-    pub releases: HashMap<String, ReleaseInfo>,
-    // Search metadata (materialized)
+    releases: HashMap<String, ReleaseInfo>,
     #[serde(rename = "$exception_types")]
-    pub types: Vec<String>,
+    types: Vec<String>,
     #[serde(rename = "$exception_values")]
-    pub values: Vec<String>,
+    values: Vec<String>,
     #[serde(rename = "$exception_sources")]
-    pub sources: Vec<String>,
+    sources: Vec<String>,
     #[serde(rename = "$exception_functions")]
-    pub functions: Vec<String>,
+    functions: Vec<String>,
+}
+
+/// Validated processed exception properties used at serialization boundaries.
+///
+/// This is a boundary value, not a pipeline state. Deserializing it does not
+/// construct or imply an `ExceptionEvent<S>` processing state.
+#[derive(Debug, Serialize, Clone)]
+#[serde(transparent)]
+pub struct ProcessedExceptionProperties(ProcessedExceptionPropertiesWire);
+
+impl<'de> Deserialize<'de> for ProcessedExceptionProperties {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = ProcessedExceptionPropertiesWire::deserialize(deserializer)?;
+        if wire.exception_list.is_empty() {
+            return Err(serde::de::Error::custom(
+                "processed exception list must not be empty",
+            ));
+        }
+        Ok(Self(wire))
+    }
+}
+
+impl ProcessedExceptionProperties {
+    pub fn exception_list(&self) -> &ExceptionList {
+        &self.0.exception_list
+    }
+
+    pub fn fingerprint(&self) -> &str {
+        &self.0.fingerprint
+    }
+
+    pub fn fingerprint_record(&self) -> &[FingerprintRecordPart] {
+        &self.0.fingerprint_record
+    }
+
+    pub fn issue_id(&self) -> Uuid {
+        self.0.issue_id
+    }
+
+    pub fn properties(&self) -> &HashMap<String, Value> {
+        &self.0.other
+    }
+
+    pub fn is_handled(&self) -> bool {
+        self.0.handled
+    }
+
+    pub fn types(&self) -> &[String] {
+        &self.0.types
+    }
+
+    pub fn values(&self) -> &[String] {
+        &self.0.values
+    }
+
+    pub fn sources(&self) -> &[String] {
+        &self.0.sources
+    }
+
+    pub fn functions(&self) -> &[String] {
+        &self.0.functions
+    }
 }
 
 // Deduplicates while preserving first-seen order, so derived properties
@@ -196,30 +248,6 @@ where
         .filter_map(key_extractor)
         .filter(|key| seen.insert(key.clone()))
         .collect()
-}
-
-impl OutputErrProps {
-    pub fn add_error_message(&mut self, msg: impl ToString) {
-        let mut errors = match self.other.remove("$cymbal_errors") {
-            Some(serde_json::Value::Array(errors)) => errors,
-            _ => Vec::new(),
-        };
-
-        errors.push(serde_json::Value::String(msg.to_string()));
-
-        self.other.insert(
-            "$cymbal_errors".to_string(),
-            serde_json::Value::Array(errors),
-        );
-    }
-
-    pub fn strip_frame_junk(&mut self) {
-        self.exception_list.iter_mut().for_each(|exception| {
-            if let Some(Stacktrace::Resolved { frames }) = &mut exception.stack {
-                frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
-            }
-        });
-    }
 }
 
 impl Stacktrace {
@@ -267,11 +295,12 @@ impl Stacktrace {
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
-    use serde_json::Error;
+    use serde_json::{json, Error, Value};
+    use uuid::Uuid;
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::{Exception, ExceptionList, RawErrProps};
+    use super::{Exception, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties};
 
     #[test]
     fn it_deserialises_error_props() {
@@ -279,7 +308,7 @@ mod test {
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
-        let props: RawErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
+        let props: RawExceptionProperties = serde_json::from_str(&raw.properties.unwrap()).unwrap();
         let exception_list = &props.exception_list;
 
         assert_eq!(exception_list.len(), 1);
@@ -330,7 +359,7 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawExceptionProperties, Error> = serde_json::from_str(raw);
         assert!(props.is_ok());
         assert_eq!(props.unwrap().exception_list.len(), 0);
 
@@ -341,7 +370,7 @@ mod test {
         }"#;
 
         // We support default values
-        let props: RawErrProps =
+        let props: RawExceptionProperties =
             serde_json::from_str(raw).expect("Can deserialize with missing value");
         assert_eq!(props.exception_list[0].exception_message, "");
 
@@ -352,12 +381,54 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<RawExceptionProperties, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
             "missing field `type` at line 5 column 13"
         );
+    }
+
+    fn processed_properties_json(exception_list: Value) -> Value {
+        json!({
+            "$exception_list": exception_list,
+            "$exception_fingerprint": "",
+            "$exception_fingerprint_record": [],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "passthrough": {"kept": true},
+        })
+    }
+
+    #[test]
+    fn processed_properties_validate_stable_wire_invariants() {
+        let value = processed_properties_json(json!([{"type": "Error", "value": "boom"}]));
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(value.clone()).expect("compatible processed properties");
+
+        assert_eq!(properties.fingerprint(), "");
+        assert!(properties.fingerprint_record().is_empty());
+        assert_eq!(properties.issue_id(), Uuid::nil());
+        assert_eq!(properties.types(), ["Error"]);
+        assert_eq!(properties.values(), ["boom"]);
+        assert_eq!(properties.properties()["passthrough"]["kept"], true);
+        assert_eq!(serde_json::to_value(properties).unwrap(), value);
+
+        let mut empty_manual =
+            processed_properties_json(json!([{"type": "Error", "value": "boom"}]));
+        empty_manual["$exception_fingerprint_record"] = json!([{"type": "manual"}]);
+        let manual: ProcessedExceptionProperties = serde_json::from_value(empty_manual).unwrap();
+        assert_eq!(manual.fingerprint(), "");
+
+        let empty = processed_properties_json(json!([]));
+        let error = serde_json::from_value::<ProcessedExceptionProperties>(empty).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("processed exception list must not be empty"));
     }
 
     #[test]

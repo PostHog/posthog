@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class TeamtailorEndpointConfig:
@@ -24,4 +26,4 @@ TEAMTAILOR_ENDPOINTS: dict[str, TeamtailorEndpointConfig] = {
 
 ENDPOINTS = tuple(TEAMTAILOR_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
