@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DuckgresBatchQueue,
+    is_eligibility_query_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     LEASE_TTL_SECONDS,
@@ -219,8 +220,14 @@ class DuckgresBatchConsumerAdapter:
             )
             SINK_ORGS_AT_BUDGET.set(orgs_at_budget)
         except Exception as e:
-            logger.exception("duckgres_sink_maintenance_query_failed")
-            capture_exception(e)
+            if is_eligibility_query_timeout(e):
+                # Expected under a slow/loaded queue DB — the eligibility-CTE
+                # queries are timeout-bounded specifically so this fails fast
+                # and the next tick just retries; not worth an error-tracking report.
+                logger.warning("duckgres_sink_maintenance_query_timed_out")
+            else:
+                logger.exception("duckgres_sink_maintenance_query_failed")
+                capture_exception(e)
             return
 
         block_list_was_unset = self._blocked_schema_ids is None
