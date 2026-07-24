@@ -1213,27 +1213,33 @@ def replace_loop_skill_bundles(
     previous_paths: list[str] = []
     lost_delete_race = False
     denied: LoopPermissionError | None = None
-    with transaction.atomic():
-        locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
-        if locked.deleted:
-            lost_delete_race = True
-        else:
-            try:
-                # Ownership can change (takeover) while the bundle bytes were uploading,
-                # so the swap is re-authorized against the row as locked — otherwise a
-                # former owner's in-flight replace lands a skill that every future fire
-                # executes under the new owner's credentials.
-                _authorize_update(locked, user, {"skill_bundles": bundles})
-            except LoopPermissionError as exc:
-                denied = exc
+    try:
+        with transaction.atomic():
+            locked = Loop.objects.unscoped().select_for_update().get(pk=loop.pk)
+            if locked.deleted:
+                lost_delete_race = True
             else:
-                previous_paths = [
-                    entry["storage_path"]
-                    for entry in (locked.skill_bundles or [])
-                    if isinstance(entry, dict) and entry.get("storage_path")
-                ]
-                locked.skill_bundles = entries
-                locked.save(update_fields=["skill_bundles", "updated_at"])
+                try:
+                    # Ownership can change (takeover) while the bundle bytes were uploading,
+                    # so the swap is re-authorized against the row as locked — otherwise a
+                    # former owner's in-flight replace lands a skill that every future fire
+                    # executes under the new owner's credentials.
+                    _authorize_update(locked, user, {"skill_bundles": bundles})
+                except LoopPermissionError as exc:
+                    denied = exc
+                else:
+                    previous_paths = [
+                        entry["storage_path"]
+                        for entry in (locked.skill_bundles or [])
+                        if isinstance(entry, dict) and entry.get("storage_path")
+                    ]
+                    locked.skill_bundles = entries
+                    locked.save(update_fields=["skill_bundles", "updated_at"])
+    except Exception:
+        # A failed swap (lock timeout, database error) rolls back the manifest but not
+        # the objects this request already wrote — release them before surfacing.
+        _delete_skill_bundle_objects(loop.id, written_paths)
+        raise
 
     if lost_delete_race:
         _delete_skill_bundle_objects(loop.id, written_paths)
