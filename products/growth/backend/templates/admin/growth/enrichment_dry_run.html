@@ -22,7 +22,7 @@
 {% block content %}
 <h1>Dry run: {{ config.name }} {{ config.version }}{% if not config.is_active %} <span style="opacity:0.6">(inactive)</span>{% endif %}</h1>
 <p class="dryrun-meta">
-    Model {{ config.model }}, temperature {{ config.temperature }} &middot;
+    Model {{ config.model }} &middot;
     {{ total }} most recent archived orgs{% if contains %} matching &ldquo;{{ contains }}&rdquo;{% endif %} &middot;
     rows appear as verdicts come back &middot; nothing was persisted.
 </p>

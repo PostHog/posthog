@@ -348,7 +348,7 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
                 models_list.append(instance.model)
             self.fields["model"] = forms.ChoiceField(
                 choices=[(m, m) for m in models_list],
-                help_text="Routed through the internal LLM gateway. gpt-5 models only accept temperature 1.",
+                help_text="Routed through the internal LLM gateway.",
             )
         if "input_fields" in self.fields:
             paths = list(HARMONIC_INPUT_FIELD_CHOICES)
@@ -385,7 +385,7 @@ _DRY_RUN_WORKERS = 5
 @admin.register(EnrichmentPromptConfig)
 class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
     form = EnrichmentPromptConfigForm
-    list_display = ("name", "version", "model", "temperature", "is_active", "created_by", "created_at")
+    list_display = ("name", "version", "model", "is_active", "created_by", "created_at")
     list_filter = ("name", "is_active")
     search_fields = ("name", "version")
     ordering = ("-created_at",)
@@ -507,7 +507,6 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
                     "name": latest.name,
                     "prompt_text": latest.prompt_text,
                     "model": latest.model,
-                    "temperature": latest.temperature,
                     "input_fields": latest.input_fields,
                 }
             )

@@ -33,7 +33,6 @@ def seed_config(apps, schema_editor):
         defaults={
             "prompt_text": AI_PILLED_CLAY_V1_PROMPT,
             "model": "gpt-5-mini",
-            "temperature": 1.0,
             "input_fields": AI_PILLED_INPUT_FIELDS,
             "is_active": True,
         },

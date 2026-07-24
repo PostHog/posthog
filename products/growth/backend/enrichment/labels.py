@@ -77,7 +77,6 @@ def _call_and_parse(config: EnrichmentPromptConfig, messages: list[dict[str, str
     response = client.chat.completions.create(
         model=config.model,
         messages=cast(list[ChatCompletionMessageParam], messages),
-        temperature=config.temperature,
         response_format={"type": "json_object"},
         timeout=60,
     )

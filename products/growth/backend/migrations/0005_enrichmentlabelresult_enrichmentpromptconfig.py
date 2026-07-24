@@ -87,7 +87,6 @@ class Migration(migrations.Migration):
                 ("version", models.CharField(max_length=128)),
                 ("prompt_text", models.TextField()),
                 ("model", models.CharField(max_length=128)),
-                ("temperature", models.FloatField(default=1.0)),
                 ("input_fields", models.JSONField(default=list)),
                 ("is_active", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),

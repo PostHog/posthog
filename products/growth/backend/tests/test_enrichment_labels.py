@@ -48,7 +48,6 @@ class TestClassifyPayloadMissingInput(SimpleTestCase):
             version="test-v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
         )
         client = MagicMock()
@@ -69,7 +68,6 @@ class TestEnrichmentLabelBatch(BaseTest):
             version=version,
             prompt_text=prompt_text,
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
             is_active=is_active,
         )
@@ -179,7 +177,6 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
             version="test-v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
             is_active=True,
         )
@@ -204,7 +201,6 @@ class TestEnrichmentPromptConfigImmutability(BaseTest):
             ("version", "test-v2"),
             ("prompt_text", "a completely different prompt"),
             ("model", "gpt-5-nano"),
-            ("temperature", 0.5),
             ("input_fields", ["name", "description"]),
         ]
     )
@@ -254,7 +250,6 @@ class TestEnrichmentLabelDryRun(BaseTest):
             version="test-v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
             is_active=True,
         )
@@ -274,7 +269,6 @@ class TestEnrichmentLabelDryRun(BaseTest):
             version="test-v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
         )
         fetch = OrganizationEnrichmentFetch.objects.create(
@@ -307,7 +301,6 @@ class TestEnrichmentLabelDryRun(BaseTest):
             version="test-v1",
             prompt_text="... Email: {email}",
             model="gpt-5-mini",
-            temperature=1.0,
             input_fields=["name"],
         )
         OrganizationEnrichmentFetch.objects.create(

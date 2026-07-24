@@ -161,7 +161,7 @@ class EnrichmentPromptConfig(UUIDModel):
 
     # Everything that changes the classifier's behavior. An edit to any of these is a new
     # version (new row), never an in-place change — see save().
-    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "temperature", "input_fields")
+    FROZEN_FIELDS = ("name", "version", "prompt_text", "model", "input_fields")
 
     # Label this config computes, e.g. "ai_pilled".
     name = models.CharField(max_length=128)
@@ -169,8 +169,6 @@ class EnrichmentPromptConfig(UUIDModel):
     version = models.CharField(max_length=128)
     prompt_text = models.TextField()
     model = models.CharField(max_length=128)
-    # gpt-5 family models via the gateway only accept temperature=1.
-    temperature = models.FloatField(default=1.0)
     # Dotted paths into the archived Harmonic payload fed to the prompt, e.g. ["name", "funding.fundingStage"].
     input_fields = models.JSONField(default=list)
     # The version the batch runner computes; at most one active row per label (enforced below).
@@ -203,7 +201,6 @@ class EnrichmentPromptConfig(UUIDModel):
             {
                 "prompt_text": self.prompt_text,
                 "model": self.model,
-                "temperature": self.temperature,
                 "input_fields": self.input_fields,
             },
             sort_keys=True,
