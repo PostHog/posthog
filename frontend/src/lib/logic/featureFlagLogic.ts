@@ -39,9 +39,15 @@ let cachedFlagsProxy: FeatureFlagsSet | null = null
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
+    // The server's array form is a baseline that live flags may override. The record form
+    // (Storybook's withFeatureFlags) pins exact values: it must also survive a non-empty
+    // posthog-js payload that happens to carry the same keys, so pins are applied last.
+    const persistedArePinned = !Array.isArray(appContext?.persisted_feature_flags ?? [])
     const availableFlags =
         appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
-            ? { ...persistedFlags, ...featureFlags }
+            ? persistedArePinned
+                ? { ...featureFlags, ...persistedFlags }
+                : { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
     const serialized = JSON.stringify(availableFlags)
