@@ -1159,6 +1159,21 @@ describe('dashboardLogic', () => {
                 dashboardFailedToLoad: true,
             })
         })
+
+        it('retries the load when navigating back to a dashboard whose load failed', async () => {
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                dashboardFailedToLoad: true,
+            })
+
+            // Returning via the breadcrumb keeps the logic mounted; the /dashboard/:id
+            // handler should re-attempt the load instead of leaving the error stuck. Wait for
+            // the retried load to settle so no async work leaks past the test.
+            await expectLogic(logic, () => {
+                router.actions.push('/dashboard/7')
+            })
+                .toDispatchActions(['loadDashboard', 'loadDashboardFailure'])
+                .toFinishAllListeners()
+        })
     })
 
     describe('when a dashboard item API errors', () => {
