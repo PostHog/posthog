@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
@@ -204,14 +205,16 @@ function PlayerWrapper({
         >
             {isFiltersExpanded && (
                 <div className="h-full overflow-y-auto rounded border">
-                    <RecordingsUniversalFiltersEmbed
-                        resetFilters={resetFilters}
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        allowReplayHogQLFilters={allowHogQLFilters}
-                        pinnedFilters={pinnedFilters}
-                    />
+                    <ErrorBoundary exceptionProps={{ feature: 'session-recordings-filters' }}>
+                        <RecordingsUniversalFiltersEmbed
+                            resetFilters={resetFilters}
+                            filters={filters}
+                            setFilters={setFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            allowReplayHogQLFilters={allowHogQLFilters}
+                            pinnedFilters={pinnedFilters}
+                        />
+                    </ErrorBoundary>
                 </div>
             )}
             {showContent && activeSessionRecording ? (
