@@ -176,6 +176,7 @@ the row lists both.
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
 | dbt                              | HTTP                        | requests                                                        | ✅                          |
+| debugbear                        | HTTP                        | requests                                                        | ✅                          |
 | decagon                          | HTTP                        | requests                                                        | ✅                          |
 | deel                             | HTTP                        | requests                                                        | ✅                          |
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
@@ -865,7 +866,6 @@ doesn't conflict with concurrent PRs.
 - datorama
 - dayforce
 - db2
-- debugbear
 - deno_deploy
 - deputy
 - develocity
