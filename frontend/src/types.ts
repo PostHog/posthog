@@ -6902,6 +6902,7 @@ export enum SDKKey {
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
+    KMP = 'kmp',
     LARAVEL = 'laravel',
     LANGCHAIN = 'langchain',
     LANGGRAPH = 'langgraph',
@@ -6933,6 +6934,7 @@ export enum SDKKey {
     REACT_ROUTER = 'react_router',
     REMIX = 'remix',
     RETOOL = 'retool',
+    ROBLOX = 'roblox',
     RUBY = 'ruby',
     RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
@@ -6946,6 +6948,7 @@ export enum SDKKey {
     TRACELOOP = 'traceloop',
     TANSTACK_START = 'tanstack_start',
     TOGETHER_AI = 'together_ai',
+    UNITY = 'unity',
     VERCEL_AI = 'vercel_ai',
     VERCEL_AI_GATEWAY = 'vercel_ai_gateway',
     VITE = 'vite',
@@ -6971,6 +6974,7 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
+export type SDKDocsLinkOverrides = Partial<Record<SDKKey, string>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
 export enum SidePanelTab {
