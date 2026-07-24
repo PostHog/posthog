@@ -84,18 +84,23 @@ async def identity_role(session: aioboto3.Session) -> str:
     return identity_role_name
 
 
+# Named distinctly from the test module's function-scoped `bucket_name` fixture (used by
+# the MinIO tests) so this module-scoped fixture is not shadowed, which would cause a
+# ScopeMismatch when the module-scoped `aws_bucket` requests it.
 @pytest.fixture(scope="module")
-def bucket_name() -> str:
+def aws_bucket_name() -> str:
     """Name for a test S3 bucket."""
     return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
 
 
 @pytest_asyncio.fixture(scope="module")
-async def aws_bucket(session: aioboto3.Session, bucket_name: str, region: str) -> collections.abc.AsyncIterator[str]:
+async def aws_bucket(
+    session: aioboto3.Session, aws_bucket_name: str, region: str
+) -> collections.abc.AsyncIterator[str]:
     """A real S3 bucket the destination role is granted access to."""
     async with session.client("s3") as s3_client:
         try:
-            await s3_client.create_bucket(Bucket=bucket_name, ACL="private")
+            await s3_client.create_bucket(Bucket=aws_bucket_name, ACL="private")
         except (
             botocore.exceptions.NoCredentialsError,
             botocore.exceptions.PartialCredentialsError,
@@ -103,11 +108,11 @@ async def aws_bucket(session: aioboto3.Session, bucket_name: str, region: str) -
         ):
             raise pytest.skip("Could not setup S3 bucket")
 
-        yield bucket_name
+        yield aws_bucket_name
 
         try:
-            await delete_all_from_s3(s3_client, bucket_name, key_prefix="")
-            await s3_client.delete_bucket(Bucket=bucket_name)
+            await delete_all_from_s3(s3_client, aws_bucket_name, key_prefix="")
+            await s3_client.delete_bucket(Bucket=aws_bucket_name)
         except Exception:
             pass
 
