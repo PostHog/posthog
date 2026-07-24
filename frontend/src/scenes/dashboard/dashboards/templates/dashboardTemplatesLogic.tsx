@@ -187,6 +187,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
+                // diagnostic: loader reverted to baseline behavior to isolate the visual-regression failure
                 getAllTemplates: async () => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
