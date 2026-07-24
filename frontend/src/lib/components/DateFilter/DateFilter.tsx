@@ -305,7 +305,13 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                             <LemonButton
                                 key={key}
                                 data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
-                                onClick={() => setDate(values[0] || null, values[1] || null, false, explicitDate)}
+                                // Presets are day-rounded relative ranges, so their upper bound is always
+                                // the end of the period — never the exact current instant. Force
+                                // explicitDate=false rather than carrying the ambient (possibly stale, e.g.
+                                // left over from a minute-precision "until now" pick) flag, so the same
+                                // preset resolves the same boundary regardless of what was selected before.
+                                // The "Exact time range" toggle still lets users opt into exact bounds.
+                                onClick={() => setDate(values[0] || null, values[1] || null, false, false)}
                                 active={isActive}
                                 fullWidth
                             >
@@ -321,7 +327,9 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
-                            setDate(fromDate, '', true, explicitDate)
+                            // Rolling ranges are day-rounded too — keep explicitDate deterministic (see
+                            // the preset buttons above) instead of inheriting the ambient flag.
+                            setDate(fromDate, '', true, false)
                         }}
                         makeLabel={makeLabel}
                         popover={{

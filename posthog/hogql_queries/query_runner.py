@@ -2374,8 +2374,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             date_range.date_from = dashboard_filter.date_from
             date_range.date_to = dashboard_filter.date_to
 
-            if dashboard_filter.explicitDate is not None:
-                date_range.explicitDate = dashboard_filter.explicitDate
+            # The date range is one unit: adopting the dashboard's bounds means adopting its
+            # explicitDate too, so a dashboard-level (day-rounded) date range can't inherit the
+            # tile's stale flag and silently resolve its upper bound to the current instant.
+            date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy

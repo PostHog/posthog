@@ -103,3 +103,32 @@ describe('DateFilter with allowFixedRangeWithTime', () => {
         })
     })
 })
+
+describe('DateFilter explicitDate determinism', () => {
+    let onChange = jest.fn()
+    beforeEach(() => {
+        initKeaTests()
+        onChange = jest.fn()
+        // A prior selection (e.g. a minute-precision "until now" range) left explicitDate=true in state.
+        render(
+            <Provider>
+                <DateFilter onChange={onChange} dateOptions={dateMapping} explicitDate />
+            </Provider>
+        )
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('does not leak a stale explicitDate=true into a preset selection', async () => {
+        const dateFilter = screen.getByTestId('date-filter')
+        await userEvent.click(dateFilter)
+
+        await userEvent.click(screen.getByText('This month'))
+
+        // "This month" is day-rounded, so its upper bound must resolve deterministically to the end
+        // of the period regardless of the ambient flag — not the current instant.
+        expect(onChange).toHaveBeenCalledWith('mStart', null, false)
+    })
+})
