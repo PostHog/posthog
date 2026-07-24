@@ -218,7 +218,6 @@ wrappers:
             - response
             - modifiers
             - samplingFactor
-
     query-web-stats:
         schema_ref: AssistantWebStatsTableQuery
         enabled: true
@@ -236,7 +235,6 @@ wrappers:
             - response
             - modifiers
             - samplingFactor
-
     query-web-vitals:
         schema_ref: AssistantWebVitalsPathBreakdownQuery
         enabled: true
