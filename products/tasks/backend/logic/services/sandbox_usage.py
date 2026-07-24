@@ -18,6 +18,7 @@ from functools import wraps
 from typing import ParamSpec, TypeVar
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -44,48 +45,60 @@ def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
     return wrapper
 
 
-@_best_effort
 def open_sandbox_session(
-    *, run_id: str | UUID, sandbox_id: str, config: SandboxConfig, sandbox_created_at: datetime | None = None
+    *,
+    run_id: str | UUID,
+    sandbox_id: str,
+    config: SandboxConfig,
+    sandbox_created_at: datetime | None = None,
+    required: bool = False,
 ) -> None:
-    """Record a freshly provisioned sandbox against its run.
+    """Record a freshly provisioned sandbox against its run."""
+    try:
+        with transaction.atomic():
+            run = (
+                TaskRun.objects.select_for_update()
+                .select_related("task")
+                .only("id", "team_id", "state", "task__origin_product")
+                .get(id=run_id)
+            )
+            SandboxSession.objects.for_team(run.team_id).filter(
+                task_run_id=run.id,
+                ended_at__isnull=True,
+            ).exclude(sandbox_id=sandbox_id).update(
+                ended_at=timezone.now(),
+                ended_reason=SandboxSession.EndedReason.CLEANUP,
+            )
 
-    ``sandbox_created_at`` is the ``Sandbox.create()`` boundary — the provider's TTL
-    clock starts there, minutes before repo setup finishes and this row is opened, so
-    the TTL deadline must anchor on it rather than on insert time.
-
-    Reads the live ``TaskRun`` row rather than any workflow-start snapshot: a warm
-    run claimed while its sandbox was still provisioning has already lost the
-    ``await_user_message`` marker, so the session is created attributed. Upserts on
-    ``sandbox_id`` so activity retries stay idempotent, and never regresses
-    ``user_attributed_at`` on an existing row.
-    """
-    run = TaskRun.objects.select_related("task").only("id", "team_id", "state", "task__origin_product").get(id=run_id)
-    state = run.state or {}
-    created_at = sandbox_created_at or timezone.now()
-    shape = {
-        "team_id": run.team_id,
-        "task_run_id": run.id,
-        "origin_product": run.task.origin_product,
-        "prewarmed": bool(state.get("prewarmed")),
-        "vm_runtime": config.is_vm,
-        "cpu_cores": config.cpu_cores,
-        "memory_gb": config.memory_gb,
-        "ttl_seconds": config.ttl_seconds,
-        "burstable": config.burstable_resources,
-        "cpu_request_cores": config.cpu_request_cores if config.burstable_resources else None,
-        "memory_request_mb": config.memory_request_mb if config.burstable_resources else None,
-        "created_at": created_at,
-        "ttl_expires_at": created_at + timedelta(seconds=config.ttl_seconds),
-    }
-    SandboxSession.objects.for_team(run.team_id).update_or_create(
-        sandbox_id=sandbox_id,
-        defaults=shape,
-        create_defaults={
-            **shape,
-            "user_attributed_at": None if state.get("await_user_message") else timezone.now(),
-        },
-    )
+            state = run.state or {}
+            created_at = sandbox_created_at or timezone.now()
+            shape = {
+                "team_id": run.team_id,
+                "task_run_id": run.id,
+                "origin_product": run.task.origin_product,
+                "prewarmed": bool(state.get("prewarmed")),
+                "vm_runtime": config.is_vm,
+                "cpu_cores": config.cpu_cores,
+                "memory_gb": config.memory_gb,
+                "ttl_seconds": config.ttl_seconds,
+                "burstable": config.burstable_resources,
+                "cpu_request_cores": config.cpu_request_cores if config.burstable_resources else None,
+                "memory_request_mb": config.memory_request_mb if config.burstable_resources else None,
+                "created_at": created_at,
+                "ttl_expires_at": created_at + timedelta(seconds=config.ttl_seconds),
+            }
+            SandboxSession.objects.for_team(run.team_id).update_or_create(
+                sandbox_id=sandbox_id,
+                defaults=shape,
+                create_defaults={
+                    **shape,
+                    "user_attributed_at": None if state.get("await_user_message") else timezone.now(),
+                },
+            )
+    except Exception:
+        logger.exception("sandbox_usage.ledger_write_failed", helper="open_sandbox_session")
+        if required:
+            raise
 
 
 @_best_effort
@@ -93,9 +106,15 @@ def close_sandbox_session(sandbox_id: str, *, reason: str) -> None:
     """Stamp the sandbox's end. Idempotent — the first stamp wins."""
     # Unscoped: cleanup/reap activities only carry the globally-unique provider
     # sandbox id, not team context.
-    SandboxSession.objects.unscoped().filter(sandbox_id=sandbox_id, ended_at__isnull=True).update(
-        ended_at=timezone.now(), ended_reason=reason
-    )
+    sandbox_session = SandboxSession.objects.unscoped().filter(sandbox_id=sandbox_id).first()
+    if sandbox_session is None:
+        return
+    with transaction.atomic():
+        TaskRun.objects.select_for_update().get(id=sandbox_session.task_run_id)
+        SandboxSession.objects.unscoped().filter(
+            id=sandbox_session.id,
+            ended_at__isnull=True,
+        ).update(ended_at=timezone.now(), ended_reason=reason)
 
 
 @_best_effort

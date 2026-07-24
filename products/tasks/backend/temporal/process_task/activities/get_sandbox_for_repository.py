@@ -377,21 +377,25 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        sandbox_state = {
-            "sandbox_id": sandbox.id,
-            "sandbox_url": credentials.url,
-            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
-        }
-        if credentials.token:
-            sandbox_state["sandbox_connect_token"] = credentials.token
-        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-
-        # Best-effort usage-ledger row (swallows its own failures). Only after the
-        # sandbox is fully reachable, mirroring create_sandbox_for_repository: the
-        # failure paths above destroy the sandbox, and those must not enter the ledger.
-        open_sandbox_session(
-            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
-        )
+        try:
+            sandbox_state = {
+                "sandbox_id": sandbox.id,
+                "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+            }
+            if credentials.token:
+                sandbox_state["sandbox_connect_token"] = credentials.token
+            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            open_sandbox_session(
+                run_id=ctx.run_id,
+                sandbox_id=sandbox.id,
+                config=sandbox.config,
+                sandbox_created_at=sandbox_created_at,
+                required=ctx.task_runtime == "pi",
+            )
+        except Exception:
+            sandbox.destroy()
+            raise
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

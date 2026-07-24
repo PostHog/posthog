@@ -131,6 +131,7 @@ class ProcessTaskInput:
     slack_thread_context: Optional[dict[str, Any]] = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     prewarmed: bool = False
+    initial_message: Optional["PendingFollowup"] = None
     # Set only on a continue_as_new continuation, to skip provisioning and re-attach.
     resumed_sandbox: Optional[ResumedSandboxState] = None
 
@@ -140,8 +141,6 @@ class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
     actor_user_id: int | None = None
-    # Sender-supplied idempotency key (stable across the sender's retries);
-    # None falls back to a workflow-generated id.
     message_id: str | None = None
     # Signal context carried verbatim (e.g. actor_slack_user_id for reply
     # tagging); consumers validate the keys they read.
@@ -329,6 +328,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             slack_thread_context=loaded.get("slack_thread_context"),
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
             prewarmed=loaded.get("prewarmed", False),
+            initial_message=(
+                PendingFollowup(**loaded["initial_message"])
+                if isinstance(loaded.get("initial_message"), dict)
+                else None
+            ),
             resumed_sandbox=ResumedSandboxState(**resumed) if resumed else None,
         )
 
@@ -725,7 +729,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
 
             # A continuation already delivered the first user message in a prior execution.
-            if input.resumed_sandbox is None and self._should_forward_pending_user_message():
+            if input.resumed_sandbox is None and input.initial_message is not None:
+                self._pending_followups.append(input.initial_message)
+                await self._dispatch_next_followup()
+            elif input.resumed_sandbox is None and self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
@@ -1120,12 +1127,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
-        return await workflow.execute_activity(
+        context = await workflow.execute_activity(
             get_task_processing_context,
             GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        return context
 
     async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
         prepared = await workflow.execute_activity(
@@ -2097,15 +2105,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     steer=steer,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                # The activity heartbeats while blocked on the sync delivery
-                # call, so a worker restart is detected here instead of at
-                # start_to_close. Retries are safe: message_id lets the
-                # agent-server drop a redelivery it already accepted, and
-                # sentinel-writing failures raise non-retryable.
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=5),
-                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                    maximum_attempts=(1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS),
                 ),
             )
         except Exception as e:

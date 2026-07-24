@@ -26,7 +26,12 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("object_storage_key", models.CharField(max_length=512, unique=True)),
+                (
+                    "object_storage_key",
+                    models.CharField(blank=True, max_length=512, null=True, unique=True),
+                ),
+                ("content_sha256", models.CharField(blank=True, max_length=64, null=True)),
+                ("size", models.PositiveIntegerField(default=0)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -37,6 +42,15 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.organization",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
                     ),
                 ),
                 (
@@ -70,6 +84,10 @@ class Migration(migrations.Migration):
                 fields=["organization", "-updated_at"],
                 name="task_session_org_updated_idx",
             ),
+        ),
+        migrations.AddIndex(
+            model_name="tasksession",
+            index=models.Index(fields=["team", "-updated_at"], name="task_session_team_updated_idx"),
         ),
         migrations.AddIndex(
             model_name="tasksession",
