@@ -29,7 +29,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models.activity_logging.activity_log import load_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -638,13 +638,21 @@ class EnterpriseExperimentsViewSet(
 
         experiment: Experiment = self.get_object()
 
-        activity_page = load_activity(
-            scope="Experiment",
-            team_id=self.team_id,
-            item_ids=[str(experiment.id)],
-            limit=limit,
-            page=page,
+        # Holdout and shared-metric changes log under the Experiment scope with the child
+        # object's own id, so they need their own type-matched clauses.
+        activity_filter = Q(item_id=str(experiment.id))
+        if experiment.holdout_id is not None:
+            activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
+        saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
+        if saved_metric_ids:
+            activity_filter |= Q(item_id__in=saved_metric_ids, detail__type="shared_metric")
+
+        activity_query = (
+            ActivityLog.objects.select_related("user")
+            .filter(activity_filter, team_id=self.team_id, scope="Experiment")
+            .order_by("-created_at")
         )
+        activity_page = get_activity_page(activity_query, limit, page)
         return activity_page_response(activity_page, limit, page, request)
 
     @extend_schema(
