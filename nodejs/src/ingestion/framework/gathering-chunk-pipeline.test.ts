@@ -7,6 +7,19 @@ import { dlq, drop, ok, redirect } from './results'
 
 const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
 
+// Scripted upstream: each next() runs the next entry, so tests control exactly
+// how (and how fast) every pull resolves. Exhausted script → null.
+class ScriptedChunkPipeline<T, C, R extends string = never> implements ChunkPipeline<T, T, C, C, R> {
+    constructor(private script: Array<() => Promise<ChunkPipelineResultWithContext<T, C, R> | null>>) {}
+
+    feed(_elements: OkResultWithContext<T, C>[]): void {}
+
+    next(): Promise<ChunkPipelineResultWithContext<T, C, R> | null> {
+        const entry = this.script.shift()
+        return entry ? entry() : Promise.resolve(null)
+    }
+}
+
 // Mock chunk processing pipeline for testing
 class MockChunkProcessingPipeline<T, C, R extends string = never> implements ChunkPipeline<T, T, C, C, R> {
     private results: ChunkPipelineResultWithContext<T, C, R>[] = []
@@ -233,6 +246,32 @@ describe('GatheringChunkPipeline', () => {
             expect(result2).toBeNull()
         })
 
+        it('barrier default: waits for a parked pull instead of emitting accumulated results', async () => {
+            let release!: () => void
+            const gate = new Promise<void>((resolve) => (release = resolve))
+
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                () => Promise.resolve([createContext(ok('ready'), context1)]),
+                () => gate.then(() => [createContext(ok('slow'), context2)]),
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline)
+
+            let settled = false
+            const pending = gatherPipeline.next().then((result) => {
+                settled = true
+                return result
+            })
+
+            // Give the event loop several turns: a barrier gather must keep
+            // waiting on the parked pull rather than emit 'ready' early.
+            await new Promise((resolve) => setImmediate(resolve))
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(settled).toBe(false)
+
+            release()
+            expect(await pending).toEqual([createContext(ok('ready'), context1), createContext(ok('slow'), context2)])
+        })
+
         it('should resume after returning null when more batches are fed', async () => {
             const subPipeline = new MockChunkProcessingPipeline<string, { message: Message }>([
                 [createContext(ok('first'), context1)],
@@ -259,6 +298,126 @@ describe('GatheringChunkPipeline', () => {
             // Should return null again
             const result4 = await gatherPipeline.next()
             expect(result4).toBeNull()
+        })
+    })
+
+    describe('bounded mode (maxWaitMs / minItems)', () => {
+        async function withWatchdog<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+            let timer: NodeJS.Timeout | undefined
+            const timeout = new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`took longer than ${ms}ms: ${label}`)), ms)
+            })
+            try {
+                return await Promise.race([promise, timeout])
+            } finally {
+                clearTimeout(timer)
+            }
+        }
+
+        // Guards the "does bounding fragment chunks?" concern: pulls that keep
+        // resolving (here through deliberately deep microtask chains) coalesce
+        // into ONE chunk exactly like the barrier — the deadline never fires
+        // because no pull is left in flight.
+        it('coalesces resolving pulls into a single chunk, same as the barrier', async () => {
+            const deepMicrotaskChunk =
+                (value: string, context: { message: Message }) =>
+                async (): Promise<ChunkPipelineResultWithContext<string, { message: Message }>> => {
+                    for (let i = 0; i < 20; i++) {
+                        await Promise.resolve()
+                    }
+                    return [createContext(ok(value), context)]
+                }
+
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                deepMicrotaskChunk('first', context1),
+                deepMicrotaskChunk('second', context2),
+                deepMicrotaskChunk('third', context3),
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline, { maxWaitMs: 5000 })
+
+            const result = await withWatchdog(gatherPipeline.next(), 1500, 'coalescing must not wait for the deadline')
+
+            expect(result).toEqual([
+                createContext(ok('first'), context1),
+                createContext(ok('second'), context2),
+                createContext(ok('third'), context3),
+            ])
+            expect(await gatherPipeline.next()).toBeNull()
+        })
+
+        it('emits immediately when upstream reports empty — no deadline lingering (Kafka path stays latency-free)', async () => {
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                () => Promise.resolve([createContext(ok('only'), context1)]),
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline, { maxWaitMs: 5000, minItems: 100 })
+
+            // 1 < minItems and the deadline is far away, but upstream is empty:
+            // waiting would only speculate on future feeds, so emit now.
+            const result = await withWatchdog(gatherPipeline.next(), 1500, 'upstream-empty emission must not linger')
+            expect(result).toEqual([createContext(ok('only'), context1)])
+        })
+
+        it('emits as soon as minItems accumulate, without touching further upstream pulls', async () => {
+            let gatedPullStarted = false
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                () => Promise.resolve([createContext(ok('one'), context1), createContext(ok('two'), context2)]),
+                () => {
+                    gatedPullStarted = true
+                    return new Promise(() => {}) // would park forever
+                },
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline, { maxWaitMs: 5000, minItems: 2 })
+
+            const result = await withWatchdog(gatherPipeline.next(), 1500, 'minItems emission must not wait')
+            expect(result).toEqual([createContext(ok('one'), context1), createContext(ok('two'), context2)])
+            // minItems was satisfied before the next pull was issued.
+            expect(gatedPullStarted).toBe(false)
+        })
+
+        it('below minItems: waits at most maxWaitMs on an in-flight pull, then emits and carries the pull without loss', async () => {
+            let release!: () => void
+            const gate = new Promise<void>((resolve) => (release = resolve))
+
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                () => Promise.resolve([createContext(ok('ready'), context1)]),
+                () => gate.then(() => [createContext(ok('slow'), context2)]),
+                () => Promise.resolve([createContext(ok('after'), context3)]),
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline, { maxWaitMs: 25, minItems: 100 })
+
+            // 'ready' is below minItems and the pull for 'slow' is parked: the
+            // deadline (25ms) fires and 'ready' comes out — the parked pull is
+            // neither awaited to completion nor abandoned.
+            expect(await withWatchdog(gatherPipeline.next(), 1500, 'deadline emission')).toEqual([
+                createContext(ok('ready'), context1),
+            ])
+
+            const second = gatherPipeline.next()
+            release()
+            // The carried-over pull delivers 'slow', and coalescing continues
+            // with the now-ready 'after' chunk — nothing lost, nothing duplicated.
+            expect(await second).toEqual([createContext(ok('slow'), context2), createContext(ok('after'), context3)])
+            expect(await gatherPipeline.next()).toBeNull()
+        })
+
+        it('emits results accumulated before an upstream failure, then rejects permanently', async () => {
+            const subPipeline = new ScriptedChunkPipeline<string, { message: Message }>([
+                () => Promise.resolve([createContext(ok('done'), context1)]),
+                () => Promise.reject(new Error('upstream boom')),
+            ])
+            const gatherPipeline = new GatheringChunkPipeline(subPipeline, { maxWaitMs: 25 })
+
+            expect(await gatherPipeline.next()).toEqual([createContext(ok('done'), context1)])
+            await expect(gatherPipeline.next()).rejects.toThrow('upstream boom')
+            await expect(gatherPipeline.next()).rejects.toThrow('upstream boom')
+        })
+    })
+
+    describe('builder guard', () => {
+        it('rejects gather() directly following another gather()', () => {
+            expect(() => createNewChunkPipeline<string>().gather().gather()).toThrow(
+                'gather() cannot directly follow another gather()'
+            )
         })
     })
 })

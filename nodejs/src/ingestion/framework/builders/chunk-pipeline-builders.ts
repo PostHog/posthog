@@ -18,7 +18,7 @@ import {
     FanOutSubContext,
 } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
-import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
+import { GatherOptions, GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
@@ -185,8 +185,17 @@ export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
         return new ChunkPipelineBuilder(new SequentialChunkPipeline(processor, this.pipeline))
     }
 
-    gather(): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
-        return new ChunkPipelineBuilder(new GatheringChunkPipeline(this.pipeline))
+    /**
+     * Collect upstream chunks into larger ones. By default a barrier (drain
+     * until empty, emit once); pass `{ maxWaitMs, minItems }` for a bounded
+     * coalescer that never holds completed results behind in-flight work — see
+     * {@link GatherOptions}.
+     */
+    gather(options?: GatherOptions): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+        if (this.pipeline instanceof GatheringChunkPipeline) {
+            throw new Error('gather() cannot directly follow another gather() — merge them into a single call')
+        }
+        return new ChunkPipelineBuilder(new GatheringChunkPipeline(this.pipeline, options))
     }
 
     /**
