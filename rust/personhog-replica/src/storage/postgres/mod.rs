@@ -136,15 +136,3 @@ impl PostgresStorage {
         &self.replica_pool
     }
 }
-
-impl From<sqlx::Error> for StorageError {
-    fn from(err: sqlx::Error) -> Self {
-        match &err {
-            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => StorageError::PoolExhausted,
-
-            sqlx::Error::Io(_) | sqlx::Error::Tls(_) => StorageError::Connection(err.to_string()),
-
-            _ => StorageError::Query(err.to_string()),
-        }
-    }
-}

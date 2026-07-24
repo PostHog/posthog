@@ -141,6 +141,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert "url" in (body["attr"] or ""), body
         assert "required" in body["detail"].lower(), body
 
+    @parameterized.expand(
+        [
+            (
+                "uuid_in_email_template_id",
+                "function_email",
+                "0199aabb-ccdd-0000-1122-334455667788",
+                ["template-email", "template_uuid"],
+            ),
+            (
+                "uuid_in_generic_function",
+                "function",
+                "0199aabb-ccdd-0000-1122-334455667788",
+                ["template-webhook", "not a UUID"],
+            ),
+        ]
+    )
+    def test_unknown_template_id_error_names_the_expected_form(self, _name, action_type, template_id, fragments):
+        # Agents keep putting saved-email-template UUIDs (from the template library) into
+        # config.template_id, where only the fixed literal is valid - the bare "Template not
+        # found" left them retrying formats blind. The error must name the literal and point
+        # UUID-holders at config.template_uuid.
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": template_id, "inputs": {}})
+        action["type"] = action_type
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        for fragment in fragments:
+            assert fragment in detail, (fragment, detail)
+
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(pk=flow_id)
