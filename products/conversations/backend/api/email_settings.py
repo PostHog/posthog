@@ -329,10 +329,11 @@ class EmailVerifyDomainView(APIView):
         try:
             mg_result = mailgun_verify_domain(config.domain)
         except MailgunNotConfigured:
-            return Response({"error": "Mailgun API key not configured"}, status=400)
+            logger.error("email_verify_domain_not_configured", team_id=team.id, domain=config.domain)
+            return Response({"error": "Email sending isn't set up yet. Please contact support."}, status=400)
         except Exception:
             logger.exception("email_verify_domain_failed", team_id=team.id, domain=config.domain)
-            return Response({"error": "Failed to verify domain with Mailgun"}, status=502)
+            return Response({"error": "Couldn't verify your domain. Please try again."}, status=502)
 
         is_active = mg_result.get("state") == "active"
         dns_records = {"sending_dns_records": mg_result.get("sending_dns_records", [])}
@@ -394,7 +395,7 @@ class EmailSendTestView(APIView):
         except MailgunNotConfigured:
             logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
             return Response(
-                {"error": "Support email not configured on this instance"},
+                {"error": "Email sending isn't set up yet. Please contact support."},
                 status=500,
             )
         except MailgunDomainNotRegistered:
@@ -406,7 +407,7 @@ class EmailSendTestView(APIView):
             )
             config.mark_domain_unverified()
             return Response(
-                {"error": "Domain not registered with Mailgun. Please reconnect."},
+                {"error": "This domain isn't registered for sending. Please reconnect it."},
                 status=502,
             )
         except MailgunError:
