@@ -298,6 +298,7 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+        self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
 
@@ -1331,6 +1332,8 @@ class Resolver(CloningVisitor):
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
+            if node.alias is None and self._join_chain_has_using(node):
+                node.alias = self._synthesize_using_join_alias(scope)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
@@ -1466,6 +1469,8 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 node.constraint = self.visit_join_constraint(node.constraint)
+            if node.alias is None and self._join_chain_has_using(node):
+                node.alias = self._synthesize_using_join_alias(scope)
 
             node.table = cast(ast.UnpivotExpr, self.visit(node.table))
 
@@ -1491,6 +1496,8 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 node.constraint = self.visit_join_constraint(node.constraint)
+            if node.alias is None and self._join_chain_has_using(node):
+                node.alias = self._synthesize_using_join_alias(scope)
 
             node.table = cast(ast.PivotExpr, self.visit(node.table))
 
@@ -1514,6 +1521,29 @@ class Resolver(CloningVisitor):
             return node
         else:
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
+
+    def _join_chain_has_using(self, node: ast.JoinExpr) -> bool:
+        current: Optional[ast.JoinExpr] = node
+        while current is not None:
+            if current.constraint and current.constraint.constraint_type == "USING":
+                return True
+            current = current.next_join
+        return False
+
+    def _synthesize_using_join_alias(self, scope: ast.SelectQueryType) -> str:
+        """Alias an aliasless sub-select that takes part in a USING join.
+
+        Fields of an anonymous sub-select print unqualified, which inside the ON constraint a
+        USING join desugars to is ambiguous next to the other join side — or a tautological
+        self-comparison when both sides are anonymous. A synthetic alias lets the constraint
+        qualify the sub-select's columns.
+        """
+        index = 1
+        while f"__using_join_{index}" in scope.tables:
+            index += 1
+        alias = f"__using_join_{index}"
+        self._synthetic_using_join_aliases.add(alias)
+        return alias
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
@@ -1574,7 +1604,8 @@ class Resolver(CloningVisitor):
         try:
             return self.visit(ast.Field(chain=[scope_name, column_name]))
         except (QueryError, ResolutionError) as err:
-            table_name = f' "{node.alias}"' if node.alias else ""
+            has_user_alias = node.alias is not None and node.alias not in self._synthetic_using_join_aliases
+            table_name = f' "{node.alias}"' if has_user_alias else ""
             raise QueryError(
                 f"Unable to resolve USING column '{column_name}' on the right-hand table{table_name} of the join"
             ) from err

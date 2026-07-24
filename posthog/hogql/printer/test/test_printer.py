@@ -2221,6 +2221,21 @@ class TestPrinter(BaseTest):
                 "JOIN (SELECT event, distinct_id FROM events) AS b USING (event, distinct_id)",
                 "ON and(equals(a.event, b.event), equals(a.distinct_id, b.distinct_id))",
             ),
+            (
+                "aliasless_subquery_right_join",
+                "SELECT a.event FROM events AS a JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_1 ON equals(a.event, __using_join_1.event)",
+            ),
+            (
+                "aliasless_subquery_left_join",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN events AS e USING event",
+                "ON equals(__using_join_1.event, e.event)",
+            ),
+            (
+                "aliasless_subqueries_both_sides",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_2 ON equals(__using_join_1.event, __using_join_2.event)",
+            ),
         ],
     )
     def test_join_using_desugars_to_on_constraint(self, _name: str, query: str, expected_constraint: str):
