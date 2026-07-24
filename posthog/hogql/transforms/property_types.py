@@ -136,6 +136,13 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
 
+    _IN_OPS: set[str] = {
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
+        ast.CompareOperationOp.GlobalIn,
+        ast.CompareOperationOp.GlobalNotIn,
+    }
+
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
     # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
     # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
@@ -517,6 +524,9 @@ class PropertySwapper(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
 
+        if result.op in self._IN_OPS:
+            return self._widen_numeric_in_set(result) or result
+
         if (
             not self.setTimeZones
             or result.op not in self._RANGE_OPS
@@ -526,6 +536,64 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _widen_numeric_in_set(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
+        """Cast numeric IN-set values to Float64 when the property side is a Numeric property.
+
+        A Numeric property read is wrapped in toFloat() (accurateCastOrNull(..., 'Float64')), so the
+        left side is a wide, null-safe Float64. The right side, however, is a set of bare integer
+        literals. ClickHouse builds the set in a narrow integer type inferred from those literals
+        (e.g. UInt32), then strict-converts every element into it — a value that doesn't fit (negative,
+        or larger than the narrow type) raises CANNOT_CONVERT_TYPE and aborts the whole query.
+
+        Casting each numeric literal to Float64 keeps the set in the same wide, null-safe domain as the
+        property side: an out-of-range literal parses to a valid Float64 (or NULL when unparseable and
+        drops out) instead of blowing up set construction. Results are unchanged for in-range values.
+        """
+        if not self._is_float_converted_property(node.left):
+            return None
+
+        right = node.right
+        if isinstance(right, (ast.Tuple, ast.Array)):
+            new_exprs = [self._to_float_if_numeric_constant(expr) for expr in right.exprs]
+            if all(new is old for new, old in zip(new_exprs, right.exprs)):
+                return None
+            new_right: ast.Expr = right.__class__(exprs=new_exprs)
+        elif isinstance(right, ast.Constant):
+            new_right = self._to_float_if_numeric_constant(right)
+            if new_right is right:
+                return None
+        else:
+            return None
+
+        return ast.CompareOperation(left=node.left, right=new_right, op=node.op)
+
+    @staticmethod
+    def _is_float_converted_property(expr: ast.Expr) -> bool:
+        """True if the operand is a toFloat() wrapper — the shape the swapper emits for a Numeric property."""
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        return isinstance(expr, ast.Call) and expr.name == "toFloat" and len(expr.args) == 1
+
+    @staticmethod
+    def _to_float_if_numeric_constant(expr: ast.Expr) -> ast.Expr:
+        # Only widen bare numeric literals (bool is an int subclass, so exclude it). Strings, NULL and
+        # non-constants are left untouched so set membership semantics don't change for them.
+        if (
+            not isinstance(expr, ast.Constant)
+            or isinstance(expr.value, bool)
+            or not isinstance(expr.value, int | float)
+        ):
+            return expr
+        return ast.Call(
+            name="toFloat",
+            args=[expr],
+            type=ast.CallType(
+                name="toFloat",
+                arg_types=[ast.FloatType(nullable=False)],
+                return_type=ast.FloatType(nullable=True),
+            ),
+        )
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

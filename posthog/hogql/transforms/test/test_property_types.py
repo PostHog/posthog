@@ -718,6 +718,23 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
         assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
 
+    @parameterized.expand([("in", "in", 3), ("not_in", "not in", 2)])
+    def test_numeric_property_in_set_values_widened_to_float(self, _name: str, op: str, n_values: int):
+        # A Numeric property is cast to Float64 (accurateCastOrNull). The IN-set values must be cast into
+        # that same wide, null-safe domain, otherwise ClickHouse builds the set in a narrow integer type
+        # inferred from the literals and strict-converts every element into it — a value outside that type
+        # (negative, or larger than e.g. UInt32) raises CANNOT_CONVERT_TYPE and aborts the whole query.
+        values = "(100, 5000000001, -7)" if n_values == 3 else "(100, -7)"
+        printed = self._print_select(f"select count() from events where properties.$screen_width {op} {values}")
+        # One Float cast for the property side plus one per set value; if widening regresses the set values
+        # print as bare integer literals and this count drops.
+        assert printed.count("accurateCastOrNull(") >= 1 + n_values
+
+    def test_non_numeric_property_in_set_values_not_widened(self):
+        # A non-Numeric property compared against string values must not gain numeric casts on its set.
+        printed = self._print_select("select count() from events where properties.$browser in ('a', 'b')")
+        assert "accurateCastOrNull(" not in printed
+
     @parameterized.expand(
         [
             ("has", "has(properties.$exception_values, 'x')"),

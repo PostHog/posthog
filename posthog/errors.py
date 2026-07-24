@@ -402,7 +402,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", category=QueryErrorCategory.USER_ERROR),
-    70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", category=QueryErrorCategory.USER_ERROR),
+    70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", user_safe=True),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
     72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
