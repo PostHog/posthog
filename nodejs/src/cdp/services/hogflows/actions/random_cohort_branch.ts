@@ -20,7 +20,7 @@ export function getRandomCohort(invocation: CyclotronJobInvocationHogFlow, actio
     // Programmatically-authored nodes can be stored without their cohorts array (the API doesn't
     // require it on lenient saves); assign nothing and fall through the continue edge instead of
     // crashing the run.
-    const cohorts = action.config.cohorts ?? []
+    const cohorts = Array.isArray(action.config.cohorts) ? action.config.cohorts : []
     if (cohorts.length === 0) {
         return findNextAction(invocation.hogFlow, action.id)
     }

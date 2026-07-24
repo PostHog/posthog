@@ -93,6 +93,7 @@ describe('getRandomCohort', () => {
     it.each([
         ['missing', undefined],
         ['empty', []],
+        ['not an array', { percentage: 50 }],
     ])('should fall through the continue edge when cohorts is %s', (_name, cohorts) => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
