@@ -239,7 +239,6 @@ export type SettingId =
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
-    | 'revenue-analytics-goals'
     | 'revenue-base-currency'
     | 'session-join-mode'
     | 'session-table-version'
