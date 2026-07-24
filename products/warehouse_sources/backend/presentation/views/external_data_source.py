@@ -804,11 +804,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         ),
     )
     api_version = serializers.CharField(
-        read_only=True,
+        required=False,
         allow_null=True,
+        max_length=128,
         help_text=(
             "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe "
-            "date version). Null resolves to the source type's default version at sync time."
+            "date version). Null resolves to the source type's default version at sync time. "
+            "Set it to any of the source type's supported versions to move an existing source to a "
+            "newer version, or back to an older one. New sources always start on the newest "
+            "version and cannot pick a pin at creation."
         ),
     )
     api_version_deprecation = serializers.SerializerMethodField(
@@ -816,6 +820,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "Set when the vendor has deprecated the API version this source is pinned to; "
             "null otherwise. Drives the in-product deprecation warning."
+        ),
+    )
+    supported_api_versions = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Vendor API versions this source type supports. `api_version` can be moved to any of "
+            "them. Source types without real vendor versioning report a single opaque `v1`."
+        ),
+    )
+    deprecated_api_versions = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The subset of `supported_api_versions` the vendor has deprecated, each with the date "
+            "it stops being served (null if not announced). Still selectable, so a source stuck on "
+            "one can be moved off it, but they are flagged as a poor choice to move onto."
         ),
     )
 
@@ -847,6 +866,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "supported_api_versions",
+            "deprecated_api_versions",
         ]
         read_only_fields = [
             "id",
@@ -863,9 +884,31 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
-            "api_version",
             "api_version_deprecation",
+            "supported_api_versions",
+            "deprecated_api_versions",
         ]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        instance = cast(ExternalDataSource | None, self.instance)
+        pinned = attrs.get("api_version")
+        # Membership is enforced only when the pin actually changes: an existing pin is honored
+        # verbatim even after the vendor retires that version from supported_versions, so a
+        # full-payload PATCH (the sources list spreads the GET response straight back) never 400s
+        # on an unrelated edit. `null` clears the pin back to the source type's default.
+        if "api_version" in attrs and instance is not None and pinned and pinned != instance.api_version:
+            try:
+                source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+            except ValueError:
+                raise ValidationError({"api_version": "API versions are not supported for this source type."})
+            if pinned not in source_impl.supported_versions:
+                raise ValidationError(
+                    {
+                        "api_version": f"'{pinned}' is not a supported {instance.source_type} API version. "
+                        f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                    }
+                )
+        return attrs
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -925,6 +968,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_supported_api_versions(self, instance: ExternalDataSource) -> list[str]:
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except ValueError:
+            return []
+        return list(source_impl.supported_versions)
+
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"version": {"type": "string"}, "sunset_at": {"type": "string", "nullable": True}},
+            },
+        }
+    )
+    def get_deprecated_api_versions(self, instance: ExternalDataSource) -> list[dict[str, Any]]:
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except ValueError:
+            return []
+        return [
+            {"version": d.version, "sunset_at": d.sunset_at.isoformat() if d.sunset_at else None}
+            for d in source_impl.deprecated_versions
+        ]
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1168,8 +1238,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
-            effective_api_version = source.resolve_api_version(instance.api_version)
+        # Compare resolved versions (not raw labels): null↔default and an explicit pin equal to the
+        # default are no-ops that must not trigger a probe or a sync-cancel.
+        api_version_changed = "api_version" in validated_data and source.resolve_api_version(
+            validated_data["api_version"]
+        ) != source.resolve_api_version(instance.api_version)
+
+        # Probe credentials whenever the config OR the pinned version changes. The version matters on
+        # its own: a bare `{"api_version": ...}` PATCH (API/MCP, not the form) carries no job_inputs,
+        # and without this gate a move the stored credentials can't serve would only fail at the next
+        # sync. Probe the version being saved, not the one it replaces. `validate()` has already
+        # rejected an unsupported label, so this is safe to send.
+        if job_inputs_were_submitted or api_version_changed:
+            effective_api_version = source.resolve_api_version(validated_data.get("api_version", instance.api_version))
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config),
@@ -1195,7 +1276,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 )
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
-            if instance.is_direct_query:
+            if job_inputs_were_submitted and instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
                 )
@@ -1225,6 +1306,40 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
+
+        # A repin invalidates any in-flight import: retried/resumed activities re-resolve the
+        # version from the DB, so letting a run finish would mix two vendor API versions in one
+        # table. The user decides when to sync again.
+        if api_version_changed:
+            running_jobs = (
+                ExternalDataJob.objects.filter(
+                    pipeline_id=updated_source.pk,
+                    team_id=instance.team_id,
+                    status=ExternalDataJob.Status.RUNNING,
+                )
+                # A schema carrying its own override resolves independently of the source pin.
+                .filter(Q(schema__api_version__isnull=True) | Q(schema__api_version=""))
+                # CDC replicates via the database WAL, not the vendor API, so a vendor-version
+                # change never affects it — don't abort a CDC snapshot/extraction as collateral.
+                .exclude(schema__sync_type=ExternalDataSchema.SyncType.CDC)
+                .exclude(schema__deleted=True)
+                .exclude(workflow_id__isnull=True)
+                .exclude(workflow_id="")
+            )
+            for running_job in running_jobs:
+                try:
+                    cancel_external_data_workflow(running_job.workflow_id)
+                except Exception as e:
+                    # Best-effort and must never fail the PATCH (the pin is already committed): the
+                    # common case is the run finishing between the query and this call. A genuinely
+                    # stuck run re-resolves the new version on its next activity, so it can't keep
+                    # writing the old one indefinitely.
+                    logger.exception(
+                        "Could not cancel running workflow after api_version change",
+                        source_id=str(updated_source.id),
+                        workflow_id=running_job.workflow_id,
+                    )
+                    capture_exception(e, {"source_id": str(updated_source.id), "workflow_id": running_job.workflow_id})
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their
@@ -2827,7 +2942,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "total_tables_seen": {"type": "integer"},
                 },
             }
-        }
+        },
     )
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""

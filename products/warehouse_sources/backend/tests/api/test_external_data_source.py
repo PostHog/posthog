@@ -211,16 +211,245 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
 
-    def test_api_version_pin_is_read_only_via_api(self):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_ignores_caller_supplied_api_version(self, _mock_validate):
+        # New sources always start on the newest version — callers cannot choose one, whether from
+        # the UI, the API, or an MCP tool. A supplied api_version must not reach the pin.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "api_version": "2020-08-27",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"}
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.api_version == "2024-09-30.acacia"
+
+    def test_api_version_pin_can_be_upgraded_and_rolled_back(self):
+        # An existing source moves to a newer vendor version, and back again if it doesn't work out.
+        source = self._create_external_data_source()
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
+            upgrade = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+            assert upgrade.status_code == 200, upgrade.json()
+            source.refresh_from_db()
+            assert source.api_version == "2026-02-25.clover"
+
+            rollback = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2024-09-30.acacia"},
+            )
+            assert rollback.status_code == 200, rollback.json()
+            source.refresh_from_db()
+            assert source.api_version == "2024-09-30.acacia"
+
+    def test_clearing_the_pin_persists_null_not_blank(self):
+        source = self._create_external_data_source()
+        source.api_version = "2024-09-30.acacia"
+        source.save(update_fields=["api_version"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": None},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        # NULL is the "unpinned" state the whole resolution chain keys off (and what makes the pin
+        # follow default_version again), so clearing must not land as "".
+        assert source.api_version is None
+
+    def test_api_version_pin_rejects_unsupported_version(self):
         source = self._create_external_data_source()
         original_pin = source.api_version
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
-            data={"api_version": "2099-01-01", "prefix": source.prefix},
+            data={"api_version": "2099-01-01"},
         )
-        assert response.status_code == 200, response.json()
+        assert response.status_code == 400, response.json()
+        assert "api_version" in str(response.json())
         source.refresh_from_db()
         assert source.api_version == original_pin
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_repin_probes_credentials_on_the_incoming_version(self, mock_validate):
+        # The configuration form always resubmits job_inputs, so a repin takes the credential-probe
+        # branch. Probing the version being replaced would approve a move the credentials can't reach.
+        source = self._create_external_data_source()
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={
+                    "api_version": "2026-02-25.clover",
+                    "job_inputs": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                },
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_validate.call_args.kwargs["api_version"] == "2026-02-25.clover"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_bare_repin_without_job_inputs_still_probes_credentials(self, mock_validate):
+        # An API/MCP PATCH that carries only api_version (no job_inputs) must still confirm the stored
+        # credentials can serve the new version, rather than discovering the failure at the next sync.
+        source = self._create_external_data_source()
+        with patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_validate.call_args.kwargs["api_version"] == "2026-02-25.clover"
+
+    def test_unchanged_retired_pin_survives_a_full_payload_patch(self):
+        # The sources list PATCHes the whole GET payload back. A pin the vendor has since retired
+        # is honored verbatim, so echoing it must not 400 an unrelated edit.
+        source = self._create_external_data_source()
+        source.api_version = "2020-01-01"
+        source.save(update_fields=["api_version"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": "2020-01-01", "prefix": source.prefix},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == "2020-01-01"
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_repin_cancels_in_flight_sync_for_schemas_following_the_source(self, mock_cancel):
+        # Resumed activities re-resolve the version from the DB, so finishing the run would mix two
+        # vendor versions in one table. A schema with its own override is unaffected by the repin.
+        source = self._create_external_data_source()
+        following = self._create_external_data_schema(source.id)
+        overridden = ExternalDataSchema.objects.create(
+            name="Invoices", team_id=self.team.pk, source_id=source.id, table=None, api_version="2024-09-30.acacia"
+        )
+        for schema in (following, overridden):
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                rows_synced=0,
+                workflow_id=f"workflow_{schema.name}",
+                workflow_run_id="run_id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V1,
+            )
+
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_called_once_with("workflow_Customers")
+
+    def _create_running_job(self, source, schema) -> None:
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+            workflow_id=f"workflow_{schema.name}",
+            workflow_run_id="run_id",
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_update_without_repin_leaves_running_syncs_alone(self, mock_cancel):
+        # Guards against the guard regressing to cancel-always: an unrelated edit (and a full-payload
+        # PATCH echoing the current pin) must never abort a customer's in-flight sync.
+        source = self._create_external_data_source()
+        self._create_running_job(source, self._create_external_data_schema(source.id))
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"prefix": source.prefix, "description": "renamed", "api_version": source.api_version},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow",
+        side_effect=Exception("workflow already completed"),
+    )
+    def test_repin_persists_even_when_cancel_fails(self, mock_cancel):
+        # The run commonly finishes between the query and the cancel call (Temporal then raises). The
+        # pin is already committed, so a cancel failure must not turn the repin into a 500.
+        source = self._create_external_data_source()
+        self._create_running_job(source, self._create_external_data_schema(source.id))
+
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == "2026-02-25.clover"
+        mock_cancel.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.cancel_external_data_workflow")
+    def test_repin_does_not_cancel_cdc_syncs(self, mock_cancel):
+        # CDC replicates via the database WAL, not the vendor API, so a version change is irrelevant
+        # to it — its in-flight extraction must not be aborted as collateral.
+        source = self._create_external_data_source()
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.id,
+            table=None,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+        )
+        self._create_running_job(source, cdc_schema)
+
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+                data={"api_version": "2026-02-25.clover"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_cancel.assert_not_called()
 
     def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
         source = self._create_external_data_source()
@@ -2562,6 +2791,8 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_column_selection",
                 "api_version",
                 "api_version_deprecation",
+                "supported_api_versions",
+                "deprecated_api_versions",
             ],
         )
         self.assertIsNone(payload["engine"])

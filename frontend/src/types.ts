@@ -6241,6 +6241,10 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    /** Vendor API versions this source type supports; the pin can be moved to any of them */
+    supported_api_versions?: string[]
+    /** The subset of supported_api_versions the vendor has deprecated, with sunset dates */
+    deprecated_api_versions?: { version: string; sunset_at: string | null }[]
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {

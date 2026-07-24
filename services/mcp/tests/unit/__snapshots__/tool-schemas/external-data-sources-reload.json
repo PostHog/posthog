@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "api_version": {
+            "anyOf": [
+                {
+                    "maxLength": 128,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time. Set it to any of the source type's supported versions to move an existing source to a newer version, or back to an older one. New sources always start on the newest version and cannot pick a pin at creation."
+        },
         "auto_sync_new_schemas": {
             "description": "Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.",
             "type": "boolean"

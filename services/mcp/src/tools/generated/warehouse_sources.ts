@@ -550,6 +550,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
@@ -598,6 +601,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -692,6 +698,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/`,
@@ -723,6 +732,9 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
         if (params.auto_sync_schema_patterns !== undefined) {
             body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
         }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
@@ -753,6 +765,9 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         }
         if (params.auto_sync_schema_patterns !== undefined) {
             body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -835,6 +850,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
+        }
+        if (params.api_version !== undefined) {
+            body['api_version'] = params.api_version
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

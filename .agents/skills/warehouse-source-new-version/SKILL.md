@@ -70,7 +70,8 @@ Add it when any of these hold:
 
 - `source.resolve_api_version(pinned)` honors a present pin verbatim — even one no longer declared — because silently moving a customer to another version is the failure mode this framework prevents. Empty string / NULL fall back to the source class's own `default_version`.
 - The API create path (`_create_external_data_source` in `products/warehouse_sources/backend/presentation/views/external_data_source.py`) stamps `default_version`, and migration `0075_backfill_externaldatasource_api_version` backfilled pre-existing rows — so most rows carry a concrete pin. But `api_version` is nullable and direct-ORM creation paths that bypass the stamping (e.g. `seed_engineering_analytics.py`, and any future seeder/backfill/script) can leave it NULL, and a NULL pin resolves to `default_version` — so it follows a flip. Don't blanket-claim "every row is pinned, so a flip is safe"; verify the actual pin state for the source, and if a NULL cohort can exist, either back it out (written-not-run migration) or confirm the versions are request-identical.
-- Repinning a customer = updating `ExternalDataSource.api_version` (support runbook: "Updating a warehouse source to a new vendor API version" in the PostHog/runbooks repo).
+- Repinning is self-serve: the customer moves `ExternalDataSource.api_version` from the source's configuration page, or via `PATCH` on the source (also exposed as an MCP tool). It is validated against `supported_versions` and cancels in-flight syncs for the schemas that follow the source pin. The support runbook ("Updating a warehouse source to a new vendor API version" in the PostHog/runbooks repo) is now only for bulk or scripted moves.
+- Creation is the one place a version cannot be chosen: new sources always start on `default_version`, and the create serializer has no `api_version` field, so a supplied one is ignored rather than honored.
 
 ## Common pitfalls
 

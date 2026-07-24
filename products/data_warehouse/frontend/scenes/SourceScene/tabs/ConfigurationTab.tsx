@@ -2,9 +2,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonInputSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +53,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         setSourceConfigValue(['description'], source.description ?? '')
         setSourceConfigValue(['auto_sync_new_schemas'], source.auto_sync_new_schemas ?? false)
         setSourceConfigValue(['auto_sync_schema_patterns'], source.auto_sync_schema_patterns ?? [])
+        setSourceConfigValue(['api_version'], source.api_version ?? null)
         setJobInputs({
             ...buildKeaFormDefaultFromSourceDetails({ [source.source_type]: sourceFieldConfig })['payload'],
             ...source.job_inputs,
@@ -64,6 +66,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         source?.prefix,
         source?.description,
         source?.auto_sync_new_schemas,
+        source?.api_version,
         setSourceConfigValue,
         // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.auto_sync_schema_patterns ?? []),
@@ -93,6 +96,56 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
+                {/* Show whenever there's a real choice, or a pin is already set (so a pin the vendor
+                    has since retired can still be seen and moved off — mirrors the schema-level picker). */}
+                {((source.supported_api_versions?.length ?? 0) > 1 || !!source.api_version) && (
+                    <>
+                        <LemonDivider className="my-4" />
+                        <LemonField
+                            name="api_version"
+                            label="API version"
+                            help="The vendor API version this source syncs with. Moving to another version changes the data the vendor returns, so a full resync is recommended afterwards. Any sync running now will be cancelled. Tables with their own version override are unaffected."
+                        >
+                            {({ value, onChange }) => {
+                                const supported = source.supported_api_versions ?? []
+                                const options = supported.map((version) => {
+                                    // Deprecated versions stay selectable so a source stuck on one can be
+                                    // moved off it, but they must never look like an equal choice.
+                                    const deprecation = source.deprecated_api_versions?.find(
+                                        (candidate) => candidate.version === version
+                                    )
+                                    return {
+                                        value: version,
+                                        label: deprecation
+                                            ? `${version} (deprecated${
+                                                  deprecation.sunset_at
+                                                      ? `, stops working ${dayjs(deprecation.sunset_at).format('LL')}`
+                                                      : ''
+                                              })`
+                                            : version,
+                                    }
+                                })
+                                // A stored pin can outlive its version's removal from supported_versions —
+                                // the backend keeps honoring it verbatim. Keep it representable so the
+                                // select isn't blank; re-saving it is blocked by validation.
+                                if (source.api_version && !supported.includes(source.api_version)) {
+                                    options.push({
+                                        value: source.api_version,
+                                        label: `${source.api_version} (no longer supported)`,
+                                    })
+                                }
+                                return (
+                                    <LemonSelect
+                                        data-attr="source-api-version"
+                                        value={value ?? null}
+                                        onChange={onChange}
+                                        options={options}
+                                    />
+                                )
+                            }}
+                        </LemonField>
+                    </>
+                )}
                 {source.access_method !== 'direct' && (
                     <>
                         <LemonDivider className="my-4" />
