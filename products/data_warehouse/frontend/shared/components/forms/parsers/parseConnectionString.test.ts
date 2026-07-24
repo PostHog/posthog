@@ -278,6 +278,43 @@ describe('parseSnowflakeConnectionString', () => {
     })
 })
 
+// Regression: `new URL()` accepts a stray/truncated percent-escape but `decodeURIComponent`
+// throws `URIError: URI malformed` on it. The form parses on every keystroke, so a raw decode
+// crashed the paste-to-auto-fill path. These lock in graceful degradation (raw value kept, no
+// throw) across every parser. A `%` in the userinfo covers mysql/mssql/clickhouse/snowflake;
+// postgres re-encodes those, so its case uses a trailing `%` its percent guard genuinely misses.
+describe('malformed percent-escapes degrade gracefully instead of throwing', () => {
+    it.each([
+        ['mysql', () => parseMysqlConnectionString('mysql://root:pass%@db.example.com/sales')],
+        ['mssql', () => parseMssqlConnectionString('mssql://sa:pass%@db.example.com/billing')],
+        ['clickhouse', () => parseClickhouseConnectionString('https://default:pass%@play.clickhouse.com/default')],
+    ])('%s keeps the raw password when the escape is malformed', (_name, parse) => {
+        let result: ReturnType<typeof parse>
+        expect(() => (result = parse())).not.toThrow()
+        expect(result!.isValid).toBe(true)
+        expect(fieldMap(result!.fields).password).toBe('pass%')
+    })
+
+    it('postgres keeps the raw database when a trailing % slips past the percent guard', () => {
+        let result: ReturnType<typeof parsePostgresConnectionString>
+        expect(
+            () =>
+                (result = parsePostgresConnectionString('postgres://root:pw@db.example.com/analytics%', {
+                    defaultPort: 5432,
+                }))
+        ).not.toThrow()
+        expect(result!.isValid).toBe(true)
+        expect(fieldMap(result!.fields).database).toBe('analytics%')
+    })
+
+    it('snowflake keeps the raw password when the escape is malformed', () => {
+        let result: ReturnType<typeof parseSnowflakeConnectionString>
+        expect(() => (result = parseSnowflakeConnectionString('snowflake://alice:pass%@xy12345/MY_DB'))).not.toThrow()
+        expect(result!.isValid).toBe(true)
+        expect(fieldMap(result!.fields)['auth_type.password']).toBe('pass%')
+    })
+})
+
 describe('parseConnectionStringForSource dispatcher', () => {
     it('returns a parser for every supported source name', () => {
         expect([...SUPPORTS_CONNECTION_STRING].sort()).toEqual(

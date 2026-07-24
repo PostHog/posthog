@@ -1,3 +1,4 @@
+import { safeDecodeURIComponent } from './decode'
 import type { ParseResult, ParsedField } from './types'
 
 export function parseSnowflakeConnectionString(str: string): ParseResult {
@@ -17,11 +18,11 @@ export function parseSnowflakeConnectionString(str: string): ParseResult {
     // that puts credentials and database in query params. Prefer userinfo/pathname when
     // present, fall back to the query-param shape so paste-to-fill works for either.
     const params = result.searchParams
-    const user = decodeURIComponent(result.username || '') || params.get('user') || ''
-    const password = decodeURIComponent(result.password || '') || params.get('password') || ''
-    const accountId = decodeURIComponent(result.hostname || '')
+    const user = safeDecodeURIComponent(result.username || '') || params.get('user') || ''
+    const password = safeDecodeURIComponent(result.password || '') || params.get('password') || ''
+    const accountId = safeDecodeURIComponent(result.hostname || '')
 
-    const segments = result.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const segments = result.pathname.split('/').filter(Boolean).map(safeDecodeURIComponent)
     const database = segments[0] || params.get('db') || params.get('database') || ''
     const schema = segments[1] || params.get('schema') || ''
 
