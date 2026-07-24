@@ -580,23 +580,36 @@ describe('insightDataLogic', () => {
             localStorage.removeItem(draftKey)
         })
 
-        it('clears the draft it persisted when the query reverts to a cosmetic-only diff', async () => {
+        const cosmeticOnlyEdit = (q: any): void => {
+            q.source.dateRange = { date_from: '-90d' }
+        }
+        const tooLargeEdit = (q: any): void => {
+            q.source.series[0].event = 'x'.repeat(1024 * 1024 + 1)
+        }
+
+        it.each([
+            ['reverts to a cosmetic-only diff', cosmeticOnlyEdit],
+            ['grows too large to store', tooLargeEdit],
+        ])('clears the draft it persisted when the query %s', async (_, mutate) => {
             await expectLogic(logic, () => {
                 logic.actions.setQuery(newInsightQuery((q) => (q.source.series[0].event = 'purchase')))
             }).toFinishAllListeners()
             expect(localStorage.getItem(draftKey)).not.toBeNull()
 
             await expectLogic(logic, () => {
-                logic.actions.setQuery(newInsightQuery((q) => (q.source.dateRange = { date_from: '-90d' })))
+                logic.actions.setQuery(newInsightQuery(mutate))
             }).toFinishAllListeners()
             expect(localStorage.getItem(draftKey)).toBeNull()
         })
 
-        it("does not clear another session's draft when it has not persisted one itself", async () => {
+        it.each([
+            ['a cosmetic-only query', cosmeticOnlyEdit],
+            ['a too-large query', tooLargeEdit],
+        ])("does not clear another session's draft when it has not persisted one itself and sets %s", async (_, mutate) => {
             localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
 
             await expectLogic(logic, () => {
-                logic.actions.setQuery(newInsightQuery((q) => (q.source.dateRange = { date_from: '-90d' })))
+                logic.actions.setQuery(newInsightQuery(mutate))
             }).toFinishAllListeners()
             expect(localStorage.getItem(draftKey)).not.toBeNull()
         })

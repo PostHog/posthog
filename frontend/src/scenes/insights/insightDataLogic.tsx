@@ -831,8 +831,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             if (isQueryTooLarge(query)) {
-                cache.persistedDraftQuery = false
-                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                // same gating as above: only supersede a draft this editor persisted itself
+                if (cache.persistedDraftQuery) {
+                    cache.persistedDraftQuery = false
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
                 return
             }
 
