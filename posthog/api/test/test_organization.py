@@ -210,6 +210,24 @@ class TestOrganizationAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
+    @patch("posthog.api.organization.capture_exception")
+    @patch("posthoganalytics.capture")
+    def test_ai_consent_update_succeeds_when_telemetry_capture_fails(self, mock_capture, mock_capture_exception):
+        # The settings-toggle analytics is best-effort: if it raises, the update must still apply
+        # rather than surfacing a 500 "Failed to update organization".
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        mock_capture.side_effect = Exception("analytics is down")
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, True)
+        mock_capture_exception.assert_called_once()
+
     def test_cannot_update_members_can_invite_without_feature(self):
         """Test that members_can_invite cannot be updated without ORGANIZATION_INVITE_SETTINGS feature."""
         # Ensure user is admin (passes permission checks)

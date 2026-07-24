@@ -51,6 +51,7 @@ export interface timeSensitiveAuthenticationLogicValues {
     reauthenticationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     reauthenticationHasErrors: boolean
     reauthenticationManualErrors: Record<string, any>
+    reauthenticationSucceeded: boolean | null
     reauthenticationTouched: boolean
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
@@ -138,6 +139,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setReauthenticationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
+    setReauthenticationSucceeded: (value: boolean | null) => {
+        value: boolean | null
+    }
     setReauthenticationValue: (
         key: FieldName,
         value: any
@@ -210,6 +214,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
     actions({
         setDismissedReauthentication: (value: boolean) => ({ value }),
         setRequiresTwoFactor: (value: boolean) => ({ value }),
+        setReauthenticationSucceeded: (value: boolean | null) => ({ value }),
         checkReauthentication: true,
         beginPasskey2FA: true,
         checkPasskeysAvailable: true,
@@ -221,6 +226,16 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             {
                 setDismissedReauthentication: (_, { value }) => value,
                 setTimeSensitiveAuthenticationRequired: () => false,
+            },
+        ],
+
+        // Outcome of the last re-auth prompt driven by `checkReauthentication`: `true` on success,
+        // `false` on dismissal/failure, `null` when idle. kea listeners must return `void | Promise<void>`,
+        // so the outcome can't ride on the promise's resolved value — callers read this after awaiting.
+        reauthenticationSucceeded: [
+            null as boolean | null,
+            {
+                setReauthenticationSucceeded: (_, { value }) => value,
             },
         ],
 
@@ -374,6 +389,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
     listeners(({ actions, values }) => ({
         submitReauthenticationSuccess: () => {
+            actions.setReauthenticationSucceeded(true)
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
                 values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
@@ -383,6 +399,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             actions.loadUser()
         },
         beginPasskey2FASuccess: () => {
+            actions.setReauthenticationSucceeded(true)
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
                 values.timeSensitiveAuthenticationRequired[0]() // Signal success
             }
@@ -392,31 +409,43 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             actions.loadUser()
         },
         submitReauthenticationFailure: () => {
+            actions.setReauthenticationSucceeded(false)
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
                 values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
             }
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
+                actions.setReauthenticationSucceeded(false)
                 if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
                     values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
                 }
                 posthog.capture('reauthentication_modal_dismissed')
             }
         },
-        checkReauthentication: () => {
-            if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
-                // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
-                // which is nicer than when they try to do something later and get a 403.
-                // We also make this a promise, so that `checkReauthentication` callsites can await
-                // `asyncActions.checkReauthentication()` and proceed once the flow concludes.
-                // Dismissal/failure resolves rather than rejects: the mount-time dispatch is
-                // fire-and-forget, so a rejection (especially a bare `reject()`) surfaces as an
-                // unhandled TypeError in kea's listener wrapper.
-                return new Promise<void>((resolve) =>
-                    actions.setTimeSensitiveAuthenticationRequired([resolve, resolve])
-                )
+        checkReauthentication: async () => {
+            // Reset the outcome up front so a stale result from a previous prompt can't make a
+            // caller abort an action that doesn't actually need re-auth.
+            actions.setReauthenticationSucceeded(null)
+
+            // Re-auth is needed if the sensitive-action window is expiring soon OR if there is no
+            // window at all. The backend reports `sensitive_session_expires_at: null` whenever a
+            // risk-based step-up is pending (see TimeSensitiveActionPermission), so a purely
+            // time-based check is blind to step-up and lets the action fall through to a 403.
+            const expiresAt = values.sensitiveSessionExpiresAt
+            const reauthRequired = !expiresAt.isValid() || expiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS
+            if (!reauthRequired) {
+                return
             }
+
+            // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
+            // which is nicer than when they try to do something later and get a 403. We await a promise
+            // so callsites can `await asyncActions.checkReauthentication()` and then branch on
+            // `values.reauthenticationSucceeded` — aborting the blocked action instead of firing it
+            // into the same 403. The promise resolves (never rejects) on both success and
+            // dismissal/failure: the mount-time dispatch is fire-and-forget, so a rejection would
+            // surface as an unhandled error.
+            await new Promise<void>((resolve) => actions.setTimeSensitiveAuthenticationRequired([resolve, resolve]))
         },
     })),
 ])
