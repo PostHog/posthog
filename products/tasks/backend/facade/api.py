@@ -157,6 +157,7 @@ __all__ = [
     "get_task_summaries",
     "is_internal_debug_team",
     "is_task_controllable_by_user",
+    "is_task_run_terminal",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
@@ -178,6 +179,7 @@ __all__ = [
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
+    "resolve_signal_pr_mention_context",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
@@ -563,6 +565,48 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
         .distinct("task_id")
     )
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+
+
+def is_task_run_terminal(run_id: str | UUID) -> bool:
+    """True if the run has reached a terminal state (completed/failed/cancelled) or no longer exists.
+
+    Lets other products gate follow-up work on whether a run is still active without importing tasks'
+    status internals. A missing run counts as terminal (nothing to wait on).
+    """
+    status = TaskRun.objects.filter(id=run_id).values_list("status", flat=True).first()
+    if status is None:
+        return True
+    return status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+
+def resolve_signal_pr_mention_context(pr_url: str, repository: str) -> "contracts.SignalPrMentionContextDTO | None":
+    """Resolve the Signals-lineage task/report/repo behind a PR that a bot @-mention landed on.
+
+    Returns ``None`` when the PR wasn't opened by Signals (so mentions on unrelated PRs are ignored),
+    letting the mention handler inherit routing from the originating task rather than infer it.
+    """
+    # Lazy import breaks the facade<->webhooks circular (webhooks imports signal_workflow_completion).
+    from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415
+
+    run = find_task_run(pr_url=pr_url, repository=repository)
+    if run is None:
+        return None
+    task = run.task
+    if task.origin_product not in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.GITHUB_MENTION):
+        return None
+    if task.signal_report_id is None:
+        return None
+    state = run.state if isinstance(run.state, dict) else {}
+    head_branch = state.get("wizard_head_branch") or None
+    return contracts.SignalPrMentionContextDTO(
+        team_id=task.team_id,
+        task_id=task.id,
+        run_id=run.id,
+        repository=task.repository or repository,
+        signal_report_id=task.signal_report_id,
+        github_integration_id=task.github_integration_id,
+        head_branch=head_branch,
+    )
 
 
 def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
@@ -1874,6 +1918,20 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
+def _post_github_mention_result(run: TaskRun, status: str) -> None:
+    """On a terminal GITHUB_MENTION run, post the outcome back to the PR the mention landed on."""
+    if run.task.origin_product != Task.OriginProduct.GITHUB_MENTION:
+        return
+    from products.signals.backend.github_mention.result_relay import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        enqueue_mention_result_relay,
+    )
+
+    try:
+        enqueue_mention_result_relay(str(run.id), status)
+    except Exception:
+        logger.warning("task_run.github_mention_relay_enqueue_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
 def _post_slack_update_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url:
@@ -2098,6 +2156,7 @@ def update_task_run(
             )
         observe_wizard_run_unbound(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
+        _post_github_mention_result(run, new_status)
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
                 notify_task_run_cancelled,

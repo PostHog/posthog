@@ -1529,3 +1529,119 @@ class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "area"], name="signal_repo_area_activity_uniq"),
         ]
+
+
+class GitHubPendingMention(TeamScopedRootMixin, UUIDModel):
+    """A bot @-mention on a Signals PR that couldn't run yet because the commenter has no usable
+    personal GitHub connection.
+
+    Written by the connect-gate: instead of dead-ending, we post a "connect GitHub" link and record
+    the mention here, keyed by the commenter's immutable GitHub account id. When that account later
+    connects a personal GitHub integration (or upgrades scopes), the replay job launches every one of
+    its still-pending mentions from the last 12 hours — see `github_mention/`. The team is always
+    known (the gate only fires on PRs that resolve to a Signals task); only the *person* is unresolved.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="github_pending_mentions",
+        # posthog_team is a hot table — a real FK constraint would lock it on CreateModel. App-level
+        # enforcement only (the ORM still validates the relation). See safe-django-migrations.md.
+        db_constraint=False,
+    )
+    # The originating report, kept for lineage/billing context. SET_NULL so a report deletion
+    # doesn't destroy the pending row; the run path re-resolves via the PR URL regardless.
+    report = models.ForeignKey(
+        SignalReport,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="github_pending_mentions",
+    )
+    # Immutable GitHub numeric account id of the commenter — the identity key. The login is renamable
+    # and reusable, so the replay match is on this id (proven at connect time via OAuth), not the login.
+    github_account_id = models.BigIntegerField()
+    github_login = models.CharField(max_length=255)
+    installation_id = models.CharField(max_length=64)
+    repository = models.CharField(max_length=255)
+    pr_url = models.TextField()
+    pr_number = models.IntegerField()
+    # The triggering comment, so replay can react/thread against the right anchor.
+    comment_id = models.BigIntegerField()
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSED = "processed", "Processed"
+        SKIPPED_EXPIRED = "skipped_expired", "Skipped (expired)"
+        SKIPPED_INELIGIBLE = "skipped_ineligible", "Skipped (ineligible)"
+
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Set when the replay job resolves this row (launched, expired, or found ineligible). NULL == pending.
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "GitHub pending mention"
+        verbose_name_plural = "GitHub pending mentions"
+        default_manager_name = "all_teams"
+        indexes = [
+            # Replay lookup: still-pending rows for a connecting account within the 12h window.
+            models.Index(
+                fields=["github_account_id", "status", "created_at"],
+                name="gh_pending_mention_replay_idx",
+            ),
+        ]
+
+
+class GitHubMentionTaskMapping(TeamScopedRootMixin, UUIDModel):
+    """Maps a mention-triggered `TaskRun` back to the GitHub PR it should report results on.
+
+    The GitHub analogue of `SlackThreadTaskMapping`: the relay path loads this row to post the
+    acknowledgement/terminal comment to the right PR via the team's GitHub installation token.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="github_mention_task_mappings",
+        # Hot-table FK — see GitHubPendingMention.team.
+        db_constraint=False,
+    )
+    # The team GitHub integration whose installation token posts the relay comments.
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="github_mention_task_mappings",
+    )
+    task = models.ForeignKey(
+        "tasks.Task",
+        on_delete=models.CASCADE,
+        related_name="github_mention_mappings",
+    )
+    task_run = models.ForeignKey(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="github_mention_mappings",
+    )
+    repository = models.CharField(max_length=255)
+    pr_url = models.TextField()
+    pr_number = models.IntegerField()
+    triggering_comment_id = models.BigIntegerField()
+    commenter_github_account_id = models.BigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "GitHub mention task mapping"
+        verbose_name_plural = "GitHub mention task mappings"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["task_run"], name="uniq_github_mention_task_mapping"),
+        ]

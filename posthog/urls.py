@@ -249,6 +249,14 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         handlers_matched=[name for name, _ in handlers],
     )
 
+    if event_type == "issue_comment":
+        # Signals @-mention trigger runs alongside the registered issue_comment handlers (Conversations
+        # routing). Side effect only — enqueues a run when a bot mention lands on a local Signals PR,
+        # never raises — so it sits outside the handler loop's dedup/response accounting.
+        from products.signals.backend.github_mention.webhook import handle_github_mention_event
+
+        handle_github_mention_event(request, payload)
+
     response: HttpResponse | None = None
     for name, handler in handlers:
         if delivery_id and _is_duplicate_github_webhook_delivery(name, delivery_id):

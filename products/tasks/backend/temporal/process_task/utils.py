@@ -1192,7 +1192,12 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
 
     return (
         PrAuthorshipMode.USER
-        if task.origin_product in (TaskModel.OriginProduct.USER_CREATED, TaskModel.OriginProduct.SLACK)
+        if task.origin_product
+        in (
+            TaskModel.OriginProduct.USER_CREATED,
+            TaskModel.OriginProduct.SLACK,
+            TaskModel.OriginProduct.GITHUB_MENTION,
+        )
         else PrAuthorshipMode.BOT
     )
 

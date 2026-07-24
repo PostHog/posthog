@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode
 
 from django.core.cache import cache
@@ -33,6 +33,20 @@ logger = structlog.get_logger(__name__)
 def _github_state_token(state_raw: str) -> str:
     state_params = parse_qs(state_raw)
     return state_params["token"][0] if "token" in state_params else state_raw
+
+
+def _enqueue_pending_mention_replay(user_id: int, github_account_id: object) -> None:
+    """Replay any GitHub @-mentions this account left on Signals PRs before it was connected."""
+    if github_account_id is None:
+        return
+    try:
+        account_id = int(cast(int, github_account_id))
+    except (TypeError, ValueError):
+        return
+    # Lazy import keeps the Signals product off core's import path (and avoids an import cycle).
+    from products.signals.backend.github_mention.replay import replay_github_pending_mentions  # noqa: PLC0415
+
+    cast(Any, replay_github_pending_mentions).delay(user_id=user_id, github_account_id=account_id)
 
 
 def finish_personal(request: HttpRequest) -> FinishResult:
@@ -187,6 +201,9 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
         user_github_integration_from_installation(user, installation_access, authorization)
 
+    # Now that the personal connection exists, run any mentions this account was gated on.
+    _enqueue_pending_mention_replay(user.id, authorization.gh_id)
+
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])
         try:
@@ -250,6 +267,9 @@ def finish_personal_setup_update(request: HttpRequest) -> FinishResult:
         return _error(exc.code)
 
     refresh_user_github_installation_access(integration, installation_access)
+
+    # Scopes/repos may now cover a repo a mention needed — replay this account's pending mentions.
+    _enqueue_pending_mention_replay(user.id, (integration.config.get("github_user") or {}).get("id"))
 
     # Burn the pending authorize state so a repeated GitHub setup-URL ping within
     # the 5-minute TTL doesn't re-run the refresh.

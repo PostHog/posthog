@@ -1,1 +1,1 @@
-0071_alter_origin_product_mcp_analytics
+0072_alter_loop_origin_product_and_more

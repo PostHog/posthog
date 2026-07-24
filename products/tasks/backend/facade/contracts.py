@@ -42,6 +42,24 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalPrMentionContextDTO:
+    """Resolved context for a Signals-created PR that a bot @-mention landed on.
+
+    Lets the Signals mention handler inherit the project/report/repo from the task that opened the
+    PR (routing by inheritance, not repo→project inference) without reaching into tasks internals.
+    """
+
+    team_id: int
+    task_id: UUID
+    run_id: UUID
+    repository: str
+    signal_report_id: UUID | None
+    github_integration_id: int | None
+    # The PR's head branch (what the originating run pushed to) — where a follow-up run pushes commits.
+    head_branch: str | None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 
