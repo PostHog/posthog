@@ -372,6 +372,16 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
         })
+
+        it('treats a 404 on the probe as reachable (reverse-proxy prefix) and does not flip to error', async () => {
+            // Toolbar served behind a proxy prefix (/ph/, /ingest/, /static/) that forwards
+            // toolbar.js but not /toolbar_oauth/check — the origin responds 404. This is a
+            // benign routing artifact, not an unreachable host, so auth must stay usable.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+        })
     })
 
     describe('canonicalizeUiHost', () => {
