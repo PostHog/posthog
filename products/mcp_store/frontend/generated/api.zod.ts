@@ -253,6 +253,8 @@ export const McpGatewayServersPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const mcpGatewayServersPoliciesCreateBodyScopeTypeDefault = `team`
 export const mcpGatewayServersPoliciesCreateBodyPoliciesItemToolNameMax = 200
 
+export const mcpGatewayServersPoliciesCreateBodyPoliciesMax = 1000
+
 export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
     scope_type: zod
         .enum(['team', 'member', 'agent'])
@@ -269,7 +271,7 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                 tool_name: zod
                     .string()
                     .max(mcpGatewayServersPoliciesCreateBodyPoliciesItemToolNameMax)
-                    .describe('Tool to set the policy for.'),
+                    .describe('Tool to set the policy for, up to 200 characters.'),
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
@@ -277,7 +279,8 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                     ),
             })
         )
-        .describe('Per-tool states to upsert for the scope. At most 1000 entries.'),
+        .max(mcpGatewayServersPoliciesCreateBodyPoliciesMax)
+        .describe('Per-tool states to upsert for the scope. At most 1,000 entries per request.'),
 })
 
 /**
@@ -313,6 +316,8 @@ export const McpGatewayServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.ob
  */
 export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesItemToolNameMax = 200
 
+export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesMax = 1000
+
 export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.object({
     gateway_server_id: zod.uuid().describe('Gateway server to grant or revoke.'),
     enabled: zod.boolean().describe('True grants access, false revokes it.'),
@@ -322,7 +327,7 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                 tool_name: zod
                     .string()
                     .max(mcpGatewayServiceAccountsAccessCreateBodyPoliciesItemToolNameMax)
-                    .describe('Tool to set the policy for.'),
+                    .describe('Tool to set the policy for, up to 200 characters.'),
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
@@ -330,8 +335,9 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                     ),
             })
         )
+        .max(mcpGatewayServiceAccountsAccessCreateBodyPoliciesMax)
         .optional()
-        .describe('Optional agent-scope tool policies to set alongside the grant. At most 1000 entries.'),
+        .describe('Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.'),
 })
 
 export const mcpServerInstallationsCreateBodyDisplayNameMax = 200

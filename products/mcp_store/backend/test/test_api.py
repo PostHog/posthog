@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
 from posthog.models import Team
@@ -37,10 +37,23 @@ from products.mcp_store.backend.models import (
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
+    ServiceAccountAccessUpdateSerializer,
 )
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
 ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
+
+POLICY_REQUEST_SERIALIZER_CASES = [
+    ("policy_upsert", GatewayPoliciesUpsertSerializer, {}),
+    (
+        "service_account_access",
+        ServiceAccountAccessUpdateSerializer,
+        {
+            "gateway_server_id": "00000000-0000-0000-0000-000000000001",
+            "enabled": True,
+        },
+    ),
+]
 
 
 class TestIsValidPosthogCodeCallbackUrl(TestCase):
@@ -106,19 +119,43 @@ class TestMCPServerTemplateIconKeyNormalization(TestCase):
         assert template.icon_domain == expected
 
 
-class TestGatewayPoliciesUpsertSerializer(SimpleTestCase):
-    def test_rejects_oversized_policy_batches(self) -> None:
-        serializer = GatewayPoliciesUpsertSerializer(
+class TestMCPGatewayRequestSerializerValidation(SimpleTestCase):
+    @parameterized.expand(POLICY_REQUEST_SERIALIZER_CASES)
+    def test_rejects_tool_names_longer_than_database_field(
+        self,
+        _name: str,
+        serializer_class: type[serializers.Serializer],
+        base_data: dict[str, object],
+    ) -> None:
+        serializer = serializer_class(
             data={
-                "policies": [
-                    {"tool_name": f"tool_{index}", "policy_state": "approved"}
-                    for index in range(MAX_TOOL_POLICIES_PER_REQUEST + 1)
-                ]
+                **base_data,
+                "policies": [{"tool_name": "x" * 201, "policy_state": "approved"}],
             }
         )
 
         assert not serializer.is_valid()
-        assert serializer.errors["policies"]["non_field_errors"][0].code == "max_length"
+        assert serializer.errors["policies"][0]["tool_name"][0].code == "max_length"
+
+    @parameterized.expand(POLICY_REQUEST_SERIALIZER_CASES)
+    def test_rejects_oversized_policy_batches(
+        self,
+        _name: str,
+        serializer_class: type[serializers.Serializer],
+        base_data: dict[str, object],
+    ) -> None:
+        serializer = serializer_class(
+            data={
+                **base_data,
+                "policies": [
+                    {"tool_name": f"tool_{index}", "policy_state": "approved"}
+                    for index in range(MAX_TOOL_POLICIES_PER_REQUEST + 1)
+                ],
+            }
+        )
+
+        assert not serializer.is_valid()
+        assert serializer.errors["policies"][0].code == "max_length"
 
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

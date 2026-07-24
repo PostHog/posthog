@@ -65,6 +65,7 @@ RESOLVED_DECIDED_BY_CHOICES = ["rule", "scope", "team", "preset", "legacy", "def
 
 AUDIT_QUICK_FILTER_CHOICES = ["all", "agents", "approvals", "blocked"]
 
+# The UI sends whole catalogs, so keep headroom while bounding per-entry writes.
 MAX_TOOL_POLICIES_PER_REQUEST = 1_000
 
 AGENT_SERVER_CONNECTION_STATE_CHOICES = [
@@ -407,7 +408,7 @@ class MCPGatewayServerUpdateSerializer(serializers.ModelSerializer):
 
 
 class ToolPolicyEntrySerializer(serializers.Serializer):
-    tool_name = serializers.CharField(max_length=200, help_text="Tool to set the policy for.")
+    tool_name = serializers.CharField(max_length=200, help_text="Tool to set the policy for, up to 200 characters.")
     policy_state = serializers.ChoiceField(choices=APPROVAL_STATES, help_text="State to apply for this scope.")
 
 
@@ -427,10 +428,10 @@ class GatewayPoliciesQuerySerializer(serializers.Serializer):
 
 
 class GatewayPoliciesUpsertSerializer(GatewayPoliciesQuerySerializer):
-    policies = ToolPolicyEntrySerializer(
-        many=True,
-        max_length=MAX_TOOL_POLICIES_PER_REQUEST,  # type: ignore[call-arg]
-        help_text=f"Per-tool states to upsert for the scope. At most {MAX_TOOL_POLICIES_PER_REQUEST} entries.",
+    policies = serializers.ListField(
+        child=ToolPolicyEntrySerializer(),
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,
+        help_text=f"Per-tool states to upsert for the scope. At most {MAX_TOOL_POLICIES_PER_REQUEST:,} entries per request.",
     )
 
 
@@ -654,14 +655,14 @@ class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
 class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
     gateway_server_id = serializers.UUIDField(help_text="Gateway server to grant or revoke.")
     enabled = serializers.BooleanField(help_text="True grants access, false revokes it.")
-    policies = ToolPolicyEntrySerializer(
-        many=True,
+    policies = serializers.ListField(
+        child=ToolPolicyEntrySerializer(),
+        max_length=MAX_TOOL_POLICIES_PER_REQUEST,
         required=False,
         default=list,
-        max_length=MAX_TOOL_POLICIES_PER_REQUEST,  # type: ignore[call-arg]
         help_text=(
             "Optional agent-scope tool policies to set alongside the grant. "
-            f"At most {MAX_TOOL_POLICIES_PER_REQUEST} entries."
+            f"At most {MAX_TOOL_POLICIES_PER_REQUEST:,} entries per request."
         ),
     )
 
