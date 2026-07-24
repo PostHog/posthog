@@ -1551,39 +1551,41 @@ const INSTALL_MODE_CARDS: {
 // live progress views take over once a run is actually moving.
 function InstallPathTimeline({ steps, activeIndex }: { steps: string[]; activeIndex: number }): JSX.Element {
     return (
-        <ol className="flex flex-nowrap items-center overflow-x-auto p-0 m-0 list-none">
+        <div className="flex w-full">
             {steps.map((step, index) => (
-                <li key={step} className="flex items-center">
-                    <span
+                <div key={step} className="flex-1 min-w-0">
+                    <div className="flex items-center">
+                        <span
+                            className={cn(
+                                'flex items-center justify-center w-5 h-5 rounded-full border text-xs shrink-0',
+                                index === activeIndex ? 'border-accent text-accent font-semibold' : 'text-muted'
+                            )}
+                        >
+                            {index + 1}
+                        </span>
+                        {index < steps.length - 1 && <span className="flex-1 h-px bg-border mx-2" />}
+                    </div>
+                    <div
                         className={cn(
-                            'flex items-center justify-center w-5 h-5 rounded-full border text-xs shrink-0',
-                            index === activeIndex ? 'border-accent text-accent font-semibold' : 'text-muted'
-                        )}
-                    >
-                        {index + 1}
-                    </span>
-                    <span
-                        className={cn(
-                            'ml-1 text-xs whitespace-nowrap',
+                            'mt-1.5 text-xs pr-3',
                             index === activeIndex ? 'text-primary font-medium' : 'text-muted'
                         )}
                     >
                         {step}
-                    </span>
-                    {index < steps.length - 1 && <span className="w-3 h-px bg-border mx-1.5 shrink-0" />}
-                </li>
+                    </div>
+                </div>
             ))}
-        </ol>
+        </div>
     )
 }
 
-const CLOUD_PATH_STEPS = ['Connect GitHub', 'Pick repo', 'PR opens', 'Merge', 'Data arrives']
+const CLOUD_PATH_STEPS = ['Connect GitHub', 'Pick your repo', 'Review the PR', 'Merge and deploy', 'See your data']
 const LOCAL_PATH_STEPS = [
     'Copy the command',
     'Run it in your terminal',
     'Review the changes',
     'Run your app',
-    'Data arrives',
+    'See your data',
 ]
 
 // The install decision as radio cards: all three options visible and self-describing, since a
@@ -1703,7 +1705,7 @@ function QuickstartFocusedInstall(): JSX.Element {
     const isLocalRunActive = useLocalWizardRunActive()
 
     return (
-        <section className="max-w-xl flex flex-col gap-6">
+        <section className="max-w-2xl flex flex-col gap-6">
             <div>
                 <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
                 <p className="text-secondary mb-0">
