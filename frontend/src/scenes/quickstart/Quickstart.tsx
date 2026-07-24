@@ -1830,7 +1830,7 @@ function QuickstartInstallSwitcher({ intro }: { intro: React.ReactNode }): JSX.E
 
 // Pre-ingestion view for the test2 arm: one job, get the first event in. All install
 // methods live inline as a master-detail choice.
-function QuickstartFocusedInstall(): JSX.Element {
+function QuickstartFocusedInstall({ onSkip }: { onSkip: () => void }): JSX.Element {
     const intro = (
         <div>
             <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
@@ -1842,8 +1842,16 @@ function QuickstartFocusedInstall(): JSX.Element {
     )
 
     return (
-        <section>
+        <section className="flex flex-col gap-4">
             <QuickstartInstallSwitcher intro={intro} />
+            <button
+                type="button"
+                className="text-xs text-muted hover:text-primary cursor-pointer w-fit bg-transparent border-0 p-0"
+                onClick={onSkip}
+                data-attr="quickstart-skip-install-detection"
+            >
+                Skip this and show my tools
+            </button>
         </section>
     )
 }
@@ -1855,8 +1863,18 @@ export function Quickstart(): JSX.Element {
     const { openCompanionSetup } = useActions(quickstartLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const installationComplete = useInstallationComplete('ingested_event')
 
+    // Skipping install detection is an escape hatch for users whose data is a long way off
+    // (persisted per project). Hook lives above the early return per rules-of-hooks.
+    const skipKey = `quickstart-install-skipped-${currentTeamId ?? 'unknown'}`
+    const [installSkipped, setInstallSkipped] = useState(() => localStorage.getItem(skipKey) === 'true')
+    const skipInstallDetection = (): void => {
+        captureQuickstartAction('skip_install_detection')
+        localStorage.setItem(skipKey, 'true')
+        setInstallSkipped(true)
+    }
     const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
     if (!isQuickstartHomepageEnabled(quickstartVariant)) {
         // Flags are still loading, or quickstartLogic is redirecting home
@@ -1865,7 +1883,7 @@ export function Quickstart(): JSX.Element {
     // test2 stops at the product cards: no guides, companions, or publications below
     const showBelowCardsSections = quickstartVariant === 'test'
     // test2 pre-ingestion: the page has one job (first event), so product cards wait for data
-    const focusedInstall = quickstartVariant === 'test2' && !installationComplete
+    const focusedInstall = quickstartVariant === 'test2' && !installationComplete && !installSkipped
 
     return (
         // Capped and centered like onboarding's product selection: full-width reads stretched
@@ -1928,7 +1946,7 @@ export function Quickstart(): JSX.Element {
                 </section>
             </div>
 
-            {focusedInstall && <QuickstartFocusedInstall />}
+            {focusedInstall && <QuickstartFocusedInstall onSkip={skipInstallDetection} />}
 
             {quickstartVariant === 'test2' && !focusedInstall && <QuickstartHeroAnswerCard />}
 
