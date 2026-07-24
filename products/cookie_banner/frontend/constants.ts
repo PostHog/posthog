@@ -25,6 +25,12 @@ export const ART_STYLE_LABELS: Record<Required<CookieBannerAppearanceApi>['artSt
     'hedgehog-business': 'Enterprise Hog',
     'hedgehog-hogzilla': 'Hogzilla',
     'hedgehog-robot': 'RoboHog',
+    'hedgehog-mobile': 'Mobile Hog',
+    'hedgehog-zen': 'Zen Hog',
+    'hedgehog-lens': 'Lens Hog',
+    'hedgehog-town-crier': 'Town Crier',
+    'hedgehog-wizard': 'Wizard Hog',
+    'hedgehog-legal': 'Legal Hog',
 }
 
 export const POSITION_LABELS: Record<Required<CookieBannerAppearanceApi>['position'], string> = {

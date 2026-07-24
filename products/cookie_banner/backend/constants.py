@@ -10,6 +10,12 @@ ART_STYLES: list[str] = [
     "hedgehog-business",
     "hedgehog-hogzilla",
     "hedgehog-robot",
+    "hedgehog-mobile",
+    "hedgehog-zen",
+    "hedgehog-lens",
+    "hedgehog-town-crier",
+    "hedgehog-wizard",
+    "hedgehog-legal",
 ]
 
 POSITIONS: list[str] = ["bottom-left", "bottom-right", "bottom-bar"]

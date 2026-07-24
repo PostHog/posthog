@@ -15,6 +15,12 @@
  * * `hedgehog-business` - hedgehog-business
  * * `hedgehog-hogzilla` - hedgehog-hogzilla
  * * `hedgehog-robot` - hedgehog-robot
+ * * `hedgehog-mobile` - hedgehog-mobile
+ * * `hedgehog-zen` - hedgehog-zen
+ * * `hedgehog-lens` - hedgehog-lens
+ * * `hedgehog-town-crier` - hedgehog-town-crier
+ * * `hedgehog-wizard` - hedgehog-wizard
+ * * `hedgehog-legal` - hedgehog-legal
  */
 export type ArtStyleEnumApi = (typeof ArtStyleEnumApi)[keyof typeof ArtStyleEnumApi]
 
@@ -26,6 +32,12 @@ export const ArtStyleEnumApi = {
     HedgehogBusiness: 'hedgehog-business',
     HedgehogHogzilla: 'hedgehog-hogzilla',
     HedgehogRobot: 'hedgehog-robot',
+    HedgehogMobile: 'hedgehog-mobile',
+    HedgehogZen: 'hedgehog-zen',
+    HedgehogLens: 'hedgehog-lens',
+    HedgehogTownCrier: 'hedgehog-town-crier',
+    HedgehogWizard: 'hedgehog-wizard',
+    HedgehogLegal: 'hedgehog-legal',
 } as const
 
 /**
@@ -74,7 +86,13 @@ export interface CookieBannerAppearanceApi {
      * * `hedgehog-builder` - hedgehog-builder
      * * `hedgehog-business` - hedgehog-business
      * * `hedgehog-hogzilla` - hedgehog-hogzilla
-     * * `hedgehog-robot` - hedgehog-robot */
+     * * `hedgehog-robot` - hedgehog-robot
+     * * `hedgehog-mobile` - hedgehog-mobile
+     * * `hedgehog-zen` - hedgehog-zen
+     * * `hedgehog-lens` - hedgehog-lens
+     * * `hedgehog-town-crier` - hedgehog-town-crier
+     * * `hedgehog-wizard` - hedgehog-wizard
+     * * `hedgehog-legal` - hedgehog-legal */
     artStyle?: ArtStyleEnumApi
     /** Where the banner appears on the page. Defaults to 'bottom-right'.
      *
