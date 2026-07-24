@@ -419,11 +419,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
 
-                {isEvent && (
-                    <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
-                        <PrimaryPropertyDetail definition={definition as EventDefinition} />
-                    </FlaggedFeature>
-                )}
+                {isEvent && <PrimaryPropertyDetail definition={definition as EventDefinition} />}
             </div>
 
             <SceneDivider />

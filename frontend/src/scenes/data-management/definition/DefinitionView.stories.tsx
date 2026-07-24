@@ -40,7 +40,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-04-30',
         pageUrl: urls.eventDefinition(MOCK_EVENT_DEFINITION.id),
-        featureFlags: ['promoted-event-properties-edit'],
         // The full DefinitionView mounts EventDefinitionProperties / EventDefinitionInsights / a
         // matching-events table — those keep their loaders spinning because we don't mock every
         // downstream endpoint. The metadata row (Status + Primary property) is what this story
