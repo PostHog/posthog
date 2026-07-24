@@ -92,6 +92,24 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "<blank>" in message
 
 
+def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
+    # Numeric columns whose cells arrive as numeric strings (common with JSON-based sources
+    # such as Mixpanel, where a property flips between 570 and "570") must coerce, not fail
+    # the whole sync. Blank cells become null; genuinely non-numeric text still raises.
+    table = table_from_py_list(
+        [{"column": 1.5}, {"column": "570"}, {"column": "  42  "}, {"column": ""}, {"column": None}]
+    )
+
+    assert pa.types.is_decimal(table.schema.field("column").type)
+    assert table.column("column").to_pylist() == [
+        decimal.Decimal("1.5"),
+        decimal.Decimal("570"),
+        decimal.Decimal("42"),
+        None,
+        None,
+    ]
+
+
 @pytest.mark.parametrize(
     "values,expected,type_check",
     [
