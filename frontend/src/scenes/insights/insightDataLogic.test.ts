@@ -605,13 +605,16 @@ describe('insightDataLogic', () => {
         it.each([
             ['a cosmetic-only query', cosmeticOnlyEdit],
             ['a too-large query', tooLargeEdit],
-        ])("does not clear another session's draft when it has not persisted one itself and sets %s", async (_, mutate) => {
-            localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+        ])(
+            "does not clear another session's draft when it has not persisted one itself and sets %s",
+            async (_, mutate) => {
+                localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
 
-            await expectLogic(logic, () => {
-                logic.actions.setQuery(newInsightQuery(mutate))
-            }).toFinishAllListeners()
-            expect(localStorage.getItem(draftKey)).not.toBeNull()
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.setQuery(newInsightQuery(mutate))
+                }).toFinishAllListeners()
+                expect(localStorage.getItem(draftKey)).not.toBeNull()
+            }
+        )
     })
 })
