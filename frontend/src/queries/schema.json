@@ -23891,7 +23891,12 @@
                 "Vturb",
                 "Meltwater",
                 "UserCom",
-                "Latitude"
+                "Latitude",
+                "Workato",
+                "SideShift",
+                "DuckLake",
+                "Starburst",
+                "Easybill"
             ],
             "type": "string"
         },
