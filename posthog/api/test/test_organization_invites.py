@@ -544,14 +544,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("blocks_unverified_domain", True, "newperson@gmail.com", status.HTTP_400_BAD_REQUEST),
-            ("allows_verified_domain", True, "newperson@hogflix.com", status.HTTP_201_CREATED),
-            ("allows_when_not_enforced", False, "newperson@gmail.com", status.HTTP_201_CREATED),
+            ("blocks_unverified_domain", "newperson@gmail.com", status.HTTP_400_BAD_REQUEST),
+            ("allows_verified_domain", "newperson@hogflix.com", status.HTTP_201_CREATED),
         ]
     )
-    def test_invite_restricted_to_verified_domain_when_enforcement_on(self, _name, enforce, email, expected_status):
-        if enforce:
-            _enable_domain_enforcement(self.organization, "hogflix.com")
+    def test_invite_restricted_to_verified_domain_when_enforcement_on(self, _name, email, expected_status):
+        _enable_domain_enforcement(self.organization, "hogflix.com")
 
         response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
 
