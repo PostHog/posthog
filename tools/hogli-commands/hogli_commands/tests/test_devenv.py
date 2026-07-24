@@ -984,9 +984,12 @@ class TestParseExcludeInput:
 class TestDockerComposeShellFailurePath:
     """The docker-compose proc shell must not emit the ready marker when `up` fails.
 
-    If the `|| { ...; exit 1; }` fallback is dropped or broken, a failed
-    `docker compose up` falls through to `echo 'docker-compose ready'`, the
-    ready_pattern fires, and every dependent proc starts against a dead stack.
+    `up_cmd || { fail_cmd; exit 1; } && echo 'docker-compose ready'` only adds
+    a friendlier failure message over a plain `up_cmd && echo ready` chain —
+    both already skip the ready marker on failure. What this guards against is
+    someone dropping the `exit 1` from `fail_cmd`: then the `{ ...; }` group
+    exits 0, the `||` is satisfied, and `docker-compose ready` fires even
+    though `up` failed, so every dependent proc starts against a dead stack.
     Covers both the generated shell and its independently maintained twin in
     bin/mprocs.yaml (the static fallback used when hogli is unavailable).
     """

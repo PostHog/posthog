@@ -1574,18 +1574,24 @@ def _format_rss(rss_kb: int) -> str:
 # ---------------------------------------------------------------------------
 
 # The always-on infra ports from docker-compose.dev.yml whose bind failure
-# aborts `docker compose up`. Update when those mappings change; optional
-# profile services are intentionally excluded.
+# aborts `docker compose up`. Update when those mappings change; services
+# gated by `profiles:` (in docker-compose.dev.yml or the legacy
+# docker-compose.profiles.yml overlay — e.g. temporal) are intentionally
+# excluded, since they don't start by default.
 _PREFLIGHT_PORTS: tuple[tuple[int, str], ...] = (
     (8010, "proxy"),
     (2181, "zookeeper"),
     (8123, "clickhouse-http"),
+    (8443, "clickhouse-https"),
     (9000, "clickhouse-native"),
+    (9440, "clickhouse-native-tls"),
+    (9009, "clickhouse-interserver"),
     (9092, "kafka"),
     (5432, "postgres"),
     (6379, "redis"),
-    (7233, "temporal"),
+    (6399, "redis-cluster"),
     (19000, "objectstorage"),
+    (19001, "objectstorage-master"),
 )
 
 _COMPOSE_NAME_RE = re.compile(r"[^a-zA-Z0-9_.-]")
