@@ -833,6 +833,22 @@ SPECTACULAR_SETTINGS = {
         # `caches` list item share the same evaluation/definitions choice set. Pin to a
         # stable name so "cache" and "caches" don't collide into a hash name.
         "StaffCacheKindEnum": ["evaluation", "definitions"],
+        # RunRequest.model and SaveRequest.model (growth score lab) share the same gateway
+        # model choice set - pin to a stable, semantic name instead of a hash-resolved one.
+        "GrowthScoreLabModelEnum": [
+            "gpt-5.2",
+            "gpt-5.2-pro",
+            "gpt-5.1",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "claude-fable-5",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+        ],
     },
 }
 

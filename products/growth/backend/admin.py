@@ -1,7 +1,5 @@
 import re
-import asyncio
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,7 +18,6 @@ from django.utils.html import escape, format_html
 from django.utils.safestring import SafeString
 
 import structlog
-from openai import OpenAI
 
 from posthog.admin.inline_registry import register_admin_inline
 from posthog.api.streaming import streaming_response
@@ -28,18 +25,16 @@ from posthog.llm.gateway_client import get_llm_client
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.enrichment.labels import (
-    UNKNOWN,
-    classify_payload,
-    recent_latest_fetches_qs,
-    signup_domain_for_organization,
+from products.growth.backend.enrichment.lab import (
+    DEFAULT_SAMPLE_SIZE as _DRY_RUN_SAMPLE,
+    GATEWAY_MODEL_CHOICES,
+    HARMONIC_INPUT_FIELD_CHOICES,
+    LABEL_SLUG_RE as _LABEL_SLUG_RE,
+    MAX_SAMPLE_SIZE as _DRY_RUN_MAX_SAMPLE,
+    stream_classifications as _stream_classifications,
 )
-from products.growth.backend.models import (
-    EnrichmentLabelResult,
-    EnrichmentPromptConfig,
-    OrganizationEnrichmentFetch,
-    ProductPushCampaign,
-)
+from products.growth.backend.enrichment.labels import UNKNOWN, recent_latest_fetches_qs, signup_domain_for_organization
+from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -300,40 +295,6 @@ def _config_has_results(config: EnrichmentPromptConfig) -> bool:
     return EnrichmentLabelResult.objects.filter(label_name=config.name, prompt_version=config.version).exists()
 
 
-# Runtime constraints only (the model keeps plain fields): curated gateway models and the
-# archived-Harmonic payload paths worth feeding a prompt. Extend freely; stored rows with
-# values outside these lists still render (choices are unioned with the instance's values).
-GATEWAY_MODEL_CHOICES = [
-    "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "claude-fable-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-]
-
-HARMONIC_INPUT_FIELD_CHOICES = [
-    ("name", "Company name"),
-    ("description", "Description"),
-    ("website.url", "Website URL"),
-    ("companyType", "Company type"),
-    ("headcount", "Headcount"),
-    ("tagsV2", "Tags (tagsV2)"),
-    ("funding.fundingStage", "Funding stage"),
-    ("funding.fundingTotal", "Total funding"),
-    ("funding.lastFundingAt", "Last funding date"),
-    ("funding.investors", "Investors"),
-    ("location.country", "Country"),
-    ("foundingDate.date", "Founding date"),
-]
-
-
 class EnrichmentPromptConfigForm(forms.ModelForm):
     """Label-owner-facing form: dropdowns and checkboxes instead of free text, so a new
     version is a guided copy-and-tweak rather than hand-typed JSON."""
@@ -379,36 +340,6 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
             self.fields["is_active"].help_text = "The version the batch runner computes. One active version per label."
 
 
-# Bounded so the synchronous admin dry-run stays a short page load, not a batch job.
-_DRY_RUN_SAMPLE = 10
-_DRY_RUN_MAX_SAMPLE = 100
-_DRY_RUN_WORKERS = 5
-
-
-def _classify_pair(
-    config: EnrichmentPromptConfig, pair: tuple[OrganizationEnrichmentFetch, str | None], client: OpenAI
-) -> dict[str, Any]:
-    fetch, signup_domain = pair
-    company = fetch.payload.get("name") or fetch.organization.name
-    try:
-        verdict = classify_payload(config, fetch.payload, signup_domain, client)
-    except Exception as e:
-        return {
-            "company": company,
-            "domain": signup_domain,
-            "verdict": "ERROR",
-            "confidence": "-",
-            "reasoning": str(e)[:200],
-        }
-    return {
-        "company": company,
-        "domain": signup_domain,
-        "verdict": str(verdict.get(config.name)).lower(),
-        "confidence": f"{verdict.get('confidence', 0.0):.2f}",
-        "reasoning": verdict.get("reasoning", ""),
-    }
-
-
 def _row_html(row: dict[str, Any]) -> SafeString:
     return format_html(
         '<tr><td>{}</td><td>{}</td><td><span class="verdict verdict-{}">{}</span></td><td>{}</td><td>{}</td></tr>\n',
@@ -419,28 +350,6 @@ def _row_html(row: dict[str, Any]) -> SafeString:
         row["confidence"],
         row["reasoning"],
     )
-
-
-async def _stream_classifications(
-    config: EnrichmentPromptConfig,
-    inputs: list[tuple[OrganizationEnrichmentFetch, str | None]],
-    client: OpenAI,
-    workers: int = _DRY_RUN_WORKERS,
-) -> AsyncIterator[dict[str, Any]]:
-    """Classify each (fetch, signup_domain) pair concurrently, yielding one verdict as each completes.
-
-    Async generator on purpose: under ASGI, Django fully buffers a sync iterator before
-    sending anything, which silently defeats streaming. Shared by the changelist dry-run
-    action and the lab run endpoint below.
-    """
-    loop = asyncio.get_running_loop()
-    pool = ThreadPoolExecutor(max_workers=workers)
-    try:
-        tasks = [loop.run_in_executor(pool, _classify_pair, config, pair, client) for pair in inputs]
-        for task in asyncio.as_completed(tasks):
-            yield await task
-    finally:
-        pool.shutdown(wait=False)
 
 
 def _model_choices(current: str = "") -> list[tuple[str, str]]:
@@ -457,9 +366,6 @@ def _input_field_choices(current: list[str] | None = None) -> list[tuple[str, st
         if path_value not in known:
             choices.append((path_value, path_value))
     return choices
-
-
-_LABEL_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def _suggest_next_version(version: str) -> str:
