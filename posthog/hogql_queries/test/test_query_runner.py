@@ -9,7 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -62,6 +62,7 @@ from posthog.hogql_queries.query_runner import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 try:
@@ -330,6 +331,21 @@ class TestQueryRunner(BaseTest):
             "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
         }
+
+    def test_cache_payload_degrades_when_product_config_read_fails(self):
+        # A DB pool timeout while loading a product config for the cache key must not 500 the whole
+        # query; the failing config degrades to a stable marker while the others still resolve.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(organization=self.organization, base_currency=CurrencyCode.USD.value)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+
+        with mock.patch.object(
+            TeamRevenueAnalyticsConfig, "to_cache_key_dict", side_effect=OperationalError("query_wait_timeout")
+        ):
+            products_modifiers = runner.get_cache_payload()["products_modifiers"]
+
+        assert products_modifiers["revenue_analytics"] == "unavailable"
+        assert products_modifiers["customer_analytics"]["signup_event"] == {}
 
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
