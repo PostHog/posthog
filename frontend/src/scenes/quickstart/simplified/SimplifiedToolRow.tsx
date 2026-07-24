@@ -13,7 +13,14 @@ import { PRODUCT_SDK_SETUP } from '../shared/productSdkSetup'
 
 /** An explore-more tool as a plain row: name and description, whole row opens the
  * tool. No status badge or per-state button, so scanning the list is one decision. */
-export function SimplifiedToolRow({ product }: { product: QuickstartProduct }): JSX.Element {
+export function SimplifiedToolRow({
+    product,
+    onAction,
+}: {
+    product: QuickstartProduct
+    /** Called when the row navigates or opens a setup guide, so a hosting dialog can close */
+    onAction?: () => void
+}): JSX.Element {
     const { setProductFeatured, openToolSetupModal } = useActions(quickstartLogic)
     const needsSetup = product.status.level === 'needs_setup'
     const opensSetupModal = needsSetup && !!PRODUCT_SDK_SETUP[product.key]
@@ -31,6 +38,7 @@ export function SimplifiedToolRow({ product }: { product: QuickstartProduct }): 
                     } else {
                         captureQuickstartAction('open_product', product.key)
                     }
+                    onAction?.()
                 }}
                 className="flex items-center gap-3 p-3 pr-12 text-primary hover:text-primary"
                 data-attr={`quickstart-tool-${product.key}`}
