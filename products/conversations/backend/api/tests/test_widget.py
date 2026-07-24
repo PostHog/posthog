@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -114,6 +115,38 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["ticket_id"], str(ticket.id))
+
+    @parameterized.expand(
+        [
+            (Status.RESOLVED, Status.OPEN),
+            (Status.NEW, Status.NEW),
+            (Status.OPEN, Status.OPEN),
+            (Status.ON_HOLD, Status.ON_HOLD),
+        ]
+    )
+    def test_customer_reply_reopens_only_resolved_ticket(self, starting_status, expected_status):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            status=starting_status,
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Actually, I still need help",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_status"], expected_status)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, expected_status)
 
     def test_unverified_request_cannot_repoint_ticket_distinct_id(self):
         # An anonymous (widget_session_id-only) request must not be able to overwrite an
