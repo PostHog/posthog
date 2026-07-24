@@ -21,6 +21,7 @@ from posthog.schema import (
     SubagentUpdateEvent,
 )
 
+from posthog.metrics import get_or_create_metric
 from posthog.redis import get_async_client
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -31,25 +32,31 @@ from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageU
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
 
-REDIS_TO_CLIENT_LATENCY_HISTOGRAM = Histogram(
+# Registered idempotently so a retried import (e.g. after a partially-completed import raised
+# an ImportError) reuses the existing collectors instead of raising "Duplicated timeseries".
+REDIS_TO_CLIENT_LATENCY_HISTOGRAM = get_or_create_metric(
+    Histogram,
     "posthog_ai_redis_to_client_latency_seconds",
     "Time from writing message to Redis stream to reading it on client side",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
-REDIS_READ_ITERATION_LATENCY_HISTOGRAM = Histogram(
+REDIS_READ_ITERATION_LATENCY_HISTOGRAM = get_or_create_metric(
+    Histogram,
     "posthog_ai_redis_read_iteration_latency_seconds",
     "Time between iterations in the Redis stream read loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
-REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM = Histogram(
+REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM = get_or_create_metric(
+    Histogram,
     "posthog_ai_redis_write_iteration_latency_seconds",
     "Time between iterations in the Redis stream write loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
-REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
+REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = get_or_create_metric(
+    Histogram,
     "posthog_ai_redis_stream_init_iteration_latency_seconds",
     "Time between iterations in the stream initialization wait loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
