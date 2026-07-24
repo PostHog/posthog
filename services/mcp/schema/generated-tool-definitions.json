@@ -5517,7 +5517,7 @@
         "requires_ai_consent": true
     },
     "llma-evaluation-test-hog": {
-        "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Test Hog evaluation code",
@@ -7884,6 +7884,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "scout-create-execute": {
+        "description": "Step 2 of 2 for create scout. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a custom `signals-scout-*` skill and its runnable config in one atomic call. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout (execute)",
+        "title": "Create a scout (execute)",
+        "required_scopes": ["llm_skill:write", "signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-create-prepare": {
+        "description": "Step 1 of 2 for create scout. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a custom `signals-scout-*` skill and its runnable config in one atomic call. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout (prepare)",
+        "title": "Create a scout (prepare)",
+        "required_scopes": ["llm_skill:write", "signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "scout-edit-report": {
@@ -10652,7 +10680,7 @@
         }
     },
     "workflows-publish": {
-        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true).",
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Publish workflow draft",

@@ -589,9 +589,9 @@ export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Status of the flag-cleanup Code task opened for this experiment.
+ * Status of the flag-cleanup Desktop task opened for this experiment.
  *
- * When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+ * When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
  * removes the experiment's feature-flag code and opens a draft pull request. This
  * returns that task's latest run status and the PR URL once one is opened. Poll
  * until is_terminal is true. Returns 404 when no cleanup task was opened.

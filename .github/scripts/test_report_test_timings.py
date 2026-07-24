@@ -569,6 +569,47 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
     assert "test.owner_team" not in tracer.spans[2].attributes
 
 
+def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Products run pytest with `--rootdir ../..`, so real product JUnit `file`/`classname`
+    # are already repo-relative; the span must carry them through, not double-prefix them.
+    _write_shard_xml(
+        tmp_path / "product-junit-results-1",
+        filename="junit-product-warehouse_sources.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="products.warehouse_sources.backend.migrations.test.test_migration_0075.TestBackfillApiVersion" '
+            'file="products/warehouse_sources/backend/migrations/test/test_migration_0075.py" name="test_backfill" time="1.0"/>'
+        ),
+    )
+    shard = report_test_timings.collect_shards(tmp_path)[0]
+    assert shard.info.suite == "product"
+    assert shard.info.segment == "warehouse_sources"
+    assert report_test_timings.job_trace_name("Backend CI", shard.info) == "Backend CI / warehouse_sources (1)"
+
+    tracer = _FakeTracer()
+    owner_paths: list[str] = []
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    def owner_of(file: str) -> str:
+        owner_paths.append(file)
+        return "team-data-warehouse"
+
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / warehouse_sources (1)", owner_of)
+
+    test_span = tracer.spans[1]
+    expected_file = "products/warehouse_sources/backend/migrations/test/test_migration_0075.py"
+    assert (
+        test_span.name
+        == "products/warehouse_sources/backend/migrations/test/test_migration_0075/TestBackfillApiVersion::test_backfill"
+    )
+    assert test_span.attributes["test.selector"] == f"{expected_file}::TestBackfillApiVersion::test_backfill"
+    assert test_span.attributes["test.owner_team"] == "team-data-warehouse"
+    assert owner_paths == [expected_file]
+
+
 # ---------- workflow context ----------
 
 

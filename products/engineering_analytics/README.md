@@ -49,14 +49,14 @@ The product is: **measure every gap in a PR's life, average it, and watch it shr
 The middle of PostHog's AI-to-prod loop (CI / review / merge / deploy) is invisible to both ends. This product fills it:
 
 ```text
-PostHog Code              engineering_analytics            PostHog product analytics
-(generates code,      →   (CI / review / merge / deploy) →  (events, errors, flags,
- opens PRs)                                                  surveys, replays)
-        ↑                                                            │
-        └───────────  Signals feed back to PostHog Code  ───────────┘
+PostHog Desktop              engineering_analytics             PostHog product analytics
+(generates code,      →   (CI / review / merge / deploy)  →    (events, errors, flags,
+ opens PRs)                                                     surveys, replays)
+        ↑                                                              │
+        └───────────  Signals feed back to PostHog Desktop  ───────────┘
 ```
 
-Two consumer classes, one tool set: engineers driving an agent (Claude Code, Cursor, PostHog AI) over their monorepo (we dogfood on `PostHog/posthog`), and PostHog Code calling the same tools autonomously on its own PRs.
+Two consumer classes, one tool set: engineers driving an agent (Claude Code, Cursor, PostHog AI) over their monorepo (we dogfood on `PostHog/posthog`), and PostHog Desktop calling the same tools autonomously on its own PRs.
 Return shapes are typed contracts whose caveats ride in honest field names (`open_to_merge_seconds`, never `cycle_time`): legible to an agent, never free-form prose it might paraphrase wrong.
 
 ## The system
@@ -86,9 +86,9 @@ graph LR
 - The Teams roster comes from a bounded trusted-master CI heartbeat that calls `OwnersResolver.active_primary_teams()`. This keeps distributed `owners.yaml` resolution at capture time while still showing code-owning teams with zero recent test signals.
 - Access control: per-user warehouse RBAC at the source resolver, `engineering_analytics:read` scopes on tools, feature-flag gated.
 
-## The goal: CI Signals for PostHog Code
+## The goal: CI Signals for PostHog Desktop
 
-Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Code for autonomous remediation.
+Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Desktop for autonomous remediation.
 Detection is defined once in `logic/` over the read layer, so the emitter and the MCP tools share one definition.
 Shortening ready-for-review-to-merge is the headline metric this serves.
 
@@ -110,7 +110,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 
 - Two motivations: (A) DevEx dogfood, (B) close the dark middle of PostHog's AI-to-prod loop. Every design decision serves both.
 - Unit of value = the open PR. Phase model: draft (low rigor) vs ready-for-review (high stakes).
-- North star: actionable CI Signals for PostHog Code. Ready-for-review-to-merge time is the headline metric, not the end in itself.
+- North star: actionable CI Signals for PostHog Desktop. Ready-for-review-to-merge time is the headline metric, not the end in itself.
 - Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
 - One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App), carved out because this UI is the fastest surface to iterate on it. No saved views or stateful filters; persisted surfaces are a separate decision.
 - Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
@@ -122,8 +122,8 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 
 ## Glossary
 
-| Term                | Definition                                                                                |
-| ------------------- | ----------------------------------------------------------------------------------------- |
-| Good / bad friction | Checks that catch real problems (keep, optimize) vs checks engineers ignore (remove)      |
-| Wedge               | End-to-end code visibility, served via MCP to PostHog Code and engineers driving agents   |
-| The dark middle     | The CI / review / merge / deploy steps between PostHog Code and PostHog product analytics |
+| Term                | Definition                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| Good / bad friction | Checks that catch real problems (keep, optimize) vs checks engineers ignore (remove)         |
+| Wedge               | End-to-end code visibility, served via MCP to PostHog Desktop and engineers driving agents   |
+| The dark middle     | The CI / review / merge / deploy steps between PostHog Desktop and PostHog product analytics |

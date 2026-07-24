@@ -953,8 +953,9 @@ jobs:
                       [ -f "$f" ] || continue
                       cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
                   done
-            # Separate prefix from junit-results-backend-* on purpose: those are consumed by
-            # test-selection-verdict (snob shadow) and report-test-timings, not product tests.
+            # Separate artifact prefix from junit-results-backend-* so consumers can select
+            # product JUnit by download pattern; the product name rides in each inner filename
+            # (junit-product-<name>.xml). The failure rollup and timing reporter consume both.
             - name: Upload product test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -3607,7 +3608,7 @@ jobs:
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
-                  pattern: junit-results-*
+                  pattern: '{junit-results-backend,product-junit-results}-*'
             - name: Emit per-test traces
               if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true

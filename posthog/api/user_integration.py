@@ -107,7 +107,7 @@ class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.",
+        help_text="Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.",
     )
     connect_from = serializers.CharField(
         required=False,
@@ -673,7 +673,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 def _resolve_team_for_github_start(user: User, request: Request):
     """Resolve which team to use for team-level GitHub install discovery.
 
-    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
+    PostHog Desktop passes ``team_id`` (project/team) in the JSON body because the
     session's ``user.current_team`` may not match the app UI. The web app omits
     it and uses ``current_team``.
     """
