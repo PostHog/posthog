@@ -2,9 +2,12 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,12 +30,29 @@ const tabs: { key: BillingSectionId; label: string }[] = [
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
 
-    const section = location.pathname.includes('spend')
+    // The usage/spend dashboards are intentionally hidden from large orgs (the breakdown queries are
+    // slow there) via this flag. Force the overview when it's off so these orgs land on the same
+    // simple billing page regardless of how they navigated in.
+    const usageSpendDashboardsEnabled = !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+
+    const rawSection: BillingSectionId = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
           ? 'usage'
           : 'overview'
+
+    const section: BillingSectionId = usageSpendDashboardsEnabled ? rawSection : 'overview'
+
+    // Normalise the URL for flag-off orgs that deep-link straight to a usage/spend section. Wait for
+    // flags to actually load (they're persisted, so could be stale) before redirecting, so a flag-on
+    // user isn't bounced off their section while flags are still resolving.
+    useEffect(() => {
+        if (receivedFeatureFlags && !usageSpendDashboardsEnabled && rawSection !== 'overview') {
+            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+        }
+    }, [receivedFeatureFlags, usageSpendDashboardsEnabled, rawSection, searchParams])
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -63,7 +83,7 @@ export function BillingSection(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
+            {usageSpendDashboardsEnabled && <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />}
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
