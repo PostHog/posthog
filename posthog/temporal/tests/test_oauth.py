@@ -10,6 +10,7 @@ from posthog.temporal.oauth import (
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
+    _get_client_id_for_region,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
@@ -116,6 +117,26 @@ class TestResolveScopes(SimpleTestCase):
             f"{overlap} are in INTERNAL_API_SCOPE_OBJECTS and also in MCP_READ_SCOPES / MCP_WRITE_SCOPES; "
             "a `read_only` MCP token would silently grant them."
         )
+
+
+class TestGetClientIdForRegion(SimpleTestCase):
+    _IDS = {"us": "us-id", "eu": "eu-id", "dev": "dev-id"}
+
+    @parameterized.expand([("US", "us-id"), ("EU", "eu-id"), ("DEV", "dev-id"), ("LOCAL", "dev-id"), ("E2E", "dev-id")])
+    def test_known_regions_resolve(self, region: str, expected: str) -> None:
+        assert _get_client_id_for_region(region=region, **self._IDS) == expected
+
+    @override_settings(DEBUG=True, TEST=False)
+    def test_unresolved_region_falls_back_to_dev_in_debug(self) -> None:
+        assert _get_client_id_for_region(region=None, **self._IDS) == "dev-id"
+
+    @parameterized.expand([("none_region", None), ("unexpected_region", "STAGING")])
+    @override_settings(DEBUG=False, TEST=False)
+    def test_unresolved_region_fails_loudly_outside_dev(self, _name: str, region: str | None) -> None:
+        # Guards the silent fallback: an unset CLOUD_DEPLOYMENT on a real worker used to select the
+        # (unseeded-in-prod) dev app, surfacing later as a confusing OAuthApplication.DoesNotExist.
+        with self.assertRaisesRegex(RuntimeError, "Cannot resolve OAuth client id for region"):
+            _get_client_id_for_region(region=region, **self._IDS)
 
 
 class TestHasWriteScopes(SimpleTestCase):
