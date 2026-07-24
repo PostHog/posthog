@@ -1,11 +1,9 @@
-import datetime as dt
 import dataclasses
-
-from django.utils import timezone
 
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.client import Client, WorkflowExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -17,11 +15,6 @@ LOGGER = get_logger(__name__)
 
 PREEMPTED_ERROR = "Preempted: a new DAG run started before this job completed"
 ABANDONED_ERROR = "Abandoned: the materialization workflow is no longer running"
-
-# A MaterializeViewWorkflow's activities cap out at 20 minutes with a 2-minute heartbeat, so a row
-# still marked Running well past that has lost its workflow and will never close itself. Kept
-# deliberately loose: over-waiting only delays cleanup, while under-waiting would fail a live job.
-STALE_RUNNING_JOB_AGE = dt.timedelta(hours=6)
 
 
 @dataclasses.dataclass
@@ -59,33 +52,51 @@ def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob
 
 
 def partition_running_jobs(
-    jobs: list[DataModelingJob], dag_id: str, node_ids: list[str] | None, now: dt.datetime
+    jobs: list[DataModelingJob], dag_id: str, node_ids: list[str] | None
 ) -> tuple[list[DataModelingJob], list[DataModelingJob]]:
-    """Split this DAG's running jobs into the ones we preempt and the ones we merely reap.
+    """Split this DAG's running jobs into the nodes this run owns and everything else.
 
-    Two different jobs share this activity, and they want different scopes:
+    Cadence tiers of one DAG hold disjoint node sets, so only the owned half may be preempted —
+    preempting DAG-wide is what lets one tier cancel another tier's live work. An unset
+    `node_ids` means a whole-DAG run (the legacy single v2 schedule), which owns every node.
 
-    - *Preempt* the nodes this run is about to materialize. Cadence tiers of one DAG hold
-      disjoint node sets, so preempting DAG-wide lets one tier cancel another tier's live work.
-      An unset `node_ids` means a whole-DAG run (the legacy single v2 schedule), which owns
-      every node.
-    - *Reap* rows left behind by a workflow that is long gone, wherever they are in the DAG.
-      Those are corpses, not work in progress, so ownership must not gate cleaning them up —
-      a node in no tier is otherwise stuck Running forever. Gating on age is what keeps this
-      from touching another tier's live job.
+    The rest are merely *candidates* for reaping: whether they are corpses is decided by asking
+    Temporal, not by anything on the row.
     """
     owned = set(node_ids or [])
-    stale_before = now - STALE_RUNNING_JOB_AGE
     ours: list[DataModelingJob] = []
-    abandoned: list[DataModelingJob] = []
+    others: list[DataModelingJob] = []
     for job in jobs:
         # Empty node_ids means "every node", matching how ExecuteDAGWorkflow reads the same field.
         if not node_ids or _node_id_from_workflow_id(job.workflow_id or "", dag_id) in owned:
             ours.append(job)
-        # No timestamp means we cannot prove the row is a corpse, so leave it running.
-        elif job.updated_at is not None and job.updated_at < stale_before:
+        else:
+            others.append(job)
+    return ours, others
+
+
+async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -> list[DataModelingJob]:
+    """Of these rows, the ones whose workflow is no longer running.
+
+    A row saying Running while its workflow is closed (or gone from Temporal's retention) is a
+    corpse: nothing will ever close it. Asking Temporal is the only way to tell a corpse from a
+    slow run — a job's wall-clock age cannot, because nothing bounds it. Activity
+    `start_to_close_timeout` caps one attempt, not queue wait, retries, or the workflow overall,
+    and MaterializeViewWorkflow is started with no execution timeout.
+    """
+    abandoned: list[DataModelingJob] = []
+    for job in candidates:
+        if not job.workflow_id:
+            continue
+        try:
+            description = await temporal.get_workflow_handle(job.workflow_id).describe()
+        except Exception:
+            # Not found: Temporal has no record of it, so nothing is running.
             abandoned.append(job)
-    return ours, abandoned
+            continue
+        if description.status != WorkflowExecutionStatus.RUNNING:
+            abandoned.append(job)
+    return abandoned
 
 
 @database_sync_to_async_pool
@@ -108,43 +119,46 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     cadence tiers would take down the whole run that still owns its siblings.
     A parent starts each of its nodes once, so there is no child to re-spawn behind us.
 
-    Reaped rows are only marked, never cancelled — there is no live workflow left to cancel,
-    and cancelling on another tier's behalf is exactly what this activity must not do.
+    Rows outside that node set are only reaped, and only once Temporal confirms their workflow
+    is no longer running: they are marked, never cancelled, because there is nothing left to
+    cancel and cancelling on another tier's behalf is exactly what this activity must not do.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
     running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id)
-    ours, abandoned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids, timezone.now())
-    if not ours and not abandoned:
+    ours, others = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
+    if not ours and not others:
         await logger.adebug("No previous DAG run to preempt")
         return
 
-    if abandoned:
-        reaped = await _mark_jobs_failed([str(job.id) for job in abandoned], ABANDONED_ERROR)
-        await logger.ainfo(f"Reaped {reaped} abandoned jobs", dag_id=inputs.dag_id)
+    if ours:
+        await logger.ainfo(
+            f"Preempting previous DAG run: found {len(ours)} running jobs",
+            dag_id=inputs.dag_id,
+        )
+        updated_count = await _mark_jobs_failed([str(job.id) for job in ours], PREEMPTED_ERROR)
+        await logger.ainfo(f"Marked {updated_count} jobs as preempted", dag_id=inputs.dag_id)
 
-    if not ours:
+    try:
+        temporal = await async_connect()
+    except Exception as e:
+        # The preemption marks above already landed; without a client we can neither cancel
+        # nor prove anything is abandoned, so leave the rest for the next run.
+        capture_exception(e)
+        await logger.aexception(f"Failed to connect to Temporal: {str(e)}")
         return
 
-    await logger.ainfo(
-        f"Preempting previous DAG run: found {len(ours)} running jobs",
-        dag_id=inputs.dag_id,
-    )
-    child_workflow_ids = {job.workflow_id for job in ours if job.workflow_id}
-    updated_count = await _mark_jobs_failed([str(job.id) for job in ours], PREEMPTED_ERROR)
-    await logger.ainfo(f"Marked {updated_count} jobs as preempted", dag_id=inputs.dag_id)
-    if child_workflow_ids:
+    if others:
+        abandoned = await _abandoned_jobs(temporal, others)
+        if abandoned:
+            reaped = await _mark_jobs_failed([str(job.id) for job in abandoned], ABANDONED_ERROR)
+            await logger.ainfo(f"Reaped {reaped} abandoned jobs", dag_id=inputs.dag_id)
+
+    for workflow_id in {job.workflow_id for job in ours if job.workflow_id}:
         try:
-            temporal = await async_connect()
-            for workflow_id in child_workflow_ids:
-                try:
-                    handle = temporal.get_workflow_handle(workflow_id)
-                    await handle.cancel()
-                    await logger.ainfo(f"Requested cancellation of materialize workflow {workflow_id}")
-                except Exception as e:
-                    # workflow may have already completed — that's fine
-                    await logger.awarning(f"Could not cancel materialize workflow {workflow_id}: {str(e)}")
+            await temporal.get_workflow_handle(workflow_id).cancel()
+            await logger.ainfo(f"Requested cancellation of materialize workflow {workflow_id}")
         except Exception as e:
-            capture_exception(e)
-            await logger.aexception(f"Failed to connect to Temporal for workflow cancellation: {str(e)}")
+            # workflow may have already completed — that's fine
+            await logger.awarning(f"Could not cancel materialize workflow {workflow_id}: {str(e)}")
