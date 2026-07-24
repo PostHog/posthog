@@ -6,6 +6,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class PostgresDatabaseStatsConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -14,4 +19,5 @@ class PostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     schema: str | None = None
+    database_stats: PostgresDatabaseStatsConfig | None = None
     ssh_tunnel: SSHTunnelConfig | None = None

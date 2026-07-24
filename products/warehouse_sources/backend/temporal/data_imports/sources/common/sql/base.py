@@ -22,6 +22,7 @@ to `impl.build_pipeline`. Subclasses usually only define:
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Generic
 
 import structlog
@@ -32,6 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    DatabaseStatsCatalog,
+    build_database_stats_schemas,
+    database_stats_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -61,6 +67,11 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     supports_column_selection: bool = True
     supports_row_filters: bool = True
+
+    # Statistics catalogs this source can snapshot, keyed by the engine's own table name.
+    # Empty means the source doesn't offer the "Sync database statistics" toggle, which
+    # keeps every guard below inert.
+    database_stats_catalogs: Mapping[str, DatabaseStatsCatalog] = {}
 
     @property
     @abstractmethod
@@ -119,10 +130,17 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
+        stats_columns: dict[str, list[tuple[str, str, bool]]] = {}
         with impl.connect(config) as conn:
+            if self.database_stats_catalogs and database_stats_enabled(config):
+                stats_columns = self.fetch_database_stats_columns(conn, config)
+
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
-                return []
+                # Statistics tables aren't discovered tables — a database with no
+                # (matching) user tables, or a names filter listing only statistics
+                # tables, must still surface them when the source opted in.
+                return self._database_stats_schemas(config, [], names, stats_columns)
             tables = list(columns_by_table.keys())
             primary_keys = impl.get_primary_keys(conn, config, tables)
             row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}
@@ -155,10 +173,50 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     detected_primary_keys=detected_pks,
                 )
             )
-        return schemas
+        return [*schemas, *self._database_stats_schemas(config, schemas, names, stats_columns)]
+
+    def _database_stats_schemas(
+        self,
+        config: ConfigType,
+        discovered: list[SourceSchema],
+        names: list[str] | None,
+        stats_columns: dict[str, list[tuple[str, str, bool]]],
+    ) -> list[SourceSchema]:
+        if not self.database_stats_catalogs or not database_stats_enabled(config):
+            return []
+        return build_database_stats_schemas(
+            self.database_stats_catalogs, stats_columns, [s.name for s in discovered], names
+        )
+
+    def fetch_database_stats_columns(self, conn: Any, config: ConfigType) -> dict[str, list[tuple[str, str, bool]]]:
+        """Column metadata for this source's statistics catalogs, as the server reports it.
+
+        Sources that expose `database_stats_catalogs` override this; the default keeps
+        every other source untouched.
+        """
+        return {}
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        # Toggle and name are cheap pre-filters; the schema row's metadata then settles
+        # the collision case — a user's own table under a `system_tables` schema keeps
+        # syncing as a table (see is_database_stats_schema_row).
+        # A statistics table is one this source declared and the user opted into. Nothing
+        # else to check: discovery refuses to inject a name a real table already uses, so
+        # the two can't both exist.
+        if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
+            return self.database_stats_source(config, inputs)
         return self.get_implementation.build_pipeline(config, inputs)
+
+    def database_stats_source(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        """Build the SourceResponse for one injected database-statistics schema.
+
+        Only reachable on sources that expose the ``database_stats`` toggle in their
+        config; such sources must override this with their engine's collectors (see
+        the Postgres source).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} offers the database_stats toggle but implements no stats collectors"
+        )
 
     def reconcile_schema_metadata(
         self,

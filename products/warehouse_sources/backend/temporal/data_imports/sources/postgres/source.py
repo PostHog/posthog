@@ -18,6 +18,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -29,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
+    database_stats_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
@@ -36,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
+    SQLSource,
+    reconcile_source_schema_metadata,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -61,6 +68,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
     postgres_source,
     source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.stats import (
+    POSTGRES_STATS_CATALOGS,
+    fetch_postgres_stats_columns,
+    postgres_database_stats_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -212,6 +224,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
 
+    database_stats_catalogs = POSTGRES_STATS_CATALOGS
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
@@ -297,6 +311,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         required=False,
                         placeholder="public",
                         secret=False,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="database_stats",
+                        label="Sync database statistics",
+                        caption=(
+                            "Adds database_stats_* schemas that snapshot Postgres' own statistics catalogs "
+                            "(query, table, index, and server stats) on every sync, so you can query your "
+                            "database's health from the warehouse. Needs only read access — stats families "
+                            "your user can't read are skipped."
+                        ),
+                        default=False,
+                        fields=cast(list[FieldType], []),
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -708,8 +734,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         source_schemas: list[SourceSchema],
         team_id: int,
     ) -> list[str]:
-        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
-        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables.
+
+        Statistics tables are held back from that path: it resolves every row to a real
+        `(catalog, schema, table)` in the customer's database, which a synthetic table
+        doesn't have — left to it, the next sync would read a relation that doesn't exist.
+        They go through the generic hook instead, which records the column list for the
+        picker without inventing a source location.
+        """
+        stats_schemas = [schema for schema in source_schemas if schema.name in self.database_stats_catalogs]
+        table_schemas = [schema for schema in source_schemas if schema.name not in self.database_stats_catalogs]
+
+        deleted = reconcile_postgres_schemas(source=source, source_schemas=table_schemas, team_id=team_id)
+        if stats_schemas:
+            reconcile_source_schema_metadata(source, stats_schemas, team_id)
+        return deleted
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
@@ -754,6 +793,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
+        stats_columns: dict[str, list[tuple[str, str, bool]]] = {}
 
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
@@ -890,6 +930,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     # xmin availability (heap tables + matviews, PG13+). Postgres-only: the generic
                     # `supports_xmin` default stays False for every other source.
                     xmin_capable_tables = _xmin_capable_tables_from_conn(conn, config.schema, names)
+
+                    # Statistics catalogs declare the columns this server actually has, so
+                    # the synthetic tables match its Postgres version. Best-effort like the
+                    # metadata above: a failure here only leaves the statistics tables out.
+                    if database_stats_enabled(config):
+                        try:
+                            stats_columns = fetch_postgres_stats_columns(conn)
+                        except Exception as e:
+                            structlog.get_logger().warning(
+                                "Failed to read database statistics catalog columns", exc_info=e
+                            )
             except Exception as e:
                 # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
                 # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
@@ -962,7 +1013,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 )
             )
 
-        return schemas
+        # No catalog columns means the metadata connection above failed, so offer no
+        # statistics tables at all this round rather than the handful that don't need a
+        # server lookup — the next discovery pass surfaces the full set.
+        stats_schemas = self._database_stats_schemas(config, schemas, names, stats_columns) if stats_columns else []
+        return [*schemas, *stats_schemas]
 
     def validate_credentials(
         self,
@@ -1080,6 +1135,37 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             finally:
                 conn.close()
 
+    def database_stats_source(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+            PostHogDatabaseConnectionError,
+        )
+
+        # The row is only needed for the SSL policy and the storage folder name; the
+        # collectors read Postgres' statistics catalogs, never a user table. Re-wrap a
+        # transient failure reaching our own database for the same reason
+        # source_for_pipeline does: its wording must not collide with the customer-host
+        # non-retryable rules, or a healthy stats sync gets permanently stopped.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
+        response = postgres_database_stats_source(
+            tunnel=self.make_ssh_tunnel_func(config, inputs.team_id),
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            schema_name=inputs.schema_name,
+            require_ssl=source_requires_ssl(schema.source, config),
+            logger=inputs.logger,
+            # Stats follow the source's import scope: a source restricted to one schema
+            # gets table and index stats for that schema only.
+            source_schema=config.schema,
+        )
+        storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
+        return response
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -1115,6 +1201,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
+
+        # Same gate as the SQLSource base, which this override replaces wholesale.
+        if database_stats_enabled(config) and inputs.schema_name in self.database_stats_catalogs:
+            return self.database_stats_source(config, inputs)
 
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
