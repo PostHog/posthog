@@ -12,7 +12,6 @@ import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreS
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -996,14 +995,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Exclude test accounts from revenue calculations and reports.',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
-            },
-            {
-                // FIXME: should not be in settings
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                description: 'Set revenue targets to track performance against your business objectives.',
-                component: <GoalsConfiguration />,
-                keywords: ['target', 'mrr', 'arr', 'goal'],
             },
             {
                 // FIXME: should not be in settings
