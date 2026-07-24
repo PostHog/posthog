@@ -1541,6 +1541,24 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
+def reset_unusable_db_connections() -> None:
+    """Close any DB connection whose underlying handle is dead or left in an errored state
+    by an earlier test, so Django transparently reconnects on next use.
+
+    A prior test in the same pytest process can sever the shared connection without Django
+    noticing — notably transaction=True suites whose code under test calls
+    close_old_connections() on the main thread (e.g. the warehouse duckgres backfill). The
+    next test to touch the stale wrapper then fails with "the connection is closed", and
+    in-process reruns reuse the same dead wrapper, so they never recover on their own.
+
+    Checking errors_occurred first is cheap and catches a connection left broken without a
+    round-trip; is_usable() confirms liveness for the rest.
+    """
+    for conn in connections.all():
+        if conn.connection is not None and (conn.errors_occurred or not conn.is_usable()):
+            conn.close()
+
+
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
@@ -1556,18 +1574,17 @@ class BaseTestMigrations(QueryMatchingTest):
 
     @classmethod
     def setUpClass(cls) -> None:
-        # An earlier test in the same process can leave a connection's underlying psycopg
-        # connection closed (e.g. dropped server-side) without Django noticing. Every
-        # migration test in the class then fails with "the connection is closed", and
-        # in-process reruns reuse the same dead wrapper, so they can never recover.
-        # Reset unusable connections before the class transaction machinery starts.
-        for conn in connections.all():
-            if conn.connection is not None and not conn.is_usable():
-                conn.close()
+        # Reset dead/errored connections before the class setup machinery starts, so a
+        # connection an earlier test left broken doesn't carry into this class.
+        reset_unusable_db_connections()
         # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
         super().setUpClass()  # type: ignore[misc]
 
     def setUp(self):
+        # In-process reruns (pytest --reruns) re-enter setUp without setUpClass, and a
+        # connection can also drop after class setup, so reset again here — otherwise the
+        # dead wrapper is reused and the test can never recover.
+        reset_unusable_db_connections()
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )

@@ -196,9 +196,13 @@ class TestPostGithubReview:
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock
     ) -> None:
-        # Post-then-crash idempotency: a review already carrying this run's marker means we posted but
-        # didn't record the watermark, so the retry must post neither a second review nor the promo.
-        _wire_readbacks(mock_paginated, reviews=[{"body": "an earlier review\n\nmarker-xyz"}])
+        # Post-then-crash idempotency: an app-bot review already carrying this run's marker means we
+        # posted but didn't record the watermark, so the retry must post neither a second review nor
+        # the promo. (Only bot reviews count — a pasted marker in a human review must not match.)
+        _wire_readbacks(
+            mock_paginated,
+            reviews=[{"body": "an earlier review\n\nmarker-xyz", "user": {"login": "posthog[bot]", "type": "Bot"}}],
+        )
 
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="marker-xyz", promo_marker="pm"

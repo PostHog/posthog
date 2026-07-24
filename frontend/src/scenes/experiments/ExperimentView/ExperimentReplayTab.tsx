@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -20,13 +21,13 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { Experiment } from '~/types'
 
 import { isLaunched } from '../experimentStatus'
-import { EXPOSURE_UNLINKABLE_REASON, METRIC_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
-import { experimentReplayTabLogic } from './experimentReplayTabLogic'
+import { EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { ExperimentReplayMetricOption, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
-// LemonSegmentedButton values must be strings; the logic stores null for "All". Variant keys are
-// restricted to [a-zA-Z0-9_-], so the '$' prefix guarantees no collision with a real variant — a
-// variant literally named "all" just renders as its own option after the built-in "All".
+// LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
+// allowed character in variant keys, so the '$' prefix guarantees no collision with a real
+// variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
@@ -49,11 +50,20 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         return <LemonBanner type="warning">{EXPOSURE_UNLINKABLE_REASON}</LemonBanner>
     }
 
-    // Selectable metrics render as checkboxes. Unlinkable ones move to a labelled section that
-    // explains once, via a section tooltip, why they can't be matched — instead of repeating the
-    // same reason on every row.
+    // Selectable metrics render as checkboxes. Unlinkable ones move to labelled sections that
+    // explain once, via a section tooltip, why they can't be matched — instead of repeating the
+    // same reason on every row. One section per distinct reason, since metrics can be unmatchable
+    // for different reasons (server-side events, a retention window, data-warehouse-only sources).
     const linkableMetricOptions = metricOptions.filter((option) => !option.unlinkable)
-    const unlinkableMetricOptions = metricOptions.filter((option) => option.unlinkable)
+    const unlinkableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
+    for (const option of metricOptions) {
+        if (option.unlinkable && option.unlinkableReason) {
+            unlinkableOptionsByReason.set(option.unlinkableReason, [
+                ...(unlinkableOptionsByReason.get(option.unlinkableReason) ?? []),
+                option,
+            ])
+        }
+    }
 
     return (
         <div data-attr="experiment-recordings-tab">
@@ -96,21 +106,23 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     {option.name}
                                 </DropdownMenuCheckboxItem>
                             ))}
-                            {unlinkableMetricOptions.length > 0 && (
-                                <>
-                                    {linkableMetricOptions.length > 0 && <DropdownMenuSeparator />}
+                            {[...unlinkableOptionsByReason.entries()].map(([reason, options], index) => (
+                                // Fragment, not a wrapper element: the separator, label, and items
+                                // must stay direct children of the menu for keyboard nav and ARIA.
+                                <Fragment key={reason}>
+                                    {(linkableMetricOptions.length > 0 || index > 0) && <DropdownMenuSeparator />}
                                     {/* Quill's DropdownMenuLabel renders a Base UI GroupLabel, which must
                                         live inside a DropdownMenuGroup or it throws at render. */}
                                     <DropdownMenuGroup>
                                         <DropdownMenuLabel inset className="flex items-center gap-1">
                                             Can't match to recordings
-                                            <Tooltip title={METRIC_UNLINKABLE_REASON}>
+                                            <Tooltip title={reason}>
                                                 <IconInfo className="size-3 shrink-0" />
                                             </Tooltip>
                                         </DropdownMenuLabel>
-                                        {unlinkableMetricOptions.map((option) => (
+                                        {options.map((option) => (
                                             // Informational only — not selectable. The section label above
-                                            // carries the single shared explanation.
+                                            // carries the explanation shared by this section's metrics.
                                             <DropdownMenuItem
                                                 key={option.uuid}
                                                 inset
@@ -121,8 +133,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                             </DropdownMenuItem>
                                         ))}
                                     </DropdownMenuGroup>
-                                </>
-                            )}
+                                </Fragment>
+                            ))}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}

@@ -9,9 +9,8 @@ from products.engineering_analytics.backend.logic.queries.team_ci_health import 
 )
 from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
 from products.engineering_analytics.backend.logic.suite_health import (
-    _DEFAULT_FLAKY_MIN_FAILED_PRS,
-    _DEFAULT_FLAKY_MIN_RERUN_PASSES,
-    _MAX_FLAKY_WINDOW_DAYS,
+    DEFAULT_FLAKY_MIN_FAILED_PRS,
+    MAX_FLAKY_WINDOW_DAYS,
 )
 
 # Team CI health rollups scan the current window plus an equal-length prior twin, so the
@@ -29,19 +28,17 @@ def build_team_ci_health(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
 ) -> TeamCIHealthList:
     parsed_from, parsed_to = _parse_window(
-        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
     )
-    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
-    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
-    # Same explicit-positive-bar rule as the flaky leaderboard: a zero threshold would
-    # silently qualify every test with any signal span.
-    if min_rerun_passes < 1 or min_failed_prs < 1:
-        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else DEFAULT_FLAKY_MIN_FAILED_PRS
+    # Same explicit-positive-bar rule as the test-health queue: a zero threshold would
+    # silently qualify every test with any failure.
+    if min_failed_prs < 1:
+        raise ValueError("min_failed_prs must be at least 1")
     limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
     if not 1 <= limit <= _MAX_TEAM_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
@@ -49,7 +46,6 @@ def build_team_ci_health(
         curated=curated,
         date_from=parsed_from,
         date_to=parsed_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
@@ -67,7 +63,7 @@ def build_team_ci_activity(
     if not normalized_team:
         raise ValueError("owner_team is required")
     parsed_from, parsed_to = _parse_window(
-        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
     )
     test_limit = test_limit if test_limit is not None else _DEFAULT_TEAM_TEST_LIMIT
     if not 1 <= test_limit <= _MAX_TEAM_TEST_LIMIT:
@@ -92,7 +88,7 @@ def build_team_merge_trend(
     if not normalized_team:
         raise ValueError("owner_team is required")
     parsed_from, parsed_to = _parse_window(
-        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+        curated.team, date_from, date_to, default=_DEFAULT_TEAM_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
     )
     return query_team_merge_trend(
         curated=curated,

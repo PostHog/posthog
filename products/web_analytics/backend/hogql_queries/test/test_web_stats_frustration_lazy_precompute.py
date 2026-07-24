@@ -10,7 +10,6 @@ from parameterized import parameterized
 from posthog.schema import (
     CompareFilter,
     DateRange,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
@@ -197,7 +196,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_rejected_for_non_event_property_filter(self):
-        # SessionPropertyFilter is not in the gate's allowlist (only EventPropertyFilter on $host).
+        # Precompute only serves event/person filters; session/cohort fall through to live.
         with self._enable_lazy():
             assert (
                 can_use_lazy_precompute(
@@ -207,21 +206,6 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                                 SessionPropertyFilter(
                                     key="$entry_pathname", operator=PropertyOperator.EXACT, value="/x"
                                 )
-                            ]
-                        )
-                    )
-                )
-                is False
-            )
-
-    def test_rejected_for_unsupported_filter_key(self):
-        with self._enable_lazy():
-            assert (
-                can_use_lazy_precompute(
-                    self._runner(
-                        self._build_query(
-                            properties=[
-                                EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
                             ]
                         )
                     )
@@ -326,7 +310,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
             ),
             patch(
-                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.delay"
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
             ) as delay,
         ):
             reset_query_tags()
@@ -334,4 +318,4 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             execute_lazy_precomputed_read(runner, limit=10, offset=0)
 
         assert delay.call_count == 1
-        assert delay.call_args.kwargs["team_id"] == self.team.pk
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

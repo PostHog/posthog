@@ -9,9 +9,11 @@ from .custom_property_definition import (
     TargetType,
 )
 from .custom_property_source import CustomPropertySource
+from .custom_property_sync_run import CustomPropertySyncRun, SyncStatus, SyncTrigger
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
+from .event_stream import EventStream, EventStreamMember
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
@@ -24,12 +26,17 @@ __all__ = [
     "AnnouncementDelivery",
     "CustomPropertyDefinition",
     "CustomPropertySource",
+    "CustomPropertySyncRun",
     "CustomPropertyValue",
     "CustomerJourney",
     "CustomerProfileConfig",
     "DataType",
     "DisplayType",
+    "EventStream",
+    "EventStreamMember",
     "RelationshipDefinition",
+    "SyncStatus",
+    "SyncTrigger",
     "TargetType",
     "TeamCustomerAnalyticsConfig",
 ]

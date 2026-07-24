@@ -11,7 +11,16 @@ from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
-from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
+)
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
+    _run_row,
+    connect_github_source_without_data,
+)
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _PR_LIST,
     _RUN_QUERY,
@@ -23,13 +32,6 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _pr_list_run,
     _resp,
     _WarehouseMixin,
-)
-from products.engineering_analytics.backend.tests.test_views import (
-    _PULL_REQUESTS_COLUMNS,
-    _WORKFLOW_RUNS_COLUMNS,
-    _pr_row,
-    _run_row,
-    connect_github_source_without_data,
 )
 
 
@@ -267,12 +269,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9400, "CI", "sha70", "completed", "success", _ago(1), _ago(1), pr_number=70)],
         )
         self._create_table(
@@ -289,12 +291,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # silently truncate to the first 100 (the truncation that made PR detail cost disagree with the list).
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(71, "alice", "open", 0, _ago(1), head_sha="sha71")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9700, "CI", "sha71", "completed", "success", _ago(1), _ago(1), pr_number=71)],
         )
         job_count = 150
@@ -320,12 +322,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(72, "alice", "open", 0, _ago(1), head_sha="sha72")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9800, "CI", "sha72", "completed", "success", _ago(1), _ago(1), pr_number=72)],
         )
         self._create_table(
@@ -347,7 +349,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The author filter scopes the list to one author's PRs (drives the author page).
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(81, "alice", "open", 0, _ago(1), head_sha="sha81"),
                 _pr_row(82, "bob", "open", 0, _ago(1), head_sha="sha82"),
@@ -355,7 +357,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
         )
         assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
@@ -366,7 +368,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # and PRs on other branches are excluded.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(62, "bob", "closed", 0, _ago(6), merged_at=_ago(1), head_sha="sha62", head_ref="feat/login"),
                 _pr_row(61, "alice", "open", 0, _ago(2), head_sha="sha61", head_ref="feat/login"),
@@ -375,7 +377,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         # Source resolution requires the workflow_runs schema synced too (SPEC: both endpoints
         # required together), even though the branch path only reads the PR snapshot.
-        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [])
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
         matches = api.resolve_branch(team=self.team, branch="feat/login")
         assert [m.number for m in matches] == [61, 62]  # only feat/login PRs, open first
         # A branch matching no PR resolves to nothing (empty list, not an error).
@@ -385,7 +387,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # Same head ref reused across PRs over time: an old one merged months ago and a newer open one.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(
                     70, "bob", "closed", 0, _ago(120), merged_at=_ago(110), head_sha="sha70", head_ref="feat/reuse"
@@ -393,7 +395,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _pr_row(71, "alice", "open", 0, _ago(2), head_sha="sha71", head_ref="feat/reuse"),
             ],
         )
-        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [])
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
         # No timestamp: open PR wins on the open-first/recency fallback.
         assert [m.number for m in api.resolve_branch(team=self.team, branch="feat/reuse")] == [71, 70]
         # A timestamp inside the old PR's lifetime window ranks it first, even though the newer PR is open.
@@ -405,12 +407,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="shaA")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
                 _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
@@ -426,12 +428,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # runners; absent jobs source → graceful empty with jobs_available False.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(9100, "CI", "sha60a", "completed", "success", _ago(2), _ago(2), pr_number=60),
                 _run_row(9101, "CI", "sha60b", "completed", "failure", _ago(1), _ago(1), pr_number=60),
@@ -477,7 +479,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", full_name="PostHog/posthog"),
                 _pr_row(10, "bob", "open", 0, _ago(1), head_sha="shaB10", full_name="PostHog/posthog.com"),
@@ -485,7 +487,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(3001, "CI", "sha10", "completed", "success", _ago(1), _ago(1), pr_number=10),
                 _run_row(
@@ -565,7 +567,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         # must exist for the source to resolve even though LLM spend never reads it (mixin gotcha).
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(
                     number,
@@ -582,7 +584,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(number * 100, "CI", f"sha{number}", "completed", "success", _ago(4), _ago(4), pr_number=number)],
         )
 
@@ -633,12 +635,12 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         # Open PR whose branch no event carries — spend stays null so the UI hides the row.
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [_pr_row(81, "alice", "open", 0, _ago(2), head_sha="sha81", head_ref="feat/empty")],
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
         )
         cost = api.get_pr_cost(team=self.team, pr_number=81, repo="PostHog/posthog")
@@ -732,7 +734,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         created = _ago(5)
         self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(3), head_sha="sha90a", head_ref="feat/stale"),
                 _pr_row(90, "alice", "closed", 0, created, merged_at=_ago(1), head_sha="sha90b", head_ref="feat/fresh"),
@@ -740,7 +742,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         )
         self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [_run_row(9000, "CI", "sha90b", "completed", "success", _ago(4), _ago(4), pr_number=90)],
         )
         self._generation(branch="feat/fresh", days_ago=4, cost=3.0, input_tokens=30, output_tokens=10)

@@ -166,7 +166,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 ## User-facing copy
 
-For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). Invoke `/writing-user-facing-copy` before writing or editing it — that skill carries the full voice, em-dash, and feature-naming rules. When unsure whether copy reads well, ask a human.
 
 - Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
 - Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
@@ -196,6 +196,8 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
+- `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
+- `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 
 **Invoke when in the area:**
 

@@ -35,6 +35,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
         ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
@@ -43,13 +49,13 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
     default_experiment_stats_method: zod
         .union([
-            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
         ),
     default_anonymize_ips: zod
         .boolean()
@@ -65,7 +71,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -85,7 +91,7 @@ export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
     user__uuid: zod.string(),
 })
@@ -98,7 +104,7 @@ export const RolesListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -116,7 +122,7 @@ export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
@@ -128,7 +134,7 @@ export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
     role_id: zod.string(),
 })
@@ -142,7 +148,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -161,7 +167,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryActivitiesDefault)
-        .describe('Filter by activity types (e.g. "created", "updated", "deleted").'),
+        .describe('Filter by activity types (e.g. \"created\", \"updated\", \"deleted\").'),
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
@@ -181,7 +187,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .default(advancedActivityLogsListQueryIpAddressesDefault)
         .describe(
-            'Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.'
+            'Filter by client IP addresses. Accepts exact IPv4\/IPv6 values or wildcard patterns using `\*` (e.g. `203.0.113.\*`). Multiple entries are OR-combined.'
         ),
     is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
     item_ids: zod
@@ -204,7 +210,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     scopes: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryScopesDefault)
-        .describe('Filter by activity scopes (e.g. "FeatureFlag", "Insight").'),
+        .describe('Filter by activity scopes (e.g. \"FeatureFlag\", \"Insight\").'),
     search_text: zod.string().optional().describe('Free-text search across the `detail` JSON column.'),
     start_date: zod.iso
         .datetime({ offset: true })
@@ -230,7 +236,7 @@ export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -238,7 +244,7 @@ export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -252,7 +258,7 @@ export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -260,7 +266,7 @@ export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -279,7 +285,7 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -292,7 +298,7 @@ export const ChangeRequestsApproveCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -308,7 +314,7 @@ export const ChangeRequestsRejectCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -324,7 +330,7 @@ export const CommentsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -333,7 +339,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['any', 'open', 'completed'])
         .optional()
         .describe(
-            "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n* `any` - any\n* `open` - open\n* `completed` - completed"
+            "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `open` - open\n\* `completed` - completed"
         ),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
@@ -341,7 +347,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['any', 'comment', 'task'])
         .optional()
         .describe(
-            "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n* `any` - any\n* `comment` - comment\n* `task` - task"
+            "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `comment` - comment\n\* `task` - task"
         ),
     scope: zod
         .string()
@@ -357,7 +363,7 @@ export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -366,7 +372,7 @@ export const CommentsThreadRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -374,7 +380,7 @@ export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -404,7 +410,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -438,7 +444,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -473,7 +479,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -507,7 +513,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -530,6 +536,6 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `\/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
         ),
 })

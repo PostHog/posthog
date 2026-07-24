@@ -44,6 +44,8 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
+    CustomPropertySyncRunView,
+    EventStreamView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -306,9 +308,77 @@ class CustomPropertyReferenceSerializer(DataclassSerializer):
         fields = ["id", "name", "status", "type"]
 
 
+class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the person/group-property sync/backfill trigger actions."""
+
+    status = serializers.ChoiceField(
+        choices=[("triggered", "triggered"), ("started", "started"), ("already_running", "already_running")],
+        help_text=(
+            "'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or "
+            "'already_running' (a backfill for this table was already in flight, so this was a no-op)."
+        ),
+    )
+    already_running = serializers.BooleanField(
+        required=False,
+        help_text="Backfill only: true when a backfill for this table was already running and this call coalesced.",
+    )
+
+
+class CustomPropertySyncRunSerializer(DataclassSerializer):
+    """One person- or group-property sync or backfill run. Read-only: runs are created by the
+    sync/backfill pipeline, never through the API."""
+
+    id = serializers.UUIDField(read_only=True)
+    trigger = serializers.CharField(
+        read_only=True,
+        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+    )
+    status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
+    finished_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the run ended, or null while running."
+    )
+    rows_read = serializers.IntegerField(read_only=True, help_text="Warehouse rows scanned this run.")
+    changed = serializers.IntegerField(read_only=True, help_text="Rows whose mapped values changed since the last run.")
+    existing = serializers.IntegerField(
+        read_only=True,
+        help_text="Person or group profiles updated (changed rows that matched an existing person/group).",
+    )
+    produced = serializers.IntegerField(
+        read_only=True, help_text="Property-update intents produced to the ingestion pipeline."
+    )
+    skipped_missing_person = serializers.IntegerField(
+        read_only=True,
+        help_text="Changed rows dropped because no existing person/group matched the key column value.",
+    )
+    error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary if the run failed, else null."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the run row was recorded.")
+
+    class Meta:
+        dataclass = CustomPropertySyncRunView
+        ref_name = "CustomPropertySyncRun"
+        fields = [
+            "id",
+            "trigger",
+            "status",
+            "started_at",
+            "finished_at",
+            "rows_read",
+            "changed",
+            "existing",
+            "produced",
+            "skipped_missing_person",
+            "error",
+            "created_at",
+        ]
+
+
 class CustomPropertySourceSerializer(DataclassSerializer):
-    """Binds a materialized data-warehouse view column to a custom property definition; the view's
-    values are synced onto matching accounts on each materialization."""
+    """Binds a data-warehouse source to a custom property definition. Account sources read a
+    materialized view column and sync onto matching accounts; person and group sources read a
+    warehouse schema and sync onto matching persons or groups on each warehouse sync."""
 
     id = serializers.UUIDField(read_only=True)
     definition = serializers.UUIDField(
@@ -326,8 +396,8 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Person sources only: UUID of the warehouse schema (raw incremental table) to read from. "
-            "Mutually exclusive with saved_query."
+            "Person and group sources only: UUID of the warehouse schema (raw incremental table) to "
+            "read from. Mutually exclusive with saved_query."
         ),
     )
     source_column = serializers.CharField(
@@ -340,15 +410,24 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Person sources only: {warehouse_column: person_property_name} mapping the columns this "
-            "source writes onto the person."
+            "Person and group sources only: {warehouse_column: property_name} mapping the columns this "
+            "source writes onto the person or group."
+        ),
+    )
+    column_descriptions = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person sources only: {warehouse_column: description} giving each mapped column a "
+            "human-facing description, seeded from the warehouse column's information_schema "
+            "description. Optional per column. Create-only."
         ),
     )
     key_column = serializers.CharField(
         max_length=400,
         help_text=(
             "Column whose value identifies the target: an account's external_id for account sources, "
-            "or the person's distinct_id for person sources."
+            "the person's distinct_id for person sources, or the group key for group sources."
         ),
     )
     is_enabled = serializers.BooleanField(
@@ -371,6 +450,28 @@ class CustomPropertySourceSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    sync_frequency_interval_seconds = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: how often the underlying warehouse schema syncs, in "
+            "seconds. Null for account sources or when unavailable."
+        ),
+    )
+    next_sync_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: approximate time of the next scheduled sync (last synced + "
+            "interval). Approximate — drifts if the schedule was paused. Null for account sources or if "
+            "never synced."
+        ),
+    )
+    latest_run = CustomPropertySyncRunSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Person and group sources only: the most recent sync/backfill run, or null if none yet.",
+    )
 
     class Meta:
         dataclass = CustomPropertySourceView
@@ -382,6 +483,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "external_data_schema",
             "source_column",
             "column_property_map",
+            "column_descriptions",
             "key_column",
             "is_enabled",
             "consecutive_failures",
@@ -390,6 +492,9 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "sync_frequency_interval_seconds",
+            "next_sync_at",
+            "latest_run",
         ]
 
 
@@ -445,13 +550,23 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         ),
     )
     target_type = serializers.ChoiceField(
-        choices=[("account", "account"), ("person", "person")],
+        choices=[("account", "account"), ("person", "person"), ("group", "group")],
         required=False,
         default="account",
         help_text=(
-            "What entity this property is attached to: 'account' (default) or 'person'. Person "
-            "properties are populated from a warehouse schema and become usable like any other "
-            "person property (feature flags, cohorts, insights)."
+            "What entity this property is attached to: 'account' (default), 'person', or 'group'. "
+            "Person and group properties are populated from a warehouse schema and become usable like "
+            "any other person/group property (feature flags, cohorts, insights)."
+        ),
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=4,
+        help_text=(
+            "For 'group' targets only: which group type (0-4) the property attaches to. Required when "
+            "target_type is 'group'; must be omitted otherwise. Create-only."
         ),
     )
     is_big_number = serializers.BooleanField(
@@ -482,6 +597,20 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         help_text="Workflows that use this property, resolved by definition id.",
     )
 
+    def validate(self, attrs):
+        # target_type and group_type_index are create-only, so only enforce the group rule on create.
+        # (On a partial update DataclassSerializer fills unset fields with a sentinel, not None.)
+        if self.partial:
+            return attrs
+        # DataclassSerializer hands us the constructed dataclass (not a dict).
+        is_group = getattr(attrs, "target_type", None) == "group"
+        has_index = getattr(attrs, "group_type_index", None) is not None
+        if is_group and not has_index:
+            raise serializers.ValidationError({"group_type_index": "Required when target_type is 'group'."})
+        if not is_group and has_index:
+            raise serializers.ValidationError({"group_type_index": "Only valid when target_type is 'group'."})
+        return attrs
+
     class Meta:
         dataclass = CustomPropertyDefinitionView
         ref_name = "CustomPropertyDefinition"
@@ -491,6 +620,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "description",
             "display_type",
             "target_type",
+            "group_type_index",
             "is_big_number",
             "options",
             "source",
@@ -643,4 +773,85 @@ class AccountRelationshipWriteSerializer(serializers.Serializer):
     definition = serializers.UUIDField(help_text="Id of the relationship definition to assign.")
     user = serializers.IntegerField(
         help_text="PostHog user id of the assignee. Must be a member of the account's organization."
+    )
+
+
+class EventStreamSerializer(DataclassSerializer):
+    """The caller's event stream — a live feed of selected accounts' events posted to a
+    Slack channel of their choice. One stream per user per project."""
+
+    id = serializers.UUIDField(read_only=True)
+    enabled = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether the stream delivers to Slack. Delivery also requires at least one event, "
+            "at least one member account with an external ID, and a Slack workspace + channel."
+        ),
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        default=list,
+        help_text="Names of the events to stream (matched exactly). Duplicates and blanks are dropped.",
+    )
+    slack_integration = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the team's Slack workspace integration to deliver through.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Slack channel ID to post to (e.g. C0123ABC).",
+    )
+    slack_channel_name = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Display name of the Slack channel (e.g. #customer-events). Informational only.",
+    )
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text=(
+            "UUIDs of the member accounts whose users' events are streamed. "
+            "Managed via the add_account/remove_account endpoints."
+        ),
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = EventStreamView
+        ref_name = "EventStream"
+        fields = [
+            "id",
+            "enabled",
+            "event_names",
+            "slack_integration",
+            "slack_channel_id",
+            "slack_channel_name",
+            "account_ids",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class EventStreamMemberWriteSerializer(serializers.Serializer):
+    """Request body for adding or removing an event-stream member account."""
+
+    account_id = serializers.UUIDField(help_text="UUID of the account to add to or remove from the stream.")
+
+
+class EventStreamTestMessageSerializer(serializers.Serializer):
+    """Result of posting an event-stream test message to Slack."""
+
+    channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel ID the test message was posted to (e.g. C0123ABC)."
     )

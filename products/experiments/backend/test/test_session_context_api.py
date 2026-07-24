@@ -5,7 +5,12 @@ from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table, TableNode
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team, User
@@ -27,8 +32,22 @@ RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
 
 
+def _hogql_table_tree(node: TableNode) -> dict[str, Any]:
+    table = node.table
+    return {
+        "fields": sorted(table.fields) if isinstance(table, Table) else None,
+        "children": {name: _hogql_table_tree(child) for name, child in node.children.items()},
+    }
+
+
 @freeze_time("2026-01-02T12:00:00Z")
 class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Every test shares SESSION_ID and the local-memory cache outlives a test; the context
+        # cache key includes the per-test team, but clear anyway so no test can see another's entry.
+        cache.clear()
+
     def _create_recording(self, session_id: str = SESSION_ID, team_id: Optional[int] = None) -> None:
         produce_replay_summary(
             team_id=team_id if team_id is not None else self.team.pk,
@@ -570,6 +589,102 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
 
+    def test_cached_context_is_not_shared_across_users(self) -> None:
+        self._enable_access_controls()
+        other_user = self._create_user("other-experimenter@posthog.com")
+        self._create_recording()
+        self._create_experiment()
+        private_experiment = self._create_experiment(
+            key="private-exp", name="Private experiment", created_by=other_user
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            properties={"$feature_flag": "private-exp", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        # Prime the cache as the private experiment's creator, who sees both experiments.
+        self.client.force_login(other_user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta", "private-exp"]
+
+        # The cached entry must not leak the private experiment to a viewer without access.
+        self.client.force_login(self.user)
+        response = self._get_session_context()
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
+    def test_repeat_request_is_served_from_cache(self) -> None:
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        first = self._get_session_context()
+        assert first.status_code == status.HTTP_200_OK
+
+        with patch("products.experiments.backend.session_context._compute_session_experiment_context") as compute:
+            second = self._get_session_context()
+        compute.assert_not_called()
+        assert second.json() == first.json()
+
+    def test_uncached_request_shares_one_readonly_hogql_database(self) -> None:
+        # Building the HogQL virtual database costs seconds on teams with a large warehouse
+        # schema, so the endpoint builds one and shares it across every scan (exposures,
+        # stamped properties, metric events) — concurrently, in production. Two regressions
+        # pinned: a scan quietly building its own database (reintroduces the multi-second
+        # latency), and a scan mutating the shared one (e.g. an information_schema-touching
+        # query registers hidden external tables on it — a silent data race across the
+        # production thread pool).
+        self._create_recording()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "33333333-3333-3333-3333-333333333333",
+            "name": "Purchases",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        self._create_experiment(metrics=[metric])
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        self._create_session_event(event="purchase", timestamp="2026-01-01T10:09:00Z")
+        flush_persons_and_events()
+
+        built: list[tuple[Database, dict[str, Any]]] = []
+        original_create_for = Database.create_for
+
+        def _capturing_create_for(*args: Any, **kwargs: Any) -> Database:
+            database = original_create_for(*args, **kwargs)
+            built.append((database, _hogql_table_tree(database.tables)))
+            return database
+
+        with patch.object(Database, "create_for", side_effect=_capturing_create_for) as create_for:
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["flag_key"] for result in results] == ["checkout-cta"]
+        assert results[0]["metrics_in_session"][0]["metric_uuid"] == metric["uuid"]
+        assert create_for.call_count == 1
+        database, tree_before_scans = built[0]
+        assert _hogql_table_tree(database.tables) == tree_before_scans
+
+    def test_recording_not_found_is_not_cached(self) -> None:
+        # A recording can 404 while still ingesting; that answer must not stick for the TTL.
+        assert self._get_session_context().status_code == status.HTTP_404_NOT_FOUND
+
+        self._create_recording()
+        self._create_experiment()
+        self._create_session_event(properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["flag_key"] for result in response.json()["results"]] == ["checkout-cta"]
+
     def test_403_without_session_recording_resource_access(self) -> None:
         self._enable_access_controls()
         AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
@@ -605,9 +720,9 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
 
     def test_metrics_in_session(self) -> None:
         self._create_recording()
-        # Two overlapping experiments with a metric each force a genuine multi-branch UNION ALL
-        # in the metric scan — a single branch collapses to a plain SelectQuery, so only this
-        # shape proves the union compiles end to end through the endpoint.
+        # Two overlapping experiments with a metric each force a multi-metric aggregate set in
+        # the metric scan, proving the combined single-pass query compiles end to end through
+        # the endpoint — and that a metric with no matching events stays inert.
         metric = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -639,6 +754,17 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
                 "event_count": 1,
                 "first_timestamp": "2026-01-01T10:09:00Z",
                 "timestamps": ["2026-01-01T10:09:00Z"],
+                "sources": [
+                    {
+                        "source_role": "source",
+                        "source_name": "purchase",
+                        "source_index": 0,
+                        "source_total": 1,
+                        "event_count": 1,
+                        "first_timestamp": "2026-01-01T10:09:00Z",
+                        "timestamps": ["2026-01-01T10:09:00Z"],
+                    }
+                ],
             }
         ]
         # No metric event fired for the other experiment — the additive fields stay inert and

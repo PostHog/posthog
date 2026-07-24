@@ -3050,3 +3050,67 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
         assert result.ready is False
         assert any("Timeout" in e for e in result.errors)
         assert 1 <= len(calls) < 7
+
+
+class TestCheckOnlyMode(BaseTest):
+    """`run_inserts=False`: a user-facing read is either served from covering READY
+    jobs or told `ready=False` immediately — it must never create jobs, run inserts,
+    or block on another executor's pending job (the inline-backfill self-DoS)."""
+
+    def _execute(self, start: datetime, end: datetime) -> LazyComputationResult:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+        def forbidden_insert(team, job):
+            raise AssertionError("check-only mode must never run inserts")
+
+        return LazyComputationExecutor(run_inserts=False).execute(
+            team=self.team,
+            query_info=query_info,
+            start=start,
+            end=end,
+            run_insert=forbidden_insert,
+        )
+
+    def _ready_job(self, start: datetime, end: datetime) -> PreaggregationJob:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(
+                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            ),
+            time_range_start=start,
+            time_range_end=end,
+            status=PreaggregationJob.Status.READY,
+            computed_at=django_timezone.now(),
+            expires_at=django_timezone.now() + timedelta(hours=6),
+        )
+
+    def test_served_when_ready_jobs_cover_range(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is True
+        assert result.job_ids == [job.id]
+
+    def test_miss_creates_no_jobs(self):
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
+
+    def test_partial_coverage_is_a_miss(self):
+        self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1  # untouched
+
+    def test_pending_job_is_a_miss_without_waiting(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        job.status = PreaggregationJob.Status.PENDING
+        job.computed_at = None
+        job.save()
+        started = time_mod.monotonic()
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"

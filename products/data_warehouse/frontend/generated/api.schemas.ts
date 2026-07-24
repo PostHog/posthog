@@ -1776,6 +1776,7 @@ export interface CredentialApi {
  * * `PrestaShop` - PrestaShop
  * * `Pretix` - Pretix
  * * `Primetric` - Primetric
+ * * `Printavo` - Printavo
  * * `Printify` - Printify
  * * `Productive` - Productive
  * * `Pylon` - Pylon
@@ -2586,6 +2587,9 @@ export interface CredentialApi {
  * * `Tally` - Tally
  * * `Nuntly` - Nuntly
  * * `Vturb` - Vturb
+ * * `Meltwater` - Meltwater
+ * * `UserCom` - UserCom
+ * * `Latitude` - Latitude
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3026,6 +3030,7 @@ export const ExternalDataSourceTypeEnumApi = {
     PrestaShop: 'PrestaShop',
     Pretix: 'Pretix',
     Primetric: 'Primetric',
+    Printavo: 'Printavo',
     Printify: 'Printify',
     Productive: 'Productive',
     Pylon: 'Pylon',
@@ -3836,6 +3841,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Tally: 'Tally',
     Nuntly: 'Nuntly',
     Vturb: 'Vturb',
+    Meltwater: 'Meltwater',
+    UserCom: 'UserCom',
+    Latitude: 'Latitude',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
