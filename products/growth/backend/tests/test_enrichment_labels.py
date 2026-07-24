@@ -334,7 +334,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         async def _drain(agen):
             return b"".join([chunk async for chunk in agen])
 
-        streamed = asyncio.run(_drain(results_page.streaming_content))
+        streamed = asyncio.run(_drain(results_page.streaming_content))  # type: ignore[attr-defined]
         assert b"Acme" in streamed
         assert b"true" in streamed
         assert EnrichmentLabelResult.objects.count() == 0
