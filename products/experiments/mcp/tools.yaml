@@ -618,7 +618,9 @@ tools:
             maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and
             free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed
             "duration" and "status"). Returns paginated results with each experiment's status, dates, feature flag key,
-            and metrics summary. Use the returned ID for get/update/lifecycle tools.
+            and variant split. Rows carry only a trimmed feature flag projection (id, key, name, active, variants). Use
+            experiment-get for the full flag configuration, including filter groups and targeting, then use the returned
+            ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -639,7 +641,11 @@ tools:
                 - name
                 - description
                 - feature_flag_key
-                - feature_flag
+                - feature_flag.id
+                - feature_flag.key
+                - feature_flag.name
+                - feature_flag.active
+                - feature_flag.filters.multivariate.variants
                 - start_date
                 - end_date
                 - archived
