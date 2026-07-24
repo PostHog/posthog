@@ -1,7 +1,8 @@
 import { buildIntegerMatcher } from '~/common/config/config'
+import { decideProcessPerson } from '~/common/utils/event'
 import type { GroupPrescanFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { PluginEvent } from '~/plugin-scaffold'
-import { InternalPerson, Team } from '~/types'
+import { EventHeaders, InternalPerson, Team } from '~/types'
 
 /** One planned merge: an anon distinct_id to fold into the group's target distinct_id. */
 export interface MergeFoldPair {
@@ -40,14 +41,22 @@ export interface MergeFoldOptions {
 export interface MergeFoldScanItem {
     event: PluginEvent
     team: Team
+    headers: EventHeaders
     mergeFoldPlan?: MergeFoldPlan
 }
 
 // Only $identify runs are folded. $create_alias/$merge_dangerously have
 // different isMergeAllowed semantics per pair, and observed merge storms are
 // walls of $identify events for one distinct_id.
-function getFoldableAnonDistinctId(event: PluginEvent): string | null {
+function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
+    const event = item.event
     if (event.event !== '$identify') {
+        return null
+    }
+    // A person-processing-disabled $identify never merges on the sequential
+    // path (property false drops it, the force-disable header makes it
+    // personless), so it must not contribute a pair to a fold either.
+    if (!decideProcessPerson(event, item.headers).processPerson) {
         return null
     }
     const anonDistinctId = event.properties?.['$anon_distinct_id']
@@ -84,12 +93,12 @@ export function createMergeFoldPrescan<T extends MergeFoldScanItem, C>(
 
         let runStart = 0
         while (runStart < items.length) {
-            if (getFoldableAnonDistinctId(items[runStart].value.event) === null) {
+            if (getFoldableAnonDistinctId(items[runStart].value) === null) {
                 runStart++
                 continue
             }
             let runEnd = runStart + 1
-            while (runEnd < items.length && getFoldableAnonDistinctId(items[runEnd].value.event) !== null) {
+            while (runEnd < items.length && getFoldableAnonDistinctId(items[runEnd].value) !== null) {
                 runEnd++
             }
             if (runEnd - runStart >= 2) {
@@ -105,7 +114,7 @@ function planRun<T extends MergeFoldScanItem>(run: { value: T }[]): void {
     const pairByAnonId = new Map<string, MergeFoldPair>()
 
     for (const item of run) {
-        const anonDistinctId = getFoldableAnonDistinctId(item.value.event)
+        const anonDistinctId = getFoldableAnonDistinctId(item.value)
         if (anonDistinctId === null || anonDistinctId === targetDistinctId || pairByAnonId.has(anonDistinctId)) {
             continue
         }
@@ -122,7 +131,7 @@ function planRun<T extends MergeFoldScanItem>(run: { value: T }[]): void {
         status: 'planned',
     }
     for (const item of run) {
-        const anonDistinctId = getFoldableAnonDistinctId(item.value.event)
+        const anonDistinctId = getFoldableAnonDistinctId(item.value)
         if (anonDistinctId !== null && pairByAnonId.has(anonDistinctId)) {
             item.value.mergeFoldPlan = plan
         }

@@ -1,5 +1,5 @@
 import { PluginEvent } from '~/plugin-scaffold'
-import { Team } from '~/types'
+import { EventHeaders, Team } from '~/types'
 
 import { MergeFoldScanItem, createMergeFoldPrescan } from './person-merge-fold'
 
@@ -16,7 +16,12 @@ describe('createMergeFoldPrescan', () => {
         return event('$identify', distinctId, { $anon_distinct_id: anonDistinctId })
     }
 
-    function event(name: string, distinctId = 'user-1', properties: Record<string, unknown> = {}): MergeFoldScanItem {
+    function event(
+        name: string,
+        distinctId = 'user-1',
+        properties: Record<string, unknown> = {},
+        headers: Partial<EventHeaders> = {}
+    ): MergeFoldScanItem {
         return {
             event: {
                 event: name,
@@ -25,6 +30,7 @@ describe('createMergeFoldPrescan', () => {
                 properties,
             } as unknown as PluginEvent,
             team,
+            headers: headers as EventHeaders,
         }
     }
 
@@ -105,6 +111,32 @@ describe('createMergeFoldPrescan', () => {
 
         expect(items[0].mergeFoldPlan).toBeUndefined()
         expect(items[1].mergeFoldPlan?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-2', 'anon-3'])
+    })
+
+    it.each([
+        [
+            '$process_person_profile: false',
+            (anonDistinctId: string) =>
+                event('$identify', 'user-1', { $anon_distinct_id: anonDistinctId, $process_person_profile: false }),
+        ],
+        [
+            'force_disable_person_processing header',
+            (anonDistinctId: string) =>
+                event(
+                    '$identify',
+                    'user-1',
+                    { $anon_distinct_id: anonDistinctId },
+                    { force_disable_person_processing: true }
+                ),
+        ],
+    ])('does not fold an $identify with %s and splits the run on it', (_name, disabledIdentify) => {
+        const items = scan([identify('anon-1'), identify('anon-2'), disabledIdentify('anon-3'), identify('anon-4')])
+
+        const plan = items[0].mergeFoldPlan
+        expect(plan?.pairs.map((p) => p.anonDistinctId)).toEqual(['anon-1', 'anon-2'])
+        expect(items[2].mergeFoldPlan).toBeUndefined()
+        // anon-4 is a lone identify after the split, so nothing to fold.
+        expect(items[3].mergeFoldPlan).toBeUndefined()
     })
 
     it('excludes self-merges from the plan', () => {

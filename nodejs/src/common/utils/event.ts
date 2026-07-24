@@ -1,5 +1,5 @@
 import { PluginEvent } from '~/plugin-scaffold'
-import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '~/types'
+import { ClickHouseEvent, EventHeaders, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '~/types'
 
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import { chainToElements } from './elements-chain'
@@ -60,6 +60,34 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
         attr_class: element.attributes?.attr__class ?? element.attr_class,
         $el_text: element.text,
     }))
+}
+
+export type ProcessPersonDecision =
+    /** Person processing enabled; `invalid` is set when $process_person_profile held a non-boolean value that was ignored. */
+    | { processPerson: true; invalid?: { value: unknown } }
+    /** Person processing disabled, by the capture-set force-disable header or an explicit `$process_person_profile: false` property. */
+    | { processPerson: false; reason: 'header' | 'property' }
+
+/**
+ * The single source of truth for whether an event gets person processing:
+ * the force-disable header wins outright, otherwise only a strict boolean
+ * `false` in $process_person_profile disables it; any other non-boolean
+ * value is invalid and falls back to the default (enabled).
+ */
+export function decideProcessPerson(event: PipelineEvent | PluginEvent, headers: EventHeaders): ProcessPersonDecision {
+    if (headers.force_disable_person_processing === true) {
+        return { processPerson: false, reason: 'header' }
+    }
+    if (event.properties && '$process_person_profile' in event.properties) {
+        const propValue = event.properties.$process_person_profile
+        if (propValue === false) {
+            return { processPerson: false, reason: 'property' }
+        }
+        if (propValue !== true) {
+            return { processPerson: true, invalid: { value: propValue } }
+        }
+    }
+    return { processPerson: true }
 }
 
 /// Does normalization steps involving the $process_person_profile property. This is currently a separate
