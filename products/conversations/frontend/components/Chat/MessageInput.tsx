@@ -92,8 +92,8 @@ export function MessageInput({
     const sendVerb = isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
-        // These guard the Cmd+Enter path, which bypasses the (disabled) button.
-        if (replyDisabledReason && !isPrivate) {
+        // These guard the Cmd+Enter path, which bypasses the disabled button.
+        if (sendDisabledReason || (replyDisabledReason && !isPrivate)) {
             return
         }
         if (messageSending || isUploading) {
@@ -172,6 +172,12 @@ export function MessageInput({
             : isUploading
               ? 'Uploading image...'
               : undefined
+    const sendControlDisabledReason =
+        typeof sendDisabledReason === 'string'
+            ? sendDisabledReason
+            : sendDisabledReason
+              ? 'Sending is disabled'
+              : undefined
 
     return (
         <div>
@@ -187,7 +193,7 @@ export function MessageInput({
                 onUpdate={handleUpdate}
                 onPressCmdEnter={() => handleSubmit()}
                 onUploadingChange={setIsUploading}
-                disabled={messageSending}
+                disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
                 className={
                     isPrivate
@@ -204,6 +210,7 @@ export function MessageInput({
                             <LemonCheckbox
                                 checked={isPrivate}
                                 onChange={setIsPrivate}
+                                disabledReason={sendControlDisabledReason}
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
@@ -226,7 +233,10 @@ export function MessageInput({
                                     checked={draftMode}
                                     onChange={onDraftModeChange}
                                     label="Draft mode"
-                                    disabledReason={isPrivate ? 'Draft mode has no effect on private notes' : undefined}
+                                    disabledReason={
+                                        sendControlDisabledReason ??
+                                        (isPrivate ? 'Draft mode has no effect on private notes' : undefined)
+                                    }
                                 />
                             </span>
                         </Tooltip>

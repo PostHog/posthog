@@ -27,6 +27,7 @@ export interface MessageListProps {
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -46,6 +47,7 @@ export function MessageList({
     latestAiMessageId = null,
     feedbackByMessageId = {},
     showAiReplyFeedback = false,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -137,6 +139,7 @@ export function MessageList({
                                     message.authorType === 'AI'
                                 }
                                 aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                                 onSubmitAiReplyFeedback={
                                     onSubmitAiReplyFeedback
                                         ? (rating, feedbackText) =>

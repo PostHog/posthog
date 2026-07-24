@@ -248,6 +248,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         latestAiMessageId={latestAiMessage?.id ?? null}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
+                        aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
@@ -414,6 +415,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
@@ -424,6 +426,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-start">
@@ -435,17 +438,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                 size="xxsmall"
                                                 type="tertiary"
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="text-accent">Assign to me</span>
                                             </LemonButton>
                                         )}
-                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                    <AssigneeSelect
+                                        assignee={assignee}
+                                        onChange={setAssignee}
+                                        disabledReason={sendDisabledReason}
+                                    >
                                         {(resolvedAssignee, isOpen) => (
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
                                                 active={isOpen}
                                                 sideIcon={<IconChevronDown />}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="flex items-center gap-1">
                                                     <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
@@ -473,16 +482,25 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     selectionPeriod="upcoming"
                                     clearable
                                     placeholder="Not snoozed"
-                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                    buttonProps={{
+                                        size: 'small',
+                                        type: 'secondary',
+                                        fullWidth: false,
+                                        disabledReason: sendDisabledReason,
+                                    }}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
-                                <TicketTags tags={tags} onChange={setTags} saving={false} />
+                                <TicketTags
+                                    tags={tags}
+                                    onChange={setTags}
+                                    saving={false}
+                                    disabledReason={sendDisabledReason}
+                                />
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}

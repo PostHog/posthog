@@ -59,6 +59,7 @@ export interface ChatViewProps {
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -92,6 +93,7 @@ export function ChatView({
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
@@ -114,6 +116,7 @@ export function ChatView({
                 latestAiMessageId={latestAiMessageId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
+                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
             />
             <div className="border-t pt-3">

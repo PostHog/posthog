@@ -17,7 +17,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -30,7 +29,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AssigneeMultiSelect } from '../../components/Assignee'
 import { clearFilterButtonProps } from '../../components/clearFilterButtonProps'
@@ -83,35 +81,33 @@ function SupportTicketsBulkActions(): JSX.Element {
     }, null)
 
     return (
-        <AccessControlAction resourceType={AccessControlResourceType.Ticket} minAccessLevel={AccessControlLevel.Editor}>
-            <LemonSelect
-                onChange={(value) => {
-                    if (!value || value === currentStatus || editableTicketIds.length === 0) {
-                        return
-                    }
-                    bulkUpdateStatus(editableTicketIds, value as TicketStatus)
-                }}
-                value={null}
-                placeholder="Mark as"
-                loading={bulkUpdating}
-                disabledReason={
-                    !hasSelection
-                        ? 'Select tickets first'
-                        : bulkUpdating
-                          ? 'Updating…'
-                          : editableTicketIds.length === 0
-                            ? "You don't have edit access to any of the selected tickets"
-                            : undefined
+        <LemonSelect
+            onChange={(value) => {
+                if (!value || value === currentStatus || editableTicketIds.length === 0) {
+                    return
                 }
-                tooltip={
-                    hasRestrictedSelection && editableTicketIds.length > 0
-                        ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped — you don't have edit access to them`
+                bulkUpdateStatus(editableTicketIds, value as TicketStatus)
+            }}
+            value={null}
+            placeholder="Mark as"
+            loading={bulkUpdating}
+            disabledReason={
+                !hasSelection
+                    ? 'Select tickets first'
+                    : bulkUpdating
+                      ? 'Updating…'
+                      : editableTicketIds.length === 0
+                        ? "You don't have edit access to any of the selected tickets"
                         : undefined
-                }
-                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-                size="small"
-            />
-        </AccessControlAction>
+            }
+            tooltip={
+                hasRestrictedSelection && editableTicketIds.length > 0
+                    ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
+                    : undefined
+            }
+            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+            size="small"
+        />
     )
 }
 

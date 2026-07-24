@@ -197,6 +197,7 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
@@ -327,6 +328,7 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -584,6 +586,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const idSet = new Set(selectedIds)
                 return tickets.filter((t) => idSet.has(t.id))
             },
+        ],
+        editableSelectedTicketIds: [
+            (s) => [s.selectedTickets],
+            (selectedTickets: Ticket[]): string[] =>
+                selectedTickets
+                    .filter(
+                        (ticket) =>
+                            !ticket.user_access_level ||
+                            accessLevelSatisfied(
+                                AccessControlResourceType.Ticket,
+                                ticket.user_access_level,
+                                AccessControlLevel.Editor
+                            )
+                    )
+                    .map((ticket) => ticket.id),
         ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],

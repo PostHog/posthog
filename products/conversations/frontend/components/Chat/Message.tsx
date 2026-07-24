@@ -24,6 +24,7 @@ export interface MessageProps {
     deliveryStatus?: MessageDeliveryStatus
     showAiReplyFeedback?: boolean
     aiReplyFeedbackRating?: AiReplyFeedbackRating | null
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -33,6 +34,7 @@ export function Message({
     deliveryStatus,
     showAiReplyFeedback = false,
     aiReplyFeedbackRating = null,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
@@ -48,14 +50,14 @@ export function Message({
         !!onSubmitAiReplyFeedback
 
     function submitRating(rating: AiReplyFeedbackRating): void {
-        if (aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback(rating)
     }
 
     function submitBadFeedbackText(): void {
-        if (!feedbackText.trim() || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || !feedbackText.trim() || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback('bad', feedbackText.trim())
@@ -137,7 +139,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Good reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('good')}
                                             data-attr="ai-reply-feedback-good"
@@ -156,7 +159,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Bad reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('bad')}
                                             data-attr="ai-reply-feedback-bad"
@@ -172,6 +176,7 @@ export function Message({
                                             value={feedbackText}
                                             onChange={setFeedbackText}
                                             onPressEnter={submitBadFeedbackText}
+                                            disabledReason={aiReplyFeedbackDisabledReason}
                                             autoFocus
                                         />
                                         <LemonButton
@@ -179,7 +184,8 @@ export function Message({
                                             size="small"
                                             onClick={submitBadFeedbackText}
                                             disabledReason={
-                                                !feedbackText.trim() ? 'Please type a few words' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (!feedbackText.trim() ? 'Please type a few words' : undefined)
                                             }
                                         >
                                             Submit

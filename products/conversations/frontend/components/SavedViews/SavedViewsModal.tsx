@@ -8,6 +8,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
@@ -78,6 +81,8 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
     const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
     const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     return (
         <LemonModal
@@ -92,7 +97,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={saveView}
-                        disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
+                        disabledReason={editDisabledReason ?? (!viewName.trim() ? 'Enter a name' : undefined)}
                     >
                         Save view
                     </LemonButton>
@@ -105,7 +110,8 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     value={viewName}
                     onChange={setViewName}
                     autoFocus
-                    onPressEnter={saveView}
+                    disabledReason={editDisabledReason}
+                    onPressEnter={editDisabledReason ? undefined : saveView}
                 />
                 <FiltersSummary filters={currentFilters} />
             </div>
@@ -120,6 +126,8 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
     const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
         ticketViewsLogic({ id })
     )
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     const columns: LemonTableColumns<SavedTicketView> = [
         {
@@ -131,6 +139,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     size="xsmall"
                     loading={favoritingShortIds.includes(view.short_id)}
                     onClick={() => toggleFavorite(view)}
+                    disabledReason={editDisabledReason}
                     icon={
                         view.is_favorited ? (
                             <IconHeartFilled className="text-danger" />
@@ -177,6 +186,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         Load
                     </LemonButton>
                     <More
+                        disabledReason={editDisabledReason}
                         overlay={
                             <LemonMenuOverlay
                                 items={[
@@ -266,7 +276,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                 width={720}
                 footer={
                     <div className="flex justify-between w-full">
-                        <LemonButton type="primary" onClick={openSaveModal}>
+                        <LemonButton type="primary" onClick={openSaveModal} disabledReason={editDisabledReason}>
                             Save current view
                         </LemonButton>
                         <LemonButton type="secondary" onClick={closeModal}>
