@@ -34,16 +34,50 @@ describe('InterleavingChunkPipeline', () => {
         })
     }
 
-    it('emits a passthrough chunk without draining the subpipeline', async () => {
-        const passthrough = chunk('passthrough')
-        const onProcessPull = jest.fn()
+    it('emits passthrough chunks without waiting on the subpipeline, pulling it at most once', async () => {
+        const passthrough1 = chunk('passthrough1')
+        const passthrough2 = chunk('passthrough2')
+        // A sub that never resolves: emits must not depend on it, and the
+        // single speculative pull must be memoized, never duplicated.
+        const onProcessPull = jest.fn().mockReturnValue(new Promise(() => {}))
         const pipeline = build({
-            onSourcePull: jest.fn().mockResolvedValue({ kind: 'emit', chunk: passthrough }),
+            onSourcePull: jest
+                .fn()
+                .mockResolvedValueOnce({ kind: 'emit', chunk: passthrough1 })
+                .mockResolvedValueOnce({ kind: 'emit', chunk: passthrough2 }),
             onProcessPull,
         })
 
-        expect(await pipeline.next()).toBe(passthrough)
-        expect(onProcessPull).not.toHaveBeenCalled()
+        expect(await pipeline.next()).toBe(passthrough1)
+        expect(await pipeline.next()).toBe(passthrough2)
+        expect(onProcessPull).toHaveBeenCalledTimes(1)
+    })
+
+    it('hands out completed sub results while a source pull is parked, carrying the pull over unduplicated', async () => {
+        const routed = chunk('routed')
+        const completedLater = chunk('completed-later')
+        const parkedSource = deferred<PullOutcome<string, Ctx, never>>()
+        const onSourcePull = jest
+            .fn()
+            .mockResolvedValueOnce({ kind: 'drain' })
+            .mockReturnValueOnce(parkedSource.promise)
+        const onProcessPull = jest
+            .fn()
+            .mockResolvedValueOnce(routed)
+            .mockResolvedValueOnce(completedLater)
+            .mockResolvedValue(null)
+        const pipeline = build({ onSourcePull, onProcessPull })
+
+        expect(await pipeline.next()).toBe(routed)
+        // The second source pull parks; sub results completing meanwhile must
+        // come out instead of being stranded behind it.
+        expect(await pipeline.next()).toBe(completedLater)
+        expect(onSourcePull).toHaveBeenCalledTimes(2)
+
+        parkedSource.resolve({ kind: 'drained' })
+        expect(await pipeline.next()).toBeNull()
+        // The parked pull was carried over and re-awaited, never re-issued.
+        expect(onSourcePull).toHaveBeenCalledTimes(2)
     })
 
     it('drains the subpipeline when input was routed into it', async () => {

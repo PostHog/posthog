@@ -35,6 +35,7 @@ import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/pers
 import { AiEventSubpipelineFactory } from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { GatherOptions } from '~/ingestion/framework/gathering-chunk-pipeline'
 
 import {
     AiEventOutput,
@@ -83,6 +84,11 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
+    /**
+     * Bounded gather tuning for the post-team coalescing gather, sourced from
+     * `INGESTION_GATHER_MAX_WAIT_MS` / `INGESTION_GATHER_MIN_ITEMS`.
+     */
+    gatherOptions: GatherOptions
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -169,6 +175,7 @@ export function createJoinedIngestionPipeline<
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
+        gatherOptions: config.gatherOptions,
     }
 
     const perEventConfig: PerDistinctIdPipelineConfig = {

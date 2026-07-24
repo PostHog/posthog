@@ -171,6 +171,7 @@ describe('AiIngestionPipeline', () => {
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),
             concurrentBatches: 1,
+            gatherOptions: { maxWaitMs: 50, minItems: 1000 },
             cdpHogWatcherSampleRate: 1,
             eventSchemaEnforcementEnabled: false,
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,

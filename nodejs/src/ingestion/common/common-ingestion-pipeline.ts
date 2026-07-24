@@ -18,6 +18,7 @@ import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framew
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
 import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
+import { GatherOptions } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
@@ -380,14 +381,20 @@ export class CommonTeamStage<
         )
     }
 
-    /** Re-collect concurrent groups or streamed elements into one chunk. */
-    gather(): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, TCurrent> {
+    /**
+     * Re-collect concurrent groups or streamed elements into one chunk. By
+     * default a barrier (drain until empty, emit once); pass
+     * `{ maxWaitMs, minItems }` for a bounded coalescer that never holds
+     * completed results behind in-flight work — see {@link GatherOptions}.
+     * Must not directly follow another gather (enforced at build time).
+     */
+    gather(options?: GatherOptions): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, TCurrent> {
         const committed = this.chain.build()
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            committedChain((builder) => committed(builder).gather())
+            committedChain((builder) => committed(builder).gather(options))
         )
     }
 

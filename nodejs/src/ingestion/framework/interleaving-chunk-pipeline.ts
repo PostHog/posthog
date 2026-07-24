@@ -28,7 +28,14 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
      * picked up on the next loop.
      */
     onSourcePull: () => Promise<PullOutcome<TOutput, COutput, R>>
-    /** Pull the next chunk from the processing subpipeline — raced against feeds. */
+    /**
+     * Pull the next chunk from the processing subpipeline — raced against feeds
+     * and against in-flight source pulls. May be issued speculatively before or
+     * concurrently with source routing, so implementations must tolerate pulls
+     * on an empty sub (return null promptly) and must not treat a null that
+     * races a concurrent routing as corruption (guard with an epoch — see
+     * FanOutFanInChunkPipeline's fanOutEpoch).
+     */
     onProcessPull: () => Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null>
 }
 
@@ -63,6 +70,12 @@ export class InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, R exten
     // safe for concurrent callers, so a feed waking us mid-drain must re-await
     // the same pending next() rather than issue a second one.
     private subPending: Promise<ChunkPipelineResultWithContext<TOutput, COutput, R> | null> | null = null
+    // Memoized like subPending, for the same reason: a source pull that parks on
+    // slow in-flight upstream work (e.g. a bounded gather awaiting a carried
+    // pull) is raced against the sub and carried across next() calls, so
+    // completed sub results are never stranded behind it and no duplicate
+    // source pull is ever issued.
+    private sourcePending: Promise<PullOutcome<TOutput, COutput, R>> | null = null
     // The first error seen from either callback. Once set, the stage is poisoned:
     // no more source pulls, drain the sub dry, then reject with this forever.
     private failure: { error: unknown } | null = null
@@ -84,22 +97,76 @@ export class InterleavingChunkPipeline<TInput, TOutput, CInput, COutput, R exten
         }
 
         while (true) {
-            // Arm a fresh wake-up before pulling. A feed landing during the pull
-            // is still seen by the race below (not lost), while a stale signal
-            // from an already-consumed feed does NOT over-eagerly pull the next
-            // chunk into an in-flight subpipeline (which would coalesce chunks
-            // that downstream stages like gather() expect to stay separate).
-            this.newInputSignal.reset()
+            // Obtain one source outcome — racing the (memoized) pull against the
+            // sub, so completed sub results are handed out instead of being
+            // stranded behind a source pull parked on slow in-flight work.
+            let pulled: PullOutcome<TOutput, COutput, R> | undefined
+            // Once the sub reports empty it stays empty until the source routes
+            // more input, so don't re-pull it while waiting on the source (that
+            // would spin on instantly-resolving nulls).
+            let subSawNull = false
+            while (pulled === undefined) {
+                if (!this.sourcePending) {
+                    // Arm a fresh wake-up before pulling. A feed landing during
+                    // the pull is still seen by the drain race below (not
+                    // lost), while a stale signal from an already-consumed feed
+                    // does NOT over-eagerly pull the next chunk into an
+                    // in-flight subpipeline (which would coalesce chunks that
+                    // downstream stages like gather() expect to stay separate).
+                    this.newInputSignal.reset()
+                    this.sourcePending = this.callbacks.onSourcePull()
+                }
+                if (!this.subPending && !subSawNull) {
+                    this.subPending = this.callbacks.onProcessPull()
+                }
 
-            let pulled: PullOutcome<TOutput, COutput, R>
-            try {
-                pulled = await this.callbacks.onSourcePull()
-            } catch (error) {
-                // Source failed: latch and switch to draining the sub before
-                // rejecting, so any already in-flight results still come out.
-                this.failure = { error }
-                return this.drainThenReject()
+                if (!this.subPending) {
+                    try {
+                        pulled = await this.sourcePending
+                    } catch (error) {
+                        // Source failed: latch and switch to draining the sub
+                        // before rejecting, so any already in-flight results
+                        // still come out.
+                        this.sourcePending = null
+                        this.failure = { error }
+                        return this.drainThenReject()
+                    }
+                    this.sourcePending = null
+                    break
+                }
+
+                const raced = await Promise.race([
+                    this.sourcePending.then(
+                        (outcome) => ({ kind: 'source' as const, outcome }),
+                        (error: unknown) => ({ kind: 'source-error' as const, error })
+                    ),
+                    this.subPending.then(
+                        (result) => ({ kind: 'sub' as const, result }),
+                        (error: unknown) => ({ kind: 'sub-error' as const, error })
+                    ),
+                ])
+                if (raced.kind === 'source') {
+                    this.sourcePending = null
+                    pulled = raced.outcome
+                } else if (raced.kind === 'source-error') {
+                    this.sourcePending = null
+                    this.failure = { error: raced.error }
+                    return this.drainThenReject()
+                } else if (raced.kind === 'sub-error') {
+                    this.subPending = null
+                    this.failure = { error: raced.error }
+                    throw raced.error
+                } else {
+                    this.subPending = null
+                    if (raced.result !== null) {
+                        // Completed sub results go out now; the source pull
+                        // stays in flight and carries over to the next call.
+                        return raced.result
+                    }
+                    subSawNull = true
+                }
             }
+
             if (pulled.kind === 'emit') {
                 return pulled.chunk
             }

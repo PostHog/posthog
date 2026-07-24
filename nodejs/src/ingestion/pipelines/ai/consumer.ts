@@ -53,6 +53,8 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
         | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
         | 'INGESTION_WORKER_CONCURRENT_BATCHES'
+        | 'INGESTION_GATHER_MAX_WAIT_MS'
+        | 'INGESTION_GATHER_MIN_ITEMS'
         | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
@@ -209,6 +211,10 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            gatherOptions: {
+                maxWaitMs: config.INGESTION_GATHER_MAX_WAIT_MS,
+                minItems: config.INGESTION_GATHER_MIN_ITEMS,
+            },
             cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),

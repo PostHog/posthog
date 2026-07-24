@@ -399,6 +399,10 @@ export class IngestionApiServer implements NodeServer {
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            gatherOptions: {
+                maxWaitMs: this.config.INGESTION_GATHER_MAX_WAIT_MS,
+                minItems: this.config.INGESTION_GATHER_MIN_ITEMS,
+            },
         }
         const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
         const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(

@@ -129,6 +129,10 @@ export class FanOutFanInChunkPipeline<
     private pendingParents = new Map<FanOutParentRef, PendingParent<TElement, TSubOut, COutput>>()
     /** Parents completed by sub-results, drained by onProcessPull before pulling the subpipeline again. */
     private readyResults: PipelineResultWithContext<TMerged, COutput, RPrev>[] = []
+    // Bumped in the same synchronous block that registers parents and feeds
+    // their subs; lets drainAndFanIn tell a fan-out that raced its pull apart
+    // from genuinely lost sub-results (mirrors BatchingPipeline's feedEpoch).
+    private fanOutEpoch = 0
     private fanOutName: string
     private fanInName: string
 
@@ -209,6 +213,7 @@ export class FanOutFanInChunkPipeline<
         }
 
         if (subElements.length > 0) {
+            this.fanOutEpoch++
             this.subPipeline.feed(subElements)
         }
 
@@ -234,9 +239,20 @@ export class FanOutFanInChunkPipeline<
      */
     private async drainAndFanIn(): Promise<ChunkPipelineResultWithContext<TMerged, COutput, RPrev> | null> {
         while (this.readyResults.length === 0) {
+            const epochAtPullStart = this.fanOutEpoch
             const subResults = await this.subPipeline.next()
             if (subResults === null) {
                 if (this.pendingParents.size > 0) {
+                    // A fan-out can land while this pull is resolving null from
+                    // an empty subpipeline (the interleaving loop races process
+                    // pulls against source pulls). A changed epoch proves that's
+                    // what happened — retry the pull, which now sees the fed
+                    // subs. An unchanged epoch means sub-results genuinely
+                    // vanished, which the cardinality contract of chunk stages
+                    // makes impossible; treat it as a bug.
+                    if (this.fanOutEpoch !== epochAtPullStart) {
+                        continue
+                    }
                     throw new Error(
                         `Fan-out/fan-in (${this.fanOutName}/${this.fanInName}) subpipeline drained with ` +
                             `${this.pendingParents.size} parent(s) still pending — sub-results were lost`

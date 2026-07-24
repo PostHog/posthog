@@ -49,6 +49,7 @@ import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-in
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
+import { GatherOptions } from '~/ingestion/framework/gathering-chunk-pipeline'
 import { isDropResult } from '~/ingestion/framework/results'
 
 import { BlobStore } from './blob-offload/blob-store'
@@ -80,6 +81,11 @@ export interface AiIngestionPipelineConfig {
     overflowRedirectService: OverflowRedirectService
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
+    /**
+     * Bounded gather tuning for the post-team coalescing gather, sourced from
+     * `INGESTION_GATHER_MAX_WAIT_MS` / `INGESTION_GATHER_MIN_ITEMS`.
+     */
+    gatherOptions: GatherOptions
     cdpHogWatcherSampleRate: number
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
@@ -129,6 +135,7 @@ export function createAiIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         concurrentBatches,
+        gatherOptions,
         cdpHogWatcherSampleRate,
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
@@ -171,7 +178,10 @@ export function createAiIngestionPipeline<
             .pipe(createApplyEventFiltersStep(eventFilterManager))
             // Cookieless processing rewrites distinct_id; person fetch keys on the
             // final distinct_id, so it must run after this batch step.
-            .gather()
+            // Bounded (matching analytics): the chunk steps batch for efficiency
+            // only, so ready events wait at most maxWaitMs behind other
+            // in-flight batches under concurrentBatches > 1.
+            .gather(gatherOptions)
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
