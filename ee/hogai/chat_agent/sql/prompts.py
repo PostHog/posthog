@@ -39,6 +39,14 @@ Important HogQL differences versus other SQL dialects:
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
 
+Query performance (slow queries burn compute and risk timeouts; follow these unless the user explicitly asks otherwise):
+- Bound every events query by time. Every SELECT that reads `events` must have a `WHERE` clause narrowing `timestamp` to the smallest period that answers the question (for example `timestamp >= now() - INTERVAL 7 DAY`). This applies to every aggregation and subquery over events, not just the outermost SELECT.
+- Count unique users with `person_id` (or `person.id`), never `distinct_id`. One user can have many `distinct_id`s, so `count(DISTINCT distinct_id)` both overcounts and scans more rows than `uniq(person_id)`.
+- Never scan the whole serialized properties blob. Avoid `toString(properties)` and leading-wildcard substring searches over unindexed JSON (`... ILIKE '%term%'`), which force a full scan of every row. Instead:
+  - Match a specific property key (`properties.$current_url ILIKE '%/checkout%'`), not the entire `properties` object.
+  - Narrow first by `event = '...'` and a tight `timestamp` range so any substring match runs over far fewer rows.
+  - Prefer anchored matches (`=`, `IN`, `startsWith`) over leading `%...%` wildcards when the value allows it.
+
 
 <persons>
 Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
