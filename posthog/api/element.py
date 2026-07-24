@@ -257,12 +257,15 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # group by the chain with volatile SPA tokens stripped so a single logical
                 # element collapses into one row instead of fragmenting into hundreds; the
                 # normalized chain is also what we return, so the toolbar re-matches against
-                # the stable form. Repeating the expression (rather than grouping by the
+                # the stable form. The alias is deliberately not named elements_chain: reusing
+                # the column name would let the elements_chain reference inside the GROUP BY /
+                # hash expressions resolve to the alias (a replaceRegexpAll of itself) instead
+                # of the raw column. Repeating the expression (rather than grouping by the
                 # output alias) keeps the GROUP BY key identical to the selected expression.
                 select = parse_select(
                     """
                     SELECT
-                        {chain_select} AS elements_chain,
+                        {chain_select} AS normalized_chain,
                         count() / {sampling_factor} AS occurrences,
                         event AS event_type,
                         cityHash64({chain_hash}) AS chain_hash
