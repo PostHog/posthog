@@ -21,6 +21,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     _markdown_to_slack_mrkdwn,
     _neutralize_approx_tildes,
     _repair_link_trailing_markers,
+    _SlackRelayPostFailed,
     _split_markdown_for_slack,
     _wrap_bare_urls_in_emphasis,
     relay_slack_message,
@@ -116,6 +117,30 @@ class TestRelaySlackMessage(TestCase):
             mock_update.assert_called_once_with(reaction_emoji)
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_failed_post_raises_and_does_not_mark_sent(
+        self,
+        _mock_delete_progress,
+        _mock_post,
+        _mock_update,
+    ):
+        # A rejected Slack post must fail the activity so the workflow's RetryPolicy re-runs it.
+        # If it were marked sent, the duplicate guard would skip the retry and the agent's
+        # answer would silently never reach the thread.
+        with self.assertRaises(_SlackRelayPostFailed):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id="relay-fail",
+                    text="agent answer that Slack rejected",
+                )
+            )
+
+        self.task_run.refresh_from_db()
+        assert "relay-fail" not in self.task_run.state.get("slack_sent_relay_ids", [])
 
     @parameterized.expand(
         [

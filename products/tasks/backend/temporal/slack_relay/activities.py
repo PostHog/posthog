@@ -80,6 +80,15 @@ class _RelayAlreadyRecorded(Exception):
     """Raised when a relay was already recorded while holding the row lock."""
 
 
+class _SlackRelayPostFailed(Exception):
+    """Raised when Slack rejected a relay post, so the activity fails and Temporal retries.
+
+    The relay is left unrecorded on failure so the retry re-posts instead of the
+    duplicate guard skipping it — the alternative is the agent's answer silently
+    never reaching the thread.
+    """
+
+
 def _markdown_to_slack_mrkdwn(text: str) -> str:
     """Convert markdown to Slack ``mrkdwn`` via ``markdown_to_mrkdwn``.
 
@@ -441,9 +450,19 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         if delivered_file_count:
             chunks_to_post = chunks[1:]
 
+    all_posted = True
     for index, chunk in enumerate(chunks_to_post):
         prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
-        handler.post_thread_message(f"{prefix}{chunk}")
+        if not handler.post_thread_message(f"{prefix}{chunk}"):
+            all_posted = False
+
+    # Fail before recording the relay so Temporal retries (the workflow's RetryPolicy)
+    # and the duplicate guard doesn't skip a re-post. A swallowed failure here would
+    # mark the answer delivered and drop it silently.
+    if not all_posted:
+        logger.warning("slack_relay_post_failed", run_id=input.run_id, relay_id=input.relay_id)
+        raise _SlackRelayPostFailed(input.relay_id)
+
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 
