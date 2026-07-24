@@ -32,6 +32,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_known_replay_scoped_property,
     is_session_property,
 )
 from posthog.types import AnyPropertyFilter
@@ -425,7 +426,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            capture_exception(UnexpectedQueryProperties(remaining_properties))
+            # These are all handled correctly by property_to_expr(scope="replay") just below, so the
+            # query runs fine. Only capture filters we genuinely don't recognize — known-valid shapes
+            # (flag/element, hogql over identity columns) would otherwise flood error tracking.
+            unexpected_properties = [p for p in remaining_properties if not is_known_replay_scoped_property(p)]
+            if unexpected_properties:
+                capture_exception(UnexpectedQueryProperties(unexpected_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:

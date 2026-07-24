@@ -96,6 +96,27 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+# hogql keys that don't reference person.properties / session.properties but still map to
+# real columns on the replay events table (so property_to_expr(scope="replay") handles them).
+_KNOWN_REPLAY_HOGQL_FIELD = re.compile(r"\b(?:person_id|distinct_id|session_id)\b")
+
+
+def is_known_replay_scoped_property(p: AnyPropertyFilter) -> bool:
+    """True for filter shapes that property_to_expr(scope="replay") already handles directly,
+    even though the is_* classifiers above don't route them to a dedicated sub-query.
+
+    These filters (flag/element types, and hogql expressions over identity columns like
+    `person_id = '<uuid>'` or `distinct_id IN (...)`) run fine, so they must not be reported
+    as UnexpectedQueryProperties — doing so was a benign but noisy self-inflicted exception.
+    """
+    p_type = getattr(p, "type", None)
+    if p_type in ("flag", "element"):
+        return True
+    if p_type == "hogql":
+        return bool(_KNOWN_REPLAY_HOGQL_FIELD.search(getattr(p, "key", "") or ""))
+    return False
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -127,11 +148,12 @@ class SessionRecordingQueryResult(NamedTuple):
 class UnexpectedQueryProperties(Exception):
     def __init__(self, remaining_properties: list[AnyPropertyFilter] | None):
         self.remaining_properties = remaining_properties
-        # Drop the raw value from each filter so that user-supplied data (e.g. a domain or URL)
-        # doesn't end up in the exception message — otherwise every distinct value produces a
-        # brand-new error-tracking fingerprint.
+        # Drop the raw value AND key from each filter so that user-supplied data doesn't end up in
+        # the exception message. hogql keys embed the full expression (e.g. a person UUID or URL),
+        # so keeping the key made every distinct value mint a brand-new error-tracking fingerprint —
+        # defeating the earlier value-only scrubbing. Type + operator is enough signal to triage.
         summary = [
-            {"type": getattr(p, "type", None), "key": getattr(p, "key", None), "operator": getattr(p, "operator", None)}
+            {"type": getattr(p, "type", None), "operator": getattr(p, "operator", None)}
             for p in (remaining_properties or [])
         ]
         super().__init__(f"Unexpected properties in query: {summary}")

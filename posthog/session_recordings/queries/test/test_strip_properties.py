@@ -2,7 +2,9 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CohortPropertyFilter,
+    ElementPropertyFilter,
     EventPropertyFilter,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -14,6 +16,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_known_replay_scoped_property,
     is_recording_property,
     is_session_property,
 )
@@ -88,14 +91,49 @@ class TestStripProperties:
             EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
         )
 
-    def test_unexpected_query_properties_message_does_not_contain_raw_value(self) -> None:
-        # The exception used to embed the filter value directly, so every distinct
-        # domain/url/etc. produced a brand-new error-tracking fingerprint. We now
-        # summarize each filter to its type/key/operator only.
+    @parameterized.expand(
+        [
+            (
+                "hogql person_id is known-valid",
+                HogQLPropertyFilter(key="person_id = '0192-uuid'"),
+            ),
+            (
+                "hogql distinct_id is known-valid",
+                HogQLPropertyFilter(key="distinct_id IN ('a', 'b')"),
+            ),
+            (
+                "hogql session_id is known-valid",
+                HogQLPropertyFilter(key="session_id NOT IN ('x')"),
+            ),
+            (
+                "flag type is known-valid",
+                FlagPropertyFilter(key="123", value=True),
+            ),
+            (
+                "element type is known-valid",
+                ElementPropertyFilter(key="tag_name", operator=PropertyOperator.EXACT, value="button"),
+            ),
+        ]
+    )
+    def test_is_known_replay_scoped_property_matches_handled_shapes(self, _name: str, prop: AnyPropertyFilter) -> None:
+        # These fall through the is_* classifiers but property_to_expr(scope="replay") handles
+        # them fine, so they must not be reported as UnexpectedQueryProperties.
+        assert is_known_replay_scoped_property(prop)
+
+    def test_is_known_replay_scoped_property_rejects_genuinely_unexpected(self) -> None:
+        assert not is_known_replay_scoped_property(HogQLPropertyFilter(key="some_unrelated_expression = 1"))
+
+    def test_unexpected_query_properties_message_does_not_contain_raw_value_or_key(self) -> None:
+        # The exception used to embed the filter value, then just the value; the key still
+        # leaked user data (hogql keys are full expressions embedding UUIDs/URLs), so every
+        # distinct filter minted a brand-new error-tracking fingerprint. We now summarize each
+        # filter to its type/operator only.
         offending_value = "www.rosered.cc-very-unique-value"
         exc = UnexpectedQueryProperties(
             [EventPropertyFilter(key="$entry_referring_domain", operator=PropertyOperator.EXACT, value=offending_value)]
         )
-        assert offending_value not in str(exc)
-        assert "event" in str(exc)
-        assert "$entry_referring_domain" in str(exc)
+        message = str(exc)
+        assert offending_value not in message
+        assert "$entry_referring_domain" not in message
+        assert "event" in message
+        assert "exact" in message
