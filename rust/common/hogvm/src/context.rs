@@ -369,7 +369,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
         HogLiteral::Object(mut obj) => {
             // Emplace children in place — no fresh map, so keys are neither re-hashed nor
             // re-inserted (the collect-based rebuild here was a measured allocation hot spot for
-            // native fns returning nested objects, e.g. the geoip record; see perf/LOG.md).
+            // native fns returning nested objects, e.g. the geoip record).
             // Flat children take the `_` arm of the recursive call and come straight back.
             for v in obj.values_mut() {
                 let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));

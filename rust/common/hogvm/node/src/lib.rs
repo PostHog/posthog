@@ -11,9 +11,9 @@
 //! can't support fails the execution with an `unsupported_ext_fn:<name>` error so the caller can
 //! fall back to the Node VM.
 
-// Workspace-standard allocator (jemalloc): the interpreter's small-alloc churn was ~33% of
-// self-time under glibc malloc (see perf/LOG.md iteration 8). Applies to this cdylib's Rust
-// allocations and its bins (profile_geoip), same as every other PostHog Rust service.
+// Workspace-standard allocator (jemalloc): the interpreter's small-allocation churn was a
+// measured ~33% of self-time under glibc malloc. Applies to this cdylib's Rust allocations,
+// same as every other PostHog Rust service.
 common_alloc::used!();
 
 mod exec;
@@ -73,7 +73,7 @@ pub fn execute_sync(
 
 // Programs registered once by `registerProgram` — validated and token-decoded at registration,
 // executed by handle. Skips the per-invocation JS→Rust marshal + copy + decode of the token
-// array. PROTOTYPE for benchmarking a program cache.
+// array, so a hogFunction's bytecode is decoded once and reused across every event.
 static REGISTERED_PROGRAMS: std::sync::RwLock<Vec<Result<hogvm::Program, String>>> =
     std::sync::RwLock::new(Vec::new());
 
@@ -127,8 +127,7 @@ pub fn execute_registered_sync(
     results.into_iter().next().expect("one result per event")
 }
 
-/// Batch variant: one napi crossing for many events. PROTOTYPE for benchmarking amortized
-/// marshalling.
+/// Batch variant: one napi crossing for many events, amortizing the marshalling overhead.
 #[napi]
 pub fn execute_registered_batch_sync(
     handle: u32,

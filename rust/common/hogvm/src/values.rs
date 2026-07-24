@@ -68,15 +68,15 @@ impl From<LocalCallable> for Callable {
 
 /// The object map used by [`HogLiteral::Object`]. Insertion-ordered like the reference VMs;
 /// hashed with `ahash` instead of the default SipHash — object keys sit under every property
-/// read/write and SipHash was ~5% of interpreter self-time (see perf/LOG.md iteration 4).
-/// ahash stays a keyed, DoS-resistant hash, which matters because keys come from user programs.
+/// read/write and SipHash was a measured ~5% of interpreter self-time. ahash stays a keyed,
+/// DoS-resistant hash, which matters because keys come from user programs.
 pub type HogMap = IndexMap<String, HogValue, ahash::RandomState>;
 
 /// The payload of [`HogLiteral::String`]. `Owned` is a plain heap string (globals, native-fn
 /// results, computed strings); `Shared` is a refcounted slice of the pre-decoded token stream,
 /// so pushing a string *constant* is a refcount bump instead of a malloc+copy (the ~90-write
 /// geoip loop pushes ~3 constants per write, two of which are popped and dropped within a few
-/// ops — see perf/LOG.md iteration 3). Equality is content-based across the two arms.
+/// ops). Equality is content-based across the two arms.
 #[derive(Debug, Clone)]
 pub enum HogStr {
     Owned(String),
@@ -152,7 +152,7 @@ pub enum HogLiteral {
     // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
     // Object/Callable/Closure payloads are boxed so the enum stays small (~32 bytes instead of
     // 120): every stack push/pop, clone, and heap emplacement moves the enum by value, and the
-    // memmove of the large inline payloads was a measured hot spot (see perf/LOG.md).
+    // memmove of the large inline payloads was a measured hot spot.
     Object(Box<HogMap>),
     Callable(Box<Callable>),
     Closure(Box<Closure>),
