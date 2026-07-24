@@ -381,7 +381,13 @@ def queries_to_keep_fresh(
 # single Redis value. The cached blob embeds the selection parameters and a
 # timestamp so a settings change or an entry older than the TTL is treated as a
 # miss — object storage has no per-key expiry of its own.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v1.json.gz"
+#
+# The vN suffix versions the selection *logic*: the cache only validates the
+# settings params (days/min/max), not the query itself, so a change to the
+# selection query (new filter, different grouping) would otherwise keep replaying
+# a stale blob written by the old logic until its TTL expired. Bump the version
+# whenever the selection query changes so the new logic takes effect on deploy.
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v2.json.gz"
 
 
 def _read_cached_warmable_queries(
