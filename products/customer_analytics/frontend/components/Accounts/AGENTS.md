@@ -70,7 +70,22 @@ Negative operators (is not / doesn't contain / doesn't match regex) are wrapped 
 Filters for deleted definitions or with incomplete values compile to nothing rather than breaking the query, and only validated UUID keys are ever interpolated (quoted via the shared `escapePropertyAsHogQLIdentifier`).
 Value suggestions load from`GET /api/projects/:team_id/custom_property_definitions/values/?key=<definition-id>&value=<search>`(the group's`valuesEndpoint`): select → option labels, boolean → true/false, text/numeric → distinct active values; date pickers need no suggestions.
 
-Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`), else the backend gets an `orderBy` referencing a missing alias.
+### Sorting (hybrid client / server)
+
+Clicking a column header toggles `accountsLogic.sortOrder` (asc → desc → off, `toggleSort`).
+How that sort is applied depends on whether the whole matching set is already loaded, tracked by the `canSortClientSide` selector (`!listHasMoreData && !listPaginated`):
+
+- **Fully loaded (the common case — one page, no "Load more"):** `canSortClientSide` is true.
+  The list query carries **no** `orderBy`, so toggling a header does not change the query and never refetches.
+  Instead the loaded rows are reordered in the browser: the `accountsLogic.sortedRowsTransformer` selector (wrapping `sortAccountRows` from `accountsSort.ts`) is passed by `AccountsHogQLTable` into the DataTable's `dataTableRowsTransformer` context seam — sorting is instant.
+  `sortAccountRows` reads each cell by its position in the row's result array (the name tuple sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically), is stable, and always sinks empty cells to the bottom in both directions.
+- **Paginated (more rows than one page):** `canSortClientSide` is false, so the query carries an `orderBy` and ClickHouse sorts the **entire** set and returns the globally-correct top page; the transformer is inactive (rows are shown in server order). Toggling a header refetches, as before.
+
+`listPaginated` is what makes this safe: it is set when the user pages past the first page (`loadNextData`, connected from the list `dataNodeLogic`) and reset on every fresh load (`loadData`).
+Without it, paging to the end of a large list would flip `listHasMoreData` to false mid-session, drop the `orderBy`, and reset the query back to page one — discarding the accumulated rows.
+Resetting on fresh load lets a filtered-down set (now ≤ one page) return to instant client-side sort.
+
+Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`); otherwise a server-side sort would reference a missing SELECT alias.
 
 ## The expanded row
 

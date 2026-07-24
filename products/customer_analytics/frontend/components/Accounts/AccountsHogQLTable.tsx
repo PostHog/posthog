@@ -420,7 +420,7 @@ function AccountsHogQLSkeleton(): JSX.Element {
 }
 
 export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery, accountsQuerySource } = useValues(accountsLogic)
+    const { hogqlQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -440,6 +440,7 @@ export function AccountsHogQLTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     expandable,
+                    dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
                     emptyStateHeading: 'There are no matching accounts for this query',
                     emptyStateDetail: 'Try adjusting the filters or refreshing',
