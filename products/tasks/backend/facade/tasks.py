@@ -4,8 +4,6 @@ Celery-task wiring for the tasks product.
 Re-exports the beat-scheduled loop sweeps that core's scheduler registers.
 """
 
-from django.conf import settings
-
 from celery import shared_task
 
 from products.tasks.backend.loop_reconciliation import reconcile_loop_trigger_schedules_task
@@ -26,7 +24,11 @@ def refresh_stale_sandbox_custom_images_task() -> None:
 @shared_task(ignore_result=True)
 def bake_dev_stack_image_task() -> None:
     """Dispatch the nightly rebake of the prebaked PostHog dev-stack VM image."""
-    if not settings.TASKS_DEV_STACK_IMAGE_BAKE_ENABLED:
+    from products.tasks.backend.feature_flags import (
+        is_dev_stack_image_bake_enabled,  # noqa: PLC0415 — keeps posthoganalytics off the import path
+    )
+
+    if not is_dev_stack_image_bake_enabled():
         return
 
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keeps the Temporal client off the import path

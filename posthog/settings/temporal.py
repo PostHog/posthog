@@ -75,18 +75,6 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Enables the nightly bake of the prebaked PostHog dev-stack VM image (a Modal
-# filesystem snapshot published under a fixed name; see
-# products/tasks/backend/logic/services/dev_stack_image.py). Off by default — only
-# regions whose Modal workspace should host the image opt in. Orgs are routed onto
-# the published image via the tasks-modal-vm-sandbox flag payload's
-# `default_custom_image` key.
-TASKS_DEV_STACK_IMAGE_BAKE_ENABLED: bool = get_from_env(
-    "TASKS_DEV_STACK_IMAGE_BAKE_ENABLED",
-    False,
-    type_cast=str_to_bool,
-)
-
 # Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
 # (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
 # replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.

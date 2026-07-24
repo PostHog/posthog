@@ -283,7 +283,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Rebake the prebaked dev-stack VM image nightly so the baked migration state
-    # stays close to master. No-ops unless TASKS_DEV_STACK_IMAGE_BAKE_ENABLED is set.
+    # stays close to master. No-ops unless the tasks-dev-stack-image-bake flag
+    # enables this deployment's region.
     sender.add_periodic_task(
         crontab(hour="6", minute="45"),
         bake_dev_stack_image_task.s(),
