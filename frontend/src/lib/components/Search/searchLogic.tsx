@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
@@ -9,6 +10,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { toSentenceCase } from 'lib/utils/strings'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
@@ -799,7 +802,7 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
-                return filteredItems.map((item) => {
+                const items: SearchItem[] = filteredItems.map((item) => {
                     // Format display name:
                     // "Insight/Lifecycle" -> "New Lifecycle insight"
                     // "Data/Destination" -> "New Destination" (no suffix for Data)
@@ -832,6 +835,28 @@ export const searchLogic = kea<searchLogicType>([
                         },
                     }
                 })
+
+                // Blank SQL query in a new browser tab. Can't use the href pipeline above, which
+                // always navigates in-place — a new tab needs onSelect + newInternalTab. Inherits
+                // the active warehouse connection when triggered from within the SQL editor.
+                items.push({
+                    id: 'new-sql-query-tab',
+                    name: 'New SQL query',
+                    displayName: 'New SQL query',
+                    category: 'create',
+                    productCategory: null,
+                    itemType: 'insight/hog',
+                    searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
+                    record: { type: 'insight', iconType: 'insight/hog' },
+                    onSelect: () => {
+                        const onSqlEditor =
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.sqlEditor()
+                        const connectionId = onSqlEditor ? router.values.hashParams?.c : undefined
+                        newInternalTab(urls.sqlEditor(connectionId ? { connectionId } : {}))
+                    },
+                })
+
+                return items
             },
         ],
         peopleItems: [
