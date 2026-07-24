@@ -5,12 +5,13 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
@@ -315,6 +316,58 @@ describe('webAnalyticsLogic precompute payload', () => {
         logic.actions.setUseWebAnalyticsPrecompute(toggle as boolean | null)
         await expectLogic(logic).toMatchValues({
             controls: expect.objectContaining({ useWebAnalyticsPrecompute: expected }),
+        })
+    })
+})
+
+describe('webAnalyticsLogic domain host filter', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+    let urlsLogic: ReturnType<typeof authorizedUrlListLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        urlsLogic = authorizedUrlListLogic({
+            type: AuthorizedUrlListType.WEB_ANALYTICS,
+            actionId: null,
+            experimentId: null,
+            productTourId: null,
+        })
+        urlsLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        urlsLogic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // The picked domain and the ingested $host can disagree on the www. prefix (authorized URL carries
+    // www. but events land on the bare host, or vice versa). A single exact match then returns zero even
+    // though the traffic exists, so the $host filter must carry both variants.
+    it.each<[string, string]>([
+        ['a www. authorized domain', 'https://www.example.com'],
+        ['a bare authorized domain', 'https://example.com'],
+    ])('matches both host variants for %s', async (_name, origin) => {
+        urlsLogic.actions.setAuthorizedUrls([origin])
+        logic.actions.setDomainFilter(origin)
+
+        await expectLogic(logic).toMatchValues({
+            webAnalyticsFilters: expect.arrayContaining([
+                expect.objectContaining({
+                    key: '$host',
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.Exact,
+                    value: ['example.com', 'www.example.com'],
+                }),
+            ]),
         })
     })
 })
