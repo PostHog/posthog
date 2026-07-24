@@ -16,6 +16,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -613,11 +614,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable | DirectRedshiftTable:
+    ) -> (
+        HogQLDataWarehouseTable
+        | DirectPostgresTable
+        | DirectMySQLTable
+        | DirectSnowflakeTable
+        | DirectRedshiftTable
+        | DirectClickHouseTable
+    ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
         # These direct-query option keys are only needed here, at query-build time.
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_CLICKHOUSE_DATABASE_OPTION,
+            DIRECT_CLICKHOUSE_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -735,6 +745,28 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_catalog=redshift_catalog,
                 postgres_schema=redshift_schema,
                 postgres_table_name=redshift_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard.
+        if self.external_data_source and self.external_data_source.direct_engine == "clickhouse":
+            job_inputs = self.external_data_source.job_inputs or {}
+            clickhouse_database = (
+                self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION), str)
+                else job_inputs.get("database", "default")
+            )
+            clickhouse_table_name = (
+                self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectClickHouseTable(
+                name=self.name,
+                fields=fields,
+                clickhouse_database=clickhouse_database,
+                clickhouse_table_name=clickhouse_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

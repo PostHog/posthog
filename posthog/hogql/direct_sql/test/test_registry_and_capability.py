@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.direct_sql import (
+    ClickHouseAdapter,
     MySQLAdapter,
     PostgresAdapter,
     registry as registry_module,
@@ -18,13 +19,20 @@ class TestDirectSQLRegistry(SimpleTestCase):
     def test_get_adapter_returns_registered_engine_adapter(self):
         self.assertIsInstance(get_adapter("postgres"), PostgresAdapter)
         self.assertIsInstance(get_adapter("mysql"), MySQLAdapter)
+        self.assertIsInstance(get_adapter("clickhouse"), ClickHouseAdapter)
 
     @parameterized.expand([("none", None), ("unregistered", "bigquery")])
     def test_get_adapter_returns_none_for_unknown_engine(self, _name, engine):
         self.assertIsNone(get_adapter(engine))
 
-    def test_registered_engines_includes_phase_one_engines(self):
-        self.assertEqual({"postgres", "mysql", "snowflake", "redshift"}, set(registered_engines()))
+    def test_registered_engines_includes_all_engines(self):
+        self.assertEqual({"postgres", "mysql", "snowflake", "redshift", "clickhouse"}, set(registered_engines()))
+
+    def test_clickhouse_adapter_compiles_hogql(self):
+        adapter = get_adapter("clickhouse")
+        assert adapter is not None
+        # dialect is non-None, so direct_supports_hogql is True (not raw-only).
+        self.assertEqual(adapter.dialect, "clickhouse")
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
@@ -46,6 +54,10 @@ class TestDirectSQLCapability(SimpleTestCase):
             ("postgres_synced_disabled", ExternalDataSourceType.POSTGRES, "warehouse", False, False),
             ("mysql_synced_enabled", ExternalDataSourceType.MYSQL, "warehouse", True, True),
             ("snowflake_direct_ignores_toggle", ExternalDataSourceType.SNOWFLAKE, "direct", False, True),
+            ("clickhouse_direct_ignores_toggle", ExternalDataSourceType.CLICKHOUSE, "direct", False, True),
+            ("clickhouse_synced_enabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", True, True),
+            ("clickhouse_synced_disabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", False, False),
+            ("clickhousecloud_direct", ExternalDataSourceType.CLICKHOUSECLOUD, "direct", False, True),
             ("unmapped_engine_synced", ExternalDataSourceType.STRIPE, "warehouse", True, False),
             ("unmapped_engine_direct", ExternalDataSourceType.STRIPE, "direct", True, False),
         ]
@@ -65,6 +77,8 @@ class TestDirectSQLCapability(SimpleTestCase):
                 ExternalDataSourceType.MYSQL,
                 ExternalDataSourceType.SNOWFLAKE,
                 ExternalDataSourceType.REDSHIFT,
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSourceType.CLICKHOUSECLOUD,
             },
             set(direct_capable_source_types()),
         )

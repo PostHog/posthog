@@ -12,6 +12,15 @@ columns, creating / reprojecting / hiding the row) and reconciling schema rows o
 from abc import ABC, abstractmethod
 from typing import Any
 
+from products.data_warehouse.backend.clickhouse_helpers import (
+    get_clickhouse_source_location,
+    reconcile_clickhouse_schemas,
+    reproject_direct_clickhouse_table,
+)
+from products.data_warehouse.backend.direct_clickhouse import (
+    hide_direct_clickhouse_table,
+    upsert_direct_clickhouse_table,
+)
 from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table, upsert_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.direct_redshift import hide_direct_redshift_table, upsert_direct_redshift_table
@@ -37,6 +46,7 @@ from products.data_warehouse.backend.snowflake_helpers import (
     reproject_direct_snowflake_table,
 )
 from products.warehouse_sources.backend.facade.api import (
+    clickhouse_columns_to_dwh_columns,
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
@@ -275,8 +285,50 @@ class _RedshiftEngine(DirectQueryEngine):
         return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
+class _ClickHouseEngine(DirectQueryEngine):
+    engine = "clickhouse"
+
+    def source_table_location(self, *, schema_name, source_schema, default_schema, default_catalog=None):
+        # ClickHouse has no catalog level; database occupies the "schema" slot, catalog stays None.
+        database, table = get_clickhouse_source_location(
+            schema_name=schema_name,
+            schema_metadata=_location_metadata(source_schema),
+            default_database=default_schema,
+        )
+        return None, database, table
+
+    def columns_to_dwh_columns(self, source_columns):
+        return clickhouse_columns_to_dwh_columns(source_columns)
+
+    def upsert_table(
+        self, existing_table, *, schema_name, source, columns, source_catalog, source_schema, source_table_name
+    ):
+        # source_schema carries the ClickHouse database; there is no catalog.
+        return upsert_direct_clickhouse_table(
+            existing_table,
+            schema_name=schema_name,
+            source=source,
+            columns=columns,
+            source_database=source_schema,
+            source_table_name=source_table_name,
+        )
+
+    def reproject_table(self, schema_row, *, source, enabled_columns):
+        return reproject_direct_clickhouse_table(schema_row, source=source, enabled_columns=enabled_columns)
+
+    def hide_table(self, table):
+        hide_direct_clickhouse_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_clickhouse_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    # No refresh_name_substitutions override — like MySQL/Snowflake/Redshift, ClickHouse has no
+    # bespoke legacy-row remapping (only Postgres does), so it falls through to the generic path.
+
+
 _ENGINES: dict[str, DirectQueryEngine] = {
-    engine.engine: engine for engine in (_PostgresEngine(), _MySQLEngine(), _SnowflakeEngine(), _RedshiftEngine())
+    engine.engine: engine
+    for engine in (_PostgresEngine(), _MySQLEngine(), _SnowflakeEngine(), _RedshiftEngine(), _ClickHouseEngine())
 }
 
 
