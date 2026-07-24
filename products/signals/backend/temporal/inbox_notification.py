@@ -24,6 +24,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport
+from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.facade import api as tasks_facade
@@ -96,6 +97,9 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
+    # Hand the findings back to any support ticket that raised this report. Shares this function's
+    # READY guard and its wait for the implementation PR, so the note can cite the PR.
+    post_report_findings_to_tickets(team, report_id, signals)
     return dispatch_inbox_item_notifications(
         report_id=report_id,
         team_id=team_id,
