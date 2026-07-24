@@ -35,7 +35,16 @@ export type FacetField = 'severity_text' | 'service_name'
  *   `exact` for included values and `is_not` for excluded ones.
  */
 export type FacetSource =
-    | { type: 'column'; column: FacetField; filterKey: FacetFilterKey }
+    | {
+          type: 'column'
+          column: FacetField
+          filterKey: FacetFilterKey
+          /**
+           * The `log` property-filter key the facet's exclusions are stored under (e.g. severity_level).
+           * Includes stay in the dedicated field; without this, the facet is two-state (no exclusions).
+           */
+          exclusionKey?: string
+      }
     | { type: 'resourceAttribute'; key: string }
 
 export interface FacetConfig {
@@ -57,17 +66,17 @@ export interface FacetConfig {
     maxHeight?: number
 }
 
-interface LogResourceAttributeFilter {
+interface RailPropertyFilter {
     key: string
-    type: PropertyFilterType.LogResourceAttribute
+    type: PropertyFilterType.Log | PropertyFilterType.LogResourceAttribute
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
 
 // The logs filterGroup is always { AND, values: [{ AND, values: [<property filters>] }] } — the
 // editable property filters live in the single inner group.
-function innerFilters(group: UniversalFiltersGroup | undefined): LogResourceAttributeFilter[] {
-    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as LogResourceAttributeFilter[]
+function innerFilters(group: UniversalFiltersGroup | undefined): RailPropertyFilter[] {
+    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as RailPropertyFilter[]
 }
 
 /**
@@ -80,14 +89,12 @@ export interface FacetSelection {
     excluded: string[]
 }
 
-export const EMPTY_FACET_SELECTION: FacetSelection = { included: [], excluded: [] }
-
 // The rail owns a key's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
 // with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
 // untouched on write.
 const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
 
-function isRailFacetFilter(filter: LogResourceAttributeFilter, key: string): boolean {
+function isRailFacetFilter(filter: RailPropertyFilter, key: string): boolean {
     return (
         filter?.type === PropertyFilterType.LogResourceAttribute &&
         filter?.key === key &&
@@ -95,7 +102,7 @@ function isRailFacetFilter(filter: LogResourceAttributeFilter, key: string): boo
     )
 }
 
-function filterValues(filter: LogResourceAttributeFilter): string[] {
+function filterValues(filter: RailPropertyFilter): string[] {
     const value = filter.value
     if (Array.isArray(value)) {
         return value as string[]
@@ -155,6 +162,33 @@ export function cycleResourceAttributeFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
+// A column facet's exclusions are the `is_not` `log` property filter under the facet's
+// exclusionKey. The rail owns only that filter — includes live in the facet's dedicated query
+// field, so an `exact` chip on the same key is chips-bar state: ignored on read, preserved on write.
+function isLogExclusionFilter(filter: RailPropertyFilter, key: string): boolean {
+    return filter?.type === PropertyFilterType.Log && filter?.key === key && filter?.operator === PropertyOperator.IsNot
+}
+
+/** A column facet's excluded values, read from the `is_not` log filter under `key`. */
+export function logFilterExclusions(group: UniversalFiltersGroup | undefined, key: string): string[] {
+    return innerFilters(group)
+        .filter((f) => isLogExclusionFilter(f, key))
+        .flatMap(filterValues)
+}
+
+/** Replace the `is_not` log filter under `key` with `excluded`, dropping the filter when empty. */
+export function setLogFilterExclusions(
+    group: UniversalFiltersGroup | undefined,
+    key: string,
+    excluded: string[]
+): UniversalFiltersGroup {
+    const values = innerFilters(group).filter((f) => !isLogExclusionFilter(f, key))
+    if (excluded.length > 0) {
+        values.push({ key, type: PropertyFilterType.Log, operator: PropertyOperator.IsNot, value: excluded })
+    }
+    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
+}
+
 // Colors mirror the severity bar in the log rows (SEVERITY_BAR_COLORS) so the rail matches the viewer.
 const SEVERITY_OPTIONS: FacetOption[] = (
     [
@@ -172,7 +206,7 @@ const LEVEL_FACET: FacetConfig = {
     title: 'Level',
     group: 'Standard',
     kind: 'fixed',
-    source: { type: 'column', column: 'severity_text', filterKey: 'severityLevels' },
+    source: { type: 'column', column: 'severity_text', filterKey: 'severityLevels', exclusionKey: 'severity_level' },
     fixedOptions: SEVERITY_OPTIONS,
 }
 

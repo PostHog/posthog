@@ -5,9 +5,14 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetSelection, FacetSource, resourceAttributeSelection } from './facets'
+import { FacetSelection, FacetSource, logFilterExclusions, resourceAttributeSelection } from './facets'
 
-const LEVEL_SOURCE: FacetSource = { type: 'column', column: 'severity_text', filterKey: 'severityLevels' }
+const LEVEL_SOURCE: FacetSource = {
+    type: 'column',
+    column: 'severity_text',
+    filterKey: 'severityLevels',
+    exclusionKey: 'severity_level',
+}
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name', filterKey: 'serviceNames' }
 const NAMESPACE_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
 
@@ -28,32 +33,37 @@ describe('facetRailLogic', () => {
         filtersLogic.unmount()
     })
 
-    describe('severity level toggling', () => {
-        it('adds, accumulates (OR), and removes levels on the shared filters logic', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
+    describe('severity level cycling', () => {
+        const readExcluded = (): string[] => logFilterExclusions(filtersLogic.values.filterGroup, 'severity_level')
+        const click = async (value: string): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, value)).toFinishAllListeners()
+        }
+
+        it('cycles a level across the two stores: dedicated field, then is_not log filter, then cleared', async () => {
+            await click('error')
             expect(filtersLogic.values.severityLevels).toEqual(['error'])
+            expect(readExcluded()).toEqual([])
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'warn')).toFinishAllListeners()
-            expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual([])
+            expect(readExcluded()).toEqual(['error'])
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
-            expect(filtersLogic.values.severityLevels).toEqual(['warn'])
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual([])
+            expect(readExcluded()).toEqual([])
+            // the is_not filter is dropped from the group entirely, not left empty
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it.each(['trace', 'info', 'error', 'fatal'] as const)(
-            'toggling %s on then off round-trips to empty',
-            async (level) => {
-                await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
-                ).toFinishAllListeners()
-                expect(filtersLogic.values.severityLevels).toEqual([level])
+        it('holds one level included while another is excluded', async () => {
+            await click('error')
+            await click('warn')
+            expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
 
-                await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
-                ).toFinishAllListeners()
-                expect(filtersLogic.values.severityLevels).toEqual([])
-            }
-        )
+            await click('error')
+            expect(filtersLogic.values.severityLevels).toEqual(['warn'])
+            expect(readExcluded()).toEqual(['error'])
+        })
     })
 
     describe('facet collapse', () => {

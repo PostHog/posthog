@@ -129,6 +129,25 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
 
+    def test_level_facet_ignores_its_own_severity_exclusion(self):
+        # The rail stores Level exclusions as an is_not severity_level filter in the group; the
+        # counts query must strip it when faceting on severity_text, or an excluded level's own
+        # count would zero out.
+        base = self._facet("severity_text")
+        own_value = next(iter(base))
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [own_value]}]
+        self.assertEqual(self._facet("severity_text", filterGroup=filter_group), base)
+
+    def test_facet_honors_severity_exclusion(self):
+        # An is_not severity_level filter must remove that severity's rows from other facets'
+        # counts — proves the NotIn translation end to end on real data.
+        base = self._facet("service_name")
+        one_severity = next(iter(self._facet("severity_text")))
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [one_severity]}]
+        scoped = self._facet("service_name", filterGroup=filter_group)
+        self.assertTrue(set(scoped).issubset(set(base)))
+        self.assertLess(sum(scoped.values()), sum(base.values()))
+
     def test_resource_facet_honors_severity_filter(self):
         # severity_text now lives on the log_attributes rollup, so a severity filter re-scopes
         # resource-attribute facet counts (previously it was accepted but silently ignored).
