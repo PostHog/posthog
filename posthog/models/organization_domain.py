@@ -167,6 +167,22 @@ class OrganizationDomainManager(models.Manager):
 
         return candidate_sso_enforcement
 
+    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+        """Whether the domain of `email` is a verified domain owned by `organization`."""
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
+
+    def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
+        """
+        Whether a login or join for `email` into `organization` should be blocked: the org requires
+        a verified email domain, and `email`'s domain is not one of the org's verified domains.
+        """
+        if not organization.enforce_login_with_verified_domain:
+            return False
+        return not self.is_domain_verified_for_organization(email, organization)
+
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
