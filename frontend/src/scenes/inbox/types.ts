@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type PrActiveRunApi,
     type SignalReportRefundApi,
     type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
@@ -87,6 +88,8 @@ export interface SignalReport {
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
      * resolved report may have been resolved directly, without a merged PR. */
     implementation_pr_merged?: boolean
+    /** The run currently touching this report's PR, when one is active (detail/retrieve view only). */
+    pr_active_run?: PrActiveRunApi | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */

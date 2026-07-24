@@ -30,6 +30,8 @@ import type {
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    PrCommentRequestApi,
+    PrCommentResponseApi,
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCommentsResponseApi,
@@ -243,6 +245,28 @@ export const signalsReportPrChecks = async (
     return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsPrCommentCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_comment/`
+}
+
+/**
+ * Post a comment on this report's pull request and have the PostHog agent address it. The comment is posted to the PR and the run that addresses it is started (or, if a run is already working the PR, the comment is fed into that shared run). Requires a connected personal GitHub account with write access so commits are authored as you — otherwise returns status 'connect_required' with a connect_url.
+ * @summary Comment on a report's PR from the inbox
+ */
+export const signalsReportsPrCommentCreate = async (
+    projectId: string,
+    id: string,
+    prCommentRequestApi: PrCommentRequestApi,
+    options?: RequestInit
+): Promise<PrCommentResponseApi> => {
+    return apiMutator<PrCommentResponseApi>(getSignalsReportsPrCommentCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(prCommentRequestApi),
     })
 }
 

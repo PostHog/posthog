@@ -609,6 +609,18 @@ def resolve_signal_pr_mention_context(pr_url: str, repository: str) -> "contract
     )
 
 
+def get_active_run_for_pr(pr_url: str, repository: str) -> contracts.TaskRunDTO | None:
+    """The current run touching a Signals PR (non-terminal preferred), for live status in the report view.
+
+    Returns ``None`` when the PR isn't a Signals PR or has no run yet. The returned DTO may be terminal
+    (``is_terminal`` / ``status``) — the caller decides whether to show "working" vs an idle state.
+    """
+    context = resolve_signal_pr_mention_context(pr_url, repository)
+    if context is None:
+        return None
+    return get_task_run(context.run_id)
+
+
 def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
     """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
 

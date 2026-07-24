@@ -106,3 +106,22 @@ def resolve_commenter_identity(
     login_map = get_org_member_github_login_to_user_map(team.id) or {}
     member = login_map.get(github_login.lower()) if github_login else None
     return MentionIdentity(status=MentionIdentityStatus.NEEDS_CONNECT, user=member)
+
+
+def resolve_user_push_identity(*, user: User, team: Team, repository: str) -> MentionIdentity:
+    """Whether an authenticated PostHog ``user`` may drive a run on ``repository`` for ``team``.
+
+    Used by the report-view comment endpoint, where identity is the logged-in user (not a webhook
+    payload). ELIGIBLE requires org membership plus a usable personal GitHub connection covering the
+    repo — the push token that authors commits as them. Otherwise NEEDS_CONNECT (the UI shows a
+    connect prompt); NOT_MEMBER is never returned here since the viewset already scopes to the team.
+    """
+    repository_normalized = repository.lower()
+    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user.id).exists():
+        return MentionIdentity(status=MentionIdentityStatus.NOT_MEMBER)
+
+    for integration in UserIntegration.objects.filter(kind="github", user_id=user.id):
+        github = UserGitHubIntegration(integration)
+        if _integration_is_usable(github) and _integration_covers_repository(integration, repository_normalized):
+            return MentionIdentity(status=MentionIdentityStatus.ELIGIBLE, user=user, user_github_integration=github)
+    return MentionIdentity(status=MentionIdentityStatus.NEEDS_CONNECT, user=user)

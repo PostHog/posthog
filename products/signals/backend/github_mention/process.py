@@ -7,9 +7,12 @@ them and pushes to the existing PR branch; un-connected commenters get a connect
 row that replays once they connect.
 """
 
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 
 import structlog
@@ -31,9 +34,23 @@ logger = structlog.get_logger(__name__)
 
 # Follow-ups on an already-actionable report's PR must not re-bill the report.
 _MENTION_BILLING_EXEMPT_REASON = "github_mention_followup"
-# Queue behind an in-flight run for the same PR by retrying until it's terminal (~1h ceiling).
+# A transient failure signalling an in-flight run is retried until it lands (~1h ceiling).
 _QUEUE_RETRY_COUNTDOWN_SECONDS = 90
 _QUEUE_MAX_RETRIES = 40
+
+# Per-PR lock so two comments arriving on an idle PR at once can't both launch a run (one shared run
+# per PR). Held only across the launch-vs-forward decision, so a short TTL is a safe self-heal.
+_DISPATCH_LOCK_KEY_PREFIX = "signals:github_mention:pr_dispatch_lock:"
+_DISPATCH_LOCK_TTL_SECONDS = 30
+
+
+class MentionOutcome(Enum):
+    # A fresh run was created for this PR (no run was active).
+    LAUNCHED = "launched"
+    # The comment was forwarded into the PR's already-running shared run.
+    FORWARDED = "forwarded"
+    # A run is active but the follow-up signal transiently failed — the caller should retry.
+    FORWARD_RETRY = "forward_retry"
 
 
 def _github_mentions_enabled() -> bool:
@@ -136,6 +153,41 @@ def _gate_connect(
     )
 
 
+def _ack_reaction(github: GitHubIntegration | None, repository: str, comment_id: int) -> None:
+    if github is None:
+        return
+    try:
+        github.add_reaction_to_comment(repository, comment_id, "eyes")
+    except Exception:
+        logger.exception("github_mention_reaction_failed", repository=repository)
+
+
+def _active_mention_run(team_id: int, pr_url: str) -> tuple[UUID, UUID] | None:
+    """The (run_id, task_id) of the PR's latest still-running mention run, or None.
+
+    There is one shared run per PR: a comment arriving while a run is active is forwarded into it
+    rather than spawning a parallel run.
+    """
+    mappings = GitHubMentionTaskMapping.objects.for_team(team_id).filter(pr_url=pr_url).order_by("-created_at")
+    for mapping in mappings:
+        if not tasks_facade.is_task_run_terminal(str(mapping.task_run_id)):
+            return mapping.task_run_id, mapping.task_id
+    return None
+
+
+def _comment_body(github: GitHubIntegration | None, repository: str, pr_number: int | None, comment_id: int) -> str:
+    """Best-effort fetch of a single conversation comment's body, for forwarding into a running run."""
+    if github is None or pr_number is None:
+        return ""
+    listed = github.list_pull_request_comments(repository, pr_number)
+    if not listed.get("success"):
+        return ""
+    for comment in listed.get("comments", []):
+        if comment.get("id") == comment_id:
+            return comment.get("body") or ""
+    return ""
+
+
 def _launch_run(
     *,
     team: Team,
@@ -147,12 +199,8 @@ def _launch_run(
     comment_id: int,
     commenter_account_id: int,
     user_id: int,
-) -> None:
-    if github is not None:
-        try:
-            github.add_reaction_to_comment(repository, comment_id, "eyes")
-        except Exception:
-            logger.exception("github_mention_reaction_failed", repository=repository)
+) -> UUID:
+    _ack_reaction(github, repository, comment_id)
 
     report_id = str(context.signal_report_id) if context.signal_report_id else None
     feedback = _gather_feedback(github, repository, pr_number, team.id) if (github and pr_number) else ""
@@ -196,6 +244,71 @@ def _launch_run(
                 run_id=str(created.latest_run.id),
                 billing_exempt_reason=_MENTION_BILLING_EXEMPT_REASON,
             )
+    return created.latest_run.id
+
+
+def dispatch_eligible_mention(
+    *,
+    team: Team,
+    context: Any,
+    github: GitHubIntegration | None,
+    repository: str,
+    pr_url: str,
+    pr_number: int | None,
+    comment_id: int,
+    commenter_account_id: int,
+    user_id: int,
+    followup_content: str | None = None,
+) -> tuple[MentionOutcome, UUID | None]:
+    """Launch a new run for the PR, or forward this comment into the PR's already-running shared run.
+
+    Shared by the webhook path (``process_github_mention``) and the report-view comment endpoint.
+    ``followup_content`` lets the endpoint pass the comment body it already has; the webhook path
+    fetches it from GitHub. Returns the outcome and the active/created run id.
+    """
+    # Serialize the launch-vs-forward decision per PR: without this, two comments reaching an idle PR
+    # at the same moment could both see no active run and both launch, breaking one-run-per-PR.
+    lock_key = f"{_DISPATCH_LOCK_KEY_PREFIX}{pr_url}"
+    if not cache.add(lock_key, True, _DISPATCH_LOCK_TTL_SECONDS):
+        return MentionOutcome.FORWARD_RETRY, None  # another dispatch is deciding right now — caller retries
+    try:
+        active = _active_mention_run(team.id, pr_url)
+        if active is not None:
+            run_id, task_id = active
+            _ack_reaction(github, repository, comment_id)
+            content = (
+                followup_content
+                if followup_content is not None
+                else _comment_body(github, repository, pr_number, comment_id)
+            )
+            message = (
+                "A reviewer left more feedback on this PR — address it too, then commit and push to the "
+                f"same branch:\n\n{content}"
+            )
+            result = tasks_facade.signal_task_run_user_message(
+                run_id=str(run_id), task_id=str(task_id), team_id=team.id, content=message, artifact_ids=[]
+            )
+            if result is True:
+                return MentionOutcome.FORWARDED, run_id
+            if result is False:
+                return MentionOutcome.FORWARD_RETRY, run_id
+            # result is None: the run's workflow is gone (it finished between the terminal check and now).
+            # Fall through and start a fresh run.
+
+        run_id = _launch_run(
+            team=team,
+            context=context,
+            github=github,
+            repository=repository,
+            pr_url=pr_url,
+            pr_number=pr_number,
+            comment_id=comment_id,
+            commenter_account_id=commenter_account_id,
+            user_id=user_id,
+        )
+        return MentionOutcome.LAUNCHED, run_id
+    finally:
+        cache.delete(lock_key)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_QUEUE_MAX_RETRIES, acks_late=True)
@@ -224,11 +337,6 @@ def process_github_mention(
 
     # team_scope gives the fail-closed managers on the mention models a team context in this Celery task.
     with team_scope(team_id):
-        # Queue behind any in-flight mention run for this PR (ordered, no parallel run).
-        for mapping in GitHubMentionTaskMapping.objects.for_team(team_id).filter(pr_url=pr_url):
-            if not tasks_facade.is_task_run_terminal(str(mapping.task_run_id)):
-                raise self.retry(countdown=_QUEUE_RETRY_COUNTDOWN_SECONDS)
-
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
         pr_number = _pr_number(pr_url)
         report_id = str(context.signal_report_id) if context.signal_report_id else None
@@ -264,7 +372,8 @@ def process_github_mention(
             )
             return
 
-        _launch_run(
+        # One shared run per PR: forward into the active run if there is one, else start a fresh run.
+        outcome, _ = dispatch_eligible_mention(
             team=team,
             context=context,
             github=github,
@@ -275,3 +384,5 @@ def process_github_mention(
             commenter_account_id=int(commenter_account_id),
             user_id=identity.user.id,
         )
+        if outcome == MentionOutcome.FORWARD_RETRY:
+            raise self.retry(countdown=_QUEUE_RETRY_COUNTDOWN_SECONDS)

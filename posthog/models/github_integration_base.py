@@ -984,7 +984,11 @@ class GitHubIntegrationBase:
                 "error": f"Failed to comment on pull request: {response.text}",
                 "status_code": response.status_code,
             }
-        return {"success": True}
+        try:
+            created_id = response.json().get("id")
+        except Exception:
+            created_id = None
+        return {"success": True, "id": created_id}
 
     def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
         """Post a comment on a pull request by its HTML URL."""

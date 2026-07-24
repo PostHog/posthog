@@ -48,6 +48,22 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Post a comment on this report's pull request and have the PostHog agent address it. The comment is posted to the PR and the run that addresses it is started (or, if a run is already working the PR, the comment is fed into that shared run). Requires a connected personal GitHub account with write access so commits are authored as you — otherwise returns status 'connect_required' with a connect_url.
+ * @summary Comment on a report's PR from the inbox
+ */
+export const signalsReportsPrCommentCreateBodyContentMax = 10000
+
+export const SignalsReportsPrCommentCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .min(1)
+            .max(signalsReportsPrCommentCreateBodyContentMax)
+            .describe('The comment to post on the PR and have the agent address.'),
+    })
+    .describe("Body for commenting on a report's PR from the inbox.")
+
+/**
  * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
  * @summary Post an inline review comment on a report's implementation PR
  */

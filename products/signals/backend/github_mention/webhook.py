@@ -26,9 +26,18 @@ _MENTION_DEDUP_KEY_PREFIX = "signals:github_mention:delivery:"
 # GitHub redelivers failed webhooks; 1h comfortably covers the retry window without pinning memory.
 _MENTION_DEDUP_TTL_SECONDS = 60 * 60
 
+_HANDLED_COMMENT_KEY_PREFIX = "signals:github_mention:handled_comment:"
+_HANDLED_COMMENT_TTL_SECONDS = 60 * 60
+
+
+def mark_comment_handled_directly(comment_id: int) -> None:
+    """Record that a comment's run was already triggered directly (from the report-view endpoint), so
+    the webhook skips it when GitHub delivers the same user-authored comment — no double-trigger."""
+    cache.set(f"{_HANDLED_COMMENT_KEY_PREFIX}{comment_id}", True, _HANDLED_COMMENT_TTL_SECONDS)
+
 
 def _mentions_bot(body: str) -> bool:
-    slug = (settings.GITHUB_APP_SLUG or "").strip().lower()
+    slug = (getattr(settings, "GITHUB_APP_SLUG", None) or "").strip().lower()
     if not slug:
         return False
     # Matches both "@slug" and "@slug[bot]" (the GitHub App bot login form).
@@ -53,6 +62,9 @@ def handle_github_mention_event(request: HttpRequest, payload: dict[str, Any]) -
         comment = payload.get("comment") or {}
         if comment.get("performed_via_github_app"):
             return  # our own bot comment — avoid loops
+        comment_id = comment.get("id")
+        if comment_id is not None and cache.get(f"{_HANDLED_COMMENT_KEY_PREFIX}{comment_id}"):
+            return  # the report-view endpoint already triggered this comment's run directly
         if not _mentions_bot(comment.get("body") or ""):
             return
 

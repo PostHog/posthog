@@ -40,7 +40,8 @@ def relay_github_mention_result(*, run_id: str, status: str) -> None:
     if not body:
         return
 
-    mapping = GitHubMentionTaskMapping.all_teams.filter(task_run_id=run_id).first()
+    # Django coerces the str pk for the UUID FK lookup at runtime; django-stubs types it strictly.
+    mapping = GitHubMentionTaskMapping.all_teams.filter(task_run_id=run_id).first()  # type: ignore[misc]
     if mapping is None:
         return
 

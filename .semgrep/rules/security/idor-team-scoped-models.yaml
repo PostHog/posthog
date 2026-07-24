@@ -164,6 +164,8 @@ rules:
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
                               |GithubCommentMapping
+                              |GitHubMentionTaskMapping
+                              |GitHubPendingMention
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -482,6 +484,8 @@ rules:
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
                         |GithubCommentMapping
+                        |GitHubMentionTaskMapping
+                        |GitHubPendingMention
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
