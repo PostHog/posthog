@@ -18,6 +18,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -490,7 +491,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     loaders(({ values }) => ({
         suggestions: {
             __default: [] as SuggestedDomain[],
-            loadSuggestions: async (_: void, breakpoint) => {
+            loadSuggestions: async (_: void, breakpoint): Promise<SuggestedDomain[]> => {
                 const query = hogql`
                     select properties.$current_url, count()
                     from events
@@ -503,10 +504,21 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     limit 25`
 
                 const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
-                const response = await api.queryHogQL(query, {
-                    scene: currentScene,
-                    productKey: 'platform_and_support',
-                })
+                let response: Awaited<ReturnType<typeof api.queryHogQL>>
+                try {
+                    response = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
+                } catch (error) {
+                    // These domain suggestions are advisory only. Swallow errors (e.g. a 500
+                    // from the query endpoint) so kea-loaders does not surface a user-visible
+                    // toast on every scene that mounts an AuthorizedUrlList.
+                    posthog.captureException(error, {
+                        posthog_source: 'authorizedUrlListLogic.loadSuggestions',
+                    })
+                    return values.suggestions
+                }
                 breakpoint()
                 const result = response.results as [string, number][]
 
