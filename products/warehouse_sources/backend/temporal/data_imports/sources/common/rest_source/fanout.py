@@ -121,7 +121,7 @@ def build_dependent_resource(
     }
 
     if warehouse_parent:
-        if source_id is None:
+        if not source_id:
             raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
         # noqa reason: keeps deltalake/pyarrow off the import path of every source module —
         # the reader stack loads only when a warehouse-parent fan-out actually runs.

@@ -341,7 +341,7 @@ def _iter_issue_tag_values_rows(
 
     issues: Iterator[dict[str, Any]]
     if use_warehouse_parent:
-        if team_id is None or source_id is None:
+        if team_id is None or not source_id:
             raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
         # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
         # by the API process for schema discovery) — the reader loads only when syncing.
