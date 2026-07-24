@@ -12,6 +12,7 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
@@ -40,6 +41,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.EVENT, name="date", property_type=PropertyType.Datetime
         )
+
+        # Event -> property associations, maintained during ingestion and used to list an
+        # event's properties without scanning the events table.
+        for name in ("$browser", "id", "bool", "date"):
+            EventProperty.objects.create(team=self.team, event="event1", property=name)
 
         _create_person(
             distinct_ids=["person1"],
@@ -356,6 +362,23 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("</Boolean>", prompt)
             # Virtual properties are surfaced even though they never appear in stored event data.
             self.assertIn("- $virt_is_bot", prompt)
+
+    def test_retrieve_event_properties_omits_noisy_keys(self):
+        self._create_taxonomy()
+        # Feature-flag properties have real definitions but are intentionally excluded from
+        # the taxonomy output (the model is told about them via a separate dynamic-properties hint).
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="$feature/test-flag",
+            property_type=PropertyType.String,
+        )
+        EventProperty.objects.create(team=self.team, event="event1", property="$feature/test-flag")
+
+        toolkit = DummyToolkit(self.team, self.user)
+        prompt = toolkit.retrieve_event_or_action_properties("event1")
+        self.assertNotIn("$feature/test-flag", prompt)
+        self.assertIn("- $browser", prompt)
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()

@@ -17,13 +17,14 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner, is_omitted_taxonomy_property
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
@@ -237,27 +238,48 @@ class TaxonomyAgentToolkit:
             )
         return response, verbose_name
 
+    def _event_property_names(self, event_name: str) -> list[str]:
+        """
+        Property names seen on an event, read from the precomputed event-property mapping.
+
+        This avoids scanning the events table, which times out for very high-volume events
+        such as $pageview or $autocapture. The mapping is maintained during ingestion, so it
+        stays consistent with the property type definitions we intersect against below.
+        """
+        names = (
+            EventProperty.objects.filter(team=self._team, event=event_name)
+            .order_by("property")
+            .values_list("property", flat=True)
+            .distinct()
+        )
+        return [name for name in names if not is_omitted_taxonomy_property(name)]
+
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
-        Retrieve properties for an event.
+        Retrieve properties for an event or action.
         """
-        try:
-            response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
-            if not project_actions:
-                return "No actions exist in the project."
-            return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
+        if isinstance(event_name_or_action_id, str):
+            verbose_name = f"event {event_name_or_action_id}"
+            property_names = self._event_property_names(event_name_or_action_id)
+        else:
+            try:
+                response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+            except Action.DoesNotExist:
+                project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
+                if not project_actions:
+                    return "No actions exist in the project."
+                return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
+            if not isinstance(response, CachedEventTaxonomyQueryResponse):
+                return "Properties have not been found."
+            property_names = [item.property for item in response.results or []]
 
-        if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            return "Properties have not been found."
-        if not response.results:
+        if not property_names:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         # Intersect properties with their types.
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
         qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=property_names
         )
         property_to_type = {
             property_definition.name: property_definition.property_type
@@ -265,10 +287,10 @@ class TaxonomyAgentToolkit:
             if property_definition.name not in restricted
         }
         props: list[tuple[str, str | None]] = [
-            (item.property, property_to_type.get(item.property))
-            for item in response.results
+            (name, property_to_type.get(name))
+            for name in property_names
             # Exclude properties that exist in the taxonomy, but don't have a type.
-            if item.property in property_to_type
+            if name in property_to_type
         ]
         # Virtual properties are computed at query time, so they never appear in stored event data.
         props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | restricted)
