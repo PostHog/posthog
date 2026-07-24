@@ -56,6 +56,9 @@ class S3AssumeRoleTestStep(DestinationTestStep):
                 policy_statements=[
                     PolicyStatement(Effect="Allow", Action=["s3:ListBucket"], Resource="arn:aws:s3:::*")
                 ],
+                # This test verifies user-provided config, where failures are expected, so
+                # report them promptly rather than retrying.
+                max_attempts=1,
             )
         except InvalidCredentialsError as err:
             return DestinationTestStepResult(
@@ -157,6 +160,9 @@ class S3EnsureBucketTestStep(DestinationTestStep):
                         Effect="Allow", Action=["s3:ListBucket"], Resource=f"arn:aws:s3:::{self.bucket_name}"
                     )
                 ],
+                # This test verifies user-provided config, where failures are expected, so
+                # report them promptly rather than retrying.
+                max_attempts=1,
             )
 
             aws_access_key_id, aws_secret_access_key, aws_session_token = (
