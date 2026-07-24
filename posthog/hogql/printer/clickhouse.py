@@ -44,6 +44,25 @@ from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
 
 
+class _ClickHouseAliasNamePrinter(HogQLPrinter):
+    """Prints a column expression as a deterministic name for a ClickHouse `... AS <name>` alias.
+
+    Same HogQL-flavored output as `HogQLPrinter` (readable, constants inlined) but with identifiers escaped the
+    ClickHouse way, so a `$`-containing column (`mat_$current_url`, `$session_id`) is backtick-quoted exactly as it is
+    in the ClickHouse expression the name aliases. `escape_hogql_identifier` leaves `$` bare while
+    `escape_clickhouse_identifier` quotes it, and a bare-`$` alias diverging from the backtick-`$` expression breaks
+    ClickHouse's distributed block-structure matching (NotFoundColumnInBlock).
+    """
+
+    def _print_identifier(self, name: str) -> str:
+        return escape_clickhouse_identifier(name)
+
+    def _print_hogql_identifier_or_index(self, name: str | int) -> str:
+        if isinstance(name, int) and str(name).isdigit():
+            return str(name)
+        return escape_clickhouse_identifier(str(name))
+
+
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
     if isinstance(table_type, ast.ColumnAliasedTableType):
         return ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
@@ -1036,7 +1055,7 @@ class ClickHousePrinter(BasePrinter):
 
             if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
-                    column_alias = safe_identifier(HogQLPrinter(context=self.context).visit(column))
+                    column_alias = safe_identifier(_ClickHouseAliasNamePrinter(context=self.context).visit(column))
                 # ClickHouse rejects duplicate aliases for different expressions in the
                 # same SELECT. This can happen after "*" expansion if a subquery already
                 # exposes a generated expression name like `toDate(period_end)`.

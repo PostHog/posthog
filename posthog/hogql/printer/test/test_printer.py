@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -982,6 +983,31 @@ class TestPrinter(BaseTest):
                 else "events.mat_nullable_property"
             ),
         )
+
+    def test_dollar_materialized_column_alias_stays_backtick_quoted_in_subquery(self):
+        # A `$`-containing materialized column read that becomes an *unaliased* expression column in a subquery
+        # (`SELECT toString(properties.$browser) ...`) gets a generated `... AS <name>` alias. The name must escape
+        # `$` the ClickHouse way (backtick-quoted), matching the expression it aliases. The old code named it via the
+        # HogQL escaper, which leaves `$` bare — so the alias diverged from the backtick-quoted expression and
+        # ClickHouse's distributed block matching failed with NotFoundColumnInBlock. Every `mat_$browser` in the
+        # ClickHouse output must be backtick-adjacent; a non-`$` column (`mat_notdollar`) is unaffected either way.
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "$browser")
+        materialize("events", "notdollar")
+
+        printed = self._select(
+            "SELECT * FROM (SELECT toString(properties['$browser']), toString(properties['notdollar']), event FROM events)"
+        )
+
+        assert "`mat_$browser`" in printed
+        # No `mat_$browser` occurrence may appear un-backticked (i.e. not immediately preceded by a backtick).
+        assert re.search(r"(?<!`)mat_\$browser", printed) is None, printed
+        # The fix is $-specific: a non-$ column needs no quoting, so it must stay bare in both expression and alias.
+        assert "mat_notdollar" in printed and "`mat_notdollar`" not in printed, printed
 
     def test_property_groups(self):
         context = HogQLContext(
