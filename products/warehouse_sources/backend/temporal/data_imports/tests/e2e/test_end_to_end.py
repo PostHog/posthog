@@ -2840,6 +2840,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
     with (
+        mock.patch.object(ShutdownMonitor, "is_worker_shutdown", return_value=True),
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
@@ -3347,7 +3348,10 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_resumable_source_shutdown(team, stripe_customer, mock_stripe_client):
-    with mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown") as mock_raise_if_is_worker_shutdown:
+    with (
+        mock.patch.object(ShutdownMonitor, "is_worker_shutdown", return_value=True),
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown") as mock_raise_if_is_worker_shutdown,
+    ):
         await _run(
             team=team,
             schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,

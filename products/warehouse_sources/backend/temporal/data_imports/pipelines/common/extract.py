@@ -594,11 +594,18 @@ def should_check_shutdown(
     reset_pipeline: bool,
     source_is_resumable: bool,
 ) -> bool:
-    # Only raise if we're not running in descending order, otherwise we'll often not
-    # complete the job before the incremental value can be updated. Or if the source is
-    # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
-    # Raising during a full reset will reset our progress back to 0 rows
+    """Whether a source can bail out *immediately* when the worker starts draining.
+
+    True only when the current run's progress survives a bail:
+    - a resumable source checkpoints its cursor every batch, so it resumes cheaply; or
+    - an ascending incremental sync persists its watermark per chunk, so a bail just re-reads
+      from the last persisted value.
+
+    Descending-sort incremental syncs commit their watermark only at completion (walking
+    newest->oldest), so bailing early loses the whole run — hence the `sort_mode != "desc"` guard.
+    A full reset would likewise restart from 0 rows. Those cases don't bail on shutdown; they ride
+    the drain to completion or are cancelled when the worker's graceful-shutdown timeout elapses.
+    """
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )

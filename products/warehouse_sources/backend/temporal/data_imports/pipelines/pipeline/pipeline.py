@@ -235,7 +235,6 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
-        source_is_resumable = self._resumable_source_manager is not None
         if should_resume:
             await self._logger.ainfo("Resumable source detected - attempting to resume previous import")
 
@@ -257,10 +256,6 @@ class PipelineNonDLT(Generic[ResumableData]):
                 self._logger,
                 billable=self._job.billable,
             )
-
-            py_table = None
-            row_count = 0
-            chunk_index = 0
 
             # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
             # merge) before extraction so it self-heals in this run instead of looping forever.
@@ -288,53 +283,11 @@ class PipelineNonDLT(Generic[ResumableData]):
                     self._delta_table_helper, self._schema, self._resource, self._logger
                 )
 
-            async for item in async_iterate(self._resource.items()):
-                py_table = None
-
-                record_source_item_stats(
-                    item,
-                    source_type=self._source.source_type,
-                    logger=self._logger,
-                    team_id=self._job.team_id,
-                    schema_name=self._schema.name,
-                )
-
-                self._batcher.batch(item)
-
-                # A single batched table may be split into several when a string/binary/list
-                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
-                while self._batcher.should_yield():
-                    py_table = self._batcher.get_table()
-
-                    row_count += py_table.num_rows
-
-                    await self._process_pa_table(
-                        pa_table=py_table,
-                        index=chunk_index,
-                        resuming_sync=should_resume,
-                        row_count=row_count,
-                        is_first_ever_sync=is_first_ever_sync,
-                    )
-
-                    chunk_index += 1
-
-                    cleanup_memory(pa_memory_pool, py_table)
-                    py_table = None
-
-                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
-
-            while self._batcher.should_yield(include_incomplete_chunk=True):
-                py_table = self._batcher.get_table()
-                row_count += py_table.num_rows
-                await self._process_pa_table(
-                    pa_table=py_table,
-                    index=chunk_index,
-                    resuming_sync=should_resume,
-                    row_count=row_count,
-                    is_first_ever_sync=is_first_ever_sync,
-                )
-                chunk_index += 1
+            row_count = await self._consume_and_load(
+                pa_memory_pool=pa_memory_pool,
+                should_resume=should_resume,
+                is_first_ever_sync=is_first_ever_sync,
+            )
 
             await self._persist_observed_columns()
 
@@ -361,7 +314,82 @@ class PipelineNonDLT(Generic[ResumableData]):
             del self._resource
             del self._delta_table_helper
 
-            cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
+            # Per-chunk tables are cleaned up inside `_consume_and_load`; this just releases the pool.
+            cleanup_memory(pa_memory_pool, None)
+
+    async def _consume_and_load(self, *, pa_memory_pool: Any, should_resume: bool, is_first_ever_sync: bool) -> int:
+        """Pull rows from the source, batch them, and write each chunk to Delta. Returns rows synced.
+
+        When the worker drains and the sync can resume cheaply (`_should_bail_now`: a resumable source
+        with its own checkpoint, or an ascending incremental persisting its watermark per chunk), it
+        flushes the partial buffer — committing it so our written progress catches up to the source's
+        saved checkpoint, which can otherwise sit ahead of what we've persisted — then raises the
+        retryable `WorkerShuttingDownError` so the activity reschedules and resumes from that
+        checkpoint. No rows are skipped or duplicated. Sources that can't resume don't bail; they ride
+        the drain to completion or are cancelled when the worker's graceful-shutdown timeout elapses.
+        """
+        row_count = 0
+        chunk_index = 0
+        py_table: pa.Table | None = None
+
+        async def _load_ready_chunks(*, include_incomplete: bool) -> None:
+            nonlocal row_count, chunk_index, py_table
+            # A single batched table may be split into several when a string/binary/list column would
+            # otherwise overflow a 32-bit offset, so drain every ready chunk.
+            while self._batcher.should_yield(include_incomplete_chunk=include_incomplete):
+                py_table = self._batcher.get_table()
+                row_count += py_table.num_rows
+                await self._process_pa_table(
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
+                )
+                chunk_index += 1
+                cleanup_memory(pa_memory_pool, py_table)
+                py_table = None
+
+        try:
+            async for item in async_iterate(self._resource.items()):
+                py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=self._source.source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
+
+                self._batcher.batch(item)
+                await _load_ready_chunks(include_incomplete=False)
+
+                if self._should_bail_now():
+                    # Flush the partial buffer so committed progress catches up to the checkpoint,
+                    # then hand off. Raised from inside the `async for` so the source generator's
+                    # cleanup (closing DB cursors/tunnels) runs as the exception unwinds it.
+                    await _load_ready_chunks(include_incomplete=True)
+                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+
+            await _load_ready_chunks(include_incomplete=True)
+        finally:
+            cleanup_memory(pa_memory_pool, py_table)
+
+        return row_count
+
+    def _should_bail_now(self) -> bool:
+        """Whether the sync should hand off to a live pod when the worker drains.
+
+        True once the worker is draining and the source can resume cheaply (`should_check_shutdown`
+        — a resumable source with its own checkpoint, or an ascending incremental persisting its
+        watermark per chunk). The caller flushes the partial buffer, then raises. Non-resumable
+        sources return False and ride the drain (bailing would just restart them from zero).
+        """
+        if not self._shutdown_monitor.is_worker_shutdown():
+            return False
+        source_is_resumable = self._resumable_source_manager is not None
+        return should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable)
 
     async def _persist_observed_columns(self) -> None:
         """Union the columns the source actually returned into `schema_metadata["columns"]`.
