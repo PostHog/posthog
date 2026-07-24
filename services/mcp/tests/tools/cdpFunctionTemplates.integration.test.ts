@@ -96,7 +96,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
     })
 
     describe('cdp-function-templates-retrieve tool', () => {
-        it('should retrieve a template by template_id', async () => {
+        it('should retrieve a template by id', async () => {
             const listResult = await listTool.handler(context, { limit: 1 })
             const { results } = parseToolResponse(listResult)
 
@@ -107,7 +107,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
 
             const templateId: string = results[0].id
 
-            const result = await retrieveTool.handler(context, { template_id: templateId })
+            const result = await retrieveTool.handler(context, { id: templateId })
             const tpl = parseToolResponse(result)
 
             expect(tpl.id).toBe(templateId)
@@ -123,7 +123,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
                 return
             }
 
-            const result = await retrieveTool.handler(context, { template_id: results[0].id })
+            const result = await retrieveTool.handler(context, { id: results[0].id })
             const tpl = parseToolResponse(result)
 
             // Templates have source code and may have inputs_schema
@@ -131,9 +131,9 @@ describe('Hog Function Templates', { concurrent: false }, () => {
             expect(tpl.inputs_schema == null || Array.isArray(tpl.inputs_schema)).toBe(true)
         })
 
-        it('should throw for a non-existent template_id', async () => {
+        it('should throw for a non-existent id', async () => {
             await expect(
-                retrieveTool.handler(context, { template_id: 'template-this-does-not-exist-xyz' })
+                retrieveTool.handler(context, { id: 'template-this-does-not-exist-xyz' })
             ).rejects.toThrow()
         })
     })
@@ -152,7 +152,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
 
             // Retrieve each of the first page items
             for (const item of results) {
-                const retrieveResult = await retrieveTool.handler(context, { template_id: item.id })
+                const retrieveResult = await retrieveTool.handler(context, { id: item.id })
                 const tpl = parseToolResponse(retrieveResult)
 
                 expect(tpl.id).toBe(item.id)

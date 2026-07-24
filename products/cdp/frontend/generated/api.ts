@@ -74,16 +74,16 @@ export const hogFunctionTemplatesList = async (
     })
 }
 
-export const getHogFunctionTemplatesRetrieveUrl = (projectId: string, templateId: string) => {
-    return `/api/projects/${projectId}/hog_function_templates/${templateId}/`
+export const getHogFunctionTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_function_templates/${id}/`
 }
 
 export const hogFunctionTemplatesRetrieve = async (
     projectId: string,
-    templateId: string,
+    id: string,
     options?: RequestInit
 ): Promise<HogFunctionTemplateApi> => {
-    return apiMutator<HogFunctionTemplateApi>(getHogFunctionTemplatesRetrieveUrl(projectId, templateId), {
+    return apiMutator<HogFunctionTemplateApi>(getHogFunctionTemplatesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
