@@ -1,0 +1,116 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Create a runnable custom scout and its config in one atomic request.",
+    "properties": {
+        "body": {
+            "description": "Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here.",
+            "type": "string"
+        },
+        "config": {
+            "description": "Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.",
+            "properties": {
+                "emit": {
+                    "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "description": "Whether this scout runs on its schedule. Defaults to true.",
+                    "type": "boolean"
+                },
+                "output_destinations": {
+                    "description": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "properties": {
+                        "slack": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "channel": {
+                                            "anyOf": [
+                                                {
+                                                    "maxLength": 255,
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                        },
+                                        "integration_id": {
+                                            "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
+                                            "minimum": 1,
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["integration_id"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
+                        }
+                    },
+                    "type": "object"
+                },
+                "run_cron_schedule": {
+                    "anyOf": [
+                        {
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+                },
+                "run_interval_minutes": {
+                    "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "maximum": 43200,
+                    "minimum": 30,
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "description": {
+            "description": "Short description of the signal or behavior this scout investigates.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "files": {
+            "description": "Optional reference files bundled with the scout prompt.",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "Text content of the file.",
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "default": "text/plain",
+                        "description": "MIME type of the file content.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "name": {
+            "description": "Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name", "description", "body"],
+    "type": "object"
+}

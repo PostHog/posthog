@@ -13,6 +13,7 @@ import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { countTextLines, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
@@ -20,10 +21,6 @@ import { NotebookDataframeResult } from './pythonExecution'
 // The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
 // path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
 // the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
-
-// The default node height only fits a couple of table rows; grow to this once output lands
-// so results and figures aren't clipped and the user doesn't have to resize by hand to read them.
-const RESULT_MIN_HEIGHT = 300
 
 export type NotebookNodePythonV2Attributes = {
     code: string
@@ -91,20 +88,27 @@ const Component = ({
 
     const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
-    // Grow a still-default (too-short) node the first time output lands so it's readable without
-    // a manual resize. Only grows below the target and only on fresh output, so a deliberate
-    // resize (or a taller reload) is left untouched.
-    const hadOutputRef = useRef(hasStreamOutput || !!dataframeResult)
+    // Grow a still-too-short node to fit the output each run lands, so it's readable without a
+    // manual resize. Sized to what came back — a printed value stays compact, a table or figure
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
     useEffect(() => {
-        const hasOutput = hasStreamOutput || !!dataframeResult
-        if (hasOutput && !hadOutputRef.current) {
-            if (typeof attributes.height !== 'number' || attributes.height < RESULT_MIN_HEIGHT) {
-                updateAttributes({ height: RESULT_MIN_HEIGHT })
-            }
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
         }
-        hadOutputRef.current = hasOutput
+        sizedRunIdRef.current = runId
+        const target = outputHeightForShape({
+            rowCount: result.columns?.length ? (result.first_page ?? []).length : 0,
+            textLines: countTextLines(result.stdout, result.stderr),
+            hasMedia: !!result.media?.length,
+        })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
         // oxlint-disable-next-line exhaustive-deps
-    }, [dataframeResult, hasStreamOutput])
+    }, [result, attributes.runId])
 
     if (!expanded) {
         return null

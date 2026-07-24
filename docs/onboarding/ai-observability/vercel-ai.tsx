@@ -83,6 +83,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 functionId: 'my-ai-function',
                                 metadata: {
                                   posthog_distinct_id: 'user_123', // optional
+                                  posthog_environment: 'production', // custom property: sets "environment" on the event
                                 },
                               },
                             })
@@ -96,6 +97,15 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             **Note:** If you want to capture LLM events anonymously, omit the `posthog_distinct_id`
                             metadata field. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Custom properties:** Prefix any telemetry metadata field with `posthog_` to attach it to
+                            the `$ai_generation` event as a custom property. The prefix is stripped, so
+                            `posthog_environment` becomes an `environment` property you can filter and break down by.
+                            Other metadata fields aren't captured.
                         </Markdown>
                     </Blockquote>
 

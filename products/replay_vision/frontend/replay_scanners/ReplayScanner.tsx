@@ -110,17 +110,21 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 data-attr="vision-scanner-tabs"
                 tabs={[
                     {
-                        key: ReplayScannerTab.Observations,
-                        label: 'Observations',
+                        key: ReplayScannerTab.Overview,
+                        label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
                                 {actionsTabEnabled && (
                                     <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 )}
                                 <ScannerOverview scannerId={scannerId} />
-                                <ScannerObservationsTable scannerId={scannerId} />
                             </div>
                         ),
+                    },
+                    {
+                        key: ReplayScannerTab.Observations,
+                        label: 'Observations',
+                        content: <ScannerObservationsTable scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
