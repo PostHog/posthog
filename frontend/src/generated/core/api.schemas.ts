@@ -3797,7 +3797,7 @@ export interface UserGitHubPrepareCallbackRequestApi {
 
 export interface UserGitHubLinkStartRequestApi {
     /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
      * @nullable
      */
     team_id?: number | null

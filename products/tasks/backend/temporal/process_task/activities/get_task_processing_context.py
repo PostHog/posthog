@@ -286,7 +286,7 @@ def _is_rtk_enabled(
 ) -> bool:
     """rtk compression is on by default. The kill-switch flag wins over everything —
     a fleet-wide disable must not be pinned back on by a per-run override — and
-    otherwise the per-run state override (the user's toggle in PostHog Code settings)
+    otherwise the per-run state override (the user's toggle in PostHog Desktop settings)
     applies. Fails open (enabled, override honored) on flag-service errors so the
     default posture is preserved."""
     try:

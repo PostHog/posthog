@@ -10077,7 +10077,7 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
     team_id: zod
         .number()
         .nullish()
-        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
+        .describe("Optional team\/project id (e.g. PostHog Desktop); web UI uses the session's current team."),
     connect_from: zod
         .string()
         .optional()

@@ -12,7 +12,7 @@
 #
 # Usage: bin/dev-open-when-ready <url>     # e.g. http://localhost:6006
 #
-# No-op (exit 0) in CI / under PostHog Code, or when no opener is available.
+# No-op (exit 0) in CI / under PostHog Desktop, or when no opener is available.
 
 set -euo pipefail
 

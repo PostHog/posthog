@@ -66,6 +66,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('batch'),
         filters: z.object({
             properties: z.array(z.any()),
+            filter_test_accounts: z.boolean().optional(),
         }),
     }),
     z.object({
