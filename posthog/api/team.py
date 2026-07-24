@@ -105,14 +105,26 @@ tracer = trace.get_tracer(__name__)
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
     logs_distinct_id_attribute_key = serializers.CharField(
-        max_length=200,
+        read_only=True,
         help_text=(
-            "Log attribute key whose value should match a person's distinct_id. "
-            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "Legacy single-key alias — always the first entry of "
+            "`logs_distinct_id_attribute_keys`. Read-only; write the plural field instead."
+        ),
+    )
+    logs_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Log attribute keys whose values should match a person's distinct_id — a log "
+            "links to a person when any of these attributes equals one of their distinct IDs. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to "
+            "['posthogDistinctId'] — the convention documented at "
             "https://posthog.com/docs/logs/link-session-replay and the key the "
-            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-            "your pipeline emits a different attribute."
+            "posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your "
+            "pipeline emits the person identifier under different attributes."
         ),
     )
     logs_session_id_attribute_keys = serializers.ListField(
@@ -132,14 +144,31 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamLogsConfig
-        fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
+        fields = [
+            "logs_distinct_id_attribute_key",
+            "logs_distinct_id_attribute_keys",
+            "logs_session_id_attribute_keys",
+        ]
 
-    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+    def _validate_unique_keys(self, value: list[str]) -> list[str]:
         # The child CharField already trims whitespace and rejects blanks; only
         # cross-item uniqueness needs checking here.
         if len(set(value)) != len(value):
             raise serializers.ValidationError("Attribute keys must be unique.")
         return value
+
+    def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return self._validate_unique_keys(value)
+
+    def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
+        # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
+        keys = validated_data.get("logs_distinct_id_attribute_keys")
+        if keys:
+            validated_data["logs_distinct_id_attribute_key"] = keys[0]
+        return super().update(instance, validated_data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:

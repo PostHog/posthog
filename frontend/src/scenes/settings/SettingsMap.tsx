@@ -101,7 +101,7 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
-import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -786,15 +786,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Link to person',
                 description: (
                     <>
-                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
-                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
-                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
-                        Override only if your backend pipeline emits the person identifier under a different key.
+                        The log attributes PostHog reads to identify which person a log belongs to. A log is linked when
+                        any of these attributes matches one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>, the key the JavaScript and React Native SDKs auto-attach. Add
+                        keys only if your backend pipeline emits the person identifier under different attributes.
                     </>
                 ),
                 searchDescription:
-                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
-                component: <LogsDistinctIdAttributeKey />,
+                    "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
+                component: <LogsDistinctIdAttributeKeys />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
