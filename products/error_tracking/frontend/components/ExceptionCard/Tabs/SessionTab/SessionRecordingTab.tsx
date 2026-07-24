@@ -2,8 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { match } from 'ts-pattern'
 
+import { IconRewindPlay } from '@posthog/icons'
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { recordingDisabledReason } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -32,6 +35,31 @@ export function SessionRecordingLoading(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
+    const { sessionId, recordingStatus, hasRecording } = useValues(errorPropertiesLogic)
+
+    // The event already tells us whether a recording exists, so surface that instead of mounting the
+    // player only to have the snapshot fetch 404 into a generic "Recording not found" panel.
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
+    if (disabledReason) {
+        return <NoRecordingView reason={disabledReason} />
+    }
+
+    return <SessionRecordingPlayerContent />
+}
+
+function NoRecordingView({ reason }: { reason: JSX.Element | string }): JSX.Element {
+    return (
+        <div className="flex justify-center w-full h-[300px] items-center">
+            <div className="flex flex-col items-center gap-2 text-center max-w-md px-4">
+                <IconRewindPlay className="text-3xl text-secondary" />
+                <h3 className="text-base font-semibold m-0">Recording unavailable</h3>
+                <p className="text-secondary m-0">{reason}</p>
+            </div>
+        </div>
+    )
+}
+
+function SessionRecordingPlayerContent(): JSX.Element {
     const {
         recordingProps,
         recordingTimestamp,

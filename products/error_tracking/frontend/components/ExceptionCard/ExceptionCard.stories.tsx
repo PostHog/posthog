@@ -204,6 +204,34 @@ export function ExceptionCardNoSessionWithoutSteps(): JSX.Element {
     return <ExceptionCardSessionTimelineStory event={event} />
 }
 
+////////////////////// Session without a recording
+
+function buildNoRecordingEvent(): ErrorEventType {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: 'session-without-recording' })
+    return {
+        ...event,
+        properties: {
+            ...event.properties,
+            $has_recording: false,
+            $recording_status: 'disabled',
+        },
+    }
+}
+
+export function ExceptionCardSessionRecordingUnavailable(): JSX.Element {
+    const event = buildNoRecordingEvent()
+    return (
+        <div className="w-[1000px] h-[700px]">
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+                <OpenSessionTab tab="recording">
+                    <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
+                </OpenSessionTab>
+            </BindLogic>
+        </div>
+    )
+}
+ExceptionCardSessionRecordingUnavailable.parameters = sessionTimelineParameters(buildNoRecordingEvent())
+
 //////////////////// Utils
 
 function ExceptionCardSessionTimelineStory({
@@ -529,12 +557,15 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenSessionTab({ children }: { children: JSX.Element }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id' }))
+function OpenSessionTab({ children, tab }: { children: JSX.Element; tab?: string }): JSX.Element {
+    const { setCurrentTab, setCurrentSessionTab } = useActions(exceptionCardLogic({ issueId: 'issue-id' }))
 
     useEffect(() => {
         setCurrentTab('session')
-    }, [setCurrentTab])
+        if (tab) {
+            setCurrentSessionTab(tab)
+        }
+    }, [setCurrentTab, setCurrentSessionTab, tab])
 
     return children
 }
