@@ -112,9 +112,13 @@ def create_hog_flow_scheduled_invocation(
 
 
 def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
+    # The count scans every in-flight row for the flow, which can be slow on a very large flow with
+    # a cold visibility map. The timeout keeps a slow scan from pinning the calling request thread —
+    # callers already treat any failure as "count unavailable" and render the impact without it.
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/in_flight_count",
         headers=get_internal_api_headers(),
+        timeout=10,
     )
 
 
@@ -203,11 +207,15 @@ def get_hog_function_templates() -> requests.Response:
 
 
 def create_batch_hog_flow_job_invocation(
-    team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT, max_audience_size: int | None = None
+    team_id: int,
+    hog_flow_id: UUIDT,
+    batch_job_id: UUIDT,
+    max_audience_size: int | None = None,
+    filters: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size},
+        json={"max_audience_size": max_audience_size, "filters": filters},
         headers=get_internal_api_headers(),
     )
 

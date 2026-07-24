@@ -24,7 +24,10 @@ from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsIsMccAccountConfig,
+    GoogleAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     clean_customer_id,
@@ -40,8 +43,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _is_transient_client_init_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
+    _resolve_protobuf_message_type_url,
     _search_as_arrow_tables,
     _search_fields_with_transient_retry,
+    get_schemas,
+    google_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -1193,7 +1199,14 @@ class TestGoogleAdsQueryConstruction:
             description=None,
         )
 
-    def _run_source(self, table: GoogleAdsTable, *, window_rows: dict[str, int] | None = None, **source_kwargs):
+    def _run_source(
+        self,
+        table: GoogleAdsTable,
+        *,
+        api_version: str = "v23",
+        window_rows: dict[str, int] | None = None,
+        **source_kwargs,
+    ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
             google_ads_source,
         )
@@ -1224,6 +1237,7 @@ class TestGoogleAdsQueryConstruction:
                 table.alias,
                 team_id=1,
                 resumable_source_manager=mock.Mock(),
+                api_version=api_version,
                 **source_kwargs,
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
@@ -1316,3 +1330,114 @@ class TestGoogleAdsQueryConstruction:
 
         assert "WHERE" not in queries[0]
         assert "ORDER BY" not in queries[0]
+
+
+_GOOGLE_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
+
+
+class TestVersionDeclaration:
+    def test_v24_is_default_and_both_versions_supported(self):
+        source = GoogleAdsSource()
+        assert source.default_version == "v24"
+        assert set(source.supported_versions) == {"v23", "v24"}
+
+    @pytest.mark.parametrize(
+        "pin, expected",
+        [("v23", "v23"), ("v24", "v24"), (None, "v24"), ("", "v24")],
+    )
+    def test_resolve_api_version_honors_pin_and_defaults_to_v24(self, pin, expected):
+        # A present pin is honored verbatim so an existing v23 source is never silently moved; an
+        # empty/missing pin falls back to the new v24 default that new sources are stamped with.
+        assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+
+class TestApiVersionDispatch:
+    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    def test_search_service_built_for_resolved_version(self, api_version):
+        # The resolved pin must reach GoogleAdsService.get_service so each source syncs against the
+        # version it is pinned to — the SDK's default flipped to the newest version, so an unpinned
+        # call would silently move v23 sources to v24.
+        client = mock.Mock()
+        table = _single_row_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=client),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}._search_as_arrow_tables", return_value=iter([])),
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                api_version=api_version,
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+
+        client.get_service.assert_called_once_with("GoogleAdsService", version=api_version, interceptors=mock.ANY)
+
+    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    def test_field_service_built_for_resolved_version(self, api_version):
+        # Schema discovery must also target the resolved version — before the SDK bump it relied on
+        # the client default being v23, which the bump changed to the newest version.
+        client = mock.Mock()
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=client),
+            mock.patch(
+                f"{_GOOGLE_ADS_MODULE}._search_fields_with_transient_retry",
+                return_value=SimpleNamespace(results=[]),
+            ),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.RESOURCE_SCHEMAS", {}),
+        ):
+            get_schemas(config, team_id=1, api_version=api_version)
+
+        client.get_service.assert_called_once_with("GoogleAdsFieldService", version=api_version, interceptors=mock.ANY)
+
+    @pytest.mark.parametrize(
+        "is_mcc, service_name",
+        [(False, "CustomerService"), (True, "GoogleAdsService")],
+        ids=["direct_account_probe", "mcc_account_probe"],
+    )
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), (None, "v24")])
+    def test_validate_credentials_probes_are_pinned(self, is_mcc, service_name, pin, expected):
+        # Unpinned probes fall through to the SDK's newest bundled version, so a v23 source would
+        # be validated against v24 and pass (or fail) on a version it never syncs with.
+        client = mock.Mock()
+        config = GoogleAdsSourceConfig(
+            customer_id="1234567890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(mcc_client_id="9876543210", enabled=True) if is_mcc else None,
+        )
+        with mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=client):
+            GoogleAdsSource().validate_credentials(config, team_id=1, api_version=pin)
+
+        client.get_service.assert_called_once_with(service_name, version=expected)
+
+
+class TestDiscoveryVersionThreading:
+    _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
+
+    @pytest.mark.parametrize("pin, expected", [("v23", "v23"), ("v24", "v24"), (None, "v24")])
+    def test_get_schemas_discovers_against_resolved_pin(self, pin, expected):
+        # Discovery must reconcile against the source's pinned version, not always the default —
+        # a v23-pinned source must not discover schemas under the newer default (v24).
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(self._SCHEMAS_PATH, return_value={}) as mock_get_schemas:
+            GoogleAdsSource().get_schemas(config, team_id=1, api_version=pin)
+
+        mock_get_schemas.assert_called_once_with(config, 1, expected)
+
+
+class TestTypeUrlVersionResolution:
+    @pytest.mark.parametrize("api_version", ["v23", "v24"])
+    def test_resolves_enum_type_url_against_matching_version(self, api_version):
+        # Response type URLs carry the API version they were produced under, so the resolver must
+        # decode a v23 and a v24 response each against its own protos.
+        enum_cls = _resolve_protobuf_message_type_url(f"google.ads.googleads.{api_version}.enums.DeviceEnum")
+        assert enum_cls.__module__.startswith(f"google.ads.googleads.{api_version}.")
+
+    def test_unknown_version_raises(self):
+        with pytest.raises(ValueError):
+            _resolve_protobuf_message_type_url("google.ads.googleads.v99.enums.DeviceEnum")

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
@@ -92,8 +92,16 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         **ctx.to_log_context(),
     ):
         try:
-            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                id=ctx.task_id
+            # The early connect-time read goes through retry_on_db_connection_drop: the
+            # long-lived worker pools connections via pgbouncer, so a pool recycle / failover
+            # / transient DNS blip can leave a stale pooled connection that raises
+            # OperationalError on first use. Retrying once on a fresh connection keeps a
+            # transient blip from escaping as error-tracking noise (Temporal still retries
+            # the activity if the DB is genuinely degraded).
+            task = retry_on_db_connection_drop(
+                lambda: Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+                    id=ctx.task_id
+                )
             )
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)

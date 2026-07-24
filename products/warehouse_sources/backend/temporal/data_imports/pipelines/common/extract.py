@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
     PersonPropertyRowSink,
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
     )
@@ -190,7 +190,9 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
 
 
 async def handle_non_retryable_error(
-    job_inputs: "PipelineInputs",
+    team_id: int,
+    source_id: str,
+    run_id: str,
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
@@ -200,9 +202,7 @@ async def handle_non_retryable_error(
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
             raise NonRetryableException() from error
 
-        retry_key = build_non_retryable_errors_redis_key(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
-        )
+        retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
         attempts = await redis_client.incr(retry_key)
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
@@ -491,7 +491,19 @@ async def handle_corrupted_delta_log(
         update_sync_type_config_keys,
     )
 
-    await delta_table_helper.reset_table()
+    try:
+        await delta_table_helper.reset_table()
+    except Exception as e:
+        # A reset that can't even complete (e.g. the storage backend rejects the delete) leaves the
+        # revive markers in place, so an unguarded re-raise here would repeat this exact same failing
+        # reset on every subsequent sync attempt forever. Give up after a few identical failures
+        # instead of looping — same policy as any other non-retryable import error.
+        capture_exception(e)
+        await logger.aexception(
+            f"handle_corrupted_delta_log: reset_table failed, schema_id={schema.id}: {e}", exc_info=e
+        )
+        await handle_non_retryable_error(schema.team_id, str(job.pipeline_id), str(job.id), str(e), logger, e)
+
     await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     # Refresh the in-memory config from the persisted result — this schema object keeps saving
     # `sync_type_config` for the rest of the run (incremental staging, partition bookkeeping), and
@@ -682,6 +694,9 @@ async def run_pre_write_defensive_compact(
     the CDC post-load path in `common/load.py` writes the same watermark, and both merge
     via `update_sync_type_config_keys` under a row lock. Wrapped in try/except so a
     maintenance failure never blocks the actual sync; the original error path is unaffected.
+    A transient object-store error (see `is_transient_object_store_error`) is logged at
+    warning instead of captured — the next sync's maintenance pass retries it from scratch,
+    so it isn't a bug in this function, just a temporary blip talking to our own S3 bucket.
 
     Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
     identical across pipelines without each having to know how to look up `partition_count`
@@ -705,5 +720,8 @@ async def run_pre_write_defensive_compact(
                 schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
             )
     except Exception as e:
+        if is_transient_object_store_error(e):
+            await logger.awarning(f"Pre-write maintenance skipped: transient object-store error: {e}")
+            return
         capture_exception(e)
         await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)

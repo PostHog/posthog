@@ -106,7 +106,7 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('denies the alerts scene without insight access', async () => {
+    it('does not blanket deny the combined alerts scene without insight access', async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
             window.POSTHOG_APP_CONTEXT = {
@@ -121,7 +121,7 @@ describe('sceneLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 sceneId: Scene.Alerts,
-                activeSceneId: Scene.ErrorAccessDenied,
+                activeSceneId: Scene.Alerts,
             })
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext

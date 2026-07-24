@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PicqerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.picqer import PicqerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
     PicqerResumeConfig,
     picqer_source,
@@ -183,7 +183,8 @@ class TestPicqerSourceResponse:
             account="acme",
             api_key="key",
             endpoint="purchaseorders",
-            logger=mock.MagicMock(),
+            team_id=1,
+            job_id="job",
             resumable_source_manager=mock.MagicMock(),
         )
         assert response.primary_keys == ["idpurchaseorder"]
@@ -195,7 +196,8 @@ class TestPicqerSourceResponse:
             account="acme",
             api_key="key",
             endpoint="warehouses",
-            logger=mock.MagicMock(),
+            team_id=1,
+            job_id="job",
             resumable_source_manager=mock.MagicMock(),
         )
         assert response.primary_keys == ["idwarehouse"]

@@ -98,6 +98,17 @@ export const ToolConfigSchema = z
                          * fully replace the schema; cast composes with the existing one).
                          */
                         cast: z.enum(['string-int']).optional(),
+                        /**
+                         * Alternate key names accepted for this param and normalized to it
+                         * before validation — for identifier params agents guess different
+                         * spellings for (e.g. `id` ← `insightId` / `short_id`). The
+                         * canonical key wins on conflict, then the first-listed alias;
+                         * alias keys never reach the handler. The advertised JSON schema
+                         * still shows only the canonical param. Codegen wraps the composed
+                         * tool schema with `z.preprocess(normalizeParamAliases(...), ...)`
+                         * — see generate-tools.ts and @/tools/cast-helpers.
+                         */
+                        aliases: z.array(z.string()).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
@@ -250,6 +261,11 @@ export const ToolConfigSchema = z
                 'input_schema replaces the entire schema, so include_params, exclude_params, and param_overrides have no effect and should be removed',
         }
     )
+    .refine((data) => !(data.confirmed_action && data.input_schema), {
+        message:
+            '`confirmed_action` cannot be combined with `input_schema` yet because custom input schemas bypass the confirmed-action prepare/execute codegen path. Remove `input_schema` or extend custom-schema codegen to support confirmed actions.',
+        path: ['confirmed_action'],
+    })
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })

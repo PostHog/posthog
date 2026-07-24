@@ -6,7 +6,9 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.codec import EncryptionCodec
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
+    TemporalIOSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.source import TemporalIOSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio import (
     FakeSettings,

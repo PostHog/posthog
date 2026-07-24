@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.active_cam
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.source import ActiveCampaignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
     ActiveCampaignSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType

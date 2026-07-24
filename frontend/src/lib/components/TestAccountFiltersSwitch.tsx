@@ -34,7 +34,7 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
                         size="small"
                         noPadding
                         className="ml-1"
-                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+                        to={urls.settings('environment-customization', 'internal-user-filtering')}
                     />
                 </div>
             }

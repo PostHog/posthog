@@ -2,16 +2,20 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.settings import (
     CONTACT_STATUSES,
     EMAILOCTOPUS_ENDPOINTS,
@@ -21,6 +25,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctop
 EMAILOCTOPUS_BASE_URL = "https://api.emailoctopus.com"
 # The v2 API caps a page at 100 results.
 PAGE_SIZE = 100
+# EmailOctopus returns the next page as a full URL under `paging.next.url`; the paginator follows it
+# verbatim so the original query string (including any incremental filter) is preserved across pages.
+_NEXT_URL_PATH = "paging.next.url"
+# Only non-secret headers here — the Bearer token rides on the framework `auth` config so it's
+# redacted from logged URLs and raised error messages.
+_HEADERS = {"Accept": "application/json"}
 
 # EmailOctopus serves every API version from the same host with the same resource paths, bearer
 # auth, and cursor pagination — the version isn't carried in the request (no path segment, header,
@@ -37,23 +47,18 @@ def _base_url_for_version(api_version: str) -> str:
     return _BASE_URL_BY_VERSION.get(api_version, EMAILOCTOPUS_BASE_URL)
 
 
-class EmailOctopusRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class EmailOctopusResumeConfig:
     # Full next-page URL returned by the API (`paging.next.url`). Followed verbatim so the original
     # query string — including any incremental time filter — is preserved across a resume. None means
-    # "start this (list, status) pair at its first page".
+    # "start this list at its first page".
     next_url: str | None = None
-    # Fan-out bookmark: the list and contact status currently being paged. Stable identifiers (not a
-    # positional index) so lists added/removed between a crash and the retry can't resume into the
-    # wrong slice. None for the non-fan-out (lists/campaigns) endpoints.
+    # Legacy fan-out bookmark fields. The contacts fan-out is now a composed set of single-hop
+    # dependent resources whose retries re-fetch (the [list_id, id] merge key dedupes), so these are
+    # no longer written. They are kept — with defaults — so any state persisted by the previous
+    # implementation still deserializes via ``dataclass(**saved)`` on resume.
     list_id: str | None = None
     status: str | None = None
-    # The incremental filter frozen at the original run's start. Reused on resume so a watermark that
-    # advanced mid-sync isn't re-applied to lists we haven't reached yet (which would skip their rows).
     incremental_field: str | None = None
     filter_value: str | None = None
 
@@ -68,80 +73,6 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
-
-
-def _next_url(data: dict[str, Any]) -> str | None:
-    """Extract `paging.next.url` from a v2 list response, or None when there are no more pages."""
-    paging = data.get("paging") or {}
-    nxt = paging.get("next") or {}
-    return nxt.get("url")
-
-
-def validate_credentials(api_key: str) -> bool:
-    url = f"{EMAILOCTOPUS_BASE_URL}/lists?{urlencode({'limit': 1})}"
-    try:
-        session = make_tracked_session(redact_values=(api_key,))
-        response = session.get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-@retry(
-    retry=retry_if_exception_type((EmailOctopusRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    params: dict[str, Any] | None = None,
-) -> dict:
-    response = session.get(url, headers=headers, params=params, timeout=60)
-
-    # 429s carry an X-RateLimit-Retry-After header; the token bucket refills quickly (10/s), so an
-    # exponential backoff retry recovers without parsing the header.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise EmailOctopusRetryableError(
-            f"EmailOctopus API error (retryable): status={response.status_code}, url={url}"
-        )
-
-    if not response.ok:
-        # A 404 is expected when a list is deleted mid-fan-out; the caller handles it.
-        log = logger.warning if response.status_code == 404 else logger.error
-        log(f"EmailOctopus API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _iter_list_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, base_url: str
-) -> Iterator[str]:
-    """Page through /lists and yield each list's id, following the cursor links."""
-    url = f"{base_url}/lists"
-    params: dict[str, Any] | None = {"limit": PAGE_SIZE}
-    while True:
-        data = _fetch_page(session, url, headers, logger, params)
-        for item in data.get("data", []):
-            yield item["id"]
-
-        next_url = _next_url(data)
-        if not next_url:
-            break
-        # Follow the full next-page URL verbatim; it already encodes the cursor and page size.
-        url = next_url
-        params = None
-
-
 def _build_contact_params(status: str, incremental_field: str | None, filter_value: str | None) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": PAGE_SIZE, "status": status}
     if incremental_field and filter_value:
@@ -150,195 +81,147 @@ def _build_contact_params(status: str, incremental_field: str | None, filter_val
     return params
 
 
-def _get_top_level_rows(
-    session: requests.Session,
-    config: EmailOctopusEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    manager: ResumableSourceManager[EmailOctopusResumeConfig],
+def validate_credentials(api_key: str) -> bool:
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{EMAILOCTOPUS_BASE_URL}/lists?limit=1",
+        headers={"Authorization": f"Bearer {api_key}", **_HEADERS},
+    )
+    return ok
+
+
+def _client_config(api_key: str, base_url: str) -> ClientConfig:
+    return {
+        "base_url": base_url,
+        "headers": _HEADERS,
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+
+def _rename_list_id(row: dict[str, Any]) -> dict[str, Any]:
+    # `include_from_parent=["id"]` injects the parent list's id as `_lists_id`; expose it as `list_id`
+    # so contact rows carry the exact same field the previous implementation attached.
+    if "_lists_id" in row:
+        row["list_id"] = row.pop("_lists_id")
+    return row
+
+
+def _top_level_resource(
+    api_key: str,
     base_url: str,
-) -> Iterator[Any]:
-    resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        url = resume.next_url
-        params: dict[str, Any] | None = None
-        logger.debug(f"EmailOctopus: resuming {config.name} from URL: {url}")
-    else:
-        url = f"{base_url}{config.path}"
-        params = {"limit": PAGE_SIZE}
-
-    while True:
-        data = _fetch_page(session, url, headers, logger, params)
-        items = data.get("data", [])
-        next_url = _next_url(data)
-
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding (and only while more pages remain) so a crash re-yields the last
-                # page rather than skipping it — merge dedupes on the primary key.
-                if next_url:
-                    manager.save_state(EmailOctopusResumeConfig(next_url=next_url))
-
-        if not next_url:
-            break
-        url = next_url
-        params = None
-
-
-def _get_contact_rows(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
+    config: EmailOctopusEndpointConfig,
+    team_id: int,
+    job_id: str,
     manager: ResumableSourceManager[EmailOctopusResumeConfig],
+) -> Any:
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key, base_url),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    "data_selector": "data",
+                    "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            manager.save_state(EmailOctopusResumeConfig(next_url=str(state["next_url"])))
+
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _contacts_items(
+    api_key: str,
+    base_url: str,
+    config: EmailOctopusEndpointConfig,
+    team_id: int,
+    job_id: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-    base_url: str,
-) -> Iterator[Any]:
-    """Fan out over every list and contact status, yielding each contact with its `list_id` attached.
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every list and contact status, attaching each contact's `list_id`.
 
-    Contacts are nested under lists and the API returns only one status at a time, so we walk every
-    (list, status) pair. The [list_id, id] primary key keeps a single row per contact across statuses.
+    Contacts are nested under lists and the API returns one status at a time, so each status is its
+    own single-hop parent(lists)->child(contacts) fan-out; the results are concatenated. A list
+    deleted between enumeration and the child fetch 404s, which is ignored per (list, status) via
+    `response_actions` rather than failing the whole sync. The [list_id, id] merge key keeps a single
+    row per contact across statuses and dedupes any rows re-fetched on a retry.
     """
-    list_ids = list(_iter_list_ids(session, headers, logger, base_url))
-    pairs = [(list_id, status) for list_id in list_ids for status in CONTACT_STATUSES]
+    filter_field = incremental_field if should_use_incremental_field else None
+    filter_value = (
+        _format_incremental_value(db_incremental_field_last_value)
+        if should_use_incremental_field and db_incremental_field_last_value and incremental_field
+        else None
+    )
 
-    resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None:
-        # Reuse the filter frozen at the original run's start. The incremental watermark can advance
-        # mid-sync; recomputing it here would over-filter lists we haven't reached yet.
-        filter_field = resume.incremental_field
-        filter_value = resume.filter_value
-    else:
-        filter_field = incremental_field if should_use_incremental_field else None
-        filter_value = (
-            _format_incremental_value(db_incremental_field_last_value)
-            if should_use_incremental_field and db_incremental_field_last_value and incremental_field
-            else None
-        )
+    for status in CONTACT_STATUSES:
+        contact_params: dict[str, Any] = {
+            "list_id": {"type": "resolve", "resource": "lists", "field": "id"},
+            **_build_contact_params(status, filter_field, filter_value),
+        }
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(api_key, base_url),
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": "lists",
+                    "endpoint": {
+                        "path": "/lists",
+                        "params": {"limit": PAGE_SIZE},
+                        "data_selector": "data",
+                        "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
+                    },
+                },
+                {
+                    "name": f"contacts_{status}",
+                    "include_from_parent": ["id"],
+                    "endpoint": {
+                        "path": config.path,
+                        "params": contact_params,
+                        "data_selector": "data",
+                        "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
+                        # A list deleted mid-fan-out 404s; treat it as an empty result for this
+                        # (list, status) and move on instead of failing the sync.
+                        "response_actions": [{"status_code": 404, "action": "ignore"}],
+                    },
+                },
+            ],
+        }
 
-    # Resolve the saved (list_id, status) bookmark to the remaining slice. If the bookmarked list no
-    # longer exists, start over from the first pair — merge dedupes the re-pulled rows.
-    start = 0
-    resume_url: str | None = None
-    if resume is not None and resume.list_id is not None and resume.status is not None:
-        try:
-            start = pairs.index((resume.list_id, resume.status))
-            resume_url = resume.next_url
-            logger.debug(f"EmailOctopus: resuming contacts from list_id={resume.list_id}, status={resume.status}")
-        except ValueError:
-            start = 0
-    remaining = pairs[start:]
-
-    for index, (list_id, status) in enumerate(remaining):
-        if index == 0 and resume_url:
-            url = resume_url
-            params: dict[str, Any] | None = None
-        else:
-            url = f"{base_url}/lists/{list_id}/contacts"
-            params = _build_contact_params(status, filter_field, filter_value)
-
-        try:
-            while True:
-                data = _fetch_page(session, url, headers, logger, params)
-                items = data.get("data", [])
-                next_url = _next_url(data)
-
-                for item in items:
-                    item["list_id"] = list_id
-                    batcher.batch(item)
-                    if batcher.should_yield():
-                        yield batcher.get_table()
-                        if next_url:
-                            manager.save_state(
-                                EmailOctopusResumeConfig(
-                                    next_url=next_url,
-                                    list_id=list_id,
-                                    status=status,
-                                    incremental_field=filter_field,
-                                    filter_value=filter_value,
-                                )
-                            )
-
-                if not next_url:
-                    break
-                url = next_url
-                params = None
-        except requests.HTTPError as exc:
-            # A list deleted between enumeration and this fetch 404s. Skip it rather than failing the
-            # whole sync — the membership is genuinely gone. Any other HTTP error is re-raised.
-            if exc.response is not None and exc.response.status_code == 404:
-                logger.warning(f"EmailOctopus: list {list_id} not found while fetching contacts, skipping")
-            else:
-                raise
-
-        # Flush residual batcher items before advancing the bookmark so a crash between pairs can't
-        # silently drop rows that are buffered (below a full chunk) but not yet yielded — on resume we
-        # start at the next pair and would never re-fetch them.
-        if batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-
-        # Advance the bookmark to the next pair so a crash between pairs resumes correctly; its first
-        # page is built fresh (next_url=None) when the loop reaches it.
-        if index + 1 < len(remaining):
-            next_list_id, next_status = remaining[index + 1]
-            manager.save_state(
-                EmailOctopusResumeConfig(
-                    next_url=None,
-                    list_id=next_list_id,
-                    status=next_status,
-                    incremental_field=filter_field,
-                    filter_value=filter_value,
-                )
-            )
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[EmailOctopusResumeConfig],
-    api_version: str,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = EMAILOCTOPUS_ENDPOINTS[endpoint]
-    base_url = _base_url_for_version(api_version)
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page (and, for fan-out, every list) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request. Redact the API key so it can't leak
-    # into logged URLs or sampled requests via the Bearer auth header.
-    session = make_tracked_session(redact_values=(api_key,))
-
-    if config.fan_out_over_lists:
-        yield from _get_contact_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-            incremental_field,
-            base_url,
-        )
-    else:
-        yield from _get_top_level_rows(session, config, headers, logger, batcher, resumable_source_manager, base_url)
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+        resources = rest_api_resources(rest_config, team_id, job_id, None)
+        child = next(r for r in resources if getattr(r, "name", None) == f"contacts_{status}")
+        child.add_map(_rename_list_id)
+        yield from child
 
 
 def emailoctopus_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[EmailOctopusResumeConfig],
     api_version: str,
     should_use_incremental_field: bool = False,
@@ -346,19 +229,26 @@ def emailoctopus_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = EMAILOCTOPUS_ENDPOINTS[endpoint]
+    base_url = _base_url_for_version(api_version)
+
+    if endpoint_config.fan_out_over_lists:
+        items: Any = lambda: _contacts_items(
+            api_key,
+            base_url,
+            endpoint_config,
+            team_id,
+            job_id,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+    else:
+        resource = _top_level_resource(api_key, base_url, endpoint_config, team_id, job_id, resumable_source_manager)
+        items = lambda: resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            api_version=api_version,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=items,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -20,11 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VercelSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
     VercelResumeConfig,
     validate_credentials as validate_vercel_credentials,
@@ -55,11 +52,11 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Vercel",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, and aliases into the PostHog Data warehouse.
+            caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, aliases, and billing usage into the PostHog Data warehouse.
 
 Create an access token in your [Vercel account settings](https://vercel.com/account/tokens). A read-only token is sufficient.
 
-To sync resources owned by a team, also enter the team's ID (found under **Team Settings**). Leave it blank to sync resources owned by the token's user.""",
+To sync resources owned by a team, also enter the team's ID (found under **Team Settings**). Leave it blank to sync resources owned by the token's user. Syncing the **billing_charges** table needs a token whose role can read billing (Owner, Member, Developer, Security, Billing, or Enterprise Viewer).""",
             iconPath="/static/services/vercel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vercel",
             fields=cast(
@@ -99,7 +96,19 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
             # stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.vercel.com": "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.vercel.com": "Your Vercel access token is not authorized for this resource. Check the token's scope (and team access), then reconnect.",
+            # Vercel's FOCUS billing endpoint 404s when the configured team can't be resolved for
+            # this token (wrong/missing Team ID, or the token's user no longer belongs to that
+            # team) rather than the 403 it returns for a role that lacks billing access. Retrying
+            # never resolves a bad team reference, so stop the sync. Match the stable path, not the
+            # query string (it carries the per-request date window and team id).
+            "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges": "Vercel couldn't find billing data for the configured team. Check that the Team ID is correct and that your access token's user still belongs to that team, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 or 5xx is retried internally by `_fetch_page`/`_open_billing_stream`; if those
+        # retries still exhaust, the failure is transient and self-recovering, so let Temporal
+        # retry the activity without surfacing it as tracked exception noise.
+        return {"Vercel API error (retryable)"}
 
     def get_schemas(
         self,
@@ -108,15 +117,17 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                name=name,
+                supports_incremental=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_append,
+                incremental_fields=endpoint_config.incremental_fields,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
             )
-            for endpoint in ENDPOINTS
+            for name, endpoint_config in VERCEL_ENDPOINTS.items()
         ]
         if names is not None:
             names_set = set(names)
@@ -124,7 +135,11 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
         return schemas
 
     def validate_credentials(
-        self, config: VercelSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: VercelSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_vercel_credentials(config.access_token)
 

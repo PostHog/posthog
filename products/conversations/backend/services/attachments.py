@@ -126,7 +126,16 @@ def build_content_with_images(
     content = "\n\n".join(parts)
 
     if not isinstance(rich_content, dict):
-        rich_content = {"type": "doc", "content": []}
+        # Callers without upstream rich_content (e.g. Zendesk import) pass the text here only.
+        # Seed it as paragraph nodes, or the UI — which renders rich_content exclusively — drops it.
+        # Split on newlines so multi-line bodies keep their structure (the renderer collapses \n
+        # within a single text node), matching how the Teams path builds its doc.
+        seeded = [
+            {"type": "paragraph", "content": [{"type": "text", "text": line}]}
+            for raw_line in cleaned_text.split("\n")
+            if (line := raw_line.strip())
+        ]
+        rich_content = {"type": "doc", "content": seeded}
     rich_nodes = rich_content.setdefault("content", [])
     for img in images:
         rich_nodes.append(

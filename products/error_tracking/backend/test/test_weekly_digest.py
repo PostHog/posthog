@@ -593,13 +593,6 @@ class TestSourceMapsRecommendationForDigest(APIBaseTest):
         assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps"
         assert result["docs_url"].startswith("https://posthog.com/docs/error-tracking/upload-source-maps")
 
-    @override_settings(CLOUD_DEPLOYMENT="EU")
-    def test_wizard_command_appends_region_eu_on_eu_cloud(self):
-        self._create_recommendation(meta=_ACTIVE_META)
-        result = get_source_maps_recommendation_for_team(self.team)
-        assert result is not None
-        assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps --region eu"
-
     def test_only_returns_recommendation_for_the_given_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         self._create_recommendation(meta=_ACTIVE_META)

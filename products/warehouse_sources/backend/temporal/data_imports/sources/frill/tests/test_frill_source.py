@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill import FrillResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FrillSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

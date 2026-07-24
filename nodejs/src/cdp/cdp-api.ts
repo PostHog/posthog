@@ -163,7 +163,6 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
-            services.recipientsManager,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService
         )
@@ -844,8 +843,12 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
-            return res.json({ count })
+            const counts = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({
+                count: counts.count,
+                by_action: counts.byAction,
+                position_unknown: counts.positionUnknown,
+            })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),
@@ -980,8 +983,13 @@ export class CdpApi {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
                 filters: {
-                    properties: hogFlow.trigger.filters.properties || [],
-                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                    // Prefer the audience snapshot validated at dispatch time - re-reading the live
+                    // trigger here would let an edit landing after the confirm check widen the send.
+                    // Fallback covers callers that predate the snapshot.
+                    properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
+                    filter_test_accounts:
+                        req.body.filters?.filter_test_accounts ??
+                        (hogFlow.trigger.filters.filter_test_accounts || false),
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,

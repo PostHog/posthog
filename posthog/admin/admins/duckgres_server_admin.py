@@ -147,7 +147,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         organization_id = request.POST.get("organization_id", "").strip()
         team_id = request.POST.get("team_id", "").strip()
         database_name = request.POST.get("database_name", "").strip()
-        table_name = request.POST.get("table_name", "").strip()
+        schema_name = request.POST.get("schema_name", "").strip()
 
         team = self._resolve_team(request, organization_id, team_id)
         if team is None:
@@ -156,7 +156,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
-            team.organization_id, database_name, team.id, table_name, require_enabled=False
+            team.organization_id, database_name, team.id, schema_name, require_enabled=False
         )
         if 200 <= resp.status_code < 300:
             # The control plane returns the root password exactly once, in this
@@ -189,7 +189,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:posthog_duckgresserver_provision"))
 
     def enable_backfill_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
-        """Add another team to an already-provisioned org's warehouse with its own tables."""
+        """Onboard another team onto an already-provisioned org's warehouse with its own schema."""
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
 
@@ -209,7 +209,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             )
 
         team_id = request.POST.get("team_id", "").strip()
-        table_name = request.POST.get("table_name", "").strip()
+        schema_name = request.POST.get("schema_name", "").strip()
 
         team = self._resolve_team(request, str(server.organization_id), team_id)
         if team is None:
@@ -217,8 +217,8 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
-        resp = managed_warehouse.enable_backfill(server.organization_id, team.id, table_name, require_enabled=False)
-        self._report(request, resp, f"Enabled warehouse backfill for team {team.id}")
+        resp = managed_warehouse.onboard_team(server.organization_id, team.id, schema_name, require_enabled=False)
+        self._report(request, resp, f"Onboarded team {team.id} onto the managed warehouse")
         if 200 <= resp.status_code < 300:
             return redirect(reverse("admin:posthog_duckgresserver_change", args=[object_id]))
         return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))

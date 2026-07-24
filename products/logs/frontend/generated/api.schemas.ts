@@ -263,6 +263,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -296,6 +305,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -1355,9 +1365,10 @@ export interface _LogsPatternsDiffRequestApi {
  * * `gone` - gone
  * * `unchanged` - unchanged
  */
-export type ClassificationEnumApi = (typeof ClassificationEnumApi)[keyof typeof ClassificationEnumApi]
+export type _LogPatternDiffEntryClassificationEnumApi =
+    (typeof _LogPatternDiffEntryClassificationEnumApi)[keyof typeof _LogPatternDiffEntryClassificationEnumApi]
 
-export const ClassificationEnumApi = {
+export const _LogPatternDiffEntryClassificationEnumApi = {
     New: 'new',
     RateShift: 'rate_shift',
     Gone: 'gone',
@@ -1371,7 +1382,7 @@ export interface _LogPatternDiffEntryApi {
      * * `rate_shift` - rate_shift
      * * `gone` - gone
      * * `unchanged` - unchanged */
-    classification: ClassificationEnumApi
+    classification: _LogPatternDiffEntryClassificationEnumApi
     /**
      * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
      * @nullable
@@ -1892,6 +1903,10 @@ export interface PatchedLogsViewApi {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Only return log alerts created by the user with this UUID.
+     */
+    created_by?: string
     /**
      * Number of results to return per page.
      */

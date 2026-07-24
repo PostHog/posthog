@@ -26,9 +26,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class TestSourceConfigGenerator(ClickhouseTestMixin):
     def _run(self, sources: dict[ExternalDataSourceType, SourceConfig]) -> str:
         generator = SourceConfigGenerator()
-        for name, config in sources.items():
-            generator.generate_source_config(name, config)
-        return generator._build_output()
+        return "\n".join(generator._generate_module(name, config) for name, config in sources.items())
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_source_config_types(self):

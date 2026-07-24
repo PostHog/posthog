@@ -35,6 +35,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_slack_interaction_state,
+    loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     record_message_actor,
     sandbox_identity_scope,
@@ -152,25 +153,42 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     state = task_run.state
     if input.actor_user_id is not None:
         state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
-        if is_slack_interaction_state(state):
-            # Deliveries are serialized by the workflow, so stamping here
-            # moves the durable actor at turn boundaries — between-turn
-            # consumers (reply tagging, permission broker) see the executing
-            # turn's actor. Skipped when already current.
-            updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
-            current = task_run.state or {}
-            if any(current.get(key) != value for key, value in updates.items()):
-                try:
-                    TaskRun.update_state_atomic(task_run.id, updates=updates)
-                except Exception:
-                    logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
 
-    auth_token = None
     actor_user = get_task_run_credential_user(task_run.task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         error_msg = "Slack actor unavailable for this run"
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         raise RuntimeError(f"send_followup failed: {error_msg}")
+
+    if input.steer:
+        bound_user_id = get_sandbox_mcp_session_user(sandbox_identity_scope(str(task_run.id), task_run.state))
+        if (
+            input.actor_user_id is None
+            or actor_user is None
+            or actor_user.id != input.actor_user_id
+            or bound_user_id != input.actor_user_id
+        ):
+            logger.info(
+                "send_followup_steer_actor_mismatch",
+                run_id=input.run_id,
+                actor_user_id=input.actor_user_id,
+                resolved_user_id=actor_user.id if actor_user is not None else None,
+                bound_user_id=bound_user_id,
+            )
+            return STEER_DECLINED_OUTCOME
+
+    if input.actor_user_id is not None and is_slack_interaction_state(state):
+        # Deliveries are serialized by the workflow, so stamping here moves
+        # the durable actor only after an active steer passes its identity gate.
+        updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+        current = task_run.state or {}
+        if any(current.get(key) != value for key, value in updates.items()):
+            try:
+                TaskRun.update_state_atomic(task_run.id, updates=updates)
+            except Exception:
+                logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+
+    auth_token = None
     if actor_user and actor_user.id:
         auth_token = create_sandbox_connection_token(
             task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
@@ -344,6 +362,7 @@ def _refresh_sandbox_mcp(
         team_id=task_run.team_id,
         user_id=actor_user.id,
         interaction_origin=(state or {}).get("interaction_origin"),
+        allowed_installation_ids=loop_mcp_installation_allowlist(state),
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

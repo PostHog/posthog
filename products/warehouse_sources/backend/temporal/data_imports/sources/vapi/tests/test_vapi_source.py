@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import VapiSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import ENDPOINTS, VAPI_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source import VapiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import VapiResumeConfig

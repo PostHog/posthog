@@ -20,6 +20,8 @@ import {
 import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
+    CustomPropertyDisplayTypeEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -27,6 +29,7 @@ import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    customPropertyAlias,
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
@@ -367,6 +370,49 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('csm')
             accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
             expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
+        })
+
+        describe('custom property columns', () => {
+            const PROP_ID = '11111111-2222-3333-4444-555555555555'
+            const alias = customPropertyAlias(PROP_ID)
+            const floatExpr = `toFloatOrNull(accounts.custom_properties.values.\`${PROP_ID}\`)`
+
+            const selectCustomProperty = (displayType: CustomPropertyDisplayTypeEnumApi): void => {
+                const config = accountsColumnConfigLogic.findMounted()!
+                config.actions.loadCustomPropertyDefinitionsSuccess([
+                    {
+                        id: PROP_ID,
+                        name: 'ARR',
+                        display_type: displayType,
+                        is_big_number: false,
+                        description: null,
+                        source: null,
+                    } as CustomPropertyDefinitionApi,
+                ])
+                config.actions.setSelectColumns([
+                    ACCOUNTS_NAME_COLUMN,
+                    `accounts.custom_properties.values.\`${PROP_ID}\` AS ${alias}`,
+                ])
+            }
+
+            // The value is stored in a JSON string column; without the float cast the
+            // backend ORDER BY sorts "55.3" before "5.5" lexically.
+            it.each(['number', 'currency', 'percent'] as const)(
+                'sorts a %s column by its value cast to a float',
+                (displayType) => {
+                    selectCustomProperty(displayType)
+                    logic.actions.toggleSort(alias)
+                    expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([floatExpr])
+                    logic.actions.toggleSort(alias) // desc
+                    expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([`${floatExpr} DESC`])
+                }
+            )
+
+            it('sorts a non-numeric custom property lexically by its alias', () => {
+                selectCustomProperty('text')
+                logic.actions.toggleSort(alias)
+                expect(orderByOf(logic.values.hogqlQuery.source)).toEqual([alias])
+            })
         })
     })
 

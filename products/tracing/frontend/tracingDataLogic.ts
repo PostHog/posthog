@@ -39,6 +39,7 @@ import {
     type VisibleDurationRange,
     visibleDurationRange,
 } from './durationBuckets'
+import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
 import {
     type TracingFilters,
@@ -72,6 +73,9 @@ export interface VisibleSpanTimeRange {
 }
 
 const DEFAULT_PAGE_SIZE = 100
+// Matches the backend's hard cap (_ROW_LIMIT) for span aggregation. The Operations tab needs
+// the full set for client-side sort/filter, unlike the smaller default the endpoint serves agents.
+const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
@@ -237,6 +241,9 @@ export interface tracingDataLogicActions {
         current: OverlayWindow
         previous: OverlayWindow
     } // tracingFiltersLogic
+    applyHeatmapBrush: (selection: HeatmapBrushSelection) => {
+        selection: HeatmapBrushSelection
+    }
     cancelInProgressAggregation: (controller: AbortController | null) => {
         controller: AbortController | null
     }
@@ -662,6 +669,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // listeners below; the scene logic additionally listens to this to sync the URL.
         // Mirrors the logs viewer's handleQueryChange.
         handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
+        // A completed 2D brush on the latency heatmap — maps to a date range + duration chips.
+        applyHeatmapBrush: (selection: HeatmapBrushSelection) => ({ selection }),
         runQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
@@ -1065,6 +1074,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                                 compare,
                                 compare_to: new Date(window.previousStartMs).toISOString(),
                             },
+                            // The Operations table sorts/filters the full result set client-side, so
+                            // request the endpoint's hard cap rather than its small default page.
+                            limit: OPERATIONS_AGGREGATION_LIMIT,
                         },
                         controller.signal
                     )
@@ -1396,6 +1408,30 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }),
         // Bulk restores (URL params, saved views) re-query without an interaction capture.
         setFilters: () => actions.runQuery(),
+        applyHeatmapBrush: ({ selection }) => {
+            // While a refetch is in flight the rendered heatmap still shows the previous query's
+            // buckets. Ignore brushes until it settles so the selection maps against the buckets
+            // actually on screen rather than a stale grid.
+            if (values.latencyHeatmapLoading) {
+                return
+            }
+            const updates = heatmapBrushToFilters(
+                values.latencyHeatmapData,
+                selection,
+                values.filters.filterGroup,
+                values.utcDateRange.date_to
+            )
+            if (!updates) {
+                return
+            }
+            posthog.capture('tracing filter changed', {
+                filter_type: 'heatmap_brush',
+                with_duration: !!updates.filterGroup,
+            })
+            // One dispatch → one re-query via the setFilters listener (and one URL write in the
+            // scene logic) — separate setDateRange + setFilterGroup would each run the query.
+            actions.setFilters(updates)
+        },
         // Feature flags land asynchronously (posthog.js /flags), potentially after the first
         // runQuery. If that flip just made the heatmap visible (?chart=heatmap deep link with
         // the flag on), fetch the data the earlier runQuery skipped.

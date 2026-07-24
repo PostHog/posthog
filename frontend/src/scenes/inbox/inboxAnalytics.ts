@@ -18,6 +18,7 @@ export const INBOX_EVENTS = {
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_ACTION: 'Inbox report action',
+    REPORT_FEEDBACK: 'Inbox report feedback',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_INTEREST: 'signals source interest',
 } as const
@@ -32,6 +33,9 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 
 /** How a report detail was closed. */
 export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
+
+/** Sentiment captured by the report feedback button. */
+export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
@@ -70,8 +74,8 @@ interface BaseReportProperties {
 /**
  * Identity + classification for a report. Kept to opaque ids, enums, ages, and counts — it never
  * includes the agent-generated report title, which can echo proprietary detail from a customer's
- * own data. A user-authored dismissal reason note is a different case: it is the actionable signal
- * we want, so the relevant capture call attaches it explicitly.
+ * own data. User-authored notes (a dismissal reason note, feedback note) are a different case: they
+ * are the actionable signal we want, so the relevant capture calls attach them explicitly.
  */
 function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {
@@ -223,6 +227,26 @@ export function captureInboxReportAction(params: {
         is_bulk: params.isBulk ?? false,
         bulk_size: params.bulkSize ?? 1,
         ...params.extra,
+    })
+}
+
+/**
+ * Free-form feedback on a single report, fired from the detail pane's feedback button. Unlike a
+ * dismiss, this is feedback-only: the report stays in the inbox. Carries the thumbs sentiment plus
+ * the optional note text so we can read what people actually think of a report (and its PR).
+ */
+export function captureInboxReportFeedback(params: {
+    report: SignalReport
+    sentiment: InboxReportFeedbackSentiment
+    note: string
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
+        ...baseReportProperties(params.report),
+        sentiment: params.sentiment,
+        has_pr: !!params.report.implementation_pr_url,
+        ...(params.note ? { note: params.note } : {}),
+        surface: params.surface,
     })
 }
 

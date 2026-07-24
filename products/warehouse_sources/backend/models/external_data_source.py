@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYP
 
 logger = structlog.get_logger(__name__)
 
+MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+
 
 class ExternalDataSourceManager(models.Manager):
     def get_queryset(self):
@@ -111,6 +114,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_redshift(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.REDSHIFT
+
+    @property
+    def is_system_managed(self) -> bool:
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @classmethod
+    def is_system_managed_prefix(cls, prefix: str | None) -> bool:
+        return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
 
     @property
     def direct_engine(self) -> str | None:

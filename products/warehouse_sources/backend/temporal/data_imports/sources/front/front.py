@@ -1,33 +1,28 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.settings import (
     FRONT_ENDPOINTS,
     FrontEndpointConfig,
 )
 
 FRONT_BASE_URL = "https://api2.frontapp.com"
-REQUEST_TIMEOUT_SECONDS = 60
+# Front cursors are absolute next-page links carried in ``_pagination.next``.
+FRONT_NEXT_URL_PATH = "_pagination.next"
 MAX_RETRIES = 6
-MAX_RETRY_WAIT_SECONDS = 60
-
-
-class FrontRetryableError(Exception):
-    """Raised for retryable Front responses (429 rate limiting, 5xx)."""
-
-    def __init__(self, message: str, retry_after: Optional[float] = None):
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 @dataclasses.dataclass
@@ -35,19 +30,18 @@ class FrontResumeConfig:
     next_url: str
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_token}",
-        "Accept": "application/json",
-    }
+def _accept_headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so the token is redacted from logs;
+    # only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _to_unix_seconds(value: Any) -> Any:
     """Coerce an incremental cursor value into Unix epoch seconds for Front's q[after] filter.
 
     Front stores timestamps as Unix epoch seconds; the warehouse may hand the value back as a
-    datetime/date or as the raw numeric column, so normalize both into something urlencode can
-    serialize as a number.
+    datetime/date or as the raw numeric column, so normalize both into something serializable as
+    a number.
     """
     if isinstance(value, datetime):
         dt = value if value.tzinfo else value.replace(tzinfo=UTC)
@@ -93,130 +87,88 @@ def _build_initial_params(
     return params
 
 
-def _build_url(base_url: str, params: dict[str, Any]) -> str:
-    if not params:
-        return base_url
-    return f"{base_url}?{urlencode(params)}"
-
-
-def _parse_retry_after(value: Optional[str]) -> Optional[float]:
-    if not value:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Honor Front's retry-after header on 429 when present; fall back to exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, FrontRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_WAIT_SECONDS)
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
 def validate_credentials(api_token: str, path: str, require_scope: bool) -> tuple[bool, str | None]:
     """Probe a Front endpoint with the token.
 
     401 always fails (bad token). 403 means the token is valid but lacks scope for that endpoint:
     we accept it at source-create (``require_scope=False``) and only reject it when validating a
-    specific schema (``require_scope=True``).
+    specific schema (``require_scope=True``). Any other response (200, 404, ...) means the token
+    is genuine.
     """
-    try:
-        response = make_tracked_session().get(f"{FRONT_BASE_URL}{path}", headers=_get_headers(api_token), timeout=10)
-    except Exception as e:
-        return False, f"Could not connect to Front: {e}"
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{FRONT_BASE_URL}{path}",
+        headers={"Authorization": f"Bearer {api_token}", **_accept_headers()},
+    )
 
-    if response.status_code == 401:
+    if status is None:
+        return False, "Could not connect to Front. Please try again."
+    if status == 401:
         return False, "Invalid Front API token. Please reconnect with a valid token."
-    if response.status_code == 403 and require_scope:
+    if status == 403 and require_scope:
         return False, "Your Front API token does not have permission to access this resource."
     return True, None
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[FrontResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = FRONT_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-
-    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str | None = resume_config.next_url
-        logger.debug(f"Front: resuming {endpoint} from URL: {url}")
-    else:
-        url = _build_url(f"{FRONT_BASE_URL}{config.path}", params)
-
-    @retry(
-        retry=retry_if_exception_type((FrontRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429:
-            raise FrontRetryableError(
-                f"Front rate limited: url={page_url}",
-                retry_after=_parse_retry_after(response.headers.get("retry-after")),
-            )
-        if response.status_code >= 500:
-            raise FrontRetryableError(f"Front server error: status={response.status_code}, url={page_url}")
-        if not response.ok:
-            logger.error(f"Front API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while url:
-        data = fetch_page(url)
-
-        results = data.get("_results") or []
-        # Never infer the end from an empty/short page — deleted resources can shrink a page
-        # while more pages remain. Only `_pagination.next == null` terminates the cursor.
-        next_url = (data.get("_pagination") or {}).get("next")
-
-        if results:
-            yield results
-
-        if not next_url:
-            break
-
-        # Save state after yielding the page so a crash re-yields the last page (merge dedupes on
-        # primary key) rather than skipping it.
-        resumable_source_manager.save_state(FrontResumeConfig(next_url=next_url))
-        url = next_url
 
 
 def front_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[FrontResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = FRONT_ENDPOINTS[endpoint]
 
+    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
+
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            # Front pages carry rows under ``_results``; a missing key is a legit empty page
+            # (deleted resources can shrink a page), so this is not data_selector_required.
+            "data_selector": "_results",
+            "paginator": JSONResponsePaginator(next_url_path=FRONT_NEXT_URL_PATH),
+        },
+    }
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": FRONT_BASE_URL,
+            "headers": _accept_headers(),
+            "auth": {"type": "bearer", "token": api_token},
+            "max_retries": MAX_RETRIES,
+        },
+        "resources": [resource_config],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(FrontResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -224,4 +176,5 @@ def front_source(
         partition_format=config.partition_format if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )

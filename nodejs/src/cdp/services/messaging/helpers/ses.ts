@@ -153,6 +153,13 @@ export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
 // email_sent is recorded synchronously in email.service.ts when the email is sent,
 // so we don't record it again from SES Send webhooks to avoid double counting.
+const BOUNCE_TYPE_TO_METRIC_NAME: Record<'Permanent' | 'Transient' | 'Undetermined', MinimalAppMetric['metric_name']> =
+    {
+        Permanent: 'email_bounced_hard',
+        Transient: 'email_bounced_transient',
+        Undetermined: 'email_bounced_undetermined',
+    }
+
 const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
@@ -422,18 +429,14 @@ export class SesWebhookHandler {
             level: SesEventLogLine['level']
             message: string
         }[]
-        optOutRecipients?: {
-            teamId?: string
-            emailAddresses: string[]
-        }[]
         // Soft (Transient) bounces — fed into the suppression list's consecutive-bounce counter.
         transientBounceRecipients?: {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
         }[]
-        // Hard (Permanent) bounces — mirrored into the suppression list alongside the existing
-        // opt-out write, during the dual-write window before the opt-out path is retired.
+        // Hard (Permanent) bounces — recorded in the suppression list so future sends to the address
+        // are blocked. Suppression enforcement replaces the legacy opt-out-on-bounce write.
         hardBounceRecipients?: {
             teamId?: string
             emailAddresses: string[]
@@ -523,10 +526,6 @@ export class SesWebhookHandler {
             level: SesEventLogLine['level']
             message: string
         }[] = []
-        const optOutRecipients: {
-            teamId?: string
-            emailAddresses: string[]
-        }[] = []
         const transientBounceRecipients: {
             teamId?: string
             emailAddresses: string[]
@@ -601,6 +600,24 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                 })
+
+                // email_bounced stays the catch-all rollup; each bounce additionally emits a
+                // per-type sub-metric (hard + transient + undetermined = email_bounced). AWS's
+                // account bounce rate — what the email reputation feature calibrates against —
+                // counts only hard (Permanent) bounces, so reputation reads email_bounced_hard;
+                // the others exist for diagnosis (transient spikes are a leading indicator).
+                if (rec.eventType === 'Bounce') {
+                    metrics.push({
+                        functionId,
+                        invocationId,
+                        actionId,
+                        parentRunId,
+                        distinctId,
+                        metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
+                        properties,
+                        timestamp,
+                    })
+                }
             }
 
             // Allowlist actionId before interpolating into the [Action:…] rich-log token,
@@ -627,20 +644,15 @@ export class SesWebhookHandler {
             const codeIsTrusted = parsedCode?.format === 'signed'
 
             // Suppression writes (below) skip test sends — editor "Run test" traffic must not be
-            // able to perturb production suppression state by targeting a bad recipient. The
-            // pre-existing opt-out push stays ungated for backward compat.
+            // able to perturb production suppression state by targeting a bad recipient.
             const suppressionAllowed = teamId && codeIsTrusted && !isTest
 
-            // Opt out recipients on permanent bounces. Dual-write: also mirror into the suppression
-            // list with the SMTP diagnostic so a unified deliverability view exists before the
-            // opt-out path is retired (see phase 2 of the suppression rollout).
-            if (teamId && codeIsTrusted && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+            // Record permanent bounces in the suppression list so future sends to the address are
+            // blocked. The SMTP diagnostic is threaded through for operator visibility on the row.
+            if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                optOutRecipients.push({ teamId, emailAddresses: emails })
-                if (!isTest) {
-                    hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
-                }
+                hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures
@@ -668,7 +680,6 @@ export class SesWebhookHandler {
             body: { ok: true },
             metrics,
             logEntries,
-            optOutRecipients,
             transientBounceRecipients,
             hardBounceRecipients,
             deliveredRecipients,

@@ -15,6 +15,7 @@ import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
+import { GENERATED_TOOLS as data_catalog } from './data_catalog'
 import { GENERATED_TOOLS as data_management } from './data_management'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
@@ -72,6 +73,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...core,
     ...customer_analytics,
     ...dashboards,
+    ...data_catalog,
     ...data_management,
     ...data_warehouse,
     ...docs,

@@ -6,7 +6,7 @@ from google.auth.exceptions import RefreshError
 
 from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
@@ -36,7 +36,7 @@ def test_get_source_config_fields():
     assert field_names == {"google_analytics_integration_id", "property_id"}
     assert cfg.label == "Google Analytics"
     assert cfg.featureFlag == "dwh-google-analytics"
-    assert cfg.releaseStatus == ReleaseStatus.ALPHA
+    assert cfg.releaseStatus == ReleaseStatus.BETA
     assert not cfg.unreleasedSource
 
 

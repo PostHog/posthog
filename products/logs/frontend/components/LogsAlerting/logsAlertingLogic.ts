@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -26,6 +27,7 @@ export interface logsAlertingLogicValues {
     currentTeamId: number | null // teamLogic
     alerts: LogsAlertConfigurationApi[]
     alertsLoading: boolean
+    createdByFilter: string | null
     creatingAlert: boolean
     editingAlert: LogsAlertConfigurationApi | null
     isCreating: boolean
@@ -41,7 +43,7 @@ export interface logsAlertingLogicActions {
     deleteAlert: (id: string) => {
         id: string
     }
-    loadAlerts: () => any
+    loadAlerts: (_?: any) => any
     loadAlertsFailure: (
         error: string,
         errorObject?: any
@@ -58,6 +60,9 @@ export interface logsAlertingLogicActions {
     }
     resetAlert: (id: string) => {
         id: string
+    }
+    setCreatedByFilter: (createdByFilter: string | null) => {
+        createdByFilter: string | null
     }
     setCreatingAlert: (creating: boolean) => {
         creating: boolean
@@ -104,6 +109,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
 
     actions({
         setEditingAlert: (alert: LogsAlertConfigurationApi | null) => ({ alert }),
+        setCreatedByFilter: (createdByFilter: string | null) => ({ createdByFilter }),
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         deleteAlert: (id: string) => ({ id }),
         toggleAlertEnabled: (alert: LogsAlertConfigurationApi) => ({ alert }),
@@ -117,6 +123,12 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     }),
 
     reducers({
+        createdByFilter: [
+            null as string | null,
+            {
+                setCreatedByFilter: (_, { createdByFilter }) => createdByFilter,
+            },
+        ],
         editingAlert: [
             null as LogsAlertConfigurationApi | null,
             {
@@ -156,9 +168,13 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         alerts: [
             [] as LogsAlertConfigurationApi[],
             {
-                loadAlerts: async () => {
+                loadAlerts: async (_ = null, breakpoint) => {
                     const projectId = String(values.currentTeamId)
-                    const response = await logsAlertsList(projectId, { limit: 500 })
+                    const response = await logsAlertsList(projectId, {
+                        limit: 500,
+                        ...(values.createdByFilter ? { created_by: values.createdByFilter } : {}),
+                    })
+                    breakpoint()
                     return response.results
                 },
             },
@@ -166,6 +182,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        setCreatedByFilter: () => actions.loadAlerts(),
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {
@@ -251,6 +268,14 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                 lemonToast.error(e?.detail ?? e?.message ?? 'Failed to create alert')
             } finally {
                 actions.setCreatingAlert(false)
+            }
+        },
+    })),
+
+    subscriptions(({ actions }) => ({
+        currentTeamId: (currentTeamId, previousTeamId) => {
+            if (previousTeamId !== null && currentTeamId !== previousTeamId) {
+                actions.setCreatedByFilter(null)
             }
         },
     })),

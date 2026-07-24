@@ -149,6 +149,11 @@ def capture_status_change_analytics(
     new_status = instance.status
     team = instance.team
     transition_at = timezone.now()
+    # Set by the state API when this same request is about to write a dismissal artefact. Read here
+    # rather than inferred from the transition, because a resolve carries feedback only when the
+    # caller supplied it — a PR-merge resolve from the tasks webhook writes none, and must not pick
+    # up an unrelated earlier reason that happens to fall inside the freshness window.
+    wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
 
     def _capture() -> None:
         try:
@@ -175,7 +180,8 @@ def capture_status_change_analytics(
                     "previous_status": previous_status,
                     **_classification_snapshot(
                         report_id,
-                        include_dismissal=_is_dismissal_transition(previous_status, new_status),
+                        include_dismissal=wrote_dismissal_feedback
+                        or _is_dismissal_transition(previous_status, new_status),
                         transition_at=transition_at,
                     ),
                 },
@@ -201,8 +207,13 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
 
 
 def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
-    """Whether this transition is one the state API writes dismissal feedback for: a dismissal
-    (into suppressed) or a snooze (researched report back to potential)."""
+    """Whether this transition inherently carries dismissal feedback: a dismissal (into suppressed)
+    or a snooze (researched report back to potential).
+
+    Resolve is deliberately absent. It carries feedback only when the caller supplied a reason or
+    note, which the state API signals explicitly via `_wrote_dismissal_feedback` — a resolve driven
+    by the tasks PR-merge webhook writes none, and inferring it from the status would attach
+    whatever unrelated reason last landed inside the freshness window."""
     return new_status == SignalReport.Status.SUPPRESSED or (
         new_status == SignalReport.Status.POTENTIAL and previous_status in _SNOOZE_SOURCE_STATUSES
     )

@@ -693,8 +693,8 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
 
 # Scalar constant types whose runtime type is fully determined by (class, nullable) — used to
 # dedupe before unification so large homogeneous literal arrays don't allocate per element.
-# Only families where unifying N identical types equals unifying one belong here; UUIDType and
-# IntervalType don't (a lone uuid keeps its family, but several unify to string via the subset rule).
+# Only families where unifying N identical types equals unifying one belong here; IntervalType
+# doesn't (a lone interval keeps its family, but several unify via the subset rules).
 _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
     {
         ast.BooleanType,
@@ -706,6 +706,7 @@ _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
         ast.StringArrayType,
         ast.DateType,
         ast.DateTimeType,
+        ast.UUIDType,
     }
 )
 
@@ -758,6 +759,8 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
             if "datetime" in families
             else DATE_RUNTIME_TYPE.with_nullable(nullable)
         )
+    if families == {"uuid"}:
+        return RuntimeType(family="uuid", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if families <= {"string", "fixed_string", "enum", "uuid"}:
         return STRING_RUNTIME_TYPE.with_nullable(nullable)
     if families == {"json"}:
