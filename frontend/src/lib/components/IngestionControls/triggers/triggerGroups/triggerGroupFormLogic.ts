@@ -30,6 +30,9 @@ function normalizeEvents(events: (string | EventTriggerConfig)[] | undefined): E
 
 export interface TriggerGroupFormLogicProps {
     group?: SessionRecordingTriggerGroup
+    /** Sample rate (0–1) to seed a brand-new group with, so it inherits the team's legacy rate
+     * instead of silently defaulting to 100% when a team first moves onto trigger groups. */
+    defaultSampleRate?: number
     onSave: (group: SessionRecordingTriggerGroup) => void
     onCancel: () => void
 }
@@ -297,7 +300,9 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
         triggerGroup: {
             defaults: {
                 name: props.group?.name || '',
-                sampleRate: Math.round((props.group?.sampleRate || 1) * 100),
+                // `??` (not `||`) so an existing 0% rate isn't rewritten to 100%; a new group falls
+                // back to the team's legacy rate before the 100% default.
+                sampleRate: Math.round((props.group?.sampleRate ?? props.defaultSampleRate ?? 1) * 100),
                 minDurationMs: props.group?.minDurationMs ?? null,
                 matchType: props.group?.conditions.matchType || ('any' as const),
                 events: normalizeEvents(props.group?.conditions.events),

@@ -22,6 +22,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     EventTriggerConfig,
@@ -31,7 +32,7 @@ import {
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CreateFromLegacyModal } from './CreateFromLegacyModal'
-import { replayTriggersV2Logic } from './replayTriggersV2Logic'
+import { replayTriggersV2Logic, teamSampleRateFraction } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
 
@@ -83,7 +84,9 @@ export function TriggerGroupsEditor(): JSX.Element {
         _savingStateLoading,
         shouldShowMigrationBanner,
         hasLegacyTriggers,
+        currentTeam,
     } = useValues(replayTriggersV2Logic)
+    const legacySampleRate = teamSampleRateFraction(currentTeam)
     const {
         addTriggerGroup,
         updateTriggerGroup,
@@ -238,6 +241,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                     triggerGroups.find((g) => g.id === deleteModalGroupId)?.name ||
                     `Trigger group ${deleteModalGroupId?.slice(0, 8)}`
                 }
+                sampleRate={legacySampleRate}
             />
         </div>
     )
@@ -311,7 +315,10 @@ function EventTriggerRow({
 }
 
 function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
-    const logic = triggerGroupFormLogic({ group, onSave, onCancel })
+    const { currentTeam } = useValues(teamLogic)
+    const legacySampleRate = teamSampleRateFraction(currentTeam)
+    const logicProps = { group, defaultSampleRate: legacySampleRate, onSave, onCancel }
+    const logic = triggerGroupFormLogic(logicProps)
     const { triggerGroup, isAddingUrl, newUrl, testUrl, isTriggerGroupSubmitting, expandedEvent } = useValues(logic)
     const {
         setTriggerGroupValue,
@@ -334,12 +341,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
     }
 
     return (
-        <Form
-            logic={triggerGroupFormLogic}
-            props={{ group, onSave, onCancel }}
-            formKey="triggerGroup"
-            enableFormOnSubmit
-        >
+        <Form logic={triggerGroupFormLogic} props={logicProps} formKey="triggerGroup" enableFormOnSubmit>
             <div className="border rounded p-4 bg-surface-primary space-y-4">
                 <LemonField name="name" label="Group name">
                     <LemonInput placeholder="e.g., Error Tracking, Feature Testing" fullWidth />
@@ -358,6 +360,14 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         </LemonField>
                     </div>
                 </div>
+
+                {!group && legacySampleRate < 1 && triggerGroup.sampleRate / 100 > legacySampleRate && (
+                    <LemonBanner type="warning">
+                        This sample rate ({triggerGroup.sampleRate}%) is higher than your project's current rate (
+                        {Math.round(legacySampleRate * 100)}%). Trigger groups replace the project-wide sample rate, so
+                        this group will record more sessions than before.
+                    </LemonBanner>
+                )}
 
                 <LemonField name="matchType" label="Match type">
                     <LemonSelect
@@ -534,15 +544,25 @@ interface DeleteLastGroupModalProps {
     onClose: () => void
     onConfirm: () => void
     groupName: string
+    /** Effective sample rate (0–1) the replacement record-everything group will use. */
+    sampleRate: number
 }
 
-function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteLastGroupModalProps): JSX.Element {
+function DeleteLastGroupModal({
+    isOpen,
+    onClose,
+    onConfirm,
+    groupName,
+    sampleRate,
+}: DeleteLastGroupModalProps): JSX.Element {
+    const samplePercent = Math.round(sampleRate * 100)
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Delete last trigger group?">
             <div className="space-y-4">
                 <p>
-                    "{groupName}" is your only trigger group. Deleting it will replace it with a default group that{' '}
-                    <strong>records all sessions</strong>, so your project keeps using trigger groups.
+                    "{groupName}" is your only trigger group. Deleting it will replace it with a default group that
+                    records all sessions at your project's current sample rate (<strong>{samplePercent}%</strong>), so
+                    your project keeps using trigger groups.
                 </p>
 
                 <p className="text-sm text-muted">
@@ -560,7 +580,7 @@ function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteL
                         onClick={onConfirm}
                         data-attr="trigger-group-delete-last-confirm"
                     >
-                        Delete and record all sessions
+                        Delete group
                     </LemonButton>
                 </div>
             </div>

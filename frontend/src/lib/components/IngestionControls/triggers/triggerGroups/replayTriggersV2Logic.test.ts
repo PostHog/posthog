@@ -176,6 +176,37 @@ describe('replayTriggersV2Logic', () => {
             })
         })
 
+        it('the record-everything replacement inherits the team legacy sample rate', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ id: 1, session_recording_sample_rate: '0.5' } as any)
+            logic.actions.setTriggerGroupsConfig({
+                version: 2,
+                groups: [
+                    {
+                        id: 'group-1',
+                        name: 'Checkout',
+                        sampleRate: 0.5,
+                        conditions: { matchType: 'all', urls: [{ url: '^/checkout$', matching: 'regex' }] },
+                    },
+                ],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteTriggerGroup('group-1')
+            }).toMatchValues({
+                triggerGroupsConfig: {
+                    version: 2,
+                    groups: [
+                        {
+                            id: expect.any(String),
+                            name: 'Record all sessions',
+                            sampleRate: 0.5,
+                            conditions: { matchType: 'all' },
+                        },
+                    ],
+                },
+            })
+        })
+
         it('deleting one of several groups keeps the rest', async () => {
             const group2 = {
                 id: 'group-2',
