@@ -1581,9 +1581,9 @@ function QuickstartFocusedInstall(): JSX.Element {
             <div>
                 <h2 className="text-lg font-semibold mb-1">Connect PostHog to your product</h2>
                 <p className="text-secondary mb-0">
-                    Install the PostHog SDK and data starts flowing within minutes. Our setup wizard – an agent that
-                    reads your codebase and writes the integration for you – can handle it. Run it on your repo or in
-                    your terminal:
+                    Install the PostHog SDK to start sending data. The setup wizard is an agent that reads your codebase
+                    and writes the integration for you. It can open a pull request on your repo, or you can run it in
+                    your terminal.
                 </p>
             </div>
 
@@ -1595,7 +1595,7 @@ function QuickstartFocusedInstall(): JSX.Element {
 
             {!wizardBusy && (
                 <div>
-                    <SubsectionHeader title="Prefer to set things up by hand? Start from the tool you came for" />
+                    <SubsectionHeader title="Or install manually for a specific tool" />
                     <div className="flex flex-wrap gap-2">
                         {featuredProducts.map((product) => (
                             <LemonButton
@@ -1615,9 +1615,7 @@ function QuickstartFocusedInstall(): JSX.Element {
                             </LemonButton>
                         ))}
                     </div>
-                    <p className="text-secondary text-sm mb-0 mt-3">
-                        This page fills in with your tools as soon as data arrives.
-                    </p>
+                    <p className="text-secondary text-sm mb-0 mt-3">Your tools appear here once data arrives.</p>
                 </div>
             )}
         </section>
