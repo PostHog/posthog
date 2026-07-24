@@ -309,6 +309,43 @@ class TestAgentToolkit(BaseTest):
         self.assertIn("`/usage`", system_prompt)
         self.assertIn("Do not claim this command is fabricated", system_prompt)
 
+    @parameterized.expand(
+        [
+            # (builder_class, from_slack, should_contain_slack_style)
+            ["chat_from_slack", ChatAgentPromptBuilder, True, True],
+            ["chat_from_web", ChatAgentPromptBuilder, False, False],
+            ["plan_from_slack", ChatAgentPlanPromptBuilder, True, True],
+            ["plan_from_web", ChatAgentPlanPromptBuilder, False, False],
+        ]
+    )
+    async def test_prompt_builder_includes_slack_response_style_only_from_slack(
+        self, _name, builder_class, from_slack, should_contain
+    ):
+        configurable: dict = {"slack_thread_context": object()} if from_slack else {}
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = builder_class(team=self.team, user=self.user, context_manager=context_manager)
+
+        with (
+            patch.object(prompt_builder, "_get_billing_prompt", new=AsyncMock(return_value="")),
+            patch.object(prompt_builder, "_aget_core_memory_text", new=AsyncMock(return_value="")),
+            patch.object(context_manager, "get_group_names", new=AsyncMock(return_value=[])),
+            patch("ee.hogai.chat_agent.prompt_builder._get_default_tools_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.prompt_builder._get_modes_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.mode_manager.get_execution_mode_registry", return_value={}),
+        ):
+            messages = await prompt_builder.get_prompts(
+                AssistantState(messages=[]), RunnableConfig(configurable=configurable)
+            )
+
+        system_prompt = "\n\n".join(str(message.content) for message in messages if isinstance(message, SystemMessage))
+
+        if should_contain:
+            self.assertIn("responding in a Slack thread", system_prompt)
+        else:
+            self.assertNotIn("responding in a Slack thread", system_prompt)
+
 
 class TestChatAgentModeManagerPlanMode(BaseTest):
     def test_plan_mode_sets_supermode_and_mode(self):

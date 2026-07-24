@@ -92,6 +92,10 @@ class AgentPromptBuilderBase(AgentPromptBuilder, AssistantContextMixin, BillingP
         """Return the core memory prompt template. Override in subclasses if needed."""
         return CORE_MEMORY_PROMPT
 
+    def _get_extra_system_prompts(self, config: RunnableConfig) -> list[str]:
+        """Surface-specific system prompts appended after the core memory prompt. Override in subclasses."""
+        return []
+
     async def get_prompts(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
         billing_prompt, core_memory, groups = await asyncio.gather(
             self._get_billing_prompt(),
@@ -105,10 +109,13 @@ class AgentPromptBuilderBase(AgentPromptBuilder, AssistantContextMixin, BillingP
             "billing_context": billing_prompt,
         }
 
+        messages: list[tuple[str, str]] = [
+            ("system", self._get_system_prompt()),
+            ("system", self._get_core_memory_prompt()),
+            *(("system", prompt) for prompt in self._get_extra_system_prompts(config)),
+        ]
+
         return ChatPromptTemplate.from_messages(
-            [
-                ("system", self._get_system_prompt()),
-                ("system", self._get_core_memory_prompt()),
-            ],
+            messages,
             template_format="mustache",
         ).format_messages(**format_args)
