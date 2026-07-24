@@ -21,6 +21,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
+from products.signals.backend.temporal.team_lookup import get_team_or_terminal
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
 
 logger = structlog.get_logger(__name__)
@@ -235,7 +236,7 @@ class FetchSignalTypeExamplesOutput:
 async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
     """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await get_team_or_terminal(input.team_id)
 
         query = f"""
             SELECT -- Grab the latest unique example of each signal type
@@ -288,6 +289,8 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
             example_count=len(examples),
         )
         return FetchSignalTypeExamplesOutput(examples=examples)
+    except temporalio.exceptions.ApplicationError:
+        raise  # Terminal (e.g. the team was deleted) — abandon without logging as an unexpected error.
     except Exception as e:
         logger.exception(
             f"Failed to fetch signal type examples for team {input.team_id}: {e}",
@@ -319,7 +322,7 @@ class RunSignalSemanticSearchOutput:
 async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
     """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await get_team_or_terminal(input.team_id)
 
         query = f"""
             SELECT
@@ -368,6 +371,8 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             candidate_count=len(candidates),
         )
         return RunSignalSemanticSearchOutput(candidates=candidates)
+    except temporalio.exceptions.ApplicationError:
+        raise  # Terminal (e.g. the team was deleted) — abandon without logging as an unexpected error.
     except Exception as e:
         logger.exception(
             f"Failed to run embedding query for team {input.team_id}: {e}",
@@ -410,7 +415,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     from django.utils import timezone
 
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await get_team_or_terminal(input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=30)
     max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
@@ -504,7 +509,7 @@ class FetchSignalsForReportOutput:
 @close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await get_team_or_terminal(input.team_id)
 
         result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",
@@ -522,6 +527,8 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             signal_count=len(signals),
         )
         return FetchSignalsForReportOutput(signals=signals)
+    except temporalio.exceptions.ApplicationError:
+        raise  # Terminal (e.g. the team was deleted) — abandon without logging as an unexpected error.
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

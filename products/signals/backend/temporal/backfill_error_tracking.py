@@ -81,11 +81,10 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 @close_db_connections
 async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
     """Emit an issue_created signal for a single error tracking issue."""
-    from posthog.models import Team
-
     from products.signals.backend.facade.api import emit_signal
+    from products.signals.backend.temporal.team_lookup import get_team_or_terminal
 
-    team = await Team.objects.aget(id=input.team_id)
+    team = await get_team_or_terminal(input.team_id)
 
     description = (
         f"New error tracking issue created - this particular exception was observed for the first time:\n"

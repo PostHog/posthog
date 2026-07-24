@@ -14,7 +14,6 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 
 from posthog.api.embedding_worker import emit_embedding_request
-from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -35,6 +34,7 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.team_lookup import get_team_or_terminal
 from products.signals.backend.temporal.types import (
     SignalData,
     SignalReportReingestionWorkflowInputs,
@@ -59,7 +59,7 @@ class SoftDeleteReportSignalsInput:
 @close_db_connections
 async def soft_delete_report_signals_activity(input: SoftDeleteReportSignalsInput) -> None:
     """Soft-delete all ClickHouse signals for a report by re-emitting with metadata.deleted=True."""
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await get_team_or_terminal(input.team_id)
     await sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
         report_id=input.report_id,
         team_id=input.team_id,
@@ -109,7 +109,7 @@ class ReingestSignalsInput:
 @close_db_connections
 async def reingest_signals_activity(input: ReingestSignalsInput) -> None:
     """Re-emit all signals via emit_signal() through the active Signals pipeline."""
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await get_team_or_terminal(input.team_id)
 
     for signal in input.signals:
         await emit_signal(
@@ -167,7 +167,7 @@ class DeleteTeamReportsInput:
 @scoped_temporal()
 @close_db_connections
 async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInput) -> ProcessTeamSignalsBatchOutput:
-    team = await Team.objects.aget(pk=input.team_id)
+    team = await get_team_or_terminal(input.team_id)
 
     result = await execute_hogql_query_with_retry(
         query_type="SignalsFetchTeamBatchForReingestion",

@@ -24,7 +24,6 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
 from posthog.event_usage import groups
-from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -53,6 +52,7 @@ from products.signals.backend.temporal.signal_queries import (
     wait_for_signal_in_clickhouse_activity,
 )
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.team_lookup import get_team_or_terminal
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
     EmitSignalInputs,
@@ -93,7 +93,7 @@ class GenerateEmbeddingOutput:
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await get_team_or_terminal(input.team_id)
         response = await async_generate_embedding(team, input.content, model=EMBEDDING_MODEL.value)
         logger.debug(
             f"Generated embedding for team {input.team_id}",
@@ -101,6 +101,8 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
             content_length=len(input.content),
         )
         return GenerateEmbeddingOutput(embedding=response.embedding)
+    except temporalio.exceptions.ApplicationError:
+        raise  # Terminal (e.g. the team was deleted) — abandon without logging as an unexpected error.
     except Exception as e:
         logger.exception(
             f"Failed to generate embedding for team {input.team_id}: {e}",
@@ -851,7 +853,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             report_signal_count,
         ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
 
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        team = await get_team_or_terminal(input.team_id, select_related=("organization",))
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -954,6 +956,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             is_new_report=isinstance(match_result, NewReportMatch),
         )
         return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts, run_count=run_count)
+    except temporalio.exceptions.ApplicationError:
+        raise  # Terminal (e.g. the team was deleted) — abandon without logging as an unexpected error.
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
