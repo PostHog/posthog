@@ -7,7 +7,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
@@ -854,7 +854,7 @@ export const supportLogic = kea<supportLogicType>([
                         current_url_length: window.location.href.length,
                     })
                     lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
-                        hideButton: true,
+                        button: EMAIL_SUPPORT_BUTTON,
                     })
                     return
                 }
@@ -1077,7 +1077,7 @@ export const supportLogic = kea<supportLogicType>([
                     })
                     lemonToast.error(
                         `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                        { hideButton: true }
+                        { button: EMAIL_SUPPORT_BUTTON }
                     )
                     // Don't close the form or reset the data so user can try again
                     return
@@ -1119,7 +1119,7 @@ export const supportLogic = kea<supportLogicType>([
                 // Use the same error message regardless of browser
                 lemonToast.error(
                     `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
-                    { hideButton: true }
+                    { button: EMAIL_SUPPORT_BUTTON }
                 )
                 // Don't close the form or reset the data so user can try again
             }

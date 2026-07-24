@@ -6995,6 +6995,88 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
 
+    def test_activity_endpoint_returns_only_this_experiments_changes(self):
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity saved metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+        holdout_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Activity holdout",
+                "filters": [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
+            },
+            format="json",
+        )
+        self.assertEqual(holdout_response.status_code, status.HTTP_201_CREATED)
+        holdout_id = holdout_response.json()["id"]
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Experiment with children",
+                "feature_flag_key": "activity-endpoint-one",
+                "holdout_id": holdout_id,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+            },
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+        self.client.patch(f"/api/projects/{self.team.id}/experiments/{experiment_id}/", {"description": "Updated"})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}/", {"name": "Renamed holdout"}
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/", {"name": "Renamed metric"}
+        )
+
+        other_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Unrelated experiment", "feature_flag_key": "activity-endpoint-two"},
+        )
+        other_experiment_id = other_response.json()["id"]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{other_experiment_id}/", {"description": "Unrelated update"}
+        )
+        # An unrelated shared metric whose pk collides with the experiment's id
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="updated",
+            detail={"type": "shared_metric", "name": "Colliding metric"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        item_ids = {entry["item_id"] for entry in results}
+        self.assertNotIn(str(other_experiment_id), item_ids)
+        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id)})
+        own_activities = [entry["activity"] for entry in results if entry["item_id"] == str(experiment_id)]
+        self.assertIn("created", own_activities)
+        self.assertIn("updated", own_activities)
+        detail_types = {(entry["detail"] or {}).get("type") for entry in results}
+        self.assertIn("holdout", detail_types)
+        self.assertIn("shared_metric", detail_types)
+        self.assertFalse(
+            any(
+                entry["item_id"] == str(experiment_id) and (entry["detail"] or {}).get("type") == "shared_metric"
+                for entry in results
+            )
+        )
+
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
