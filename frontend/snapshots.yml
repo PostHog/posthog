@@ -4678,6 +4678,10 @@ snapshots:
         hash: v1.k794b7964.1b0b3ec51cc999c02f8442559b676a2e2f352998c0f3d4a9b10da7da8fc3aac1.ZktPS8oprYMZQ-rLsncCgMlyidqF97zUzqDfKjQGo1A
     products-alerts-alert-modal--edit-alert--light:
         hash: v1.k794b7964.38643f06f9a727b550dfcde1c46769c13a24bcc43877362c3d6feab29fd2f581.L1ItMn6mhr4o_vWqlI3lpil3yPPBgM0BgUa-yB6TzUQ
+    products-alerts-alerts-scene--empty-log-alerts--dark:
+        hash: v1.k794b7964.a9868dcf76f660a4b877ab75f7d250c5d9f88bb80c7569894ffd8b7dd47349eb.7b0VesDoG7DV59GvcHn7THcPrfCa6gx0H3IikajV1EA
+    products-alerts-alerts-scene--empty-log-alerts--light:
+        hash: v1.k794b7964.1caf4a25eab1c156cfe2fe0fdc28445f1312da38d9c3b21f2661ed7c1af9ad8d.ZfbubAvXZgUCHxZif8hN8LUQfZRlWV8nuVA36LOW2Pw
     products-alerts-alerts-scene--empty-state--dark:
         hash: v1.k794b7964.b419d15fe1d77892d0bc6aa978baa0075f2b64e597b8b457b59daaf7d3268f1a.mxxfJ0VEg12SBSXNmlykTeIIj7jKxPkBHSB2399bnus
     products-alerts-alerts-scene--empty-state--light:
