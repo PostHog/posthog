@@ -51,9 +51,9 @@ free_vite_port() {
 free_vite_port
 
 # Recursively collect every descendant PID of the given pid, deepest first.
-# turbo's launcher re-parents the vite subtree into its own process group, so the
-# sibling `kill -- -$$` process-group idiom (start-go-service/start-rust-service)
-# misses it — we have to walk the tree by PID instead.
+# The pnpm → concurrently launchers re-parent the vite subtree into their own
+# process groups, so the sibling `kill -- -$$` process-group idiom
+# (start-go-service/start-rust-service) misses it — we walk the tree by PID instead.
 collect_descendants() {
     local parent=$1 child
     for child in $(pgrep -P "$parent" 2>/dev/null); do
@@ -63,8 +63,8 @@ collect_descendants() {
 }
 
 # When the process manager stops us (q / SIGTERM / SIGINT) bash would otherwise
-# exit without forwarding the signal to turbo, orphaning the whole
-# turbo → concurrently → vite (+ toolbar esbuild) subtree — leaving vite
+# exit without forwarding the signal to its children, orphaning the whole
+# pnpm → concurrently → vite (+ toolbar esbuild) subtree — leaving vite
 # squatting port 8234 across sessions. Tear the entire descendant tree down.
 shutdown() {
     trap - INT TERM EXIT
@@ -83,12 +83,62 @@ shutdown() {
 }
 trap shutdown INT TERM EXIT
 
-pnpm --filter=@posthog/frontend... install
+# Even a no-op `pnpm install` takes ~2.5s resolving the whole workspace, on every
+# start. Skip it when nothing that affects the install has changed since the last
+# successful one. `packageManager` (pnpm version) lives in the root package.json,
+# and patch contents are hashed into pnpm-lock.yaml, so both are covered.
+# POSTHOG_FORCE_INSTALL=1 bypasses this guard and the build guard below.
+INSTALL_STAMP="node_modules/.posthog-start-frontend-install"
+install_inputs_hash() {
+    cat pnpm-lock.yaml pnpm-workspace.yaml package.json frontend/package.json 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+current_install_hash=$(install_inputs_hash)
+if [ "${POSTHOG_FORCE_INSTALL:-0}" != "1" ] &&
+    [ -x frontend/node_modules/.bin/vite ] &&
+    [ "$(cat "$INSTALL_STAMP" 2>/dev/null)" = "$current_install_hash" ]; then
+    echo "Dependencies unchanged since last install, skipping pnpm install (POSTHOG_FORCE_INSTALL=1 to force)"
+else
+    pnpm --filter=@posthog/frontend... install
+    echo "$current_install_hash" >"$INSTALL_STAMP"
+fi
 
-# Run turbo in the background and wait on it so the trap above can fire while
-# turbo is running (a foreground child would keep bash blocked in turbo's own
-# wait, delaying signal handling). `wait` returns when turbo exits or when a
+# A fully cached turbo run still costs ~2s hashing all ~70 workspace packages, on
+# every start. The `^build` step only actually guards the handful of workspace deps
+# with a build script (quill, hogvm), so check their freshness ourselves: skip turbo
+# when none of their files changed since the last successful build. The stamp also
+# records the install hash and the package list, so dependency changes and newly
+# added build-script packages invalidate it.
+BUILD_STAMP="node_modules/.posthog-start-frontend-build"
+build_dep_dirs=$(node frontend/bin/list-workspace-build-dirs.mjs 2>/dev/null || true)
+build_stamp_content=$(printf '%s\n%s' "$current_install_hash" "$build_dep_dirs")
+build_fresh=0
+if [ "${POSTHOG_FORCE_INSTALL:-0}" != "1" ] &&
+    [ -n "$build_dep_dirs" ] &&
+    [ "$(cat "$BUILD_STAMP" 2>/dev/null)" = "$build_stamp_content" ]; then
+    # shellcheck disable=SC2086
+    changed=$(find $build_dep_dirs turbo.json -name node_modules -prune -o -newer "$BUILD_STAMP" -print -quit 2>/dev/null)
+    [ -z "$changed" ] && build_fresh=1
+fi
+
+# Child processes run in the background with a `wait` so the trap above can fire
+# while they run (a foreground child would keep bash blocked in the child's own
+# wait, delaying signal handling). `wait` returns when the child exits or when a
 # trapped signal interrupts it, at which point shutdown() reaps the subtree.
-bin/turbo --filter=@posthog/frontend start-vite &
-turbo_pid=$!
-wait "$turbo_pid"
+if [ "$build_fresh" = "1" ]; then
+    echo "Workspace deps unchanged since last build, skipping turbo (POSTHOG_FORCE_INSTALL=1 to force)"
+else
+    bin/turbo --filter='@posthog/frontend^...' build &
+    turbo_pid=$!
+    wait "$turbo_pid"
+    printf '%s' "$build_stamp_content" >"$BUILD_STAMP"
+fi
+
+# Start vite directly — the build guard above already guaranteed workspace deps are
+# built. `pnpm run` would cost another ~0.6s of startup and only provides cwd and
+# node_modules/.bin on PATH, so read the script from package.json (single source of
+# truth, also runnable as `pnpm run start-vite`) and exec it ourselves. concurrently
+# re-parents the vite subtree, so the shutdown trap walks descendants by PID.
+start_vite_script=$(node -p "require('./frontend/package.json').scripts['start-vite']")
+(cd frontend && PATH="$PWD/node_modules/.bin:$PATH" exec sh -c "$start_vite_script") &
+vite_pid=$!
+wait "$vite_pid"
