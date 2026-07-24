@@ -23,6 +23,7 @@ export const ticketCustomerPanelLogic = kea<ticketCustomerPanelLogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         setActiveTab: (tab: TicketCustomerTab) => ({ tab }),
+        setPanelOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ values, props }) => ({
         // Null when the account is disabled for this ticket, the ticket has no organization_id, no
@@ -50,6 +51,15 @@ export const ticketCustomerPanelLogic = kea<ticketCustomerPanelLogicType>([
             null as TicketCustomerTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        // Open by default. Picking a tab also opens the panel, so switching tabs while collapsed
+        // reveals the chosen one.
+        panelOpen: [
+            true,
+            {
+                setPanelOpen: (_, { open }) => open,
+                setActiveTab: () => true,
             },
         ],
     }),
