@@ -19,7 +19,9 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, OrganizationIntegration, Team
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models import Organization, OrganizationIntegration, Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, dict_changes_between, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
@@ -160,7 +162,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     body["reset_limit_next_period"] = reset_limit_next_period
 
                 billing_manager = self.get_billing_manager()
+
+                # Capture the current limits before the change so the activity log can record before/after.
+                previous_custom_limits = (
+                    self._get_current_custom_limits(billing_manager, org) if custom_limits_usd else {}
+                )
+
                 billing_manager.update_billing(org, body)
+
+                self._log_billing_limits_activity(
+                    request,
+                    org,
+                    custom_limits_usd=custom_limits_usd,
+                    previous_custom_limits=previous_custom_limits,
+                    reset_limit_next_period=reset_limit_next_period,
+                )
 
                 if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(
@@ -190,6 +206,68 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     )
 
         return self.list(request, *args, **kwargs)
+
+    def _get_current_custom_limits(self, billing_manager: BillingManager, org: Organization) -> dict[str, Any]:
+        """Best-effort read of the org's current custom spend limits, used for the activity log before/after diff."""
+        try:
+            billing = billing_manager.get_billing(org)
+            return billing.get("custom_limits_usd") or {}
+        except Exception as e:
+            capture_exception(e, {"organization_id": org.id})
+            return {}
+
+    def _log_billing_limits_activity(
+        self,
+        request: Request,
+        org: Organization,
+        *,
+        custom_limits_usd: Optional[dict[str, Any]],
+        previous_custom_limits: dict[str, Any],
+        reset_limit_next_period: Any,
+    ) -> None:
+        """Write an org-scoped audit entry so admins can see who changed billing limits and to what."""
+        user = request.user
+        if not isinstance(user, User):
+            return
+
+        was_impersonated = is_impersonated(request)
+
+        if custom_limits_usd:
+            log_activity(
+                organization_id=org.id,
+                team_id=None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(org.id),
+                scope="Billing",
+                activity="updated",
+                detail=Detail(
+                    name="Billing spend limits",
+                    changes=dict_changes_between("Billing", previous_custom_limits, custom_limits_usd),
+                ),
+            )
+
+        if reset_limit_next_period:
+            log_activity(
+                organization_id=org.id,
+                team_id=None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(org.id),
+                scope="Billing",
+                activity="updated",
+                detail=Detail(
+                    name="Billing next-period limit reset",
+                    changes=[
+                        Change(
+                            type="Billing",
+                            field="reset_limit_next_period",
+                            action="created",
+                            after=reset_limit_next_period,
+                        )
+                    ],
+                ),
+            )
 
     @action(
         methods=["POST"],
