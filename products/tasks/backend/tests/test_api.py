@@ -31,6 +31,7 @@ from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -1377,6 +1378,54 @@ class TestTaskAPI(BaseTaskAPITest):
                 report=report, task_id=data["id"], relationship=TASK_RUN_TYPE_IMPLEMENTATION
             ).exists()
         )
+
+    @parameterized.expand(
+        [
+            # no artefact yet → cascade picks the team's only connected repo, so "Create PR" works
+            # without the client pre-selecting one
+            ("no_selection", False, None, "acme/web"),
+            # a persisted selection wins over the cascade, even when it names another repo
+            ("persisted_repo", True, "acme/api", "acme/api"),
+            # a scout's deliberate no-repo must not fall through to the cascade
+            ("persisted_no_repo", True, None, None),
+        ]
+    )
+    def test_create_signal_report_task_resolves_repository_when_none_provided(
+        self, _name, has_artefact, persisted_repository, expected_repository
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+        if has_artefact:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                content=RepoSelectionResult(repository=persisted_repository, reason="test").model_dump_json(),
+            )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["repository"], expected_repository)
 
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask

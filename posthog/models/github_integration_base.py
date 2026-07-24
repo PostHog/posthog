@@ -1692,10 +1692,12 @@ class GitHubIntegrationBase:
         has_more = offset + limit < len(filtered)
         return result, has_more
 
-    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
+    def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
         has_cached_snapshot = self.integration.repository_cache_updated_at is not None
-        should_refresh = cached_repositories is None or self.repository_cache_is_stale()
+        # `allow_refresh=False` keeps this a pure cache read — no live GitHub sync, no token refresh,
+        # no DB write — for callers on a latency-sensitive path that accept a stale snapshot.
+        should_refresh = allow_refresh and (cached_repositories is None or self.repository_cache_is_stale())
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:

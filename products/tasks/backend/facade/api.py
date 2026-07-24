@@ -3894,6 +3894,39 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         if default_integration:
             validated_data["github_integration"] = default_integration
 
+    # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
+    # creating a report-linked task that can never open a PR.
+    signal_report = validated_data.get("signal_report")
+    if (
+        signal_report is not None
+        and not validated_data.get("repository")
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    ):
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            persisted_repo_selection,
+        )
+        from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
+            cascade_select_repository,
+        )
+
+        # The report's own selection is authoritative — including a scout's deliberate no-repo
+        # (`repository=None`), which must not fall through to the cascade.
+        selection = persisted_repo_selection(str(signal_report.id))
+        resolved_repository = (
+            selection.repository
+            if selection is not None
+            else cascade_select_repository(
+                team_id,
+                user_id,
+                validated_data.get("description") or "",
+                team=team,
+                single_repo_wins=True,
+                allow_refresh=False,
+            )
+        )
+        if resolved_repository:
+            validated_data["repository"] = resolved_repository
+
     if (
         validated_data.get("repository")
         and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED

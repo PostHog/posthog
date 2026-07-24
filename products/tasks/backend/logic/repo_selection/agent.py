@@ -168,10 +168,10 @@ async def _github_reconnect_required(team_id: int) -> bool:
     ).aexists()
 
 
-def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
+def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int, *, allow_refresh: bool = True) -> list[str]:
     """Fetch all repositories accessible via the resolved GitHub source."""
     repos: set[str] = set()
-    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS):
+    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=allow_refresh):
         full_name = repo.get("full_name")
         if not full_name:
             continue

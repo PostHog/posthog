@@ -1,5 +1,6 @@
 import dataclasses
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
@@ -18,6 +19,9 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +140,15 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
+    """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection as persisted_repo_selection_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return persisted_repo_selection_impl(report_id)
 
 
 def get_default_slack_notification_channel(team_id: int) -> str | None:
