@@ -7886,6 +7886,34 @@
             "readOnlyHint": false
         }
     },
+    "scout-create-execute": {
+        "description": "Step 2 of 2 for create scout. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a custom `signals-scout-*` skill and its runnable config in one atomic call. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout (execute)",
+        "title": "Create a scout (execute)",
+        "required_scopes": ["llm_skill:write", "signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-create-prepare": {
+        "description": "Step 1 of 2 for create scout. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a custom `signals-scout-*` skill and its runnable config in one atomic call. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create a scout (prepare)",
+        "title": "Create a scout (prepare)",
+        "required_scopes": ["llm_skill:write", "signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scout-edit-report": {
         "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
