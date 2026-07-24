@@ -63,11 +63,20 @@ Delete it; the version history has it if it's needed again. Commented-out code i
 
 ## Style
 
-- **Default to one line.** If a comment needs a paragraph, consider whether the code should be simpler first.
-- **Explain why, not what.** The what is in the code.
+Write comments the way you'd write technical documentation: explicit, complete, and precise. A comment that earns its place is worth stating fully. Length is not the enemy; vagueness is. Spell out the reasoning so nothing is left implicit for the reader to infer.
+
+- **Be explicit and technical.** State the cause and effect in full. Name the actual conditions, values, and consequences. A reader should not have to reconstruct your reasoning from a hint.
+- **Complete sentences, not fragments.** Write "Feature X does Y because Z, so callers must W." Don't compress it into a clipped fragment.
+- **Longer is fine when it adds information.** Prefer one thorough sentence (or two) that fully explains the why over a terse one that only gestures at it. Cut words that add nothing, not words that add precision.
+- **No short-punchy-fragment-with-a-dash style.** The clipped `# do the thing — it's faster` shape is the AI tell to avoid. Rewrite it as a full sentence with a real connective ("because", "so that", "which means"), no em-dash.
+- **Explain why, not what.** The what is in the code; the why usually is not.
 - **Preserve existing comments when moving or refactoring code**, unless the change makes them wrong. Don't drop an existing why just because you're relocating the function.
-- **Write plainly.** The same anti-tells as prose apply: no punchy one-liners, no editorializing, no em-dashes. Write the comment for the next engineer who has to change this code.
 - **Match the surrounding density.** Don't add a comment to every line of a file that had none; don't strip a well-commented module bare.
+
+Contrast:
+
+- ❌ `# batch here — avoids N+1`
+- ✅ `# Fetch all the memberships in one query here because doing it per-row triggers an N+1 against posthog_organizationmembership, which dominated the request time on large orgs.`
 
 ## When you're tempted to comment
 
