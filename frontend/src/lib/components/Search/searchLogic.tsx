@@ -669,6 +669,9 @@ export const searchLogic = kea<searchLogicType>([
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
+                const productSearchKeywords: Record<string, string[]> = {
+                    'Product analytics': ['insights'],
+                }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
@@ -691,6 +694,7 @@ export const searchLogic = kea<searchLogicType>([
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
                     tags: product.tags,
+                    searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {

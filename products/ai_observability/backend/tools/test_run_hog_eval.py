@@ -1,15 +1,17 @@
 import json
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
-from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
+from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestArgs, RunHogEvalTestTool
 
 EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 
@@ -41,6 +43,11 @@ def _make_event(
 
 def _run_tool(tool, **kwargs):
     return async_to_sync(tool._arun_impl)(**kwargs)
+
+
+def test_run_hog_eval_args_reject_unknown_target():
+    with pytest.raises(ValidationError):
+        RunHogEvalTestArgs(source="return true", target="traces")
 
 
 class TestRunHogEvalTestTool(BaseTest):
@@ -209,6 +216,35 @@ class TestRunHogEvalTestTool(BaseTest):
         )
 
         assert "Result: PASS" in result, f"expected PASS after heavy-merge, got: {result}"
+
+    @patch("posthog.temporal.ai_observability.run_trace_evaluation.run_hog_eval_over_recent_traces")
+    def test_trace_target_evaluates_whole_traces(self, mock_run_over_traces):
+        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
+
+        mock_run_over_traces.return_value = [
+            TraceHogTestResult(
+                trace_id="trace-1",
+                verdict=True,
+                reasoning="looks good",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
+        ]
+
+        tool = self._make_tool()
+        result, artifact = _run_tool(
+            tool,
+            source="return target.type == 'trace';",
+            sample_count=2,
+            target="trace",
+            window_seconds=120,
+        )
+
+        assert artifact is None
+        assert mock_run_over_traces.call_args.kwargs["window_seconds"] == 120
+        assert "Trace trace-1" in result
+        assert "Result: PASS" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_query_targets_ai_events(self, mock_query):

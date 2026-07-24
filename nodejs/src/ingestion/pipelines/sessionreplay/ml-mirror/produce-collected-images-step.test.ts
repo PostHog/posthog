@@ -66,6 +66,20 @@ describe('produceCollectedImagesStep', () => {
         ])
     })
 
+    it('evicts oldest refs at capacity instead of forgetting the whole working set', async () => {
+        const step = createProduceCollectedImagesStep(outputs, 2)
+        await run(step, { collectedImages: [image('image:aa:h1'), image('image:aa:h2')] })
+        await run(step, { collectedImages: [image('image:aa:h3')] })
+        // Only h1 (the oldest) made room for h3; h2 must still dedup — a wholesale clear-on-full
+        // would re-produce the entire hot working set every time the cap is hit.
+        await run(step, { collectedImages: [image('image:aa:h2'), image('image:aa:h1')] })
+        expect(queued.map((batch) => batch.map((m) => m.key))).toEqual([
+            ['image:aa:h1', 'image:aa:h2'],
+            ['image:aa:h3'],
+            ['image:aa:h1'],
+        ])
+    })
+
     it('swallows produce failures (a dangling ref reads as a placeholder downstream)', async () => {
         queueMessages.mockRejectedValueOnce(new Error('broker down'))
         const step = createProduceCollectedImagesStep(outputs)
