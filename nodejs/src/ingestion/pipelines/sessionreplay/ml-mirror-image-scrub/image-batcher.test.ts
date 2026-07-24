@@ -297,6 +297,49 @@ describe('ImageBatcher', () => {
         )
     })
 
+    it('leaves both partitions replayable when a chunk fails after a mid-batch flush', async () => {
+        // A mid-batch flush commits offsets for the prefix it persisted, and everything after it has
+        // to stay replayable. Multi-partition is where that can quietly go wrong, because each
+        // partition carries its own maximum and only one of them appears in a given chunk's span.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        let scrubs = 0
+        const failLateClient = {
+            scrub: (b: Buffer) => {
+                scrubs += 1
+                return scrubs > 2 ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            offsets,
+            failLateClient,
+            { ...options, maxImages: 2, scrubConcurrency: 2 },
+            0
+        )
+
+        await expect(
+            batcher.handleBatch(
+                [
+                    msg(0, 10, pt(1), Buffer.from('a')),
+                    msg(1, 20, pt(1), Buffer.from('b')),
+                    msg(0, 11, pt(1), Buffer.from('c')),
+                    msg(1, 21, pt(1), Buffer.from('d')),
+                ],
+                1
+            )
+        ).rejects.toThrow('sidecar down')
+
+        expect(offsets.received).toHaveLength(1)
+        expect(offsets.received[0]).toHaveLength(2)
+        expect(offsets.received[0]).toEqual(
+            expect.arrayContaining([
+                { topic: 'session_replay_image_scrub', partition: 0, offset: 11 },
+                { topic: 'session_replay_image_scrub', partition: 1, offset: 21 },
+            ])
+        )
+    })
+
     it('stops re-sending an image the sidecar permanently rejected', async () => {
         // A 422/413 is a verdict on the content, so every later copy would earn the same rejection.
         // Without marking it, the most broken images are the ones that keep costing sidecar calls.
