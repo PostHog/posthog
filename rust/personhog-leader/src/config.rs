@@ -125,11 +125,84 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub warm_retry_max_backoff_ms: u64,
 
+    // ── Property size admission ──────────────────────────────────
+    /// Ceiling for a person's properties, measured exactly as the
+    /// `check_properties_size` constraint on `posthog_person` measures it:
+    /// `pg_column_size(properties)`, the JSONB binary size. An update
+    /// that would newly push a within-limit row over this is rejected; a
+    /// row already over it (predating the constraint, or from another
+    /// writer) is remediated by trimming to the target below, discarding
+    /// the triggering update — mirroring the Node pipeline's policy. So
+    /// every acked record is applyable by the writer verbatim: the cache,
+    /// the changelog, and Postgres can never disagree about an acked row.
+    #[envconfig(default = "655360")]
+    pub properties_size_threshold: usize,
+
+    /// Size to trim already-oversized properties down to during
+    /// remediation, comfortably below the threshold so remediated rows
+    /// keep headroom under the constraint.
+    #[envconfig(default = "524288")]
+    pub properties_trim_target: usize,
+
+    /// Topic for in-product ingestion warnings emitted when admission
+    /// trims or rejects an update.
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
+    pub ingestion_warnings_topic: String,
+
+    // ── Dirty index / changelog recovery ─────────────────────────
+    /// How often to poll the writer's committed offsets and prune dirty
+    /// index marks the writer has applied to PG. A tick costs one batched
+    /// OffsetFetch plus work proportional to the marks actually reclaimed
+    /// (the index is never scanned), so a short interval is cheap — and it
+    /// bounds how long an applied-but-unpruned mark keeps sending reads to
+    /// the changelog for state PG already has.
+    #[envconfig(default = "1")]
+    pub dirty_index_prune_interval_secs: u64,
+
+    /// Overall deadline for recovering one evicted dirty person from the
+    /// changelog, including transient-failure retries. A point read that
+    /// hasn't returned in a few seconds isn't going to, and each recovery
+    /// occupies a pooled consumer for its whole duration — a long deadline
+    /// amplifies a broker blip into pool exhaustion.
+    #[envconfig(default = "5")]
+    pub recovery_recv_timeout_secs: u64,
+
+    /// Number of pooled changelog-recovery consumers, bounding concurrent
+    /// recoveries the way a DB connection pool bounds queries. Each is a
+    /// full Kafka client (its own connections and background threads), but
+    /// even 16 is fewer than the per-partition consumers this pool
+    /// replaced. Under a benchmarked writer outage a pool of 4 queued
+    /// recoveries for ~10ms on average and tripled write p99; 16 zeroed
+    /// the queueing. The `personhog_leader_recovery_pool_wait_ms`
+    /// histogram shows when this is undersized.
+    #[envconfig(default = "16")]
+    pub recovery_pool_size: usize,
+
+    /// Soft bound on dirty index entries (~100 bytes each). The index
+    /// grows one mark per unique person written since the writer's
+    /// committed offset, so this bound is the memory runway a writer
+    /// outage gets before new-person writes shed with RESOURCE_EXHAUSTED.
+    /// The default (~1 GB worst case) buys hours at heavy churn.
+    #[envconfig(default = "10000000")]
+    pub dirty_index_max_entries: usize,
+
     // ── PG fallback ───────────────────────────────────────────────
-    /// Read-only Postgres URL for cache miss fallback. If empty, cache
-    /// misses return NotFound without querying PG.
+    /// Postgres URL for cache miss fallback. If empty, cache misses
+    /// return NotFound without querying PG. Must point at the primary:
+    /// the dirty index prunes a mark as soon as the writer's committed
+    /// offset shows the primary has the row, so reading an async replica
+    /// here would serve stale rows for unmarked persons and silently
+    /// break read-your-write. Leader reads are strong reads.
     #[envconfig(default = "")]
     pub fallback_database_url: String,
+
+    /// Table the fallback reads. Must be the table the writer maintains
+    /// (its PG_TARGET_TABLE): the dirty index treats an unmarked person's
+    /// PG row as current, which is only true of the writer's own target.
+    /// Prod pairs posthog_person on both sides; the dev validation stack
+    /// pairs personhog_person_tmp on both — flip them together at cutover.
+    #[envconfig(default = "posthog_person")]
+    pub fallback_table: String,
 
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,

@@ -10,7 +10,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.team_merge_trend import query_team_merge_trend
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import PULL_REQUESTS_COLUMNS, TEAM_MEMBERS_COLUMNS
-from products.engineering_analytics.backend.tests.test_views import (
+from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     connect_github_source_without_data,
     create_github_warehouse_table,

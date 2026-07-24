@@ -2,6 +2,7 @@ import {
     createContext,
     forwardRef,
     type HTMLAttributes,
+    type KeyboardEventHandler,
     type ReactNode,
     type RefObject,
     useCallback,
@@ -289,6 +290,8 @@ export interface ComposerTextareaProps {
     autoFocus?: boolean
     minRows?: number
     maxRows?: number
+    /** Extra key handling (e.g. the mode picker's `shift+tab` cycle); runs after Enter handling. */
+    onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>
     'data-attr'?: string
 }
 

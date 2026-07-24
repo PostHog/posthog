@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RoarkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,

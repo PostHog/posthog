@@ -41,6 +41,7 @@ export const SORTABLE_COLUMN_KEYS = [
     'created_by',
     'created_at',
     'updated_at',
+    'credits_this_month',
 ] as const
 export type ScannerOrderKey = (typeof SORTABLE_COLUMN_KEYS)[number]
 

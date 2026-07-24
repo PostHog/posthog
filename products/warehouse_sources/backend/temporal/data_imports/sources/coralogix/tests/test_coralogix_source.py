@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.coralogix import CoralogixResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.source import CoralogixSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoralogixSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
+    CoralogixSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

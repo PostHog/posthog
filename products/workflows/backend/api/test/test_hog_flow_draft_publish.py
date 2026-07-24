@@ -1,3 +1,4 @@
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -232,10 +233,22 @@ class TestHogFlowDraftPublish(APIBaseTest):
             assert response.status_code == 200, response.json()
         return HogFlow.objects.get(pk=flow_id)
 
+    def _publish_preview(self, flow_id: str, counts: dict | None = None):
+        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+            if counts is None:
+                mock_count.side_effect = Exception("count service down")
+            else:
+                mock_count.return_value = MagicMock(status_code=200, json=lambda: counts)
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert response.status_code == 200, response.json()
+        return response
+
     @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
     @patch(FLAG_PATH, return_value=True)
     def test_publish_without_confirm_returns_impact_only(self, _flag, mock_count):
-        mock_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 42})
+        mock_count.return_value = MagicMock(
+            status_code=200, json=lambda: {"count": 42, "by_action": {"action_1": 42}, "position_unknown": 0}
+        )
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
         live_actions_before = flow.actions
@@ -244,6 +257,14 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["in_flight_runs"] == 42
         assert response.json()["draft_updated_at"] is not None
+        assert response.json()["confirm_token"]
+        # Content-only edit: impact present but empty — nothing to warn about
+        assert response.json()["impact"] == {
+            "deleted_steps": [],
+            "position_unknown": 0,
+            "empty_variables": [],
+            "schedule_conflicts": [],
+        }
 
         flow.refresh_from_db()
         assert flow.actions == live_actions_before
@@ -251,7 +272,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
     @patch(FLAG_PATH, return_value=True)
-    def test_publish_impact_degrades_to_null_when_count_unavailable(self, _flag, mock_count):
+    def test_publish_impact_degrades_to_null_counts_when_unavailable(self, _flag, mock_count):
         mock_count.side_effect = Exception("node service down")
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
@@ -259,19 +280,46 @@ class TestHogFlowDraftPublish(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
         assert response.status_code == 200, response.json()
         assert response.json()["in_flight_runs"] is None
+        # Graph-derived impact still renders; only the counts degrade
+        assert response.json()["impact"]["position_unknown"] is None
+
+    @patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count")
+    @patch(FLAG_PATH, return_value=True)
+    def test_publish_preview_reports_deleted_step_moves(self, _flag, mock_count):
+        mock_count.return_value = MagicMock(
+            status_code=200, json=lambda: {"count": 7, "by_action": {"action_1": 5}, "position_unknown": 2}
+        )
+        flow_id = self._create_active_three_step_flow()
+        stage = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            self._DELETE_ACTION_1_PAYLOAD,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert response.status_code == 200, response.json()
+        impact = response.json()["impact"]
+        assert impact["deleted_steps"] == [
+            {
+                "action_id": "action_1",
+                "name": "action_1",
+                "runs": 5,
+                "moves_to": {"action_id": "action_2", "name": "action_2"},
+                "exits": False,
+            }
+        ]
+        assert impact["position_unknown"] == 2
 
     @patch(FLAG_PATH, return_value=True)
     def test_publish_with_confirm_promotes_draft_and_clears_it(self, _flag):
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
-        # Narrow a local, not the attribute — narrowing flow.draft_updated_at here would make the
-        # post-publish `is None` assertion unreachable in mypy's eyes (it can't see refresh_from_db)
-        staged_at = flow.draft_updated_at
-        assert staged_at is not None
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "draft_updated_at": staged_at.isoformat()},
+            {"confirm": True, "confirm_token": confirm_token},
         )
         assert response.status_code == 200, response.json()
 
@@ -284,32 +332,55 @@ class TestHogFlowDraftPublish(APIBaseTest):
         trigger = next(a for a in flow.actions if a["type"] == "trigger")
         assert trigger["config"]["filters"].get("bytecode"), "publish must compile trigger filter bytecode"
 
+        # Publish must stay distinguishable from a plain edit in the audit trail
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "published"
+
     @patch(FLAG_PATH, return_value=True)
-    def test_publish_with_stale_draft_pointer_is_rejected_with_409(self, _flag):
+    def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self, _flag):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+        # The draft changes between preview and confirm — the token no longer matches what's staged
+        reedit = self._patch_actions_via_mcp(flow_id, url="https://reedited.example.com")
+        assert reedit.status_code == 200, reedit.json()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "draft_updated_at": "2020-01-01T00:00:00Z"},
+            {"confirm": True, "confirm_token": confirm_token},
         )
         assert response.status_code == 409, response.json()
 
     @parameterized.expand(
         [
-            ("flag_off", False, True),
-            ("no_draft", True, False),
+            ("flag_off", False, True, "garbage"),
+            ("no_draft", True, False, "garbage"),
+            ("no_token", True, True, None),
+            ("forged_token", True, True, "not-a-signed-value:1a2b3c:forged"),
         ]
     )
-    def test_publish_rejected(self, _name, flag_on, stage_draft):
+    def test_publish_rejected(self, _name, flag_on, stage_draft, confirm_token):
         flow_id = self._create_active_flow()
         if stage_draft:
             self._stage_draft(flow_id)
+        payload: dict = {"confirm": True}
+        if confirm_token is not None:
+            payload["confirm_token"] = confirm_token
         with patch(FLAG_PATH, return_value=flag_on):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-                {"confirm": True, "draft_updated_at": "2026-01-01T00:00:00Z"},
-            )
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", payload)
+        assert response.status_code == 400, response.json()
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_publish_with_expired_token_is_rejected(self, _flag):
+        flow_id = self._create_active_flow()
+        with freeze_time("2026-01-01T00:00:00Z"):
+            self._stage_draft(flow_id)
+            confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": confirm_token},
+        )
         assert response.status_code == 400, response.json()
 
     @patch(FLAG_PATH, return_value=True)
@@ -319,13 +390,15 @@ class TestHogFlowDraftPublish(APIBaseTest):
         flow_id = self._create_active_flow()
         flow = self._stage_draft(flow_id)
         assert flow.draft is not None
-        assert flow.draft_updated_at is not None
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+        # Tampering via the ORM leaves draft_updated_at untouched, so the token stays valid —
+        # strict revalidation is what must catch the bad blob
         flow.draft = {**flow.draft, "actions": [{"id": "bad", "type": "function", "config": {}}]}
         flow.save(update_fields=["draft"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "draft_updated_at": flow.draft_updated_at.isoformat()},
+            {"confirm": True, "confirm_token": confirm_token},
         )
         assert response.status_code == 400, response.json()
 
@@ -346,6 +419,9 @@ class TestHogFlowDraftPublish(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is None
         assert flow.draft_updated_at is None
+
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "draft_discarded"
 
     # ── Test-run from draft ──────────────────────────────────────────
 
@@ -390,6 +466,90 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["draft"] is not None
         assert response.json()["draft_updated_at"] is not None
+
+    # ── Skip-forward redirects (deleted steps) ───────────────────────
+    # The redirect-walk matrix lives in test_action_redirects.py; these guard the viewset wiring —
+    # that each live-graph write path actually computes and persists the map before saving.
+
+    def _create_active_three_step_flow(self) -> str:
+        hog_flow = {
+            "name": "Redirect Flow",
+            "actions": [_trigger_action(), _webhook_action("action_1"), _webhook_action("action_2")],
+            "edges": [
+                {"from": "trigger_node", "to": "action_1", "type": "continue"},
+                {"from": "action_1", "to": "action_2", "type": "continue"},
+            ],
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        return flow_id
+
+    _DELETE_ACTION_1_PAYLOAD = {
+        "actions": [_trigger_action(), _webhook_action("action_2")],
+        "edges": [{"from": "trigger_node", "to": "action_2", "type": "continue"}],
+    }
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_publish_deleting_a_step_persists_its_redirect(self, _flag):
+        flow_id = self._create_active_three_step_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            self._DELETE_ACTION_1_PAYLOAD,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects is None, "staging a draft must not touch the live redirect map"
+        confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": confirm_token},
+        )
+        assert response.status_code == 200, response.json()
+        # Re-fetch rather than refresh_from_db: the is-None assert above narrows the attribute
+        # type, and mypy doesn't un-narrow on refresh, flagging the asserts below as unreachable
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == {"action_1": "action_2"}
+        assert response.json()["workflow"]["action_redirects"] == {"action_1": "action_2"}
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_web_edit_deleting_a_step_persists_its_redirect_only_when_flag_on(self, _name, flag_on):
+        flow_id = self._create_active_three_step_flow()
+        with patch(FLAG_PATH, return_value=flag_on):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", self._DELETE_ACTION_1_PAYLOAD
+            )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == ({"action_1": "action_2"} if flag_on else None)
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_edit_while_disabled_still_persists_its_redirect(self, _flag):
+        # Disabling a flow doesn't purge its parked runs — a step deleted during a disable/re-enable
+        # window must still get a redirect, or those runs strand on re-activation.
+        flow_id = self._create_active_three_step_flow()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", self._DELETE_ACTION_1_PAYLOAD)
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == {"action_1": "action_2"}
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_graph_remove_action_persists_its_redirect(self, _flag):
+        flow_id = self._create_active_three_step_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
+        )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.action_redirects == {"action_1": "action_2"}
 
     @patch(FLAG_PATH, return_value=True)
     def test_draft_contents_are_masked_in_activity_log(self, _flag):

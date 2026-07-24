@@ -50,6 +50,29 @@ export function isAuthenticatedTeam(team: TeamType | TeamPublicType | undefined 
     return !!team && 'api_token' in team
 }
 
+/**
+ * Product-intent endpoints echo a full team serialized from a snapshot taken when their request
+ * started. Replacing `currentTeam` wholesale with that snapshot can clobber fields committed by a
+ * concurrent team PATCH — e.g. the onboarding-completion PATCH racing `complete_product_onboarding`
+ * loses `has_completed_onboarding_for`, so `hasOnboardedAnyProduct` flips back to false and
+ * sceneLogic bounces the user into /onboarding on every navigation. Keep the local team and take
+ * only `product_intents`, the one field these endpoints actually change.
+ */
+function withProductIntentsFrom(
+    currentTeam: TeamType | TeamPublicType | null,
+    response: TeamType | null
+): TeamType | TeamPublicType | null {
+    if (!currentTeam || !response) {
+        return response ?? currentTeam
+    }
+    if (response.id !== currentTeam.id) {
+        // The response is for a different team than the one now active (the team switched while
+        // the request was in flight) — don't graft the old team's intents onto the current one.
+        return currentTeam
+    }
+    return { ...currentTeam, product_intents: response.product_intents }
+}
+
 export interface FrequentMistakeAdvice {
     key: string
     type: 'event' | 'person'
@@ -116,17 +139,17 @@ export interface teamLogicActions {
         errorObject?: any
     }
     addProductIntentForCrossSellSuccess: (
-        currentTeam: TeamType | null,
+        currentTeam: TeamPublicType | TeamType | null,
         payload?: ProductCrossSellProperties
     ) => {
-        currentTeam: TeamType | null
+        currentTeam: TeamPublicType | TeamType | null
         payload?: ProductCrossSellProperties
     }
     addProductIntentSuccess: (
-        currentTeam: TeamType | null,
+        currentTeam: TeamPublicType | TeamType | null,
         payload?: ProductIntentProperties
     ) => {
-        currentTeam: TeamType | null
+        currentTeam: TeamPublicType | TeamType | null
         payload?: ProductIntentProperties
     }
     createTeam: ({ name, is_demo }: { is_demo: boolean; name: string }) => {
@@ -450,13 +473,13 @@ export const teamLogic = kea<teamLogicType>([
                     const result = await addProductIntent(properties)
                     actions.loadCustomProducts()
 
-                    return result
+                    return withProductIntentsFrom(values.currentTeam, result)
                 },
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) => {
                     const result = await addProductIntentForCrossSell(properties)
                     actions.loadCustomProducts()
 
-                    return result
+                    return withProductIntentsFrom(values.currentTeam, result)
                 },
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) => {
                     const result = await api.update(
@@ -467,7 +490,7 @@ export const teamLogic = kea<teamLogicType>([
                     )
                     actions.loadCustomProducts()
 
-                    return result
+                    return withProductIntentsFrom(values.currentTeam, result)
                 },
             },
         ],
@@ -595,11 +618,6 @@ export const teamLogic = kea<teamLogicType>([
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
-            }
-
-            // Detect managed viewsets to mark them as completed in the product setup
-            if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
             }
         },
         updateCurrentTeamSuccess: () => {

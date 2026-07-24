@@ -9,7 +9,10 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
-from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.warehouse_sources.backend.models.external_data_schema import (
+    auto_enable_new_schemas,
+    sync_old_schemas_with_new_schemas,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -69,7 +72,9 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         try:
-            schemas = new_source.get_schemas(config, inputs.team_id)
+            schemas = new_source.get_schemas(
+                config, inputs.team_id, api_version=new_source.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,
@@ -106,6 +111,10 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     if len(schemas_created) > 0:
         logger.info(f"Added new schemas: {', '.join(schemas_created)}")
+
+        auto_enabled = auto_enable_new_schemas(source, schemas_created, {s.name: s for s in schemas})
+        if auto_enabled:
+            logger.info(f"Auto-enabled sync for new schemas: {', '.join(auto_enabled)}")
     else:
         logger.info("No new schemas to create")
 

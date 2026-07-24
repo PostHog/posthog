@@ -1,13 +1,9 @@
-import time
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
@@ -16,15 +12,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
     BetterStackEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-REQUEST_TIMEOUT_SECONDS = 60
-# Better Stack publishes no fixed quota — 429s carry a Retry-After header; cap how long we honor it.
-MAX_RETRY_AFTER_SECONDS = 60
-
-
-class BetterStackRetryableError(Exception):
-    pass
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 
 class BetterStackUntrustedURLError(Exception):
@@ -46,22 +42,30 @@ def _validate_pagination_url(url: str) -> str:
     return url
 
 
+class BetterStackPaginator(JSONResponsePaginator):
+    """Follows the response's `pagination.next` URL, refusing any URL off the Better Stack origin —
+    whether it arrived in a response body or was seeded from saved resume state."""
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="pagination.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._next_url is not None:
+            _validate_pagination_url(self._next_url)
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        if self._next_url is not None:
+            _validate_pagination_url(self._next_url)
+
+
 @dataclasses.dataclass
 class BetterStackResumeConfig:
     # Full next-page URL from the response's `pagination.next` field (null on the last page). It
     # carries the page, per_page, and any `from` filter, so following it preserves the incremental
     # window on every page.
     next_url: str | None = None
-
-
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_token}"}
-
-
-def _build_url(base_url: str, params: dict[str, Any]) -> str:
-    if not params:
-        return base_url
-    return f"{base_url}?{urlencode(params)}"
 
 
 def _format_from_date(value: Any) -> str:
@@ -111,124 +115,82 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return flattened
 
 
-def _fetch_page_once(
-    session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict:
-    response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429:
-        # Better Stack signals rate limiting with a Retry-After header; honor it before tenacity's
-        # exponential backoff kicks in.
-        retry_after = response.headers.get("Retry-After")
-        if retry_after is not None:
-            try:
-                sleep_seconds = int(retry_after)
-            except ValueError:
-                # Per RFC 7231, Retry-After may be an HTTP-date instead of a seconds count. We don't
-                # parse the date; fall back to the cap so we still back off rather than hammering.
-                sleep_seconds = MAX_RETRY_AFTER_SECONDS
-            time.sleep(min(sleep_seconds, MAX_RETRY_AFTER_SECONDS))
-        raise BetterStackRetryableError(f"Better Stack API rate limited: status=429, url={page_url}")
-
-    if response.status_code >= 500:
-        raise BetterStackRetryableError(
-            f"Better Stack API error (retryable): status={response.status_code}, url={page_url}"
-        )
-
-    if not response.ok:
-        logger.error(f"Better Stack API error: status={response.status_code}, body={response.text}, url={page_url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-# Kept separate from `_fetch_page_once` so tests can exercise the request handling without
-# tenacity's retry waits.
-_fetch_page = retry(
-    retry=retry_if_exception_type((BetterStackRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)(_fetch_page_once)
-
-
 def probe_credentials(api_token: str, endpoint: str | None = None) -> int | None:
     """Cheap probe of a Better Stack collection. Returns the HTTP status code, or None on a
     connection failure. Probes the given endpoint's path when set, else the monitors collection."""
     config = BETTER_STACK_ENDPOINTS.get(endpoint) if endpoint else None
     path = config.path if config else "/v2/monitors"
-    url = _build_url(f"{BETTER_STACK_BASE_URL}{path}", {"per_page": 1})
-    try:
-        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_token), timeout=10)
-    except Exception:
-        return None
-    return response.status_code
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BetterStackResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[Any]:
-    config = BETTER_STACK_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-    # One session reused across pages so urllib3 keeps the connection alive.
-    # capture=False: incident `response_content` and monitor URLs can carry arbitrary
-    # secrets the name-based scrubbers can't recognise, so keep them out of HTTP samples.
-    session = make_tracked_session(capture=False)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        url = _validate_pagination_url(resume.next_url)
-        logger.debug(f"Better Stack: resuming {endpoint} from URL: {url}")
-    else:
-        params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
-        url = _build_url(f"{BETTER_STACK_BASE_URL}{config.path}", params)
-
-    while True:
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get("data", [])
-        next_url = data.get("pagination", {}).get("next")
-        if next_url:
-            next_url = _validate_pagination_url(next_url)
-
-        if items:
-            # Yield one page at a time as a list[dict]; the pipeline buffers and batches for us.
-            yield [_flatten_item(item) for item in items]
-
-        if not next_url:
-            break
-
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes on the primary key. Advance the URL before the next fetch to avoid re-looping it.
-        resumable_source_manager.save_state(BetterStackResumeConfig(next_url=next_url))
-        url = next_url
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(capture=False, redact_values=(api_token,)),
+        f"{BETTER_STACK_BASE_URL}{path}?per_page=1",
+        headers={"Authorization": f"Bearer {api_token}"},
+    )
+    return status
 
 
 def better_stack_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[BetterStackResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BETTER_STACK_ENDPOINTS[endpoint]
 
+    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": BETTER_STACK_BASE_URL,
+            # Auth (Bearer) goes through the framework auth config so its value is redacted from logs.
+            "auth": {"type": "bearer", "token": api_token},
+            # capture=False: incident `response_content` and monitor URLs can carry arbitrary
+            # secrets the name-based scrubbers can't recognise, so keep them out of HTTP samples.
+            "session": make_tracked_session(capture=False, redact_values=(api_token,)),
+            "paginator": BetterStackPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # A missing `data` key is treated as an empty page (matching the API's
+                    # envelope, which always carries `data`), so no data_selector_required here.
+                    "data_selector": "data",
+                },
+                # Better Stack is JSON:API — hoist each item's `attributes` into the row root.
+                "data_map": _flatten_item,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; the checkpoint lands AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(BetterStackResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

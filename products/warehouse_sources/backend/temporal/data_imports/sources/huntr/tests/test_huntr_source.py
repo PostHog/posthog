@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HuntrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huntr import HuntrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr import HuntrResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source import HuntrSource
@@ -90,32 +90,23 @@ class TestHuntrSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+        "result",
         [
-            (200, True, None),
-            (401, False, "Invalid Huntr access token"),
-            (403, False, "Invalid Huntr access token"),
-            (500, False, "Huntr returned HTTP 500"),
-            (0, False, "Could not connect to Huntr: boom"),
+            (True, None),
+            (False, "Invalid Huntr access token"),
+            (False, "Huntr returned HTTP 500"),
+            (False, "Could not validate Huntr access token"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.huntr.huntr.check_access")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source.validate_credentials")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
+        mock_validate: mock.MagicMock,
+        result: tuple[bool, str | None],
     ) -> None:
-        message = (
-            "Huntr returned HTTP 500"
-            if status == 500
-            else ("Could not connect to Huntr: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
+        mock_validate.return_value = result
+        assert self.source.validate_credentials(self.config, self.team_id) == result
+        mock_validate.assert_called_once_with("huntr-token")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())

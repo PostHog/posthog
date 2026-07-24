@@ -9,7 +9,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -112,6 +112,7 @@ REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
 REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
 REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
 REFRESH_FAILURE_REASON_NETWORK = "network"
+REFRESH_FAILURE_REASON_RATE_LIMITED = "rate_limited"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
@@ -126,6 +127,17 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # endpoint means the grant, not the request - match that exact shape for reddit only.
     if kind == "reddit-ads" and status_code == 400 and error == 400:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # HubSpot reports a grant whose portal (hub) was deleted or disconnected as
+    # `{"status": "BAD_HUB", "error": "access_denied", ...}` - no `invalid_grant` code, so
+    # without this mapping the row is retried forever instead of going terminal. Its
+    # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
+    if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Transient throttling, not a credential problem: the backoff cap synchronises failed
+    # integrations into retry herds that can trip a provider's per-second limit and take
+    # healthy refreshes in the same second down with them.
+    if status_code == 429:
+        return REFRESH_FAILURE_REASON_RATE_LIMITED
     if status_code >= 500:
         return REFRESH_FAILURE_REASON_HTTP_5XX
     return REFRESH_FAILURE_REASON_OTHER
@@ -139,8 +151,8 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
     integration goes terminal and the sweep stops retrying entirely. The streak is tracked
     separately from the total failure count and resets on any other reason, so one transient
     invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
-    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
-    the fleet self-recover.
+    (invalid_client, 5xx, network, rate_limited) never go terminal - a platform-side credential
+    fix must let the fleet self-recover.
 
     Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -335,6 +347,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
@@ -384,6 +397,12 @@ class Integration(models.Model):
 
     @property
     def display_name(self) -> str:
+        if self.kind == "pinterest-ads":
+            # Pinterest's OAuth username is an opaque hash, so prefer the business name when there is one.
+            return self.config.get("business_name") or self.config.get("username") or self.integration_id
+        if self.kind == "tiktok-ads":
+            # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
+            return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
             oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
@@ -484,6 +503,33 @@ def _build_posthog_slack_scope() -> str:
 POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
+def _salesforce_instance_host(instance_url: str | None) -> str | None:
+    # Every Salesforce-issued instance_url host ends in .salesforce.com: login/test, the
+    # pod hosts (na1.salesforce.com, ...), and My Domain variants like
+    # acme.my.salesforce.com and acme--sandbox.sandbox.my.salesforce.com. Validating at
+    # the point of use means a stray write to integration.config can't cause the shared
+    # SALESFORCE_CONSUMER_SECRET to be POSTed to an attacker origin during a refresh,
+    # even if a future endpoint or admin tool exposes config as writable. Returns
+    # "https://<host>" for a legitimate value, None otherwise (caller falls back to the
+    # hardcoded prod URL).
+    if not instance_url:
+        return None
+    try:
+        parsed = urlparse(instance_url)
+        # port/hostname/username/password are lazily parsed from netloc on access, and
+        # port in particular raises ValueError on a non-numeric or out-of-range value
+        # (e.g. https://host:abc/). Keep every derived-property read inside the try so a
+        # poisoned instance_url can never crash the refresh sweep.
+        if parsed.scheme != "https" or parsed.port is not None or parsed.username or parsed.password:
+            return None
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    if not host.endswith(".salesforce.com"):
+        return None
+    return f"https://{host}"
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -505,6 +551,7 @@ class OauthIntegration:
         "jira",
         "pinterest-ads",
         "stripe",
+        "resend",
     ]
     integration: Integration
 
@@ -829,7 +876,7 @@ class OauthIntegration:
                 authorize_url="https://www.pinterest.com/oauth/",
                 token_url="https://api.pinterest.com/v5/oauth/token",
                 token_info_url="https://api.pinterest.com/v5/user_account",
-                token_info_config_fields=["id", "username"],
+                token_info_config_fields=["id", "username", "business_name"],
                 client_id=settings.PINTEREST_ADS_CLIENT_ID,
                 client_secret=settings.PINTEREST_ADS_CLIENT_SECRET,
                 scope="ads:read user_accounts:read",
@@ -854,6 +901,28 @@ class OauthIntegration:
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
+            )
+        elif kind == "resend":
+            if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
+                raise NotImplementedError("Resend app not configured")
+
+            # Resend implements OAuth 2.1: PKCE is required, and access tokens are short-lived
+            # (~15m) JWTs while refresh tokens rotate on every use. We register as a confidential
+            # client (token_endpoint_auth_method=client_secret_post), so the standard client_secret
+            # token-exchange/refresh path applies on top of PKCE. `full_access` is the scope needed
+            # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
+            # The token response carries no account identifier, so id/name are derived from the
+            # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://resend.com/oauth/authorize",
+                token_url="https://api.resend.com/oauth/token",
+                token_revoke_url="https://api.resend.com/oauth/revoke",
+                client_id=settings.RESEND_APP_CLIENT_ID,
+                client_secret=settings.RESEND_APP_CLIENT_SECRET,
+                scope="full_access",
+                pkce=True,
+                id_path="resend_account_id",
+                name_path="resend_account_name",
             )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
@@ -982,6 +1051,9 @@ class OauthIntegration:
                     **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
                 timeout=10,
+                # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
+                # into resending client_secret + authorization code to another origin.
+                allow_redirects=False,
             )
 
         try:
@@ -1120,6 +1192,29 @@ class OauthIntegration:
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
 
+        # Resend's token response carries no account identifier, but the access token is a JWT.
+        # Derive the integration id/name from its claims (`sub` is the account subject; email/name
+        # are used for a human-readable label when present). Assumes the standard `sub` claim — if
+        # Resend uses a different claim, the missing-id guard below raises and the user sees a clear
+        # reconnect error rather than a silently mislabeled integration.
+        if kind == "resend" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
+                        resend_account_id = jwt_data.get("sub")
+                        if resend_account_id:
+                            config["resend_account_id"] = resend_account_id
+                            config["resend_account_name"] = (
+                                jwt_data.get("email") or jwt_data.get("name") or f"Resend account {resend_account_id}"
+                            )
+                            integration_id = resend_account_id
+                else:
+                    logger.error("Resend OAuth response missing access_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Resend JWT")
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1169,6 +1264,23 @@ class OauthIntegration:
             data = config.pop("data", {})
             # Move other data fields to main config for TikTok
             config.update(data)
+            # Best-effort: fetch who authorized this, so it isn't listed as a row of advertiser ids.
+            try:
+                user_res = requests.get(
+                    "https://business-api.tiktok.com/open_api/v1.3/user/info/",
+                    headers={"Access-Token": config["access_token"]},
+                    timeout=10,
+                )
+                # TikTok answers 200 even when the call failed; the body `code` (0 = OK) is the outcome.
+                body = user_res.json()
+                if body.get("code") == 0:
+                    user = body.get("data") or {}
+                    if user.get("email"):
+                        config["user_email"] = user["email"]
+                    if user.get("display_name"):
+                        config["user_display_name"] = user["display_name"]
+            except Exception:
+                logger.warning("Failed to fetch TikTok user info for display name")
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -1239,26 +1351,39 @@ class OauthIntegration:
         if not oauth_config.token_revoke_url:
             return
 
-        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
-            "access_token"
-        )
+        # Prefer the refresh token: revoking it invalidates the whole grant (and its access
+        # tokens), so an attacker holding it can't keep minting access tokens after disconnect.
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        token = refresh_token or self.integration.sensitive_config.get("access_token")
         if not token:
             return
 
         revoke_url = oauth_config.token_revoke_url
-        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only a
-        # token-exchange fallback), so the static prod revoke URL would miss them. Revoke at the
-        # org's own instance host instead - it serves oauth2/revoke and matches prod or sandbox.
-        instance_url = self.integration.config.get("instance_url")
-        if self.integration.kind == "salesforce" and instance_url:
-            revoke_url = f"{instance_url.rstrip('/')}/services/oauth2/revoke"
+        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only
+        # a token-exchange fallback), so the static prod revoke URL would miss them. Revoke at
+        # the validated instance host so a stray write to config can't redirect the token to
+        # an attacker origin.
+        if self.integration.kind == "salesforce":
+            allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+            if allowed_host:
+                revoke_url = f"{allowed_host}/services/oauth2/revoke"
+
+        data = {"token": token}
+        if self.integration.kind == "resend":
+            # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
+            # client_secret_post) and requires client authentication on revocation. Without it
+            # the endpoint rejects the request and the grant survives the disconnect. The hint
+            # tells the provider which token type it received (RFC 7009).
+            data["client_id"] = oauth_config.client_id
+            data["client_secret"] = oauth_config.client_secret
+            data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
 
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
         # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
             revoke_url,
-            data={"token": token},
+            data=data,
             timeout=10,
             allow_redirects=False,
         )
@@ -1345,8 +1470,20 @@ class OauthIntegration:
                 timeout=10,
             )
         else:
+            token_url = oauth_config.token_url
+            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox
+            # is only a token-exchange fallback in the OAuth callback), so the static prod
+            # token URL would refuse a sandbox-issued refresh_token. Refresh at the org's
+            # own instance host instead. Validate the host before sending client_secret +
+            # refresh_token so a stray write to config can't exfiltrate the fleet-wide
+            # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
+            if kind == "salesforce":
+                allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
+                if allowed_host:
+                    token_url = f"{allowed_host}/services/oauth2/token"
+
             return requests.post(
-                oauth_config.token_url,
+                token_url,
                 data={
                     "client_id": client_id,
                     "client_secret": client_secret,
@@ -1354,6 +1491,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 timeout=10,
+                allow_redirects=False,
             )
 
     @staticmethod
@@ -1628,6 +1766,12 @@ def validate_slack_request(request: HttpRequest | Request, signing_secret: str) 
         raise SlackIntegrationError("Invalid")
 
 
+def google_ads_hierarchy_level(account: dict) -> int:
+    """Depth of an account below the manager the walk started from. Google's REST responses omit proto3
+    defaults, so a level-0 account carries no `level` key at all, and deeper ones arrive as strings."""
+    return int(account.get("level") or 0)
+
+
 class GoogleAdsIntegration:
     integration: Integration
 
@@ -1686,7 +1830,7 @@ class GoogleAdsIntegration:
 
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
-    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
             "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
@@ -1722,7 +1866,7 @@ class GoogleAdsIntegration:
             raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
-        all_accounts: list[dict[str, str]] = []
+        all_accounts: list[dict[str, Any]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
@@ -1745,39 +1889,48 @@ class GoogleAdsIntegration:
             if response.status_code != 200:
                 return accounts
 
+            # searchStream's REST body is an array of response objects, one per streamed batch.
             data = response.json()
+            results = [row for chunk in data for row in chunk.get("results", [])]
 
-            for nested_account in data[0]["results"]:
-                if any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] > nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
-                    accounts = [
-                        account
-                        for account in accounts
-                        if account["id"] != nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    ]
-                elif any(
-                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
-                    and account["level"] < nested_account["customerClient"]["level"]
-                    for account in accounts
-                ):
+            for nested_account in results:
+                client = nested_account["customerClient"]
+                client_id = client["clientCustomer"].split("/")[1]
+                # `level` is compared numerically: it is absent on the level-0 row and a string ("1", "2")
+                # below it, so the raw values are not mutually comparable.
+                client_level = google_ads_hierarchy_level(client)
+
+                # Reject non-enabled accounts before deduping. Otherwise a disabled, shallower sighting
+                # of an account we already kept as enabled would evict the enabled entry here and then be
+                # skipped by the status check below, dropping the account from the picker entirely.
+                if client.get("status") != "ENABLED":
                     continue
-                if nested_account["customerClient"].get("status") != "ENABLED":
-                    continue
+
+                # One account can be reached from several accessible roots — e.g. a user with access to
+                # both a manager and one of its clients walks that client twice, once as a root (level 0)
+                # and once beneath the manager (level 1). Keep the shallowest sighting, whose `parent_id`
+                # is the account we can authenticate the sync as.
+                already_seen = [account for account in accounts if account["id"] == client_id]
+                if already_seen:
+                    if all(google_ads_hierarchy_level(account) <= client_level for account in already_seen):
+                        continue
+                    accounts = [account for account in accounts if account["id"] != client_id]
+
                 accounts.append(
                     {
                         "parent_id": parent_id,
-                        "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
-                        "level": nested_account["customerClient"].get("level"),
-                        "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                        "id": client_id,
+                        "level": client.get("level"),
+                        "name": client.get("descriptiveName", "Google Ads account"),
+                        "manager": client.get("manager", False),
                     }
                 )
 
             return accounts
 
-        for account in accessible_accounts["resourceNames"]:
+        # A Google login with no accessible Ads accounts gets a 200 with an empty body, so
+        # `resourceNames` is absent (proto3 omits empty repeated fields) rather than an empty list.
+        for account in accessible_accounts.get("resourceNames", []):
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts
@@ -2482,7 +2635,7 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+    def create_issue(self, attachment_url: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
@@ -2501,7 +2654,6 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
-        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {

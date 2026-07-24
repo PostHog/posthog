@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -61,6 +62,8 @@ interface SQLEditorProps {
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
+    /** Extra top-level sections for the database tree, owned by the embedder — see QueryDatabase. */
+    extraTreeSections?: TreeDataItem[]
     panel?: SQLEditorPanel
     showOutputToolbar?: boolean
     onRunQuery?: () => void
@@ -81,6 +84,7 @@ export function SQLEditor({
     mode = SQLEditorMode.FullScene,
     showDatabaseTree,
     defaultShowDatabaseTree = true,
+    extraTreeSections,
     panel = SQLEditorPanel.Full,
     showOutputToolbar = true,
     onRunQuery,
@@ -238,6 +242,7 @@ export function SQLEditor({
                                                         <DatabaseTree
                                                             databaseTreeRef={databaseTreeRef}
                                                             tabId={tabId || ''}
+                                                            extraTreeSections={extraTreeSections}
                                                         />
                                                     )}
                                                     <div

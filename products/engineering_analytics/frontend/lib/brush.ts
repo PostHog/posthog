@@ -1,6 +1,6 @@
 // Pure geometry for the run-activity chart's focus lens — a context strip that shows the whole loaded
 // window with a draggable lens selecting the sub-range the scatter and band zoom into. The default lens is
-// the most recent 24h (the live view), pannable back over older days and resizable up to the full window.
+// the full selected window and can be resized to zoom into a shorter period.
 // Kept here, DOM-free, so the math (default placement, clamping, panning, resizing, px<->time) is unit-tested
 // without rendering.
 
@@ -9,13 +9,9 @@ export interface TimeRange {
     end: number
 }
 
-/** The lens's initial position: the most recent `lensMs` of the window, or the whole window when it's
- *  already shorter than the lens (nothing to pan over). */
-export function defaultFocus(tMin: number, tMax: number, lensMs: number): TimeRange {
-    if (tMax - tMin <= lensMs) {
-        return { start: tMin, end: tMax }
-    }
-    return { start: tMax - lensMs, end: tMax }
+/** The lens initially matches the selected date range so the chart and page filter stay aligned. */
+export function defaultFocus(tMin: number, tMax: number): TimeRange {
+    return { start: tMin, end: tMax }
 }
 
 /** Keep a range inside [tMin, tMax] and at least `minSpanMs` wide, preserving its width where possible so a

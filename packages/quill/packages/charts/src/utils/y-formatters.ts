@@ -14,6 +14,7 @@ export type YAxisFormat =
     | 'currency'
     | 'duration'
     | 'duration_ms'
+    | 'duration_ns'
     | 'short'
 
 export interface YFormatterConfig {
@@ -27,6 +28,20 @@ export interface YFormatterConfig {
     currency?: string
 }
 
+function formatNanoseconds(value: number): string {
+    if (value < 0) {
+        return `-${formatNanoseconds(-value)}`
+    }
+    const absoluteValue = Math.abs(value)
+    if (absoluteValue < 1_000) {
+        return `${humanFriendlyNumber(value)}ns`
+    }
+    if (absoluteValue < 1_000_000) {
+        return `${humanFriendlyNumber(value / 1_000)}µs`
+    }
+    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+}
+
 export function buildYTickFormatter(config: YFormatterConfig): (value: number) => string {
     const { format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = config
     return (value: number): string => {
@@ -37,6 +52,9 @@ export function buildYTickFormatter(config: YFormatterConfig): (value: number) =
                 break
             case 'duration_ms':
                 formatted = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                break
+            case 'duration_ns':
+                formatted = formatNanoseconds(value)
                 break
             case 'percentage':
                 formatted = percentage(value / 100, decimalPlaces)

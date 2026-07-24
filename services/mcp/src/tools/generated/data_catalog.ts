@@ -29,7 +29,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true })
 
-const DataCatalogCertificationCertifySchemaExecute = DataCatalogCertificationCertifySchema.extend({
+const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
     confirmation_hash: z
         .string()
         .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
@@ -44,6 +44,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
     schema: DataCatalogCertificationCertifySchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationCertifySchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-certify',
@@ -51,6 +52,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -61,24 +63,24 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
 > => ({
     name: 'data-catalog-certification-certify-execute',
     schema: DataCatalogCertificationCertifySchemaExecute,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationCertifySchemaExecute>) => {
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogCertificationCertifySchemaExecute>
+    ) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogCertificationCertifySchema>>(context, {
+            incomingArgs: confirmationParams,
             purpose: 'data-catalog-certification-certify',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-        const projectId = await context.stateManager.getProjectId()
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/certify/`,
@@ -91,7 +93,7 @@ const DataCatalogCertificationDeprecateSchema = DataCatalogCertificationsDepreca
     project_id: true,
 })
 
-const DataCatalogCertificationDeprecateSchemaExecute = DataCatalogCertificationDeprecateSchema.extend({
+const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
     confirmation_hash: z
         .string()
         .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
@@ -106,6 +108,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
     schema: DataCatalogCertificationDeprecateSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationDeprecateSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-deprecate',
@@ -113,6 +116,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -123,24 +127,24 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
 > => ({
     name: 'data-catalog-certification-deprecate-execute',
     schema: DataCatalogCertificationDeprecateSchemaExecute,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationDeprecateSchemaExecute>) => {
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogCertificationDeprecateSchemaExecute>
+    ) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogCertificationDeprecateSchema>>(context, {
+            incomingArgs: confirmationParams,
             purpose: 'data-catalog-certification-deprecate',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-        const projectId = await context.stateManager.getProjectId()
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/deprecate/`,
@@ -186,7 +190,7 @@ const dataCatalogCertificationPropose = (): ToolBase<
 
 const DataCatalogMetricApproveSchema = DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
 
-const DataCatalogMetricApproveSchemaExecute = DataCatalogMetricApproveSchema.extend({
+const DataCatalogMetricApproveSchemaExecute = z.strictObject({
     confirmation_hash: z
         .string()
         .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
@@ -201,6 +205,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
     schema: DataCatalogMetricApproveSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogMetricApproveSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-metric-approve',
@@ -208,6 +213,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -218,24 +224,21 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
 > => ({
     name: 'data-catalog-metric-approve-execute',
     schema: DataCatalogMetricApproveSchemaExecute,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricApproveSchemaExecute>) => {
+    handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricApproveSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogMetricApproveSchema>>(context, {
+            incomingArgs: confirmationParams,
             purpose: 'data-catalog-metric-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-        const projectId = await context.stateManager.getProjectId()
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
@@ -270,9 +273,6 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
         if (params.source_insight_short_id !== undefined) {
             body['source_insight_short_id'] = params.source_insight_short_id
         }
-        if (params.created_source !== undefined) {
-            body['created_source'] = params.created_source
-        }
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
         }
@@ -282,6 +282,7 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
+        body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
@@ -353,9 +354,6 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
         if (params.source_insight_short_id !== undefined) {
             body['source_insight_short_id'] = params.source_insight_short_id
         }
-        if (params.created_source !== undefined) {
-            body['created_source'] = params.created_source
-        }
         if (params.ai_model !== undefined) {
             body['ai_model'] = params.ai_model
         }
@@ -365,6 +363,7 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
+        body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
@@ -398,7 +397,7 @@ const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcce
     project_id: true,
 })
 
-const DataCatalogRelationshipAcceptSchemaExecute = DataCatalogRelationshipAcceptSchema.extend({
+const DataCatalogRelationshipAcceptSchemaExecute = z.strictObject({
     confirmation_hash: z
         .string()
         .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
@@ -413,6 +412,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
     schema: DataCatalogRelationshipAcceptSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipAcceptSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-accept',
@@ -420,6 +420,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
             messageTemplate:
                 "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -430,24 +431,24 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
 > => ({
     name: 'data-catalog-relationship-accept-execute',
     schema: DataCatalogRelationshipAcceptSchemaExecute,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipAcceptSchemaExecute>) => {
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogRelationshipAcceptSchemaExecute>
+    ) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogRelationshipAcceptSchema>>(context, {
+            incomingArgs: confirmationParams,
             purpose: 'data-catalog-relationship-accept',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-        const projectId = await context.stateManager.getProjectId()
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const result = await context.api.request<Schemas.DataCatalogRelationshipProposal>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/relationship_proposals/${encodeURIComponent(String(params.id))}/accept/`,
@@ -507,7 +508,7 @@ const DataCatalogRelationshipRejectSchema = DataCatalogRelationshipProposalsReje
     project_id: true,
 }).extend(DataCatalogRelationshipProposalsRejectCreateBody.shape)
 
-const DataCatalogRelationshipRejectSchemaExecute = DataCatalogRelationshipRejectSchema.extend({
+const DataCatalogRelationshipRejectSchemaExecute = z.strictObject({
     confirmation_hash: z
         .string()
         .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
@@ -522,6 +523,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
     schema: DataCatalogRelationshipRejectSchema,
     handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipRejectSchema>) => {
         const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-reject',
@@ -529,6 +531,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
             messageTemplate:
                 "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
         })
     },
 })
@@ -539,24 +542,24 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
 > => ({
     name: 'data-catalog-relationship-reject-execute',
     schema: DataCatalogRelationshipRejectSchemaExecute,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipRejectSchemaExecute>) => {
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogRelationshipRejectSchemaExecute>
+    ) => {
         const __runtime = getConfirmedActionRuntime()
-        const __guard = await executeConfirmedAction(context, {
-            incomingArgs: params,
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogRelationshipRejectSchema>>(context, {
+            incomingArgs: confirmationParams,
             purpose: 'data-catalog-relationship-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
             return __guard.result as never
         }
-        // Replace, do NOT merge: only signed fields are authorized. Any
-        // base-schema field the model slipped into the execute call
-        // (e.g. an unsigned 'name' alongside the signed 'enforce_2fa')
-        // would otherwise survive into the downstream API body.
-        // eslint-disable-next-line no-param-reassign
-        params = { ...__guard.verifiedArgs } as typeof params
-        const projectId = await context.stateManager.getProjectId()
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
         if (params.rejection_reason !== undefined) {
             body['rejection_reason'] = params.rejection_reason

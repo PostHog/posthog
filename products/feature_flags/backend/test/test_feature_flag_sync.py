@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.utils import timezone as tz
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -550,10 +551,13 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
-    def test_no_retry_on_too_many_bytes(self) -> None:
+    def test_autoretry_for_membership(self) -> None:
         """CHQueryErrorTooManyBytes should not be in the autoretry_for tuple"""
         autoretry_for = sync_feature_flag_last_called.autoretry_for
         assert CHQueryErrorTooManyBytes not in autoretry_for
         # Transient errors should still be retried
         for error_cls in CH_TRANSIENT_ERRORS:
             assert error_cls in autoretry_for
+        # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
+        # so the wrapped form must be retryable too
+        assert ClickHouseAtCapacity in autoretry_for

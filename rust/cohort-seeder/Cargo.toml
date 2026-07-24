@@ -9,11 +9,16 @@ workspace = true
 [features]
 pg-test-support = []
 
+[[bin]]
+name = "reconcile_dispatch"
+path = "src/bin/reconcile_dispatch.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+clap = { workspace = true }
 clickhouse = { workspace = true }
 cohort-core = { path = "../cohort-core" }
 common-alloc = { path = "../common/alloc" }
@@ -23,10 +28,15 @@ common-liveness = { path = "../common/liveness" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
+hyper-rustls = { workspace = true }
+# client-legacy: the `clickhouse` crate's `with_http_client` escape hatch only accepts a
+# `hyper_util::client::legacy::Client`.
+hyper-util = { workspace = true, features = ["client-legacy"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rdkafka = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
@@ -39,3 +49,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"
+tempfile = "3"

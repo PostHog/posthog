@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { type SparklineTimeSeries } from 'lib/components/Sparkline'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
@@ -147,7 +147,7 @@ export const resolveDate = (value: string | null | undefined): string | null => 
 }
 
 // The picker reports raw ingest strings; only enum members may reach the API.
-const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
+export const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
     const known = Object.values(OtelMetricTypeEnumApi) as string[]
     return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
 }

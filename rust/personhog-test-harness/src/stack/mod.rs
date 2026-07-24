@@ -53,6 +53,7 @@ pub struct StackConfig {
     /// Leader in-memory cache capacity (entries). Lower it below the seeded
     /// person count to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
     pub leader_lease_ttl: i64,
@@ -254,6 +255,10 @@ impl Stack {
                     "CACHE_MEMORY_CAPACITY",
                     self.config.cache_memory_capacity.to_string(),
                 ),
+                (
+                    "RECOVERY_POOL_SIZE",
+                    self.config.recovery_pool_size.to_string(),
+                ),
                 ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                 ("KAFKA_HOSTS", self.config.kafka_hosts.clone()),
@@ -266,6 +271,10 @@ impl Stack {
                     "personhog-test-harness-writer".to_string(),
                 ),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
+                // Pair the fallback with the spawned writer's target: the
+                // dirty index treats an unmarked person's PG row as
+                // current, which is only true of the writer's own table.
+                ("FALLBACK_TABLE", self.config.pg_target_table.clone()),
                 (
                     "METRICS_PORT",
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),

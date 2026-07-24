@@ -22,6 +22,7 @@ function makeCatalog(count: number, schemaFields: number, descWords: number): Re
 
 const richCatalog = makeCatalog(600, 50, 6) // ~3M serialized chars
 const smallCatalog = makeCatalog(38, 4, 3)
+const agentBuilderCatalog = makeCatalog(47, 4, 3)
 
 describe('MCP exposure decision', () => {
     it('a rich surface exceeds the budget → proxy', () => {
@@ -41,6 +42,12 @@ describe('MCP exposure decision', () => {
 
     it('a curated slice of a rich surface stays inline', () => {
         expect(decideMcpExposure(richCatalog.slice(0, 10)).mode).toBe('inline')
+    })
+
+    it('the Agent Builder-sized curated surface stays inline', () => {
+        const decision = decideMcpExposure(agentBuilderCatalog)
+        expect(decision.mode).toBe('inline')
+        expect(decision.reasons).toEqual([])
     })
 
     it('proxying collapses the surface to ~constant cost regardless of N', () => {

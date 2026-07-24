@@ -52,6 +52,10 @@ class RenderEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway pagination.
     # A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 500
+    # Fan-out children where Render 400s parents that can't own the resource (custom domains
+    # only exist for web services and static sites, not cron jobs, workers or private
+    # services). Skip those parents rather than failing the whole sync.
+    skip_parent_on_bad_request: bool = False
     # Some endpoints return secrets the API key is only meant to *use* for sync (env var
     # values, secret-file contents), not data worth warehousing. Maps a list column to the
     # item keys whose values are redacted before a row is yielded, keeping the safe metadata
@@ -167,6 +171,7 @@ RENDER_ENDPOINTS: dict[str, RenderEndpointConfig] = {
         # creation — a createdAt cursor would freeze it. Tiny table: full refresh only.
         parent="services",
         inject_parent_key="serviceId",
+        skip_parent_on_bad_request=True,
     ),
     "env_groups": RenderEndpointConfig(
         name="env_groups",

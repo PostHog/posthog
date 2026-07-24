@@ -83,7 +83,7 @@ tools:
         title: Approve a catalog metric
         description: >
             Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink
-            it first). Requires human typed confirmation — an agent cannot self-approve.
+            it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.
         feature_flag: product-data-catalog
         confirmed_action:
             message: |
@@ -110,6 +110,10 @@ tools:
             queries. If you derived a number and no metric exists for it, offer to save the derivation as a proposed
             metric. There is no list tool: discover existing metrics with execute-sql over
             system.information_schema.metrics.
+        exclude_params:
+            - created_source
+        inject_body:
+            created_source: ai_generated
         feature_flag: product-data-catalog
     data-catalog-metric-run:
         operation: data_catalog_metrics_run_create
@@ -121,13 +125,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Run a catalog metric
+        title: Run a governed metric (semantic layer)
         description: >
-            Run a metric's definition. For an executable metric, returns the results plus a deep link (posthog_url). For
-            an agent-calculated markdown metric, returns the calculation steps in 'instructions' (with 'results' null)
-            for you to follow. Prefer running the canonical metric over re-deriving the number yourself. A result is
-            canonical only when the response has status 'approved' AND is_drifted false - never present a 'proposed' or
-            drifted metric's result as canonical.
+            Run a governed metric from the semantic layer — the source of truth for business measures and KPIs. For an
+            executable metric, returns the results plus a deep link (posthog_url). For an agent-calculated markdown
+            metric, returns the calculation steps in 'instructions' (with 'results' null) for you to follow. Prefer
+            running the canonical metric over re-deriving the number yourself. A result is canonical only when the
+            response has status 'approved' AND is_drifted false - never present a 'proposed' or drifted metric's result
+            as canonical.
         feature_flag: product-data-catalog
     data-catalog-metric-update:
         operation: data_catalog_metrics_partial_update
@@ -142,6 +147,10 @@ tools:
         description: >
             Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to
             'proposed' (it must be re-approved by a human).
+        exclude_params:
+            - created_source
+        inject_body:
+            created_source: ai_generated
         feature_flag: product-data-catalog
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy

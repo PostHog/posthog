@@ -19,7 +19,7 @@
 #       source and include it in the  __all__ list
 # 8. TODO: run `pnpm run generate:source-configs`. you should see "Generating config for
 #       {YOUR_SOURCE}" in the logs. you should also see a generated config class for your
-#       source in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`
+#       source in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/{your_source}.py`
 # 9. TODO: update all the references to `Config` in this file to the newly generated source
 #       config class from step 8
 # 10. TODO: implement the logic for your source or mark it as unreleased by setting

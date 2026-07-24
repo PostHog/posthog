@@ -15,7 +15,7 @@ export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -37,7 +37,7 @@ export const DataCatalogCertificationsCertifyCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -49,7 +49,7 @@ export const DataCatalogCertificationsDeprecateCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -60,13 +60,13 @@ export const DataCatalogMetricsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const dataCatalogMetricsCreateBodyNameMax = 128
 
-export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]*$')
+export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
 export const dataCatalogMetricsCreateBodyUnitMax = 64
@@ -74,6 +74,9 @@ export const dataCatalogMetricsCreateBodyUnitMax = 64
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
+
+export const dataCatalogMetricsCreateBodyConfidenceMin = 0
+export const dataCatalogMetricsCreateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -103,19 +106,17 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
         ),
-    created_source: zod
-        .enum(['user', 'ai_generated'])
-        .describe('* `user` - user\n* `ai_generated` - ai_generated')
-        .optional()
-        .describe(
-            "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated"
-        ),
     ai_model: zod
         .string()
         .max(dataCatalogMetricsCreateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsCreateBodyConfidenceMin)
+        .max(dataCatalogMetricsCreateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -127,13 +128,13 @@ export const DataCatalogMetricsPartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 
-export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]*$')
+export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
 
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
@@ -141,6 +142,9 @@ export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -171,19 +175,17 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
         ),
-    created_source: zod
-        .enum(['user', 'ai_generated'])
-        .describe('* `user` - user\n* `ai_generated` - ai_generated')
-        .optional()
-        .describe(
-            "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated"
-        ),
     ai_model: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -195,7 +197,7 @@ export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -207,7 +209,7 @@ export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -219,7 +221,7 @@ export const DataCatalogMetricsRunCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -228,7 +230,7 @@ export const DataCatalogMetricsRunCreateQueryParams = /* @__PURE__ */ zod.object
         .enum(['blocking', 'async', 'lazy_async', 'force_blocking', 'force_async', 'force_cache'])
         .optional()
         .describe(
-            'Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n* `blocking` - blocking\n* `async` - async\n* `lazy_async` - lazy_async\n* `force_blocking` - force_blocking\n* `force_async` - force_async\n* `force_cache` - force_cache'
+            'Cache\/execution behavior, same semantics as \/query\/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n\* `blocking` - blocking\n\* `async` - async\n\* `lazy_async` - lazy_async\n\* `force_blocking` - force_blocking\n\* `force_async` - force_async\n\* `force_cache` - force_cache'
         ),
 })
 
@@ -244,11 +246,11 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
         interval: zod
             .enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
             .describe(
-                '* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+                '\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             )
             .optional()
             .describe(
-                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
@@ -261,7 +263,7 @@ export const DataCatalogRelationshipProposalsCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -318,7 +320,7 @@ export const DataCatalogRelationshipProposalsAcceptCreateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -330,7 +332,7 @@ export const DataCatalogRelationshipProposalsRejectCreateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

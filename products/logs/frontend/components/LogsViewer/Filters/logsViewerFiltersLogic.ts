@@ -15,7 +15,7 @@ import {
 import posthog from 'posthog-js'
 
 import { zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
@@ -45,8 +45,8 @@ export interface LogsViewerFiltersLogicProps {
     // a distinct_id filter so the tab can't fall back to project-wide logs). Kept
     // entirely separate from the user-editable `filterGroup` — combined with it only
     // at query-build time via `queryFilterGroup` so the chips never see them and
-    // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_key`
-    // resolves to a non-default key after mount).
+    // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_keys`
+    // resolves to non-default keys after mount).
     pinnedFilters?: UniversalFiltersGroup
 }
 

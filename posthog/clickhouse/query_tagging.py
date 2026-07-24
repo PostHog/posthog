@@ -150,6 +150,7 @@ class FallbackTags(TypedDict):
 # fallback. The `None` rows double as breadcrumbs so the absence of a common scene is loud.
 SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
+    "CustomerAnalytics": {"product": Product.CUSTOMER_ANALYTICS, "feature": Feature.QUERY},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
@@ -258,16 +259,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MAX_AI}
         case (
-            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
-            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
-            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
-            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
-            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
-        ):
-            return {"product": Product.REVENUE_ANALYTICS}
-        case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
@@ -277,8 +268,13 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
             | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_FAILURE_OCCURRENCES_QUERY
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_ROWS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORIES_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY

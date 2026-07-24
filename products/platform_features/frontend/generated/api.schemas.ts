@@ -86,6 +86,8 @@ export interface OrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
     /** @nullable */
@@ -182,6 +184,8 @@ export interface PatchedOrganizationApi {
      */
     members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
+    /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
+    members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count?: number
     /** @nullable */
@@ -723,6 +727,27 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
+export interface ChangeRequestApproveApi {
+    /** Optional note recorded with the approval vote explaining the decision. */
+    reason?: string
+}
+
+export interface ChangeRequestDecisionResponseApi {
+    /** The change request's resulting state after the vote (e.g. 'pending', 'approved', 'applied', 'rejected'). */
+    status: string
+    /** Human-readable summary of what happened. */
+    message: string
+    /** The change request after the vote was recorded. */
+    change_request: ChangeRequestApi
+    /** Present only when the vote reached quorum and the change was applied immediately: details of the affected resource (e.g. resource_id, resource_version). */
+    result?: unknown
+}
+
+export interface ChangeRequestRejectApi {
+    /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
+    reason: string
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -982,6 +1007,8 @@ export type ActivityLogListParams = {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
+     * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -999,6 +1026,7 @@ export type ActivityLogListParams = {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `Billing` - Billing
+     * * `Loop` - Loop
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1069,6 +1097,8 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1086,6 +1116,7 @@ export const ActivityLogListScope = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 /**
@@ -1143,6 +1174,8 @@ export const ActivityLogListScope = {
  * * `ExternalDataSource` - ExternalDataSource
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
+ * * `LLMPrompt` - LLMPrompt
+ * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -1160,6 +1193,7 @@ export const ActivityLogListScope = {
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `Billing` - Billing
+ * * `Loop` - Loop
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1218,6 +1252,8 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
+    LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1235,6 +1271,7 @@ export const ActivityLogListScopesItem = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     Billing: 'Billing',
+    Loop: 'Loop',
 } as const
 
 export type AdvancedActivityLogsListParams = {

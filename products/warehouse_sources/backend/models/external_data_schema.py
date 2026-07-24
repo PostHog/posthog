@@ -1,8 +1,9 @@
 import sys
 import uuid
+import fnmatch
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.db import models, transaction
@@ -22,6 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PartitionMode,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 type IncrementalFieldValue = str | int | float | None
 
@@ -126,6 +131,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def normalized_s3_folder_name(self) -> str:
+        """Normalized Delta folder leaf the loader actually wrote the table under.
+
+        Diverges from ``normalized_name`` for folder-pinned rows (e.g. Postgres ``public.users``
+        → folder ``users``); readers that resolve ``normalized_name`` point at a prefix with no
+        ``_delta_log`` and surface "No files in log segment".
+        """
+        return NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+
+    @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
 
@@ -144,6 +159,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_xmin(self):
         return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def cdc_halted(self) -> bool:
+        """True while a CDC marker absorbs status updates: the source is marked broken, or the
+        extraction schedule was paused after a non-retryable error. Cleared by repair, resume,
+        disable, or a successful extraction run."""
+        config = self.sync_type_config or {}
+        return bool(config.get("cdc_broken")) or bool(config.get("cdc_extraction_paused"))
+
+    @property
+    def sync_halted(self) -> bool:
+        """True when syncing will not resume without user action."""
+        return not self.should_sync or self.cdc_halted
 
     @property
     def xmin_last_value(self) -> int | None:
@@ -559,6 +587,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(value, datetime):
                 return value.isoformat()
+            elif isinstance(value, int | float) and not isinstance(value, bool):
+                return value
             else:
                 return str(value)
         return str(value)
@@ -622,6 +652,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(last_value_py, datetime):
                 last_value_json = last_value_py.isoformat()
+            elif isinstance(last_value_py, int | float) and not isinstance(last_value_py, bool):
+                last_value_json = last_value_py
             else:
                 last_value_json = str(last_value_py)
         else:
@@ -689,6 +721,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
+        # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
+        # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
@@ -696,6 +733,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
             return value.date()
 
         if isinstance(value, date):
+            return value
+
+        if isinstance(value, int | float) and not isinstance(value, bool):
             return value
 
         return parser.parse(value).date()
@@ -718,6 +758,10 @@ def apply_incremental_lookback(
         return value
 
     if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        # Epoch-number cursors (e.g. Stripe `created`) are in seconds, so shift them directly since
+        # timedelta subtraction only supports datetime/date operands.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value - lookback_seconds
         return value - timedelta(seconds=lookback_seconds)
 
     return value
@@ -823,6 +867,37 @@ def update_sync_type_config_keys(
                 update_fields.append(field)
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
+
+
+def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
+    """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
+
+    The sweeper can mark the source broken at any moment; checking ``cdc_broken`` outside the
+    row lock would let a stale instance repaint the schema healthy right after the sweeper wrote
+    FAILED, hiding the breakage from the UI and the failure digest (the loader-side twin of this
+    guard lives in jobs.update_external_job_status, which already checks under its own lock).
+    Clears a stale ``cdc_extraction_paused`` marker — a successful run proves extraction resumed.
+    Returns whether the repaint happened; the passed instance is refreshed either way.
+    """
+    with transaction.atomic():
+        fresh = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        config = fresh.sync_type_config or {}
+        repainted = not config.get("cdc_broken")
+        if repainted:
+            config.pop("cdc_extraction_paused", None)
+            fresh.sync_type_config = config
+            fresh.status = ExternalDataSchema.Status.COMPLETED
+            fresh.latest_error = None
+            fresh.last_synced_at = last_synced_at
+            fresh.save(
+                update_fields=["sync_type_config", "status", "latest_error", "last_synced_at", "updated_at"],
+                skip_activity_log=True,
+            )
+    schema.sync_type_config = fresh.sync_type_config
+    schema.status = fresh.status
+    schema.latest_error = fresh.latest_error
+    schema.last_synced_at = fresh.last_synced_at
+    return repainted
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
@@ -967,6 +1042,121 @@ def sync_old_schemas_with_new_schemas(
                 s.save()
 
     return actually_created, deleted_schemas
+
+
+def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:
+    """Whether a discovered schema name qualifies for auto-sync under a source's glob patterns.
+
+    Patterns are fnmatch globs matched case-insensitively against both the stored name and its
+    unqualified tail — mirroring `_same_table`'s bare↔qualified equivalence, so `raw_*` matches
+    `public.raw_events`. No patterns means every name qualifies.
+    """
+    cleaned = [pattern.strip().lower() for pattern in patterns or [] if isinstance(pattern, str) and pattern.strip()]
+    if not cleaned:
+        return True
+
+    candidates = {name.lower(), name.rpartition(".")[2].lower()}
+    return any(fnmatch.fnmatchcase(candidate, pattern) for pattern in cleaned for candidate in candidates)
+
+
+def auto_enable_new_schemas(
+    source: "ExternalDataSource",
+    created_schema_names: list[str],
+    source_schemas_by_name: dict[str, "SourceSchema"],
+) -> list[str]:
+    """Enable syncing for newly discovered schemas on sources that opted into auto-sync.
+
+    Only rows still in the untouched discovery state (disabled, no sync type) are considered, so
+    revived rows keep whatever a user configured before and retries are idempotent. Sync config
+    comes from the same defaults as one-shot setup; each enabled schema gets a Temporal schedule
+    and an immediate first sync, like flipping the toggle in the UI.
+    """
+    if not created_schema_names or not source.auto_sync_new_schemas or not source.supports_scheduled_sync:
+        return []
+
+    # Call-time imports: the sources package's import chain pulls the source registry back into
+    # these models, and data_load.service puts temporalio on the django.setup() path (see
+    # update_should_sync above).
+    from products.data_warehouse.backend.facade.api import sync_external_data_job_workflow  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (  # noqa: PLC0415
+        build_default_schemas,
+    )
+
+    enabled: list[str] = []
+    candidates = ExternalDataSchema.objects.filter(
+        team_id=source.team_id,
+        source_id=source.id,
+        name__in=created_schema_names,
+        deleted=False,
+        should_sync=False,
+        sync_type__isnull=True,
+    )
+    for schema in candidates:
+        if not schema_name_matches_auto_sync_patterns(schema.name, source.auto_sync_schema_patterns):
+            continue
+
+        source_schema = source_schemas_by_name.get(schema.name)
+        if source_schema is None:
+            continue
+
+        defaults = build_default_schemas([source_schema])[0]
+        if not defaults.get("should_sync"):
+            # Webhook-only tables and tables the source marks default-off need explicit opt-in.
+            continue
+
+        sync_type = defaults["sync_type"]
+        original_sync_type_config = schema.sync_type_config
+        sync_type_config = {**(original_sync_type_config or {})}
+        if defaults.get("incremental_field") is not None:
+            sync_type_config["incremental_field"] = defaults["incremental_field"]
+            sync_type_config["incremental_field_type"] = defaults["incremental_field_type"]
+        if defaults.get("primary_key_columns"):
+            sync_type_config["primary_key_columns"] = defaults["primary_key_columns"]
+        if (
+            sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+            and source_schema.default_incremental_lookback_seconds is not None
+        ):
+            sync_type_config["incremental_field_lookback_seconds"] = source_schema.default_incremental_lookback_seconds
+
+        # Claim the row under a lock before enabling it, so a discovery pass running concurrently
+        # (a second "Pull new schemas" click, or the 6h schedule firing alongside a manual refresh)
+        # can't also enable the same row and fire a duplicate first sync. Re-read inside the lock
+        # and bail if it is no longer the untouched discovery row.
+        try:
+            with transaction.atomic():
+                locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=source.team_id)
+                if locked.should_sync or locked.sync_type is not None:
+                    continue
+                locked.sync_type = sync_type
+                locked.sync_type_config = sync_type_config
+                locked.should_sync = True
+                locked.save()
+        except Exception as e:
+            # A bad schema must not block the rest; nothing was persisted, so the next discovery
+            # pass reconsiders this row unchanged.
+            capture_exception(e)
+            continue
+
+        try:
+            sync_external_data_job_workflow(locked, create=True)
+            enabled.append(locked.name)
+        except Exception as e:
+            # Scheduling talks to Temporal and can fail after we persisted the enabled state. Roll
+            # the row back to the untouched discovery state so the next discovery pass retries it —
+            # this helper only reconsiders disabled, untyped rows, so leaving it enabled would strand
+            # it without a schedule or first sync until someone reloaded the source by hand.
+            capture_exception(e)
+            try:
+                with transaction.atomic():
+                    revert = ExternalDataSchema.objects.select_for_update().get(id=locked.id, team_id=source.team_id)
+                    revert.should_sync = False
+                    revert.sync_type = None
+                    revert.sync_type_config = original_sync_type_config
+                    revert.save()
+            except Exception as rollback_error:
+                capture_exception(rollback_error)
+
+    return enabled
 
 
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:

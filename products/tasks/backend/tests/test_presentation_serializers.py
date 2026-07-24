@@ -9,7 +9,22 @@ from parameterized import parameterized
 from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
+    TaskWriteSerializer,
 )
+
+
+class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("image_builder", True),
+            ("signals_scout", True),
+            ("user_created", False),
+        ]
+    )
+    def test_internal_only_origins_are_rejected(self, origin_product: str, expected_rejected: bool) -> None:
+        serializer = TaskWriteSerializer(data={"origin_product": origin_product})
+        serializer.is_valid()
+        assert ("origin_product" in serializer.errors) is expected_rejected
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

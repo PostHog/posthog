@@ -9,7 +9,7 @@ Two consumers:
 
 ## Layout
 
-- `benchmark/tasks.yaml` — the task set (v0). Each task is a realistic agent goal with the tools a competent agent should reach for.
+- `benchmark/tasks.yaml` — the task set (v1). Each task is a realistic agent goal with the tools a competent agent should reach for.
 - `benchmark/schema.ts` — zod schema, loader, and types. `tests/evals/benchmark.test.ts` validates the fixtures against the schema and the live tool catalog, so a tool rename or removal fails CI here instead of silently invalidating the benchmark.
 
 ## Task format

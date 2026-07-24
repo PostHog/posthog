@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -8,10 +10,16 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
+    BILLING_BACKFILL_DAYS,
     PAGE_SIZE,
     VercelResumeConfig,
+    _billing_window_start,
     _build_params,
+    _floor_to_day,
+    _focus_charge_id,
+    _iso8601_utc,
     _should_stop_desc,
+    get_billing_rows,
     get_rows,
     validate_credentials,
     vercel_source,
@@ -227,3 +235,143 @@ class TestVercelSource:
         assert response.name == endpoint
         assert response.primary_keys == [expected_pk]
         assert response.sort_mode == "desc"
+
+    def test_billing_source_response_is_incremental_merge(self) -> None:
+        # billing_charges merges on the synthesized `id`, yields ascending, and partitions by the
+        # charge period — unlike the descending, unpartitioned cursor endpoints above.
+        response = vercel_source(
+            access_token="t",
+            endpoint="billing_charges",
+            team_id=None,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.name == "billing_charges"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+        assert response.partition_keys == ["charge_period_start"]
+        assert response.partition_mode == "datetime"
+
+
+class _FakeStreamResponse:
+    def __init__(self, lines: list[str]) -> None:
+        self._lines = lines
+        self.closed = False
+
+    def iter_lines(self, decode_unicode: bool = False) -> Iterator[str]:
+        yield from self._lines
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class TestIso8601Utc:
+    def test_formats_as_utc_z_with_millis(self) -> None:
+        formatted = _iso8601_utc(datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC))
+        assert formatted == "2025-01-02T03:04:05.000Z"
+
+
+class TestFocusChargeId:
+    def test_stable_when_only_amounts_change(self) -> None:
+        # A restated charge (same dimensions, different measures) must keep its id so merge updates
+        # it in place instead of inserting a duplicate.
+        base = {
+            "ChargePeriodStart": "2025-01-01T00:00:00.000Z",
+            "ServiceName": "Functions",
+            "RegionId": "iad1",
+            "Tags": {"ProjectId": "p_1"},
+        }
+        first = _focus_charge_id({**base, "BilledCost": 1.0, "EffectiveCost": 0.9, "ConsumedQuantity": 10})
+        restated = _focus_charge_id({**base, "BilledCost": 2.0, "EffectiveCost": 1.8, "ConsumedQuantity": 20})
+        assert first == restated
+
+    @parameterized.expand(
+        [
+            ("service", {"ServiceName": "Bandwidth"}),
+            ("region", {"RegionId": "sfo1"}),
+            ("period", {"ChargePeriodStart": "2025-01-02T00:00:00.000Z"}),
+            ("project_tag", {"Tags": {"ProjectId": "p_2"}}),
+        ]
+    )
+    def test_distinct_when_a_dimension_changes(self, _name: str, override: dict[str, Any]) -> None:
+        base = {
+            "ChargePeriodStart": "2025-01-01T00:00:00.000Z",
+            "ServiceName": "Functions",
+            "RegionId": "iad1",
+            "Tags": {"ProjectId": "p_1"},
+            "BilledCost": 1.0,
+        }
+        assert _focus_charge_id(base) != _focus_charge_id({**base, **override})
+
+    def test_missing_dimension_does_not_collide_with_empty_string(self) -> None:
+        # A key present as null must not hash the same as the same key set to "".
+        assert _focus_charge_id({"RegionId": None}) != _focus_charge_id({"RegionId": ""})
+
+
+class TestBillingWindowStart:
+    def test_full_refresh_goes_back_the_backfill_window(self) -> None:
+        now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
+        start = _billing_window_start(should_use_incremental_field=False, db_incremental_field_last_value=None, now=now)
+        assert start == _floor_to_day(now) - timedelta(days=BILLING_BACKFILL_DAYS)
+
+    def test_incremental_reads_from_the_day_floored_watermark(self) -> None:
+        now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
+        watermark = datetime(2026, 6, 10, 14, 45, tzinfo=UTC)
+        start = _billing_window_start(
+            should_use_incremental_field=True, db_incremental_field_last_value=watermark, now=now
+        )
+        assert start == datetime(2026, 6, 10, tzinfo=UTC)
+
+    def test_watermark_is_capped_at_the_one_year_window(self) -> None:
+        # A stale watermark older than the backfill window can't push `from` past Vercel's cap.
+        now = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
+        stale = datetime(2024, 1, 1, tzinfo=UTC)
+        start = _billing_window_start(should_use_incremental_field=True, db_incremental_field_last_value=stale, now=now)
+        assert start == _floor_to_day(now) - timedelta(days=BILLING_BACKFILL_DAYS)
+
+
+class TestGetBillingRows:
+    def _collect(
+        self, monkeypatch: Any, response: _FakeStreamResponse, team_id: str | None, **kwargs: Any
+    ) -> tuple[list[dict], str]:
+        captured: dict[str, str] = {}
+
+        def fake_open(session: Any, url: str, headers: dict[str, str], logger: Any) -> _FakeStreamResponse:
+            captured["url"] = url
+            return response
+
+        monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, **k: MagicMock())
+        monkeypatch.setattr(vercel, "_open_billing_stream", fake_open)
+
+        rows: list[dict] = []
+        for table in get_billing_rows("token", "billing_charges", team_id, MagicMock(), **kwargs):
+            rows.extend(table.to_pylist())
+        return rows, captured["url"]
+
+    def test_parses_jsonl_stamps_id_and_sorts_ascending(self, monkeypatch: Any) -> None:
+        response = _FakeStreamResponse(
+            [
+                '{"ChargePeriodStart": "2025-01-03T00:00:00.000Z", "ServiceName": "Functions"}',
+                "",
+                '{"ChargePeriodStart": "2025-01-01T00:00:00.000Z", "ServiceName": "Bandwidth"}',
+            ]
+        )
+        rows, url = self._collect(monkeypatch, response, team_id="team_9")
+
+        # Blank line skipped, and rows arrive oldest-first regardless of stream order.
+        assert [r["ChargePeriodStart"] for r in rows] == [
+            "2025-01-01T00:00:00.000Z",
+            "2025-01-03T00:00:00.000Z",
+        ]
+        assert all(r["id"] for r in rows)
+        assert "teamId=team_9" in url
+        assert "from=" in url and "to=" in url
+        assert response.closed is True
+
+    def test_omits_team_id_when_not_set(self, monkeypatch: Any) -> None:
+        _, url = self._collect(monkeypatch, _FakeStreamResponse([]), team_id=None)
+        assert "teamId" not in url
+
+    def test_empty_stream_yields_no_rows(self, monkeypatch: Any) -> None:
+        rows, _ = self._collect(monkeypatch, _FakeStreamResponse([]), team_id="team_1")
+        assert rows == []
