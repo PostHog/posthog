@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, Count, Exists, F, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -815,7 +815,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     "plan",
                     "-plan",
                 ],
-                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak; non-staff requests fall back to the default.",
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak and adds a `plan_counts` object (per-plan-rank totals over the filtered result set) to the response; non-staff requests fall back to the default.",
             ),
         ],
     )
@@ -824,10 +824,25 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
 
+        # When plan-ordered (staff only — the annotation's presence is the
+        # signal), also aggregate per-group counts over the same filtered
+        # queryset, so the plan section headers can show how many tickets
+        # match the current filters beyond the page. Count(distinct) because
+        # the tag filters' joins can multiply rows.
+        plan_counts: dict[str, int] | None = None
+        if "plan_rank" in queryset.query.annotations:
+            plan_counts = {
+                str(row["plan_rank"]): row["n"]
+                for row in queryset.order_by().values("plan_rank").annotate(n=Count("id", distinct=True))
+            }
+
         if page is not None:
             self._attach_persons_to_tickets(page)
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            if plan_counts is not None:
+                response.data["plan_counts"] = plan_counts
+            return response
 
         tickets = list(queryset)
         self._attach_persons_to_tickets(tickets)

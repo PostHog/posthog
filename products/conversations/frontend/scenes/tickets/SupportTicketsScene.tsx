@@ -50,6 +50,13 @@ import {
     statusMultiselectOptions,
     statusOptionsWithoutAll,
 } from '../../types'
+import {
+    buildPlanGroupedRows,
+    isPlanHeaderRow,
+    isPlanOrdered,
+    TicketListRow,
+    withPlanHeaderRows,
+} from './planGroupedRows'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 import { buildTicketColumns } from './ticketColumns'
 import { TicketColumnsDropdown } from './TicketColumnsDropdown'
@@ -103,6 +110,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         ticketsLoading,
         currentPage,
         totalCount,
+        planCounts,
         sorting,
         selectedTicketIds,
         searchQuery,
@@ -150,7 +158,32 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         }
     }, [selectedTicketIds, selectedKeys, clearSelection])
 
-    const columns = useMemo<LemonTableColumns<Ticket>>(() => {
+    // Sorting by Plan (staff-only) IS the grouped view: the server returns the
+    // page ordered by plan rank, so tier boundaries are contiguous and we
+    // interleave full-width group headers at each change (see planGroupedRows).
+    // The isPlanOrdered guard keeps the list flat while a sort change is in
+    // flight: `sorting` flips to plan immediately, but `tickets` still holds
+    // the previous ordering until the fetch lands — grouping stale data would
+    // emit duplicate headers with duplicate row keys.
+    const planDesc = sorting?.order === -1
+    const planGrouped = staff && sorting?.columnKey === 'plan' && isPlanOrdered(tickets, planDesc)
+    const rows = useMemo<TicketListRow[]>(
+        () =>
+            planGrouped
+                ? buildPlanGroupedRows(tickets, {
+                      desc: planDesc,
+                      isFirstPage: currentPage === 1,
+                      isLastPage: currentPage * SUPPORT_TICKETS_PAGE_SIZE >= totalCount,
+                      counts: planCounts,
+                  })
+                : tickets,
+        [planGrouped, planDesc, tickets, currentPage, totalCount, planCounts]
+    )
+    // Shift-click ranges index into `tickets` (useBulkSelection's pageRecords),
+    // not the rendered rows — header rows would offset the table's recordIndex.
+    const ticketIndexById = useMemo(() => new Map(tickets.map((t, index) => [t.id, index])), [tickets])
+
+    const columns = useMemo<LemonTableColumns<TicketListRow>>(() => {
         const checkboxCol: LemonTableColumns<Ticket>[number] = {
             key: '__select__' as any,
             width: 32,
@@ -165,18 +198,27 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 <LemonCheckbox
                     checked={selectedKeysSet.has(ticket.id)}
                     onChange={(_value, event) =>
-                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                        toggleRow(
+                            ticket.id,
+                            ticketIndexById.get(ticket.id) ?? recordIndex,
+                            (event.nativeEvent as MouseEvent).shiftKey ?? false
+                        )
                     }
                     stopPropagation
                 />
             ),
         }
-        return [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, staff })]
+        const ticketColumns = [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, staff })]
+        return planGrouped
+            ? withPlanHeaderRows(ticketColumns)
+            : (ticketColumns as unknown as LemonTableColumns<TicketListRow>)
     }, [
         visibleColumns,
         embedded,
         aiEnabled,
         staff,
+        planGrouped,
+        ticketIndexById,
         isSomeOnPageSelected,
         isAllOnPageSelected,
         toggleAllOnPage,
@@ -197,9 +239,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         )
 
     return (
-        <LemonTable<Ticket>
-            dataSource={tickets}
-            rowKey="id"
+        <LemonTable<TicketListRow>
+            dataSource={rows}
+            rowKey={(row) => (isPlanHeaderRow(row) ? `plan-header:${row.planHeader}` : row.id)}
             emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
@@ -221,6 +263,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
+                if (isPlanHeaderRow(ticket)) {
+                    return {}
+                }
                 // Carry the active filters / saved view (the list's query string) onto the
                 // ticket URL so the ticket's back arrow can return to this exact view. Skip it
                 // when embedded (e.g. the person side panel), where the host page's query
@@ -248,10 +293,12 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     },
                 }
             }}
-            rowClassName={(ticket) =>
-                clsx({
-                    'bg-primary-alt-highlight': ticket.unread_team_count > 0,
-                })
+            rowClassName={(row) =>
+                clsx(
+                    isPlanHeaderRow(row)
+                        ? 'bg-surface-secondary'
+                        : { 'bg-primary-alt-highlight': row.unread_team_count > 0 }
+                )
             }
             columns={columns}
         />
