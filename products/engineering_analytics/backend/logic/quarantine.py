@@ -633,8 +633,8 @@ def _resolve_request_runner(request: QuarantineRequest, selector: str, entries: 
             raise QuarantineWriteError(
                 f"'{selector}' uses an unsupported runner; update it in the quarantine file."
             ) from exc
-    if request.operation == QuarantineRequestAction.EXTEND and matching_runners:
-        raise QuarantineWriteError(f"'{selector}' is quarantined for multiple runners; choose which runner to extend.")
+    if matching_runners:
+        raise QuarantineWriteError(f"'{selector}' is quarantined for multiple runners; specify which runner.")
     test_file = selector.partition("::")[0]
     if PurePosixPath(test_file).suffix in (".js", ".jsx", ".ts", ".tsx"):
         return QuarantineRunner.JEST

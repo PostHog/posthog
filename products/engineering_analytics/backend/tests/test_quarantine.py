@@ -494,13 +494,21 @@ class TestQuarantineRender(TestCase):
         request = _request(selector=selector, runner=None)
         assert _resolve_request_runner(request, selector, entries) == expected
 
-    def test_resolve_request_runner_rejects_ambiguous_extend(self) -> None:
+    @parameterized.expand(
+        [
+            ("extend", contracts.QuarantineRequestAction.EXTEND),
+            ("quarantine", contracts.QuarantineRequestAction.QUARANTINE),
+        ]
+    )
+    def test_resolve_request_runner_rejects_ambiguous(
+        self, _name: str, operation: contracts.QuarantineRequestAction
+    ) -> None:
         selector = "product:surveys"
         entries = [
             _canonical_entry(_entry(id=selector, runner="pytest")),
             _canonical_entry(_entry(id=selector, runner="jest")),
         ]
-        request = _request(operation=contracts.QuarantineRequestAction.EXTEND, selector=selector, runner=None)
+        request = _request(operation=operation, selector=selector, runner=None)
 
         with self.assertRaisesRegex(contracts.QuarantineWriteError, "multiple runners"):
             _resolve_request_runner(request, selector, entries)
