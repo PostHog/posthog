@@ -208,13 +208,11 @@ describe('API helper', () => {
     })
 
     describe('successful response body parsing', () => {
-        const fakeResponse = ({
-            status = 200,
+        const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
+            ok: true,
+            status,
             text,
-        }: {
-            status?: number
-            text: () => Promise<string>
-        }): any => ({ ok: true, status, text })
+        })
         const bodyOf =
             (body: string): (() => Promise<string>) =>
             (): Promise<string> =>
