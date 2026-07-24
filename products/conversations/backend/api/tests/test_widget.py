@@ -505,6 +505,90 @@ class TestWidgetAPI(BaseTest):
         ticket.refresh_from_db()
         self.assertEqual(ticket.unread_customer_count, 5)
 
+    # --- Recovery when widget_session_id is lost (cleared storage, new browser/device) ---
+    # A returning user's random widget_session_id lives in localStorage, so it's gone on a new
+    # device or after clearing storage. The read paths fall back to the person linked to the
+    # request's distinct_id so replies/history stay visible, without loosening access for
+    # requests that carry no distinct_id.
+
+    def test_list_tickets_fallback_to_distinct_id_when_session_lost(self):
+        old_session = str(uuid.uuid4())
+        mine = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=old_session,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="someone-else",
+            channel_source="widget",
+        )
+
+        new_session = str(uuid.uuid4())
+        response = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={new_session}&distinct_id={self.distinct_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(mine.id))
+
+    def test_get_messages_fallback_to_distinct_id_when_session_lost(self):
+        old_session = str(uuid.uuid4())
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=old_session,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Reply from support",
+            item_context={"author_type": "team", "is_private": False},
+        )
+
+        new_session = str(uuid.uuid4())
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={new_session}&distinct_id={self.distinct_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["messages"]), 1)
+
+    def test_get_messages_forbidden_when_neither_session_nor_distinct_id_match(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="someone-else",
+            channel_source="widget",
+        )
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}&distinct_id={self.distinct_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_mark_read_fallback_to_distinct_id_when_session_lost(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            unread_customer_count=3,
+        )
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            {"widget_session_id": str(uuid.uuid4()), "distinct_id": self.distinct_id},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_customer_count, 0)
+
     def test_honeypot_rejects_bot(self):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
