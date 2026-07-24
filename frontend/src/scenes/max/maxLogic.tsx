@@ -761,10 +761,21 @@ export const maxLogic = kea<maxLogicType>([
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
                 if (err.status === 404) {
-                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
-                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
-                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
-                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    // Benign race: loadConversationHistory succeeds WHILE a message is being generated
+                    // (e.g. the user messaged Max before the initial history load completed). The row
+                    // isn't persisted yet, so the retrieve 404s — but the conversation is the freshly
+                    // created local one and a stream is active. Do nothing so generation isn't interrupted.
+                    const isActiveLocalConversation =
+                        values.activeStreamingThreads > 0 || conversationId === values.frontendConversationId
+                    if (isActiveLocalConversation) {
+                        return
+                    }
+
+                    // Otherwise this is a genuinely stale or deleted chat link (e.g. an old `?chat=` URL).
+                    // Swallowing the 404 here left the user on a blank/silent surface with no way forward,
+                    // so tell them what happened and drop them onto a usable fresh chat.
+                    lemonToast.error("This chat isn't available anymore. It may have been deleted.")
+                    actions.startNewConversation()
                     return
                 }
 
