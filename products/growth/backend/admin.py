@@ -1,5 +1,6 @@
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
@@ -468,18 +469,24 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
                 row["reasoning"],
             )
 
-        def _stream() -> Iterator[str]:
+        # Async iterator on purpose: under ASGI, Django fully buffers a *sync* iterator
+        # before sending anything, which silently defeats the streaming.
+        async def _stream() -> AsyncIterator[str]:
             yield head
             unknown = errors = 0
             if not inputs:
                 yield '<tr><td colspan="5">No archived orgs matched.</td></tr>'
             else:
-                with ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS) as pool:
-                    for future in as_completed([pool.submit(_classify, pair) for pair in inputs]):
-                        row = future.result()
+                loop = asyncio.get_running_loop()
+                pool = ThreadPoolExecutor(max_workers=_DRY_RUN_WORKERS)
+                try:
+                    for task in asyncio.as_completed([loop.run_in_executor(pool, _classify, pair) for pair in inputs]):
+                        row = await task
                         unknown += row["verdict"] == UNKNOWN
                         errors += row["verdict"] == "ERROR"
                         yield _row_html(row)
+                finally:
+                    pool.shutdown(wait=False)
             yield mid
             yield escape(f"classified {len(inputs) - unknown - errors}, unknown {unknown}, errors {errors}")
             yield tail

@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 
 from posthog.test.base import BaseTest
@@ -329,7 +330,11 @@ class TestEnrichmentLabelDryRun(BaseTest):
         assert options_page.status_code == 200
         assert b"Sample size" in options_page.content
         assert results_page.status_code == 200
-        streamed = b"".join(results_page.streaming_content)
+
+        async def _drain(agen):
+            return b"".join([chunk async for chunk in agen])
+
+        streamed = asyncio.run(_drain(results_page.streaming_content))
         assert b"Acme" in streamed
         assert b"true" in streamed
         assert EnrichmentLabelResult.objects.count() == 0
