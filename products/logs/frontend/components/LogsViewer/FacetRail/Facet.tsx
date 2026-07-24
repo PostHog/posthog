@@ -182,7 +182,8 @@ function FacetValueButton({
     dimZeroCounts: boolean
 }): JSX.Element {
     // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
-    // already selected or excluded (so an active-but-now-empty value can still be cycled off).
+    // already active (selected or excluded), so an active-but-now-empty value can still be cycled off.
+    const isActive = selected || excluded
     const isZero = dimZeroCounts && option.count === 0
     return (
         <LemonButton
@@ -190,7 +191,7 @@ function FacetValueButton({
             size="small"
             fullWidth
             className={cn(isZero && 'opacity-50')}
-            disabledReason={isZero && !selected && !excluded ? 'No matching logs for the current filters' : undefined}
+            disabledReason={isZero && !isActive ? 'No matching logs for the current filters' : undefined}
             icon={
                 excluded ? (
                     // Deliberately not LemonCheckbox's `indeterminate` — that means "partially

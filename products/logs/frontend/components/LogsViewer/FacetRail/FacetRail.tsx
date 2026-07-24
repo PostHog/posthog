@@ -13,7 +13,6 @@ import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
 import {
-    EMPTY_FACET_SELECTION,
     FacetConfig,
     FacetFilterKey,
     facetsByGroup,
@@ -69,7 +68,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
         const { included: selected, excluded } =
             source.type === 'resourceAttribute'
                 ? resourceAttributeSelection(filterGroup, source.key)
-                : { ...EMPTY_FACET_SELECTION, included: selectedByKey[source.filterKey] }
+                : { included: selectedByKey[source.filterKey], excluded: [] }
         // Values + counts come from the cross-filtered endpoint, keyed by facet.key.
         const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((r) => ({
             value: r.value,

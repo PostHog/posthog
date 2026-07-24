@@ -52,6 +52,8 @@ describe('facets', () => {
             ['selected value already fetched is not duplicated', ['api'], undefined, ['api', 'worker']],
             ['missing selected value is prepended', ['batch-exports'], undefined, ['batch-exports', 'api', 'worker']],
             ['multiple missing values keep selection order', ['b', 'a'], undefined, ['b', 'a', 'api', 'worker']],
+            // A value hand-edited into both polarities reaches here twice (included ++ excluded).
+            ['a value repeated across polarities is not duplicated', ['dup', 'dup'], undefined, ['dup', 'api', 'worker']],
             ['missing selected value not matching the search is omitted', ['batch-exports'], 'api', ['api', 'worker']],
             [
                 'search match is a case-insensitive substring',

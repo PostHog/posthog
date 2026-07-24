@@ -80,8 +80,6 @@ export interface FacetSelection {
     excluded: string[]
 }
 
-export const EMPTY_FACET_SELECTION: FacetSelection = { included: [], excluded: [] }
-
 // The rail owns a key's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
 // with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
 // untouched on write.
@@ -258,7 +256,9 @@ export function filterFacetsByName(facets: FacetConfig[], query: string): FacetC
 export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
     const needle = (search ?? '').trim().toLowerCase()
     const fetchedValues = new Set(fetched.map((option) => option.value))
-    const missing = selected
+    // Dedupe: callers pass included+excluded concatenated, and a value hand-edited into both
+    // polarities appears in both — without this it would inject a duplicate-keyed row.
+    const missing = Array.from(new Set(selected))
         .filter((value) => !fetchedValues.has(value))
         .filter((value) => !needle || value.toLowerCase().includes(needle))
         .map((value) => ({ value, label: value, count: 0 }))
