@@ -19,6 +19,7 @@ export const FILE_UPLOAD_ACCEPT: Record<FileUploadFormat, string> = {
     csv: '.csv',
     json: '.json,.ndjson',
     parquet: '.parquet',
+    xlsx: '.xlsx,.xlsm',
 }
 
 const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
@@ -43,7 +44,9 @@ export function deriveTableName(filename: string): string {
 
 export function parseFileUploadFormat(value: string | undefined): FileUploadFormat | null {
     const normalized = value?.toLowerCase()
-    return normalized === 'csv' || normalized === 'json' || normalized === 'parquet' ? normalized : null
+    return normalized === 'csv' || normalized === 'json' || normalized === 'parquet' || normalized === 'xlsx'
+        ? normalized
+        : null
 }
 
 export function fileUploadFormErrors({ files, table_name }: Partial<FileUploadForm>): Record<string, unknown> {
@@ -186,10 +189,13 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 }
 
                 try {
+                    // Build from what was actually stored, not the picked format: an .xlsx upload is
+                    // converted to Parquet server-side, so the response reports filename + file_format
+                    // for the stored Parquet object.
                     await api.dataWarehouseTables.createFromUpload({
                         upload_id: upload.upload_id,
                         filename: upload.filename,
-                        file_format,
+                        file_format: upload.file_format,
                         table_name,
                     })
                 } catch (e: any) {

@@ -29,6 +29,7 @@ export function FileUploadSourceForm(): JSX.Element {
                                 { label: 'CSV', value: 'csv' },
                                 { label: 'JSON', value: 'json' },
                                 { label: 'Parquet', value: 'parquet' },
+                                { label: 'Excel', value: 'xlsx' },
                             ]}
                             value={value}
                             onChange={setFileFormat}

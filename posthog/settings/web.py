@@ -590,6 +590,9 @@ SPECTACULAR_SETTINGS = {
         "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # File-upload read format, shared by FileUploadResponse.file_format and
+        # CreateTableFromUpload.file_format (labels == values).
+        "FileUploadFormatEnum": ["csv", "json", "parquet"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.

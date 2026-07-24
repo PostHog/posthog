@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
+import pandas as pd
 from parameterized import parameterized
 from rest_framework import status
 
@@ -78,6 +79,42 @@ class TestWarehouseTableUploadFile(APIBaseTest):
         assert written_path == f"test-bucket/file_uploads/team_{self.team.pk}/{body['upload_id']}/data.csv"
         assert self.s3.written[written_path] == b"a,b\n1,2\n"
 
+    def test_xlsx_is_converted_to_parquet_and_stored(self) -> None:
+        # ClickHouse can't read Excel, so the endpoint converts the workbook to Parquet and reports
+        # 'parquet' + a .parquet name. Returning 'xlsx' here would make create_from_upload 400.
+        xlsx = io.BytesIO()
+        pd.DataFrame({"id": [1, 2], "total": [10, 20]}).to_excel(xlsx, index=False, engine="openpyxl")
+
+        response = self._upload(
+            file=SimpleUploadedFile(
+                "report.xlsx",
+                xlsx.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            file_format="xlsx",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["file_format"] == "parquet"
+        assert body["filename"] == "report.parquet"
+
+        [written_path] = self.s3.written
+        assert written_path == f"test-bucket/file_uploads/team_{self.team.pk}/{body['upload_id']}/report.parquet"
+        restored = pd.read_parquet(io.BytesIO(self.s3.written[written_path]))
+        assert list(restored.columns) == ["id", "total"]
+        assert restored["id"].tolist() == [1, 2]
+
+    def test_invalid_xlsx_is_rejected_without_storing_anything(self) -> None:
+        response = self._upload(
+            file=SimpleUploadedFile("bad.xlsx", b"not really a workbook", content_type="application/octet-stream"),
+            file_format="xlsx",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Excel" in response.json()["message"]
+        assert self.s3.written == {}
+
     def test_filename_cannot_escape_the_team_prefix(self) -> None:
         response = self._upload(
             file=SimpleUploadedFile("../../secrets.csv", b"a\n1\n", content_type="text/csv"),
@@ -91,7 +128,7 @@ class TestWarehouseTableUploadFile(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unsupported_format", "xlsx", "Invalid format"),
+            ("unsupported_format", "tsv", "Invalid format"),
             ("empty_format", "", "Invalid format"),
         ]
     )

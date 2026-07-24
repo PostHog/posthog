@@ -3852,10 +3852,9 @@ export interface PatchedTableApi {
  * * `json` - json
  * * `parquet` - parquet
  */
-export type CreateTableFromUploadFileFormatEnumApi =
-    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+export type FileUploadFormatEnumApi = (typeof FileUploadFormatEnumApi)[keyof typeof FileUploadFormatEnumApi]
 
-export const CreateTableFromUploadFileFormatEnumApi = {
+export const FileUploadFormatEnumApi = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
@@ -3871,7 +3870,7 @@ export interface CreateTableFromUploadApi {
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
-    file_format: CreateTableFromUploadFileFormatEnumApi
+    file_format: FileUploadFormatEnumApi
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }
@@ -3881,8 +3880,12 @@ export interface FileUploadResponseApi {
     upload_id: string
     /** Sanitized name the file was stored under. */
     filename: string
-    /** Format the file will be read as: 'csv', 'json', or 'parquet'. */
-    file_format: string
+    /** Format the stored file is read as: 'csv', 'json', or 'parquet'. An uploaded 'xlsx' is converted to Parquet, so this reports 'parquet'. Pass it back to create_from_upload.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: FileUploadFormatEnumApi
     /** Size of the stored file in bytes. */
     size_bytes: number
 }
@@ -4103,7 +4106,7 @@ export type WarehouseTablesListParams = {
 }
 
 /**
- * How the file will be read when the table is created.
+ * How the file will be read when the table is created. 'xlsx' is converted to Parquet on upload, so the response reports 'parquet'.
  */
 export type WarehouseTablesUploadFileCreateBodyFileFormat =
     (typeof WarehouseTablesUploadFileCreateBodyFileFormat)[keyof typeof WarehouseTablesUploadFileCreateBodyFileFormat]
@@ -4112,12 +4115,13 @@ export const WarehouseTablesUploadFileCreateBodyFileFormat = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
+    Xlsx: 'xlsx',
 } as const
 
 export type WarehouseTablesUploadFileCreateBody = {
     /** The file to upload. */
     file: Blob
-    /** How the file will be read when the table is created. */
+    /** How the file will be read when the table is created. 'xlsx' is converted to Parquet on upload, so the response reports 'parquet'. */
     file_format: WarehouseTablesUploadFileCreateBodyFileFormat
 }
 
