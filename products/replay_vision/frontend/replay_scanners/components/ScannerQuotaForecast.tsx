@@ -33,17 +33,22 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
     const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
     // The estimate already applies the quality filter and sampling rate backend-side.
-    const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
-    const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
+    // Floor every displayed amount at 0 so a stale or out-of-range figure can never render as a negative
+    // cost/observation count, matching how `projectQuota` already clamps its projected total. `null` (estimate
+    // not computed yet) is preserved so it still drives the placeholder and the meter's visibility.
+    const rawObservations = scannerEstimate?.estimated_observations_per_month ?? null
+    const rawCredits = scannerEstimate?.estimated_credits_per_month ?? null
+    const projectedObservations = rawObservations === null ? null : Math.max(0, rawObservations)
+    const projectedCredits = rawCredits === null ? null : Math.max(0, rawCredits)
     const hasCap = hasCreditLimit(quota)
-    const used = quota?.credits_used ?? 0
-    const cap = quota?.credit_limit ?? 0
+    const used = Math.max(0, quota?.credits_used ?? 0)
+    const cap = Math.max(0, quota?.credit_limit ?? 0)
 
     // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
     // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
     // race the estimate-refresh cadence and double-count the scanner right after creating it.
-    const fleetMonthly = quota?.projected_monthly_credits ?? 0
-    const othersMonthly = scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0
+    const fleetMonthly = Math.max(0, quota?.projected_monthly_credits ?? 0)
+    const othersMonthly = Math.max(0, scannerEstimate?.other_enabled_scanners_monthly_credits ?? 0)
     // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
     const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
     const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
