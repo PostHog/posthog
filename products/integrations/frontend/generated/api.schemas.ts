@@ -179,6 +179,7 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `reddit-ads` - Reddit Ads
+ * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
  * * `slack` - Slack
@@ -223,6 +224,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
@@ -458,6 +460,7 @@ export interface IntegrationAccessRequestApi {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -547,6 +550,7 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
@@ -602,6 +606,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',

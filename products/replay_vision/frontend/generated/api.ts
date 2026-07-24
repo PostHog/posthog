@@ -34,6 +34,7 @@ import type {
     ReplayScannerApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
+    RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
     ScannerStatsResponseApi,
@@ -171,6 +172,26 @@ export const visionActionsDestroy = async (projectId: string, id: string, option
     return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/run/`
+}
+
+/**
+ * Run this summary now, without waiting for its schedule — synthesizes a group summary over the
+ * observations since the last summary (or the last 24h). The recurring schedule is untouched: the
+ * engine advances next_run_at only at scheduled claim time, never in the run itself.
+ */
+export const visionActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RunActionResponseApi> => {
+    return apiMutator<RunActionResponseApi>(getVisionActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

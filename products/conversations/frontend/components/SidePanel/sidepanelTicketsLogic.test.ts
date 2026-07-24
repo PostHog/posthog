@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -19,6 +19,9 @@ describe('sidepanelTicketsLogic', () => {
             getTickets: jest.fn().mockResolvedValue({ results: [] }),
             getMessages: jest.fn().mockResolvedValue({ messages: [], has_more: false }),
             markAsRead: jest.fn().mockResolvedValue({}),
+            sendMessage: jest
+                .fn()
+                .mockResolvedValue({ ticket_id: 't1', ticket_status: 'open', created_at: '2026-07-21T00:00:00Z' }),
         }
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
@@ -87,5 +90,25 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('ticket')
         expect(logic.values.currentTicket?.id).toBe('ticket-1')
         expect(supportLogic.values.pendingViewTicket).toBeNull()
+    })
+
+    it('blocks an over-limit message client-side but sends a normal one', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const send = (posthog as any).conversations.sendMessage
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('a short reply', jest.fn())
+        }).toFinishAllListeners()
+        expect(send).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('a'.repeat(CONVERSATIONS_MESSAGE_MAX_LENGTH + 1), jest.fn())
+        }).toFinishAllListeners()
+        // still 1: the over-limit message is rejected before reaching the widget endpoint
+        expect(send).toHaveBeenCalledTimes(1)
+        expect(logic.values.messageSending).toBe(false)
     })
 })
