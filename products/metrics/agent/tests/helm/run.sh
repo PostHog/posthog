@@ -53,8 +53,17 @@ assert_contains default-key-via-env-reference '${env:POSTHOG_API_KEY}' "$out"
 assert_contains default-key-in-secret 'posthog-api-key:' "$out"
 assert_contains default-secret-env-ref 'secretKeyRef' "$out"
 assert_contains default-config-checksum 'checksum/config:' "$out"
+assert_contains default-secret-checksum 'checksum/secret:' "$out"
 assert_contains default-health-probe '13133' "$out"
 assert_contains default-ingest-route '/i/v1/metrics' "$out"
+# The default image tag is the pinned appVersion, never a floating tag.
+assert_contains default-pinned-image "image: 'posthog/metrics-agent:0.1.0'" "$out"
+assert_not_contains default-no-latest-tag ':latest' "$out"
+# Restricted Pod Security Standard: these fields are required for admission.
+assert_contains default-run-as-nonroot 'runAsNonRoot: true' "$out"
+assert_contains default-no-priv-escalation 'allowPrivilegeEscalation: false' "$out"
+assert_contains default-seccomp 'type: RuntimeDefault' "$out"
+assert_contains default-drop-all-caps '- ALL' "$out"
 # The raw API key must appear only in the Secret (base64), never in the ConfigMap.
 configmap_only=$(printf '%s' "$out" | awk '/^kind: Secret$/{skip=1} /^---$/{skip=0} !skip')
 assert_not_contains default-key-not-in-configmap 'phc_test' "$configmap_only"
@@ -64,6 +73,17 @@ out=$(render --set posthog.existingSecret=my-secret)
 assert_not_contains existing-secret-no-secret 'kind: Secret' "$out"
 assert_contains existing-secret-referenced 'name: my-secret' "$out"
 
+# --- rotating the API key must change the pod spec so the pod restarts ---
+sum_a=$(render --set posthog.apiKey=phc_a | grep 'checksum/secret:')
+sum_b=$(render --set posthog.apiKey=phc_b | grep 'checksum/secret:')
+if [ -n "$sum_a" ] && [ "$sum_a" != "$sum_b" ]; then
+    echo "PASS secret-checksum-tracks-key"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL secret-checksum-tracks-key: checksum/secret did not change with the API key"
+    FAIL=$((FAIL + 1))
+fi
+
 # --- static targets + extra scrape configs, discovery off ---
 out=$(render --set posthog.apiKey=phc_test -f values/static-targets.yaml)
 assert_not_contains static-no-discovery 'kubernetes_sd_configs' "$out"
@@ -71,9 +91,14 @@ assert_contains static-target-present "'static-svc:9090'" "$out"
 assert_contains static-extra-job 'job_name: extra-job' "$out"
 
 # --- rbac disabled ---
-out=$(render --set posthog.apiKey=phc_test --set rbac.create=false --set serviceAccount.create=false)
+out=$(render --set posthog.apiKey=phc_test --set rbac.create=false --set serviceAccount.create=false --set serviceAccount.name=external-sa)
 assert_not_contains no-rbac-clusterrole 'kind: ClusterRole' "$out"
 assert_not_contains no-rbac-serviceaccount 'kind: ServiceAccount' "$out"
+assert_contains no-rbac-sa-referenced 'serviceAccountName: external-sa' "$out"
+
+# --- an unmanaged service account must be named explicitly, never 'default' ---
+out=$(render --set posthog.apiKey=phc_test --set serviceAccount.create=false)
+assert_contains sa-name-required 'serviceAccount.name is required' "$out"
 
 # --- eu host flows into the rendered collector config ---
 out=$(render --set posthog.apiKey=phc_test --set posthog.host=https://eu.i.posthog.com)
