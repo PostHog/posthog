@@ -9,6 +9,7 @@ PostHog-layer wrapper that holds an instance and validates credentials.
 
 from __future__ import annotations
 
+import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -66,6 +67,43 @@ DATABRICKS_SYSTEM_SCHEMA = "information_schema"
 # `fetchmany_arrow` size. CloudFetch already chunks the result set into presigned cloud-storage
 # files behind the cursor, so this only bounds how many rows we materialize per yielded batch.
 DEFAULT_DATABRICKS_FETCH_SIZE = 10_000
+
+# Number of times `connect` will open a fresh Databricks SQL connection before giving up. Mirrors
+# the MySQL/Postgres sources' own in-process connect retry budget.
+_MAX_CONNECT_ATTEMPTS = 5
+
+# The connector's own request-retry loop (`ThriftBackend.make_request`) only retries HTTP 429/503
+# responses and `GetOperationStatus` polling failures — a bare SSL error raised while opening the
+# session (including fetching the initial OAuth service-principal token from `/oidc/v1/token`) is
+# classified non-retryable and raised immediately on the first attempt. `[SSL:
+# UNEXPECTED_EOF_WHILE_READING]` is the peer closing the TLS connection mid-handshake — an
+# overloaded endpoint, a proxy/load-balancer idle cull, or a momentary network blip, all of which a
+# fresh attempt recovers from. Mirrors the MySQL source's `_is_transient_connect_drop`.
+_SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
+
+
+def _is_transient_connect_ssl_eof(e: BaseException) -> bool:
+    """Return True if connect failed on a transient SSL peer-close mid-handshake."""
+    return isinstance(e, databricks_sql.Error) and _SSL_UNEXPECTED_EOF_TOKEN in str(e)
+
+
+def _connect_with_transient_retry(**kwargs: Any) -> Any:
+    """Open a Databricks SQL connection, retrying a transient SSL peer-close on connect."""
+    attempt = 0
+    while True:
+        try:
+            return databricks_sql.connect(**kwargs)
+        except Exception as e:
+            attempt += 1
+            if attempt >= _MAX_CONNECT_ATTEMPTS or not _is_transient_connect_ssl_eof(e):
+                raise
+            structlog.get_logger().warning(
+                "Transient Databricks connection error during connect; retrying",
+                attempt=attempt,
+                max_attempts=_MAX_CONNECT_ATTEMPTS,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
 
 
 def filter_databricks_incremental_fields(
@@ -160,7 +198,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
             auth_connect_args = {"access_token": config.auth_type.access_token}
 
         log_connection_open(db_host=host, via="vendor_https")
-        connection = databricks_sql.connect(
+        connection = _connect_with_transient_retry(
             server_hostname=host,
             http_path=config.http_path,
             catalog=config.catalog,
