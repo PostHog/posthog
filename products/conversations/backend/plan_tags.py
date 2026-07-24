@@ -10,6 +10,8 @@
 # the live SLA workflow's tags, and the Zendesk import's tag names.
 from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
 
+from posthog.models.tagged_item import TaggedItem
+
 # rank → exact tag names (no prefix matching)
 PLAN_GROUP_TAGS: list[list[str]] = [
     ["support_needs_triage"],  # 0 Triage (also the untagged fallback)
@@ -46,8 +48,6 @@ def plan_rank_annotation() -> Case:
     tag-first (the group's tag ids are few), but there is no ticket-leading
     index — if staff usage makes this sort hot at scale, consider adding one.
     """
-    from posthog.models.tagged_item import TaggedItem
-
     return Case(
         *[
             When(
