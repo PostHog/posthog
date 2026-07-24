@@ -24348,6 +24348,7 @@
                 "PrestaShop",
                 "Pretix",
                 "Primetric",
+                "Printavo",
                 "Printify",
                 "Productive",
                 "Pylon",
@@ -25157,7 +25158,10 @@
                 "Zylo",
                 "Tally",
                 "Nuntly",
-                "Vturb"
+                "Vturb",
+                "Meltwater",
+                "UserCom",
+                "Latitude"
             ],
             "type": "string"
         },

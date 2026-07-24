@@ -1619,6 +1619,7 @@ class ExternalDataSourceType(StrEnum):
     PRESTA_SHOP = "PrestaShop"
     PRETIX = "Pretix"
     PRIMETRIC = "Primetric"
+    PRINTAVO = "Printavo"
     PRINTIFY = "Printify"
     PRODUCTIVE = "Productive"
     PYLON = "Pylon"
@@ -2429,6 +2430,9 @@ class ExternalDataSourceType(StrEnum):
     TALLY = "Tally"
     NUNTLY = "Nuntly"
     VTURB = "Vturb"
+    MELTWATER = "Meltwater"
+    USER_COM = "UserCom"
+    LATITUDE = "Latitude"
 
 
 class ExternalQueryErrorCode(StrEnum):
