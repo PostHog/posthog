@@ -40,6 +40,14 @@ export const WithTime: Story = {
     },
 }
 
+export const TwelveHourClock: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<Date>(initialValue)
+        return <DatePicker value={value} onApply={setValue} showTime hourCycle={12} />
+    },
+}
+
 export const FixedTime: Story = {
     args: baseArgs,
     render: () => {

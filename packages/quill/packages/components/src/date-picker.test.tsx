@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { addYears, format, startOfDay } from 'date-fns'
 
 import { DatePicker } from './date-picker'
 
@@ -105,5 +106,45 @@ describe('DatePicker', () => {
 
         expect(onCancel).toHaveBeenCalledTimes(1)
         expect(onApply).not.toHaveBeenCalled()
+    })
+
+    it('renders a 12-hour clock and maps the AM/PM toggle back onto the 24-hour value', async () => {
+        const onApply = jest.fn()
+        render(<DatePicker value={new Date(2023, 0, 15, 15, 30)} maxDate={MAX} showTime hourCycle={12} onApply={onApply} />)
+
+        // 15:30 displays as 03:30 PM (the aria-label sits on the NumberField root, not the input)
+        expect((screen.getByLabelText('Hour').querySelector('input') as HTMLInputElement).value).toBe('03')
+        await userEvent.click(screen.getByLabelText('Switch to AM'))
+        // The segmented input debounces before committing; the footer reflects the committed value.
+        await screen.findByText('01/15/23 3:30 AM')
+        await userEvent.click(screen.getByLabelText('Apply date'))
+
+        const applied: Date = onApply.mock.calls[0][0]
+        expect([applied.getHours(), applied.getMinutes()]).toEqual([3, 30])
+    })
+
+    it('allows dates after today when no maxDate is given', async () => {
+        const onApply = jest.fn()
+        const futureDay = addYears(startOfDay(new Date()), 1)
+        render(<DatePicker value={futureDay} onApply={onApply} />)
+
+        const cell = screen.getByLabelText(`Select ${format(futureDay, 'PP')}`)
+        expect(cell.getAttribute('aria-disabled')).toBe('false')
+        await userEvent.click(cell)
+        await userEvent.click(screen.getByLabelText('Apply date'))
+
+        expect(onApply.mock.calls[0][0].getTime()).toBe(futureDay.getTime())
+    })
+
+    it('clamps an applied datetime that lands below minDate on the boundary day', async () => {
+        const onApply = jest.fn()
+        const min = new Date(2023, 0, 10, 12, 0)
+        render(<DatePicker value={VALUE} minDate={min} maxDate={MAX} showTime onApply={onApply} />)
+
+        // Jan 10 is selectable (day-granular calendar), but the carried-over 10:30 is before minDate's 12:00.
+        await userEvent.click(screen.getByLabelText('Select Jan 10, 2023'))
+        await userEvent.click(screen.getByLabelText('Apply date'))
+
+        expect(onApply.mock.calls[0][0].getTime()).toBe(min.getTime())
     })
 })
