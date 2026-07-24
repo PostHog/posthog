@@ -357,9 +357,13 @@ class FunnelBase(ABC):
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
                 funnelStepBreakdown = str(funnelStepBreakdown)
 
+            # Compare on a common element type: `prop` can be numeric (e.g. Array(UInt64) for
+            # a HogQL/event-metadata breakdown) while the drill-down value arrives as a string,
+            # and ClickHouse refuses to compare Array(UInt64) with Array(String).
             conditions.append(
                 parse_expr(
-                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    "arrayMap(x -> toString(x), arrayFlatten(array(prop))) = "
+                    "arrayMap(x -> toString(x), arrayFlatten(array({funnelStepBreakdown})))",
                     {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
                 )
             )
