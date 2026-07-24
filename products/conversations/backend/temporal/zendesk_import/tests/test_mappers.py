@@ -38,7 +38,7 @@ class TestZendeskMappers:
 
     @parameterized.expand(
         [
-            # role, is_public, is_customer_side, expected_author_type, expected_is_private
+            # name, role, is_public, is_customer_side, expected_author_type, expected_is_private
             # Role is authoritative when resolved, regardless of customer-side membership.
             ("end_user", "end-user", True, True, "customer", False),
             ("end_user_non_customer_side", "end-user", True, False, "customer", False),
@@ -47,6 +47,9 @@ class TestZendeskMappers:
             # A second end-user (person2) in a thread resolves by role → customer, not staff.
             ("second_end_user", "end-user", True, False, "customer", False),
             ("agent_private_note", "agent", False, False, "support", True),
+            # A non-public comment stays attributed to its author: privacy is independent of
+            # author_type, so a customer's internal note is (customer, private), not (support, private).
+            ("end_user_private_note", "end-user", False, True, "customer", True),
             # Role unresolved (hard-deleted): customer-side → customer, otherwise staff.
             ("deleted_customer_side", None, True, True, "customer", False),
             ("deleted_agent_not_customer_side", None, True, False, "support", False),
