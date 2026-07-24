@@ -209,7 +209,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def validate_url_pattern(self, url_pattern):
         s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
         if s3_domain in url_pattern:
-            raise serializers.ValidationError("Cant use this bucket")
+            raise serializers.ValidationError(
+                "This URL points to PostHog's internal storage and can't be used as a source. "
+                "Enter the location of your own bucket instead."
+            )
 
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
