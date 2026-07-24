@@ -15,7 +15,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
 
-        quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas(dry_run)
+        result = update_all_orgs_billing_quotas(dry_run)
+        quota_limited_orgs = result.quota_limited_orgs
+        quota_limiting_suspended_orgs = result.quota_limiting_suspended_orgs
 
         if options["print_reports"]:
             print("")  # noqa T201
