@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -194,16 +195,22 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             (githubIntegration: IntegrationType | null): boolean => !!githubIntegration,
         ],
         connectGitHubUrl: [
-            (s) => [s.currentStepProductKey],
-            (currentStepProductKey: null | import('../../../../queries/schema').ProductKey): string => {
+            (s) => [s.currentStepProductKey, router.selectors.location],
+            (
+                currentStepProductKey: null | import('../../../../queries/schema').ProductKey,
+                location: { pathname: string }
+            ): string => {
                 // Full-page redirect to install/authorize the GitHub App, then back to
-                // the install step. integrationsLogic's callback appends the new
-                // integration id, and loadIntegrations() repopulates githubIntegration,
-                // so the block advances from "connect" to "pick a repo" on return.
-                const next = urls.onboarding({
-                    productKey: currentStepProductKey ?? undefined,
-                    stepKey: OnboardingStepKey.INSTALL,
-                })
+                // wherever the block is mounted (quickstart or the onboarding install
+                // step). integrationsLogic's callback appends the new integration id,
+                // and loadIntegrations() repopulates githubIntegration, so the block
+                // advances from "connect" to "pick a repo" on return.
+                const next = location.pathname.endsWith('/quickstart')
+                    ? urls.quickstart()
+                    : urls.onboarding({
+                          productKey: currentStepProductKey ?? undefined,
+                          stepKey: OnboardingStepKey.INSTALL,
+                      })
                 return api.integrations.authorizeUrl({ kind: 'github', next })
             },
         ],
