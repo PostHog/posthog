@@ -255,6 +255,10 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
+            # Pipeline-spawned implementation tasks are internal — they should not appear in the
+            # default PostHog Code task list. User-initiated Create PR goes through the tasks API
+            # and stays external (internal defaults to False there).
+            internal=True,
             # Full scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools.
             posthog_mcp_scopes="full",
