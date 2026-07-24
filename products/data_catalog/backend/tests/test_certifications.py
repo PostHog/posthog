@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -74,9 +76,9 @@ class TestCertificationLogic(BaseTest):
     )
     def test_propose_by_selector(self, selector: str, target_type: str) -> None:
         target = _table(self.team) if target_type == "table" else _view(self.team)
-        selector_value = str(target.id) if selector.endswith("_id") else target.name
+        selector_kwargs: dict[str, Any] = {selector: str(target.id) if selector.endswith("_id") else target.name}
 
-        certification = propose_certification(team=self.team, user=self.user, **{selector: selector_value})
+        certification = propose_certification(team=self.team, user=self.user, **selector_kwargs)
 
         assert certification.status == CertificationStatus.PROPOSED
         assert certification.created_by_id == self.user.id
@@ -92,7 +94,7 @@ class TestCertificationLogic(BaseTest):
     @parameterized.expand([("table_id", "table"), ("saved_query_id", "view")])
     def test_duplicate_target_conflicts(self, selector: str, target_type: str) -> None:
         target = _table(self.team) if target_type == "table" else _view(self.team)
-        target_selector = {selector: str(target.id)}
+        target_selector: dict[str, Any] = {selector: str(target.id)}
         propose_certification(team=self.team, user=self.user, **target_selector)
         with self.assertRaises(CatalogConflict):
             propose_certification(team=self.team, user=self.user, **target_selector)
@@ -117,12 +119,12 @@ class TestCertificationLogic(BaseTest):
             "view_name": view.name,
         }
 
+        mixed_selectors: dict[str, Any] = {
+            first_selector: selector_values[first_selector],
+            second_selector: selector_values[second_selector],
+        }
         with self.assertRaisesMessage(ValidationError, "exactly one"):
-            propose_certification(
-                team=self.team,
-                user=self.user,
-                **{first_selector: selector_values[first_selector], second_selector: selector_values[second_selector]},
-            )
+            propose_certification(team=self.team, user=self.user, **mixed_selectors)
 
     def test_concurrent_duplicate_conflicts(self) -> None:
         table = _table(self.team)
@@ -166,8 +168,8 @@ class TestCertificationLogic(BaseTest):
                 source_type="Stripe",
             )
         target = _view(self.team) if target_type == "view" else _table(self.team, external_data_source=source)
-        selector = "saved_query_id" if target_type == "view" else "table_id"
-        propose_certification(team=self.team, user=self.user, **{selector: str(target.id)})
+        selector_kwargs: dict[str, Any] = {("saved_query_id" if target_type == "view" else "table_id"): str(target.id)}
+        propose_certification(team=self.team, user=self.user, **selector_kwargs)
         assert certifications_for_team(self.team).count() == 1
 
         deleted_object = source or target

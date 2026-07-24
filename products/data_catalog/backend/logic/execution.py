@@ -11,7 +11,7 @@ included — so opening it reproduces exactly what ran.
 import json
 from copy import deepcopy
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote
 
 from django.utils import timezone
@@ -31,7 +31,6 @@ from posthog.clickhouse.query_tagging import (
     tags_context,
 )
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models import Team, User
@@ -39,8 +38,12 @@ from posthog.utils import absolute_uri
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
 from ..models import Metric
+from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
 from .exceptions import MetricHasNoDefinition
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 _LAST_RUN_THROTTLE = timedelta(minutes=30)
 
@@ -58,17 +61,23 @@ def run_metric(
     date_to: Optional[str] = None,
     interval: Optional[str] = None,
     query_id: Optional[str] = None,
+    request: "Request | None" = None,
 ) -> dict:
     if not metric.definition:
         raise MetricHasNoDefinition()
 
     is_drifted = compute_drift([metric])[metric.id]
 
+    def capture_run(event: str, **extra: object) -> None:
+        capture_metric_event(
+            event, metric, team=team, user=user, request=request, extra={"is_drifted": is_drifted, **extra}
+        )
+
     if metric.definition_kind == MARKDOWN_DEFINITION_KIND:
         # Agent-calculated: return the steps to follow instead of executing a query. Still recorded
         # as a run for attribution.
         _touch_last_run(team, metric)
-        _capture_run(user, team, metric, is_drifted)
+        capture_run(METRIC_RUN_EVENT)
         return _markdown_envelope(metric, is_drifted)
 
     query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
@@ -89,6 +98,7 @@ def run_metric(
                 is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
             )
     except (ExposedHogQLError, ExposedCHQueryError) as e:
+        capture_run(METRIC_RUN_FAILED_EVENT, reason="definition_error")
         raise ValidationError(
             {
                 "definition": f"This metric could not run: {e} "
@@ -108,6 +118,7 @@ def run_metric(
     if payload.get("error"):
         # The engine reports schema-validation failures as an error payload instead of raising; a
         # run that produced no results must not read as a success.
+        capture_run(METRIC_RUN_FAILED_EVENT, reason="invalid_query")
         raise ValidationError(
             {
                 "definition": f"This metric could not run: {payload['error']} "
@@ -116,7 +127,7 @@ def run_metric(
         )
 
     _touch_last_run(team, metric)
-    _capture_run(user, team, metric, is_drifted)
+    capture_run(METRIC_RUN_EVENT)
     return _envelope(metric, payload, team, query, is_drifted)
 
 
@@ -207,20 +218,3 @@ def _touch_last_run(team: Team, metric: Metric) -> None:
         # Bypass save() (and the activity mixin) — a run is not an audit-worthy change.
         Metric.objects.for_team(team.id).filter(pk=metric.pk).update(last_run_at=now)
         metric.last_run_at = now
-
-
-def _capture_run(user: Optional[User], team: Team, metric: Metric, is_drifted: bool) -> None:
-    if user is None:
-        return
-    report_user_action(
-        user=user,
-        event="data catalog metric run",
-        team=team,
-        properties={
-            "metric_id": str(metric.id),
-            "metric_name": metric.name,
-            "definition_kind": metric.definition_kind,
-            "status": metric.status,
-            "is_drifted": is_drifted,
-        },
-    )
