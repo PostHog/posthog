@@ -4,6 +4,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonDropdown } from '@posthog/lemon-ui'
 
 import { IconTuning } from 'lib/lemon-ui/icons'
+import { userLogic } from 'scenes/userLogic'
 
 import { isTicketColumnMandatory, offerableTicketColumns, ticketColumnLabel } from './ticketColumns'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
@@ -16,8 +17,9 @@ interface TicketColumnsDropdownProps {
 export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketColumnsDropdownProps): JSX.Element {
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { toggleColumn, setVisibleColumns } = useActions(ticketColumnsLogic)
+    const { user } = useValues(userLogic)
 
-    const offerable = offerableTicketColumns({ aiEnabled, embedded })
+    const offerable = offerableTicketColumns({ aiEnabled, embedded, staff: !!user?.is_staff })
     const shownCount = offerable.filter((key) => visibleColumns.includes(key) || isTicketColumnMandatory(key)).length
     const allShown = shownCount === offerable.length
 

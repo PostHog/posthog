@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models import CharField, Exists, F, OuterRef, Q, QuerySet, Sum
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -57,6 +57,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.plan_tags import plan_rank_annotation
 
 from ee.models.rbac.role import Role
 
@@ -581,6 +582,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             "-ticket_number",
         }
         order_by = self.request.query_params.get("order_by", "-updated_at")
+
+        # Staff-only: rank by the plan-tag tiering (see backend/plan_tags.py),
+        # ties broken by SLA deadline (soonest first, no deadline last) so one
+        # click yields the triage order. Non-staff requests fall through to the
+        # default ordering like any other unknown order_by value.
+        if order_by in ("plan", "-plan") and self.request.user.is_staff:
+            return queryset.annotate(plan_rank=plan_rank_annotation()).order_by(
+                "-plan_rank" if order_by.startswith("-") else "plan_rank",
+                F("sla_due_at").asc(nulls_last=True),
+            )
+
         if order_by not in allowed_orderings:
             order_by = "-updated_at"
 
@@ -798,8 +810,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     "-created_at",
                     "ticket_number",
                     "-ticket_number",
+                    "snoozed_until",
+                    "-snoozed_until",
+                    "plan",
+                    "-plan",
                 ],
-                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak; non-staff requests fall back to the default.",
             ),
         ],
     )

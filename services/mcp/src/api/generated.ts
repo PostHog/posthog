@@ -73089,7 +73089,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.
+     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak; non-staff requests fall back to the default.
      */
     order_by?: string;
     /**
