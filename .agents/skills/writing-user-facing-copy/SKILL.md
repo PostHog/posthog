@@ -40,10 +40,10 @@ Prefer rewriting the sentence so the dash isn't needed. If a connector is unavoi
 - ✅ "Save this view. You can reuse it later."
 - ✅ "Save this view to reuse it later."
 
-Also avoid the sentence *shapes* that lean on that dash, because they read as machine-written:
+Also avoid the sentence _shapes_ that lean on that dash, because they read as machine-written:
 
-- ❌ "This isn't just a filter, it's a saved view."  (the "not just X, but Y" construction)
-- ❌ "It's fast, it's simple, it's yours."  (rule-of-three padding)
+- ❌ "This isn't just a filter, it's a saved view." (the "not just X, but Y" construction)
+- ❌ "It's fast, it's simple, it's yours." (rule-of-three padding)
 - ❌ Hedging preambles like "It's worth noting that…", "Keep in mind that…".
 
 Write the plain version instead.

@@ -20,7 +20,7 @@ Before writing a comment, answer:
 
 If the answer is "it restates what the code does", delete it. Rename the variable or extract a function instead.
 
-A comment worth keeping answers a *why* the code can't:
+A comment worth keeping answers a _why_ the code can't:
 
 - ✅ `# ATOMIC_REQUESTS is off, so wrap the two writes that must commit together`
 - ✅ `// Stripe sends the amount in cents; the rest of our system uses dollars`
