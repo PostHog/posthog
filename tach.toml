@@ -1133,11 +1133,3 @@ path = "products.cookie_banner"
 depends_on = ["posthog"]
 layer = "modules"
 
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-]
-from = [
-    "products.cookie_banner",
-]

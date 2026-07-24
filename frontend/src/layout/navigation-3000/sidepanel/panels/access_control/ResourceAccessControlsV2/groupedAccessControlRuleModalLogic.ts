@@ -1148,6 +1148,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'cohort'
                     | 'comment'
                     | 'conversation'
+                    | 'cookie_banner'
                     | 'customer_analytics'
                     | 'customer_journey'
                     | 'customer_profile_config'
