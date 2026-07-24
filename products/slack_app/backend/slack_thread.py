@@ -385,16 +385,23 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_thread_message(self, text: str) -> None:
-        """Post a plain message in the existing thread."""
+    def post_thread_message(self, text: str) -> bool:
+        """Post a plain message in the existing thread.
+
+        Returns True when Slack accepted the message, False when the post failed.
+        Callers delivering the agent's actual answer must not treat a False as
+        delivered — otherwise a transient Slack error silently drops the reply.
+        """
         try:
             self._get_client().chat_postMessage(
                 channel=self.context.channel,
                 thread_ts=self.context.thread_ts,
                 text=text,
             )
+            return True
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
+            return False
 
     def post_completion(self, task_url: str | None) -> None:
         """Post the no-PR completion message.
