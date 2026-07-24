@@ -414,6 +414,8 @@ tools:
             / workflows-archive.
         exclude_params:
             - status
+            - actions
+            - edges
         ui_app: workflow
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
