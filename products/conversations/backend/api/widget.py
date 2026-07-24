@@ -4,11 +4,22 @@ Widget API endpoints for the Conversations product.
 These endpoints are public (authenticated via public token) and used by the posthog-js widget.
 
 Security model:
-- `widget_session_id`: Random UUID generated client-side, stored in localStorage. Used for ACCESS CONTROL.
-- `distinct_id`: PostHog's user identifier. Used for PERSON LINKING only, not access control.
+- `widget_session_id`: Random UUID generated client-side, stored in localStorage. Primary ACCESS CONTROL for anonymous users.
+- `distinct_id`: PostHog's user identifier. Primarily PERSON LINKING, plus a read-only fallback (see below).
 - `identity_distinct_id` + `identity_hash`: HMAC-signed identity for verified users (opt-in).
 
 Anonymous users are controlled by widget_session_id. Verified users are controlled by distinct_id.
+
+Read fallback for a lost widget_session_id:
+A widget_session_id lives in localStorage, so it's lost whenever storage is cleared and differs
+across browsers/devices/incognito — leaving a returning user unable to read replies on tickets they
+created (they still arrive by email, but not in-app). To recover in-app visibility, the read paths
+(list tickets, fetch messages, mark read) also match tickets by the person linked to the request's
+`distinct_id` (via `get_person_distinct_ids`, the same lookup the verified branch uses). This is
+strictly additive to the widget_session_id match and never rebinds a ticket, so it can't be used to
+seize ownership. It relies on `distinct_id`, which is client-supplied and lower-entropy than the
+random widget_session_id, so it is a deliberately weaker boundary than HMAC identity: it recovers
+read access, not write access, and identity-verified integrations remain the strong path.
 """
 
 import uuid
@@ -77,6 +88,19 @@ def _verify_identity(data: dict, team: Team) -> str | None:
         raise IdentityVerificationFailed("Invalid identity hash")
 
     return distinct_id
+
+
+def _session_fallback_distinct_ids(team: Team, data: dict) -> list[str]:
+    """Person distinct_ids to also match on when a returning user's widget_session_id is lost.
+
+    Resolves the request's (unverified) distinct_id to all distinct_ids of its person so tickets
+    created under an earlier widget_session_id still surface. Read-only rescue path — never used to
+    rebind a ticket. Empty list when no distinct_id was sent.
+    """
+    distinct_id = data.get("distinct_id")
+    if not distinct_id:
+        return []
+    return get_person_distinct_ids(team.id, distinct_id)
 
 
 class WidgetMessageView(APIView):
@@ -329,7 +353,10 @@ class WidgetMessagesView(APIView):
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         elif "widget_session_id" in query_serializer.validated_data:
             widget_session_id = str(query_serializer.validated_data["widget_session_id"])
-            if ticket.widget_session_id != widget_session_id:
+            # Match the current widget_session_id, or fall back to the person linked to the
+            # request's distinct_id so a returning user with a lost session can still read replies.
+            fallback_ids = _session_fallback_distinct_ids(team, query_serializer.validated_data)
+            if ticket.widget_session_id != widget_session_id and ticket.distinct_id not in fallback_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
@@ -437,10 +464,18 @@ class WidgetTicketsView(APIView):
         except IdentityVerificationFailed:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        fallback_ids: list[str] = []
         if verified_distinct_id is not None:
             cache_key_id = f"iv:{verified_distinct_id}"
         elif "widget_session_id" in query_serializer.validated_data:
+            # Cache stays keyed on widget_session_id only (not the widened distinct_id) so the
+            # post-reply invalidation — which keys on the ticket's widget_session_id — keeps working
+            # and the badge stays fresh. widget_session_id is a random per-browser UUID, so the only
+            # way two distinct_ids share one is the same browser, where localStorage is already a
+            # shared capability — the fallback widening doesn't open a boundary that wasn't already open.
             cache_key_id = str(query_serializer.validated_data["widget_session_id"])
+            # Also surface tickets the same person created under an earlier (now-lost) widget_session_id.
+            fallback_ids = _session_fallback_distinct_ids(team, query_serializer.validated_data)
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -462,6 +497,10 @@ class WidgetTicketsView(APIView):
         if verified_distinct_id is not None:
             all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
             tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
+        elif fallback_ids:
+            tickets_query = Ticket.objects.filter(
+                Q(widget_session_id=cache_key_id) | Q(distinct_id__in=fallback_ids), team=team
+            )
         else:
             tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
 
@@ -550,7 +589,8 @@ class WidgetMarkReadView(APIView):
             cache_invalidation_key = f"iv:{verified_distinct_id}"
         elif "widget_session_id" in body_serializer.validated_data:
             widget_session_id = str(body_serializer.validated_data["widget_session_id"])
-            if ticket.widget_session_id != widget_session_id:
+            fallback_ids = _session_fallback_distinct_ids(team, body_serializer.validated_data)
+            if ticket.widget_session_id != widget_session_id and ticket.distinct_id not in fallback_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             cache_invalidation_key = widget_session_id
         else:

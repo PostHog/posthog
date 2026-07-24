@@ -50,6 +50,14 @@ class WidgetAuthSerializer(serializers.Serializer):
     """Shared auth fields: request must carry widget_session_id or HMAC identity fields."""
 
     widget_session_id = serializers.UUIDField(required=False, help_text="Random UUID for access control")
+    distinct_id = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text=(
+            "PostHog distinct_id. Used as a fallback to link a returning user to tickets they created "
+            "when their widget_session_id is lost (cleared storage, a different browser or device)."
+        ),
+    )
     identity_distinct_id = serializers.CharField(
         required=False, max_length=400, help_text="Verified distinct_id (requires identity_hash)"
     )
@@ -73,7 +81,6 @@ class WidgetAuthSerializer(serializers.Serializer):
 class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
-    distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
     message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
